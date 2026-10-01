@@ -16,7 +16,9 @@ UNSAFE_API_SECRETS = frozenset(
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Process environment variables retain Pydantic's normal highest priority.
+        # .env.development is the Founder-editable local file; .env remains a fallback.
+        env_file=(".env", ".env.development"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -27,6 +29,7 @@ class Settings(BaseSettings):
     anythingllm_base_url: str | None = None
     anythingllm_api_key: str | None = None
     api_secret_key: str = Field(default=LOCAL_API_SECRET, min_length=8)
+    mcp_api_key: str | None = None
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173"
 
