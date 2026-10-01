@@ -24,7 +24,7 @@ days:
     uat_deferred_until: after_day_2
   2:
     name: Canonical Domain Model
-    state: ACTIVE
+    state: FOUNDER_REVIEW
     founder_approval: false
     depends_on: 1
   3:
