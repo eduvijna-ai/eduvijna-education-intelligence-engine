@@ -9,7 +9,7 @@ class UnitOfWork:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def __enter__(self) -> "UnitOfWork":
+    def __enter__(self) -> UnitOfWork:
         return self
 
     def __exit__(

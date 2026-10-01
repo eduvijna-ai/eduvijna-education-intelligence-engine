@@ -23,10 +23,16 @@ class AnythingLLMProvider:
             return False
 
     async def generate(self, prompt: str) -> str:
-        raise NotImplementedError("AnythingLLM generation is implemented in the Knowledge Intelligence day")
+        raise NotImplementedError(
+            "AnythingLLM generation is implemented in the Knowledge Intelligence day"
+        )
 
     async def retrieve(self, query: str, *, limit: int = 10) -> list[str]:
-        raise NotImplementedError("AnythingLLM retrieval is implemented in the Knowledge Intelligence day")
+        raise NotImplementedError(
+            "AnythingLLM retrieval is implemented in the Knowledge Intelligence day"
+        )
 
     async def embed(self, text: str) -> list[float]:
-        raise NotImplementedError("Embedding integration is implemented in the Knowledge Intelligence day")
+        raise NotImplementedError(
+            "Embedding integration is implemented in the Knowledge Intelligence day"
+        )

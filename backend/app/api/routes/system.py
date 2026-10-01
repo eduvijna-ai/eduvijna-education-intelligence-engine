@@ -3,7 +3,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.db.session import get_db
 from app.schemas.system import HealthResponse, SystemInfoResponse
 
 router = APIRouter(tags=["system"])
