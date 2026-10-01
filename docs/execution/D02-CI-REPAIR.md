@@ -26,3 +26,15 @@ Codex's first D02 review identified durable-model risks. The current branch now 
 - database-level exact/min/max blueprint consistency.
 
 Regression tests deliberately attempt the invalid writes and require the database to reject them.
+
+
+## SQLite verification-path alignment
+
+The final FK hardening also makes SQLite foreign-key enforcement consistent in:
+
+- the application engine factory;
+- Alembic online migration connections;
+- in-memory Founder domain verification;
+- the invariant test harness.
+
+Duplicate invariant tests introduced during concurrent repair were removed; the existing file-backed FK-aware regression suite remains authoritative.
