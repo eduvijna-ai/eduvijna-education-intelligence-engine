@@ -26,7 +26,7 @@ from app.models.associations import (
     curriculum_node_learning_outcomes,
     curriculum_version_sources,
 )
-from app.models.enums import CurriculumStatus
+from app.models.enums import CurriculumNodeType, CurriculumStatus
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
@@ -107,6 +107,11 @@ class CurriculumNode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "id",
             "curriculum_version_id",
             name="uq_curriculum_node_id_version",
+        ),
+        UniqueConstraint(
+            "id",
+            "node_type",
+            name="uq_curriculum_node_id_type",
         ),
         UniqueConstraint(
             "curriculum_version_id",
@@ -216,22 +221,42 @@ class ConceptPrerequisite(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "target_concept_id",
             name="uq_concept_prerequisite_edge",
         ),
+        ForeignKeyConstraint(
+            ["prerequisite_concept_id", "prerequisite_concept_type"],
+            ["curriculum_nodes.id", "curriculum_nodes.node_type"],
+            name="fk_prerequisite_source_is_concept",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["target_concept_id", "target_concept_type"],
+            ["curriculum_nodes.id", "curriculum_nodes.node_type"],
+            name="fk_prerequisite_target_is_concept",
+            ondelete="CASCADE",
+        ),
         CheckConstraint(
             "prerequisite_concept_id <> target_concept_id",
             name="ck_concept_prerequisite_not_self",
         ),
+        CheckConstraint(
+            "prerequisite_concept_type = 'concept' AND target_concept_type = 'concept'",
+            name="ck_concept_prerequisite_types",
+        ),
         CheckConstraint("weight IS NULL OR (weight >= 0 AND weight <= 1)", name="ck_prereq_weight"),
     )
 
-    prerequisite_concept_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
-        index=True,
+    prerequisite_concept_id: Mapped[str] = mapped_column(String(36), index=True)
+    prerequisite_concept_type: Mapped[str] = mapped_column(
+        String(32),
+        default=CurriculumNodeType.CONCEPT.value,
+        server_default=CurriculumNodeType.CONCEPT.value,
+        nullable=False,
     )
-    target_concept_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
-        index=True,
+    target_concept_id: Mapped[str] = mapped_column(String(36), index=True)
+    target_concept_type: Mapped[str] = mapped_column(
+        String(32),
+        default=CurriculumNodeType.CONCEPT.value,
+        server_default=CurriculumNodeType.CONCEPT.value,
+        nullable=False,
     )
     relation_type: Mapped[str] = mapped_column(
         String(64),
@@ -242,8 +267,14 @@ class ConceptPrerequisite(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
     prerequisite_concept: Mapped[CurriculumNode] = relationship(
-        foreign_keys=[prerequisite_concept_id]
+        foreign_keys=lambda: [
+            ConceptPrerequisite.prerequisite_concept_id,
+            ConceptPrerequisite.prerequisite_concept_type,
+        ]
     )
     target_concept: Mapped[CurriculumNode] = relationship(
-        foreign_keys=[target_concept_id]
+        foreign_keys=lambda: [
+            ConceptPrerequisite.target_concept_id,
+            ConceptPrerequisite.target_concept_type,
+        ]
     )

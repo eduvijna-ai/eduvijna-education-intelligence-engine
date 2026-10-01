@@ -1,5 +1,5 @@
 # ruff: noqa: I001
-from sqlalchemy import Column, ForeignKey, String, Table
+from sqlalchemy import CheckConstraint, Column, ForeignKey, ForeignKeyConstraint, String, Table
 
 from app.db.base import Base
 
@@ -118,8 +118,23 @@ question_prerequisites = Table(
     Column(
         "concept_node_id",
         String(36),
-        ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
         primary_key=True,
+    ),
+    Column(
+        "concept_node_type",
+        String(32),
+        nullable=False,
+        server_default="concept",
+    ),
+    ForeignKeyConstraint(
+        ["concept_node_id", "concept_node_type"],
+        ["curriculum_nodes.id", "curriculum_nodes.node_type"],
+        name="fk_question_prerequisite_is_concept",
+        ondelete="CASCADE",
+    ),
+    CheckConstraint(
+        "concept_node_type = 'concept'",
+        name="ck_question_prerequisite_type",
     ),
 )
 

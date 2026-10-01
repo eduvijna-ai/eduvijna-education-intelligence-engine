@@ -51,10 +51,14 @@ Both GitHub CI and the documented `make test` path use the explicit D01 revision
 
 ## Founder-state correction
 
-A late concurrent documentation commit reintroduced an obsolete D01-UAT-deferred marker. The Founder had explicitly approved D01 before D02 began, so the D02 specification has been restored to:
+The Founder explicitly deferred D01 localhost UAT until after D02 and explicitly authorized continuation to D02.
 
-- D01 COMPLETE / FOUNDER APPROVED;
-- D02 ACTIVE;
-- D03 LOCKED.
+The authoritative state is:
 
-No combined/deferred UAT state is part of the current execution contract.
+- D01 UAT_DEFERRED_BY_FOUNDER;
+- D01 founder_approval=false;
+- D02 ACTIVE by explicit continuation authorization;
+- combined D01 + D02 Founder UAT required after D02;
+- D03 LOCKED until the combined Founder acceptance is complete.
+
+PR merge, green CI, or Codex review do not count as Founder approval.

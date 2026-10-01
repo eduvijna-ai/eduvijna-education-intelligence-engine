@@ -145,6 +145,11 @@ def upgrade() -> None:
             name="uq_curriculum_node_id_version",
         ),
         sa.UniqueConstraint(
+            "id",
+            "node_type",
+            name="uq_curriculum_node_id_type",
+        ),
+        sa.UniqueConstraint(
             "curriculum_version_id",
             "parent_id",
             "code",
@@ -225,25 +230,43 @@ def upgrade() -> None:
     op.create_table(
         "concept_prerequisites",
         _id(),
+        sa.Column("prerequisite_concept_id", sa.String(36), nullable=False),
         sa.Column(
-            "prerequisite_concept_id",
-            sa.String(36),
-            sa.ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
+            "prerequisite_concept_type",
+            sa.String(32),
             nullable=False,
+            server_default="concept",
         ),
+        sa.Column("target_concept_id", sa.String(36), nullable=False),
         sa.Column(
-            "target_concept_id",
-            sa.String(36),
-            sa.ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
+            "target_concept_type",
+            sa.String(32),
             nullable=False,
+            server_default="concept",
         ),
         sa.Column("relation_type", sa.String(64), nullable=False),
         sa.Column("weight", sa.Float(), nullable=True),
         sa.Column("metadata_json", sa.JSON(), nullable=False),
         *_timestamps(),
+        sa.ForeignKeyConstraint(
+            ["prerequisite_concept_id", "prerequisite_concept_type"],
+            ["curriculum_nodes.id", "curriculum_nodes.node_type"],
+            name="fk_prerequisite_source_is_concept",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["target_concept_id", "target_concept_type"],
+            ["curriculum_nodes.id", "curriculum_nodes.node_type"],
+            name="fk_prerequisite_target_is_concept",
+            ondelete="CASCADE",
+        ),
         sa.CheckConstraint(
             "prerequisite_concept_id <> target_concept_id",
             name="ck_concept_prerequisite_not_self",
+        ),
+        sa.CheckConstraint(
+            "prerequisite_concept_type = 'concept' AND target_concept_type = 'concept'",
+            name="ck_concept_prerequisite_types",
         ),
         sa.CheckConstraint(
             "weight IS NULL OR (weight >= 0 AND weight <= 1)",
@@ -360,12 +383,8 @@ def upgrade() -> None:
             sa.ForeignKey("exam_versions.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column(
-            "parent_section_id",
-            sa.String(36),
-            sa.ForeignKey("exam_sections.id", ondelete="CASCADE"),
-            nullable=True,
-        ),
+        sa.Column("parent_section_id", sa.String(36), nullable=True),
+        sa.Column("parent_exam_version_id", sa.String(36), nullable=True),
         sa.Column("code", sa.String(128), nullable=False),
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("sequence", sa.Integer(), nullable=False),
@@ -374,14 +393,35 @@ def upgrade() -> None:
         sa.Column("metadata_json", sa.JSON(), nullable=False),
         *_timestamps(),
         sa.UniqueConstraint(
+            "id",
+            "exam_version_id",
+            name="uq_exam_section_id_version",
+        ),
+        sa.UniqueConstraint(
             "exam_version_id",
             "parent_section_id",
             "code",
             name="uq_exam_section_scope",
         ),
+        sa.ForeignKeyConstraint(
+            ["parent_section_id", "parent_exam_version_id"],
+            ["exam_sections.id", "exam_sections.exam_version_id"],
+            name="fk_exam_section_parent_same_version",
+            ondelete="CASCADE",
+        ),
+        sa.CheckConstraint(
+            "(parent_section_id IS NULL AND parent_exam_version_id IS NULL) OR "
+            "(parent_section_id IS NOT NULL AND parent_exam_version_id = exam_version_id)",
+            name="ck_exam_section_parent_version",
+        ),
     )
     op.create_index("ix_exam_sections_exam_version_id", "exam_sections", ["exam_version_id"])
     op.create_index("ix_exam_sections_parent_section_id", "exam_sections", ["parent_section_id"])
+    op.create_index(
+        "ix_exam_sections_parent_exam_version_id",
+        "exam_sections",
+        ["parent_exam_version_id"],
+    )
     op.create_index("ix_exam_sections_subject_code", "exam_sections", ["subject_code"])
 
     op.create_table(
@@ -393,12 +433,8 @@ def upgrade() -> None:
             sa.ForeignKey("exam_versions.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column(
-            "section_id",
-            sa.String(36),
-            sa.ForeignKey("exam_sections.id", ondelete="CASCADE"),
-            nullable=True,
-        ),
+        sa.Column("section_id", sa.String(36), nullable=True),
+        sa.Column("section_exam_version_id", sa.String(36), nullable=True),
         sa.Column("rule_type", sa.String(64), nullable=False),
         sa.Column("selector_json", sa.JSON(), nullable=False),
         sa.Column("exact_count", sa.Integer(), nullable=True),
@@ -426,6 +462,17 @@ def upgrade() -> None:
             "exact_count IS NULL OR max_count IS NULL OR exact_count <= max_count",
             name="ck_rule_exact_lte_max",
         ),
+        sa.ForeignKeyConstraint(
+            ["section_id", "section_exam_version_id"],
+            ["exam_sections.id", "exam_sections.exam_version_id"],
+            name="fk_blueprint_section_same_version",
+            ondelete="CASCADE",
+        ),
+        sa.CheckConstraint(
+            "(section_id IS NULL AND section_exam_version_id IS NULL) OR "
+            "(section_id IS NOT NULL AND section_exam_version_id = exam_version_id)",
+            name="ck_blueprint_section_version",
+        ),
     )
     op.create_index(
         "ix_exam_blueprint_rules_exam_version_id",
@@ -433,6 +480,11 @@ def upgrade() -> None:
         ["exam_version_id"],
     )
     op.create_index("ix_exam_blueprint_rules_section_id", "exam_blueprint_rules", ["section_id"])
+    op.create_index(
+        "ix_exam_blueprint_rules_section_exam_version_id",
+        "exam_blueprint_rules",
+        ["section_exam_version_id"],
+    )
     op.create_index("ix_exam_blueprint_rules_rule_type", "exam_blueprint_rules", ["rule_type"])
 
     op.create_table(
@@ -628,11 +680,22 @@ def upgrade() -> None:
             sa.ForeignKey("questions.id", ondelete="CASCADE"),
             primary_key=True,
         ),
+        sa.Column("concept_node_id", sa.String(36), primary_key=True),
         sa.Column(
-            "concept_node_id",
-            sa.String(36),
-            sa.ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
-            primary_key=True,
+            "concept_node_type",
+            sa.String(32),
+            nullable=False,
+            server_default="concept",
+        ),
+        sa.ForeignKeyConstraint(
+            ["concept_node_id", "concept_node_type"],
+            ["curriculum_nodes.id", "curriculum_nodes.node_type"],
+            name="fk_question_prerequisite_is_concept",
+            ondelete="CASCADE",
+        ),
+        sa.CheckConstraint(
+            "concept_node_type = 'concept'",
+            name="ck_question_prerequisite_type",
         ),
     )
     op.create_table(

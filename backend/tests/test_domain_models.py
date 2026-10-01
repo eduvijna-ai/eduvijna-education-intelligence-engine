@@ -431,3 +431,127 @@ def test_blueprint_exact_count_must_fit_persisted_range(tmp_path: Path) -> None:
         session.close()
         create_database_engine.cache_clear()
 
+
+
+def test_exam_section_parent_cannot_cross_versions(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "exam-section-cross-version.db")
+    try:
+        pack = ExamPack(code="exam-section-pack", name="Exam Section Pack", country="IN")
+        version_a = ExamVersion(exam_pack=pack, version_code="a")
+        version_b = ExamVersion(exam_pack=pack, version_code="b")
+        parent = ExamSection(
+            exam_version=version_a,
+            code="parent-a",
+            title="Parent A",
+            sequence=1,
+        )
+        session.add_all([pack, parent])
+        session.commit()
+
+        child = ExamSection(
+            exam_version=version_b,
+            parent_section_id=parent.id,
+            parent_exam_version_id=version_a.id,
+            code="child-b",
+            title="Child B",
+            sequence=1,
+        )
+        session.add(child)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_blueprint_section_cannot_cross_exam_versions(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "blueprint-section-cross-version.db")
+    try:
+        pack = ExamPack(code="blueprint-section-pack", name="Blueprint Section Pack", country="IN")
+        version_a = ExamVersion(exam_pack=pack, version_code="a")
+        version_b = ExamVersion(exam_pack=pack, version_code="b")
+        section_b = ExamSection(
+            exam_version=version_b,
+            code="section-b",
+            title="Section B",
+            sequence=1,
+        )
+        session.add_all([pack, section_b])
+        session.commit()
+
+        rule = ExamBlueprintRule(
+            exam_version=version_a,
+            section_id=section_b.id,
+            section_exam_version_id=version_b.id,
+            rule_type=BlueprintRuleType.QUESTION_COUNT.value,
+            exact_count=5,
+        )
+        session.add(rule)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_prerequisite_edges_require_concept_nodes(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "concept-only-prerequisite.db")
+    try:
+        pack = CurriculumPack(code="concept-only-pack", name="Concept Only Pack", country="IN")
+        version = CurriculumVersion(curriculum_pack=pack, version_code="v1")
+        unit = CurriculumNode(
+            curriculum_version=version,
+            node_type=CurriculumNodeType.UNIT.value,
+            code="unit",
+            title="Unit",
+        )
+        concept = CurriculumNode(
+            curriculum_version=version,
+            node_type=CurriculumNodeType.CONCEPT.value,
+            code="concept",
+            title="Concept",
+        )
+        session.add_all([pack, unit, concept])
+        session.commit()
+
+        session.add(
+            ConceptPrerequisite(
+                prerequisite_concept_id=unit.id,
+                target_concept_id=concept.id,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_question_prerequisites_require_concept_nodes(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "question-concept-only.db")
+    try:
+        pack = CurriculumPack(code="question-concept-pack", name="Question Concept Pack", country="IN")
+        version = CurriculumVersion(curriculum_pack=pack, version_code="v1")
+        unit = CurriculumNode(
+            curriculum_version=version,
+            node_type=CurriculumNodeType.UNIT.value,
+            code="unit",
+            title="Unit",
+        )
+        question = Question(
+            origin_type=QuestionOrigin.GENERATED.value,
+            question_type=QuestionType.DESCRIPTIVE.value,
+            stem_text="Concept-only association test",
+            answer_json={},
+        )
+        question.prerequisite_concepts.append(unit)
+        session.add_all([pack, question])
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
