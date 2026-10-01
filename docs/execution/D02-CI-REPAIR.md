@@ -47,3 +47,14 @@ The D02 migration gate now verifies the exact contract rather than a relative Al
 `20261001_0002 -> 20261001_0001 -> 20261001_0002`.
 
 Both GitHub CI and the documented `make test` path use the explicit D01 revision as the rollback target.
+
+
+## Founder-state correction
+
+A late concurrent documentation commit reintroduced an obsolete D01-UAT-deferred marker. The Founder had explicitly approved D01 before D02 began, so the D02 specification has been restored to:
+
+- D01 COMPLETE / FOUNDER APPROVED;
+- D02 ACTIVE;
+- D03 LOCKED.
+
+No combined/deferred UAT state is part of the current execution contract.
