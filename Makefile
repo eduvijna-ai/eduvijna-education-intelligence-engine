@@ -1,37 +1,45 @@
 SHELL := /bin/bash
 
-.PHONY: setup dev test lint migrate migration down backend-test frontend-build migration-check
+COMPOSE := docker compose
+ifneq ("$(wildcard .env.development)","")
+COMPOSE := docker compose --env-file .env.development
+endif
 
-setup:
+.PHONY: setup env dev test lint migrate migration down backend-test frontend-build migration-check
+
+setup: env
 	python3 -m venv backend/.venv
 	backend/.venv/bin/pip install -e 'backend[dev]'
 	cd frontend && npm install
 
-dev:
-	docker compose up --build
+env:
+	@if [ ! -f .env.development ]; then cp .env.development.example .env.development; fi
+
+dev: env
+	$(COMPOSE) up --build
 
 test: backend-test frontend-build migration-check
 
 backend-test:
-	docker compose run --rm backend pytest
+	$(COMPOSE) run --rm backend pytest
 
 frontend-build:
-	docker compose run --rm frontend npm run typecheck
-	docker compose run --rm frontend npm run build
+	$(COMPOSE) run --rm frontend npm run typecheck
+	$(COMPOSE) run --rm frontend npm run build
 
 lint:
-	docker compose run --rm backend ruff check app tests
-	docker compose run --rm backend mypy app
+	$(COMPOSE) run --rm backend ruff check app tests
+	$(COMPOSE) run --rm backend mypy app
 
 migrate:
-	docker compose run --rm backend alembic upgrade head
+	$(COMPOSE) run --rm backend alembic upgrade head
 
 migration:
 	@test -n "$(name)" || (echo "usage: make migration name=description" && exit 1)
 	cd backend && .venv/bin/alembic revision --autogenerate -m "$(name)"
 
 migration-check:
-	docker compose run --rm -e DATABASE_URL=sqlite:////tmp/migration-ci.db backend sh -c 'rm -f /tmp/migration-ci.db && alembic upgrade head && alembic downgrade 20261001_0001 && alembic upgrade head'
+	$(COMPOSE) run --rm -e DATABASE_URL=sqlite:////tmp/migration-ci.db backend sh -c 'rm -f /tmp/migration-ci.db && alembic upgrade head && alembic downgrade 20261001_0001 && alembic upgrade head && alembic check'
 
 down:
-	docker compose down
+	$(COMPOSE) down
