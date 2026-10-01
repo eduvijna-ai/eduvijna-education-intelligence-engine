@@ -156,6 +156,8 @@ class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
+    curriculum_version: Mapped[CurriculumVersion | None] = relationship()
+    exam_version: Mapped[ExamVersion | None] = relationship()
     questions: Mapped[list[TestQuestion]] = relationship(
         back_populates="test_definition",
         cascade="all, delete-orphan",

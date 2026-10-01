@@ -23,8 +23,8 @@ from app.models import (
     QuestionAsset,
     QuestionOption,
     Source,
-    TestDefinition,
-    TestQuestion,
+    TestDefinition as AssessmentDefinition,
+    TestQuestion as AssessmentQuestion,
 )
 from app.models.enums import (
     BlueprintRuleType,
@@ -138,8 +138,8 @@ def test_canonical_domain_graph_persists() -> None:
         concept.learning_outcomes.append(outcome)
         concept.competencies.append(competency)
         edge = ConceptPrerequisite(
-            prerequisite_concept_id=prerequisite.id,
-            target_concept_id=concept.id,
+            prerequisite_concept=prerequisite,
+            target_concept=concept,
             weight=0.8,
         )
 
@@ -218,14 +218,16 @@ def test_canonical_domain_graph_persists() -> None:
         question.prerequisite_concepts.append(prerequisite)
         question.sources.append(source)
 
-        test = TestDefinition(
+        test = AssessmentDefinition(
             code="test-x",
             title="Synthetic test",
-            curriculum_version_id=version.id,
-            exam_version_id=exam_version.id,
+            curriculum_version=version,
+            exam_version=exam_version,
             blueprint_json={"question_count": 1},
         )
-        test.questions.append(TestQuestion(question=question, sequence=1, marks=4))
+        test.questions.append(
+            AssessmentQuestion(question=question, sequence=1, marks=4)
+        )
 
         policy = PolicyRule(
             scope_type=PolicyScopeType.INSTITUTION.value,
@@ -274,6 +276,6 @@ def test_canonical_domain_graph_persists() -> None:
         assert loaded.sources[0].title == "Synthetic official source"
         assert session.query(ExamBlueprintRule).count() == 2
         assert session.query(PolicyRule).one().priority == 300
-        assert session.query(TestQuestion).one().marks == 4
+        assert session.query(AssessmentQuestion).one().marks == 4
     finally:
         session.close()

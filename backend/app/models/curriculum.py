@@ -55,6 +55,13 @@ class CurriculumPack(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
+    prerequisite_concept: Mapped[CurriculumNode] = relationship(
+        foreign_keys=[prerequisite_concept_id]
+    )
+    target_concept: Mapped[CurriculumNode] = relationship(
+        foreign_keys=[target_concept_id]
+    )
+
     framework: Mapped[EducationFramework | None] = relationship(back_populates="curriculum_packs")
     versions: Mapped[list[CurriculumVersion]] = relationship(
         back_populates="curriculum_pack",

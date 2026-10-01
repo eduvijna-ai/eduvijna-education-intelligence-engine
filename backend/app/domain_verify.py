@@ -93,8 +93,8 @@ def build_verification_payload() -> dict[str, object]:
         concept.learning_outcomes.append(outcome)
         concept.competencies.append(competency)
         edge = ConceptPrerequisite(
-            prerequisite_concept_id=prereq.id,
-            target_concept_id=concept.id,
+            prerequisite_concept=prereq,
+            target_concept=concept,
         )
 
         exam_pack = ExamPack(code="verify-exam", name="Verify Exam", country="IN")
