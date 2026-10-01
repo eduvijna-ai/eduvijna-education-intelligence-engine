@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+from pathlib import Path
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.db.base import Base
+from app.db.session import create_database_engine
 from app.models import (
     Competency,
     ConceptPrerequisite,
@@ -279,3 +284,27 @@ def test_canonical_domain_graph_persists() -> None:
         assert session.query(AssessmentQuestion).one().marks == 4
     finally:
         session.close()
+
+
+def test_sqlite_foreign_keys_are_enforced(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'fk.db'}"
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+    with engine.connect() as connection:
+        assert connection.execute(text("PRAGMA foreign_keys")).scalar_one() == 1
+
+    session = Session(engine)
+    try:
+        session.add(
+            QuestionOption(
+                question_id="00000000-0000-0000-0000-000000000000",
+                option_key="A",
+                text="orphan",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
