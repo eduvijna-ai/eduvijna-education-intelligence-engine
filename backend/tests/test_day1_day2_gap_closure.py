@@ -46,7 +46,10 @@ from app.schemas.domain import (
 
 
 def test_settings_load_development_env_and_process_env_wins(tmp_path, monkeypatch) -> None:
-    assert ".env.development" in Settings.model_config["env_file"]
+    assert any(
+        str(path).endswith(".env.development")
+        for path in Settings.model_config["env_file"]
+    )
     env_file = tmp_path / ".env.development"
     env_file.write_text(
         "API_SECRET_KEY=file-secret-value\n"
