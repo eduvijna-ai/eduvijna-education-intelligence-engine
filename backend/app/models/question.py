@@ -148,6 +148,9 @@ class QuestionAsset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "test_definitions"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_test_definition_code"),
+    )
 
     code: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
