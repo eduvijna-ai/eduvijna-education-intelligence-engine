@@ -1,0 +1,38 @@
+version: 1
+
+principles:
+  - A development day is completion-based, not calendar-based.
+  - Only the Founder can approve a day.
+  - Agents must never set founder_approval to true.
+  - The next day must remain LOCKED until the prior day is explicitly approved.
+  - Failed CI, unresolved blocker/major review findings, or failed acceptance criteria prevent Founder handoff.
+  - Included-plan exhaustion is a blocker; paid overage must not be enabled automatically.
+
+ready_for_founder_review_requires:
+  - active_day_scope_complete
+  - all_required_tests_green
+  - frontend_build_and_typecheck_green
+  - migration_checks_green_when_applicable
+  - codex_blocker_findings_resolved
+  - codex_major_findings_resolved
+  - acceptance_evidence_attached
+  - no_known_secret_committed
+  - no_future_day_work_started
+
+on_founder_approve:
+  - mark_current_day_COMPLETE
+  - preserve_audit_evidence
+  - unlock_exactly_one_next_day
+  - set_next_day_ACTIVE
+  - start_next_day_builder_flow
+
+on_founder_reject:
+  - keep_next_day_LOCKED
+  - mark_current_day_REJECTED
+  - create_or_update_defect_work
+  - rerun_builder_review_ci_loop
+  - return_to_founder_only_when_green
+
+production:
+  founder_approval_required: true
+  auto_deploy_without_founder: false
