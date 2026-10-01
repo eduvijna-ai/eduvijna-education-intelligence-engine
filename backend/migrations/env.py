@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import get_settings
 from app.db.alembic import escape_alembic_config_value
 from app.db.base import Base
+from app.db.session import enable_sqlite_foreign_keys
 import app.models  # noqa: F401
 
 config = context.config
