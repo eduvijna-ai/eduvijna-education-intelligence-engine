@@ -11,6 +11,9 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "organizations"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_organization_code"),
+    )
 
     code: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -68,6 +71,9 @@ class Learner(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class AdminActor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "admin_actors"
+    __table_args__ = (
+        UniqueConstraint("external_code", name="uq_admin_actor_external_code"),
+    )
 
     organization_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
@@ -83,6 +89,9 @@ class AdminActor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class ApiClient(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "api_clients"
+    __table_args__ = (
+        UniqueConstraint("client_code", name="uq_api_client_code"),
+    )
 
     organization_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
