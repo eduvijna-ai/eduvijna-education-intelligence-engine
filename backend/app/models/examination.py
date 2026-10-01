@@ -125,6 +125,14 @@ class ExamBlueprintRule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "min_count IS NULL OR max_count IS NULL OR min_count <= max_count",
             name="ck_rule_min_lte_max",
         ),
+        CheckConstraint(
+            "exact_count IS NULL OR min_count IS NULL OR exact_count >= min_count",
+            name="ck_rule_exact_gte_min",
+        ),
+        CheckConstraint(
+            "exact_count IS NULL OR max_count IS NULL OR exact_count <= max_count",
+            name="ck_rule_exact_lte_max",
+        ),
     )
 
     exam_version_id: Mapped[str] = mapped_column(
