@@ -1,10 +1,10 @@
 # D02 — Canonical Domain Model
 
-Status: **ACTIVE**
+Status: **FOUNDER REVIEW**
 
 Founder approval: **NOT GRANTED**
 
-Previous day: **D01 COMPLETE / FOUNDER APPROVED**
+Previous day: **D01 ENGINEERING COMPLETE / FOUNDER REVIEW**
 
 Next day: **D03 LOCKED**
 
@@ -279,7 +279,7 @@ Constraints:
 - no self-reference;
 - duplicate edges rejected.
 
-Cycle detection is an application validator for a later day; D02 only provides the persisted graph.
+D02 includes deterministic application-level validation for missing concepts, duplicate prerequisite edges, self-references and prerequisite cycles. The persisted graph remains generic and exam/curriculum agnostic.
 
 ## Examination model
 
@@ -516,7 +516,7 @@ Minimum:
 - source reference, optional;
 - metadata.
 
-D02 persists policy records only. Day 6 implements educational/policy validation and precedence behavior.
+D02 persists policy records and implements only deterministic precedence/conflict resolution: official hard constraints cannot be silently overridden by institution/teacher preferences, and equal-precedence conflicting rules fail explicitly. Day 6 still owns broader educational and policy-quality validation.
 
 ## Provenance associations
 
@@ -649,7 +649,7 @@ D02 is ready for Founder review only when:
 - [ ] curriculum hierarchy tree exists through concept;
 - [ ] learning outcomes exist;
 - [ ] configurable competencies exist;
-- [ ] prerequisite graph persists;
+- [ ] prerequisite graph persists and missing/duplicate/self/cyclic prerequisite structures are rejected;
 - [ ] ExamPack/Version exists;
 - [ ] nested exam sections exist;
 - [ ] exact/range blueprint rules validate;
@@ -657,8 +657,10 @@ D02 is ready for Founder review only when:
 - [ ] rich Question/Option/Asset models exist;
 - [ ] question competency/outcome/prerequisite/source associations exist;
 - [ ] TestDefinition/TestQuestion exists;
-- [ ] policy records/precedence fields exist;
+- [ ] policy records/precedence fields and deterministic hard-rule resolution exist;
 - [ ] CurriculumVersion/ExamVersion/Question/Policy source provenance is supported;
+- [ ] Organization/Institution/Teacher/Learner/Admin/API-client ownership models exist with enforced foreign keys;
+- [ ] age/grade applicability and rubric metadata are represented in the canonical question contract;
 - [ ] Pydantic validation tests pass;
 - [ ] SQLite persistence tests pass;
 - [ ] PostgreSQL dialect compilation test passes;

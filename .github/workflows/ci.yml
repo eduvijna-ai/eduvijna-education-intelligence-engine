@@ -46,6 +46,7 @@ jobs:
           PY
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic downgrade 20261001_0001
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
+          DATABASE_URL=sqlite:///./data/migration-ci.db alembic check
 
   frontend:
     runs-on: ubuntu-latest
@@ -69,8 +70,12 @@ jobs:
     needs: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare development env
+        run: |
+          cp .env.development.example .env.development
+          printf '\nANYTHINGLLM_BASE_URL=http://anythingllm.example\nANYTHINGLLM_API_KEY=ci-dummy-anything-key\nMCP_API_KEY=ci-dummy-mcp-key\n' >> .env.development
       - name: Validate Compose
-        run: docker compose config
+        run: docker compose --env-file .env.development config
       - name: Start local stack
         run: docker compose up --build -d
       - name: Wait for backend
@@ -97,11 +102,19 @@ jobs:
         run: |
           make lint
           make test
-      - name: Verify API and frontend
+      - name: Verify API frontend and development env
         run: |
           curl --fail --silent http://127.0.0.1:8000/health
           curl --fail --silent http://127.0.0.1:8000/api/v1/system/info
           curl --fail --silent http://127.0.0.1:5173/ >/dev/null
+          docker compose exec -T backend python - <<'PY'
+          from app.core.config import get_settings
+
+          settings = get_settings()
+          assert settings.anythingllm_base_url == "http://anythingllm.example"
+          assert settings.anythingllm_api_key == "ci-dummy-anything-key"
+          assert settings.mcp_api_key == "ci-dummy-mcp-key"
+          PY
       - name: Seed SQLite persistence record
         run: |
           docker compose exec -T backend python - <<'PY'

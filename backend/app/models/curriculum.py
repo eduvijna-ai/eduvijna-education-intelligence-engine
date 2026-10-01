@@ -35,6 +35,9 @@ if TYPE_CHECKING:
 
 class EducationFramework(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "education_frameworks"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_education_framework_code"),
+    )
 
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -47,6 +50,9 @@ class EducationFramework(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class CurriculumPack(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "curriculum_packs"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_curriculum_pack_code"),
+    )
 
     framework_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("education_frameworks.id", ondelete="SET NULL")
@@ -200,6 +206,9 @@ class LearningOutcome(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class Competency(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "competencies"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_competency_code"),
+    )
 
     code: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

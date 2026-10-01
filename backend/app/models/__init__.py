@@ -19,8 +19,11 @@ from app.models.question import (
 )
 from app.models.source import Source
 from app.models.system_setting import SystemSetting
+from app.models.tenancy import AdminActor, ApiClient, Institution, Learner, Organization, Teacher
 
 __all__ = [
+    "AdminActor",
+    "ApiClient",
     "Competency",
     "ConceptPrerequisite",
     "CurriculumNode",
@@ -32,13 +35,17 @@ __all__ = [
     "ExamPack",
     "ExamSection",
     "ExamVersion",
+    "Institution",
+    "Learner",
     "LearningOutcome",
+    "Organization",
     "PolicyRule",
     "Question",
     "QuestionAsset",
     "QuestionOption",
     "Source",
     "SystemSetting",
+    "Teacher",
     "TestDefinition",
     "TestQuestion",
 ]

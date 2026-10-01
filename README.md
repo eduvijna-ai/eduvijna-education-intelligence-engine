@@ -40,3 +40,36 @@ The v1.0 implementation must fit inside the existing monthly subscriptions:
 - Public API namespace: `/api/v1`
 
 Read `AGENTS.md` and the active specification under `docs/execution/` before changing code.
+
+
+## Local development environment
+
+Create the Founder-editable local environment file once:
+
+```bash
+make env
+```
+
+This copies `.env.development.example` to the Git-ignored `.env.development`.
+Add your own integration values there; do not commit the real file.
+
+Supported placeholders currently include:
+
+```text
+ANYTHINGLLM_BASE_URL=
+ANYTHINGLLM_API_KEY=
+API_SECRET_KEY=
+MCP_API_KEY=
+```
+
+Native Pydantic settings and Docker Compose both consume the development file. Real process
+environment variables take precedence over file values. Docker keeps its container-specific
+SQLite path while still receiving Founder-supplied API/AnythingLLM/MCP credentials.
+
+Then start the stack with:
+
+```bash
+make dev
+```
+
+Day 3 remains locked until Day 1 and Day 2 are explicitly closed.

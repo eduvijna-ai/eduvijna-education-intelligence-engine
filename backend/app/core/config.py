@@ -1,9 +1,19 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILES = (
+    PROJECT_ROOT / ".env",
+    BACKEND_ROOT / ".env",
+    PROJECT_ROOT / ".env.development",
+    BACKEND_ROOT / ".env.development",
+)
 
 LOCAL_API_SECRET = "local-development-only"
 UNSAFE_API_SECRETS = frozenset(
@@ -16,7 +26,9 @@ UNSAFE_API_SECRETS = frozenset(
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Process environment variables retain Pydantic's normal highest priority.
+        # .env.development is the Founder-editable local file; .env remains a fallback.
+        env_file=ENV_FILES,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -27,6 +39,7 @@ class Settings(BaseSettings):
     anythingllm_base_url: str | None = None
     anythingllm_api_key: str | None = None
     api_secret_key: str = Field(default=LOCAL_API_SECRET, min_length=8)
+    mcp_api_key: str | None = None
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173"
 

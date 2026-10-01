@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 
 class ExamPack(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "exam_packs"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_exam_pack_code"),
+    )
 
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -11,6 +11,9 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 class DiagnosticTaxonomyEntry(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "diagnostic_taxonomy_entries"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_diagnostic_taxonomy_code"),
+    )
 
     parent_id: Mapped[str | None] = mapped_column(
         String(36),
