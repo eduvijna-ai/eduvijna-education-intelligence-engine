@@ -13,16 +13,18 @@ builder:
 reviewer:
   product: Codex
 source_of_truth: GitHub
-current_day: 1
+current_day: 2
 
 days:
   1:
     name: Foundation
-    state: FOUNDER_REVIEW
+    state: UAT_DEFERRED_BY_FOUNDER
     founder_approval: false
+    continuation_authorized: true
+    uat_deferred_until: after_day_2
   2:
     name: Canonical Domain Model
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
     depends_on: 1
   3:
