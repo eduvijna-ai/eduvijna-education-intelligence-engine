@@ -29,6 +29,8 @@ jobs:
         run: mypy app
       - name: Pytest
         run: pytest
+      - name: Verify canonical domain sample
+        run: python -m app.domain_verify
       - name: Migration round-trip
         run: |
           mkdir -p data

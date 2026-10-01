@@ -12,6 +12,14 @@ class SystemInfoResponse(BaseModel):
     api_version: str
 
 
+class DomainModelInfoResponse(BaseModel):
+    version: str
+    curriculum_node_types: list[str]
+    question_types: list[str]
+    source_types: list[str]
+    diagnostic_categories: list[str]
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
