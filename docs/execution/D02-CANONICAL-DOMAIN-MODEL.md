@@ -1,10 +1,10 @@
 # D02 — Canonical Domain Model
 
-Status: **ACTIVE**
+Status: **FOUNDER REVIEW**
 
 Founder approval: **NOT GRANTED**
 
-Previous day: **D01 COMPLETE / FOUNDER APPROVED**
+Previous day: **D01 ENGINEERING COMPLETE / FOUNDER REVIEW**
 
 Next day: **D03 LOCKED**
 
