@@ -38,3 +38,12 @@ The final FK hardening also makes SQLite foreign-key enforcement consistent in:
 - the invariant test harness.
 
 Duplicate invariant tests introduced during concurrent repair were removed; the existing file-backed FK-aware regression suite remains authoritative.
+
+
+## Explicit migration boundary
+
+The D02 migration gate now verifies the exact contract rather than a relative Alembic shorthand:
+
+`20261001_0002 -> 20261001_0001 -> 20261001_0002`.
+
+Both GitHub CI and the documented `make test` path use the explicit D01 revision as the rollback target.
