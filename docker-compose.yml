@@ -2,13 +2,13 @@ services:
   backend:
     build:
       context: ./backend
+    env_file:
+      - path: .env.development
+        required: false
     environment:
-      APP_ENV: local
+      APP_ENV: ${APP_ENV:-local}
       DATABASE_URL: sqlite:////app/data/eduvijna.db
-      API_SECRET_KEY: local-development-only
-      CORS_ORIGINS: http://localhost:5173
-      ANYTHINGLLM_BASE_URL: ${ANYTHINGLLM_BASE_URL:-}
-      ANYTHINGLLM_API_KEY: ${ANYTHINGLLM_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     volumes:
       - eduvijna_sqlite:/app/data
     ports:
@@ -22,8 +22,11 @@ services:
   frontend:
     build:
       context: ./frontend
+    env_file:
+      - path: .env.development
+        required: false
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
     ports:
       - "5173:5173"
     depends_on:
