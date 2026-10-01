@@ -39,6 +39,12 @@ class Question(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "difficulty IS NULL OR (difficulty >= 1 AND difficulty <= 5)",
             name="ck_question_difficulty",
         ),
+        CheckConstraint("age_min IS NULL OR age_min >= 0", name="ck_question_age_min"),
+        CheckConstraint("age_max IS NULL OR age_max >= 0", name="ck_question_age_max"),
+        CheckConstraint(
+            "age_min IS NULL OR age_max IS NULL OR age_min <= age_max",
+            name="ck_question_age_range",
+        ),
     )
 
     external_code: Mapped[str | None] = mapped_column(String(128), index=True)
@@ -61,6 +67,10 @@ class Question(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     answer_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     difficulty: Mapped[int | None] = mapped_column(Integer)
     cognitive_level: Mapped[str | None] = mapped_column(String(32), index=True)
+    age_min: Mapped[int | None] = mapped_column(Integer)
+    age_max: Mapped[int | None] = mapped_column(Integer)
+    grade_year_codes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    rubric_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(
         String(32),
         default=QuestionStatus.DRAFT.value,
