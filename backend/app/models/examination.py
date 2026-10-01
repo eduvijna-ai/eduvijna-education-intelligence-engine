@@ -115,7 +115,10 @@ class ExamSection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class ExamBlueprintRule(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "exam_blueprint_rules"
     __table_args__ = (
-        CheckConstraint("exact_count IS NULL OR exact_count >= 0", name="ck_rule_exact_nonnegative"),
+        CheckConstraint(
+            "exact_count IS NULL OR exact_count >= 0",
+            name="ck_rule_exact_nonnegative",
+        ),
         CheckConstraint("min_count IS NULL OR min_count >= 0", name="ck_rule_min_nonnegative"),
         CheckConstraint("max_count IS NULL OR max_count >= 0", name="ck_rule_max_nonnegative"),
         CheckConstraint(

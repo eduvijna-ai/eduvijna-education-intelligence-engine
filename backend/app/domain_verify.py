@@ -47,7 +47,11 @@ def build_verification_payload() -> dict[str, object]:
             source_type=SourceType.OFFICIAL_SYLLABUS.value,
             title="Synthetic official source",
         )
-        framework = EducationFramework(code="verify-framework", name="Verify Framework", country="IN")
+        framework = EducationFramework(
+            code="verify-framework",
+            name="Verify Framework",
+            country="IN",
+        )
         pack = CurriculumPack(
             code="verify-curriculum",
             name="Verify Curriculum",
