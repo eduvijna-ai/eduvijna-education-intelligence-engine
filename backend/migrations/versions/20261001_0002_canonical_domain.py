@@ -130,12 +130,8 @@ def upgrade() -> None:
             sa.ForeignKey("curriculum_versions.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column(
-            "parent_id",
-            sa.String(36),
-            sa.ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
-            nullable=True,
-        ),
+        sa.Column("parent_id", sa.String(36), nullable=True),
+        sa.Column("parent_version_id", sa.String(36), nullable=True),
         sa.Column("node_type", sa.String(32), nullable=False),
         sa.Column("code", sa.String(128), nullable=False),
         sa.Column("title", sa.String(512), nullable=False),
@@ -144,11 +140,26 @@ def upgrade() -> None:
         sa.Column("metadata_json", sa.JSON(), nullable=False),
         *_timestamps(),
         sa.UniqueConstraint(
+            "id",
+            "curriculum_version_id",
+            name="uq_curriculum_node_id_version",
+        ),
+        sa.UniqueConstraint(
             "curriculum_version_id",
             "parent_id",
-            "node_type",
             "code",
             name="uq_curriculum_node_scope",
+        ),
+        sa.ForeignKeyConstraint(
+            ["parent_id", "parent_version_id"],
+            ["curriculum_nodes.id", "curriculum_nodes.curriculum_version_id"],
+            name="fk_curriculum_node_parent_same_version",
+            ondelete="CASCADE",
+        ),
+        sa.CheckConstraint(
+            "(parent_id IS NULL AND parent_version_id IS NULL) OR "
+            "(parent_id IS NOT NULL AND parent_version_id = curriculum_version_id)",
+            name="ck_curriculum_node_parent_version",
         ),
     )
     op.create_index(
@@ -157,7 +168,20 @@ def upgrade() -> None:
         ["curriculum_version_id"],
     )
     op.create_index("ix_curriculum_nodes_parent_id", "curriculum_nodes", ["parent_id"])
+    op.create_index(
+        "ix_curriculum_nodes_parent_version_id",
+        "curriculum_nodes",
+        ["parent_version_id"],
+    )
     op.create_index("ix_curriculum_nodes_node_type", "curriculum_nodes", ["node_type"])
+    op.create_index(
+        "uq_curriculum_node_root_code",
+        "curriculum_nodes",
+        ["curriculum_version_id", "code"],
+        unique=True,
+        sqlite_where=sa.text("parent_id IS NULL"),
+        postgresql_where=sa.text("parent_id IS NULL"),
+    )
 
     op.create_table(
         "learning_outcomes",
@@ -393,6 +417,14 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "min_count IS NULL OR max_count IS NULL OR min_count <= max_count",
             name="ck_rule_min_lte_max",
+        ),
+        sa.CheckConstraint(
+            "exact_count IS NULL OR min_count IS NULL OR exact_count >= min_count",
+            name="ck_rule_exact_gte_min",
+        ),
+        sa.CheckConstraint(
+            "exact_count IS NULL OR max_count IS NULL OR exact_count <= max_count",
+            name="ck_rule_exact_lte_max",
         ),
     )
     op.create_index(
