@@ -18,10 +18,9 @@ current_day: 2
 days:
   1:
     name: Foundation
-    state: UAT_DEFERRED_BY_FOUNDER
+    state: FOUNDER_REVIEW
     founder_approval: false
-    continuation_authorized: true
-    uat_deferred_until: after_day_2
+    continuation_authorized: false
   2:
     name: Canonical Domain Model
     state: FOUNDER_REVIEW
