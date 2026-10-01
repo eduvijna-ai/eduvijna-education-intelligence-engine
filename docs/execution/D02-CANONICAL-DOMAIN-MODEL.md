@@ -4,11 +4,7 @@ Status: **ACTIVE**
 
 Founder approval: **NOT GRANTED**
 
-Previous day: **D01 UAT DEFERRED BY FOUNDER**
-
-Continuation authorization: **D02 EXPLICITLY AUTHORIZED BY FOUNDER**
-
-Combined D01 + D02 Founder UAT: **REQUIRED AFTER D02**
+Previous day: **D01 COMPLETE / FOUNDER APPROVED**
 
 Next day: **D03 LOCKED**
 
