@@ -308,3 +308,124 @@ def test_sqlite_foreign_keys_are_enforced(tmp_path: Path) -> None:
         session.rollback()
         session.close()
         create_database_engine.cache_clear()
+
+
+def _integrity_session(tmp_path: Path, name: str) -> tuple[Session, object]:
+    database_url = f"sqlite:///{tmp_path / name}"
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+    return Session(engine), engine
+
+
+def test_curriculum_root_code_is_unique_across_node_types(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "root-unique.db")
+    try:
+        pack = CurriculumPack(code="root-pack", name="Root Pack", country="IN")
+        version = CurriculumVersion(curriculum_pack=pack, version_code="v1")
+        version.nodes.extend(
+            [
+                CurriculumNode(
+                    node_type=CurriculumNodeType.GRADE_YEAR.value,
+                    code="same-root-code",
+                    title="Root A",
+                ),
+                CurriculumNode(
+                    node_type=CurriculumNodeType.SUBJECT.value,
+                    code="same-root-code",
+                    title="Root B",
+                ),
+            ]
+        )
+        session.add(pack)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_curriculum_sibling_code_is_unique_across_node_types(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "sibling-unique.db")
+    try:
+        pack = CurriculumPack(code="sibling-pack", name="Sibling Pack", country="IN")
+        version = CurriculumVersion(curriculum_pack=pack, version_code="v1")
+        parent = CurriculumNode(
+            curriculum_version=version,
+            node_type=CurriculumNodeType.GRADE_YEAR.value,
+            code="parent",
+            title="Parent",
+        )
+        parent.children.extend(
+            [
+                CurriculumNode(
+                    curriculum_version=version,
+                    node_type=CurriculumNodeType.SUBJECT.value,
+                    code="same-child-code",
+                    title="Child A",
+                ),
+                CurriculumNode(
+                    curriculum_version=version,
+                    node_type=CurriculumNodeType.UNIT.value,
+                    code="same-child-code",
+                    title="Child B",
+                ),
+            ]
+        )
+        session.add(pack)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_curriculum_parent_cannot_cross_versions(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "cross-version.db")
+    try:
+        pack = CurriculumPack(code="cross-pack", name="Cross Pack", country="IN")
+        version_a = CurriculumVersion(curriculum_pack=pack, version_code="a")
+        version_b = CurriculumVersion(curriculum_pack=pack, version_code="b")
+        parent = CurriculumNode(
+            curriculum_version=version_a,
+            node_type=CurriculumNodeType.GRADE_YEAR.value,
+            code="parent-a",
+            title="Parent A",
+        )
+        child = CurriculumNode(
+            curriculum_version=version_b,
+            parent=parent,
+            node_type=CurriculumNodeType.SUBJECT.value,
+            code="child-b",
+            title="Child B",
+        )
+        session.add_all([pack, parent, child])
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_blueprint_exact_count_must_fit_persisted_range(tmp_path: Path) -> None:
+    session, _ = _integrity_session(tmp_path, "blueprint-range.db")
+    try:
+        pack = ExamPack(code="range-pack", name="Range Pack", country="IN")
+        version = ExamVersion(exam_pack=pack, version_code="v1")
+        version.blueprint_rules.append(
+            ExamBlueprintRule(
+                rule_type=BlueprintRuleType.QUESTION_COUNT.value,
+                exact_count=5,
+                min_count=10,
+                max_count=20,
+            )
+        )
+        session.add(pack)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
