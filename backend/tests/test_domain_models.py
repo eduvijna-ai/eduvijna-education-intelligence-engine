@@ -28,9 +28,9 @@ from app.models import (
     QuestionAsset,
     QuestionOption,
     Source,
-    TestDefinition as AssessmentDefinition,
-    TestQuestion as AssessmentQuestion,
 )
+from app.models import TestDefinition as AssessmentDefinition
+from app.models import TestQuestion as AssessmentQuestion
 from app.models.enums import (
     BlueprintRuleType,
     CognitiveLevel,
