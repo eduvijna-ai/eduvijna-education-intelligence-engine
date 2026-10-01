@@ -1,6 +1,4 @@
 # ruff: noqa: I001
-from __future__ import annotations
-
 from sqlalchemy import Column, ForeignKey, String, Table
 
 from app.db.base import Base
