@@ -157,7 +157,7 @@ LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:5173
 ```
 
-Commit `.env.example`, never `.env`.
+Commit `.env.example` and `.env.development.example`; never commit `.env` or `.env.development`. The Founder-editable local runtime file is `.env.development`, and process environment variables must override file values.
 
 No business code may branch on production merely to decide SQL behavior.
 
