@@ -82,6 +82,10 @@ jobs:
           done
           docker compose logs frontend
           exit 1
+      - name: Verify documented developer commands
+        run: |
+          make lint
+          make test
       - name: Verify API and frontend
         run: |
           curl --fail --silent http://127.0.0.1:8000/health

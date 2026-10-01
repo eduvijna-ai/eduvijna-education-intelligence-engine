@@ -43,3 +43,13 @@ def test_settings_parse_cors() -> None:
 def test_settings_rejects_short_secret() -> None:
     with pytest.raises(ValidationError):
         Settings(api_secret_key="short")
+
+
+def test_settings_reject_default_secret_outside_local() -> None:
+    with pytest.raises(ValidationError, match="API_SECRET_KEY"):
+        Settings(app_env="production")
+
+
+def test_settings_accept_explicit_non_local_secret() -> None:
+    settings = Settings(app_env="production", api_secret_key="a-production-secret")
+    assert settings.app_env == "production"

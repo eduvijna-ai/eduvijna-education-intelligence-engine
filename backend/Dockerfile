@@ -8,6 +8,7 @@ WORKDIR /app
 RUN addgroup --system eduvijna && adduser --system --ingroup eduvijna eduvijna
 COPY pyproject.toml ./
 COPY app ./app
+COPY tests ./tests
 COPY migrations ./migrations
 COPY alembic.ini ./
 RUN pip install --no-cache-dir '.[dev]'

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
 from app.api.routes.system import readiness_check
@@ -13,6 +16,8 @@ from app.core.errors import AppError
 from app.core.logging import configure_logging, request_context_middleware
 from app.db.session import get_db
 from app.schemas.system import HealthResponse
+
+logger = logging.getLogger("eduvijna.errors")
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -43,29 +48,65 @@ def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", "unknown")
 
 
-@app.exception_handler(AppError)
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+def _error_response(
+    request: Request,
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+) -> JSONResponse:
     return JSONResponse(
-        status_code=exc.status_code,
+        status_code=status_code,
         content={
             "error": {
-                "code": exc.code,
-                "message": exc.message,
+                "code": code,
+                "message": message,
                 "request_id": _request_id(request),
             }
         },
     )
 
 
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    return _error_response(
+        request,
+        status_code=exc.status_code,
+        code=exc.code,
+        message=exc.message,
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    return JSONResponse(
+    return _error_response(
+        request,
         status_code=422,
-        content={
-            "error": {
-                "code": "VALIDATION_ERROR",
-                "message": "Request validation failed",
-                "request_id": _request_id(request),
-            }
-        },
+        code="VALIDATION_ERROR",
+        message="Request validation failed",
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    code = "NOT_FOUND" if exc.status_code == 404 else "HTTP_ERROR"
+    return _error_response(
+        request,
+        status_code=exc.status_code,
+        code=code,
+        message=str(exc.detail),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "Unhandled API exception",
+        extra={"request_id": _request_id(request), "path": request.url.path},
+    )
+    return _error_response(
+        request,
+        status_code=500,
+        code="INTERNAL_SERVER_ERROR",
+        message="Internal server error",
     )
