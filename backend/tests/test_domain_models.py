@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.db.base import Base
-from app.db.session import create_database_engine
+from app.db.session import create_database_engine, enable_sqlite_foreign_keys
 from app.models import (
     Competency,
     ConceptPrerequisite,
@@ -48,6 +48,7 @@ from app.models.enums import (
 
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
     return Session(engine)
 
@@ -429,3 +430,141 @@ def test_blueprint_exact_count_must_fit_persisted_range(tmp_path: Path) -> None:
         session.rollback()
         session.close()
         create_database_engine.cache_clear()
+
+
+
+def _curriculum_version(session: Session, suffix: str) -> CurriculumVersion:
+    framework = EducationFramework(
+        code=f"framework-{suffix}",
+        name=f"Framework {suffix}",
+        country="IN",
+    )
+    pack = CurriculumPack(
+        code=f"curriculum-{suffix}",
+        name=f"Curriculum {suffix}",
+        country="IN",
+        framework=framework,
+    )
+    version = CurriculumVersion(
+        curriculum_pack=pack,
+        version_code=f"version-{suffix}",
+        status="active",
+    )
+    session.add(version)
+    session.flush()
+    return version
+
+
+def test_curriculum_root_codes_are_unique_per_version() -> None:
+    session = _session()
+    try:
+        version = _curriculum_version(session, "root")
+        session.add(
+            CurriculumNode(
+                curriculum_version=version,
+                node_type=CurriculumNodeType.SUBJECT.value,
+                code="shared-code",
+                title="First root",
+            )
+        )
+        session.commit()
+
+        session.add(
+            CurriculumNode(
+                curriculum_version=version,
+                node_type=CurriculumNodeType.UNIT.value,
+                code="shared-code",
+                title="Second root",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_curriculum_sibling_codes_are_unique_regardless_of_type() -> None:
+    session = _session()
+    try:
+        version = _curriculum_version(session, "sibling")
+        parent = CurriculumNode(
+            curriculum_version=version,
+            node_type=CurriculumNodeType.SUBJECT.value,
+            code="mathematics",
+            title="Mathematics",
+        )
+        first = CurriculumNode(
+            curriculum_version=version,
+            parent=parent,
+            node_type=CurriculumNodeType.UNIT.value,
+            code="shared-code",
+            title="First child",
+        )
+        session.add_all([parent, first])
+        session.commit()
+
+        session.add(
+            CurriculumNode(
+                curriculum_version=version,
+                parent=parent,
+                node_type=CurriculumNodeType.CHAPTER.value,
+                code="shared-code",
+                title="Second child",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_curriculum_parent_cannot_cross_versions() -> None:
+    session = _session()
+    try:
+        version_a = _curriculum_version(session, "a")
+        version_b = _curriculum_version(session, "b")
+        parent = CurriculumNode(
+            curriculum_version=version_a,
+            node_type=CurriculumNodeType.SUBJECT.value,
+            code="parent",
+            title="Parent",
+        )
+        session.add(parent)
+        session.commit()
+
+        child = CurriculumNode(
+            curriculum_version=version_b,
+            parent_id=parent.id,
+            parent_version_id=version_a.id,
+            node_type=CurriculumNodeType.CONCEPT.value,
+            code="child",
+            title="Child",
+        )
+        session.add(child)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_blueprint_database_rejects_contradictory_exact_range() -> None:
+    session = _session()
+    try:
+        pack = ExamPack(code="db-rule-exam", name="DB Rule Exam", country="IN")
+        version = ExamVersion(exam_pack=pack, version_code="2026", status="active")
+        rule = ExamBlueprintRule(
+            exam_version=version,
+            rule_type=BlueprintRuleType.QUESTION_COUNT.value,
+            exact_count=5,
+            min_count=10,
+            max_count=20,
+        )
+        session.add(rule)
+        with pytest.raises(IntegrityError):
+            session.commit()
+    finally:
+        session.rollback()
+        session.close()

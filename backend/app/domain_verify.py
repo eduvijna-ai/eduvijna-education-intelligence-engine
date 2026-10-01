@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.db.base import Base
+from app.db.session import enable_sqlite_foreign_keys
 from app.models import (
     Competency,
     ConceptPrerequisite,
@@ -40,6 +41,7 @@ from app.models.enums import (
 
 def build_verification_payload() -> dict[str, object]:
     engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
     session = Session(engine)
     try:

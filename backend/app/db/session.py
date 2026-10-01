@@ -17,8 +17,12 @@ def create_database_engine(database_url: str) -> Engine:
         connect_args["check_same_thread"] = False
     engine = create_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
     if database_url.startswith("sqlite"):
-        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
+        enable_sqlite_foreign_keys(engine)
     return engine
+
+
+def enable_sqlite_foreign_keys(engine: Engine) -> None:
+    event.listen(engine, "connect", _enable_sqlite_foreign_keys)
 
 
 def _enable_sqlite_foreign_keys(dbapi_connection: Any, _: Any) -> None:
