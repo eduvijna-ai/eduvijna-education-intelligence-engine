@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.db.session import get_engine
+from app.db.base import Base
+from app.db.session import create_database_engine, get_engine
+from app.models import SystemSetting
 
 
 def test_health(client: TestClient) -> None:
@@ -35,6 +40,28 @@ def test_sqlite_engine_connects() -> None:
         assert connection.exec_driver_sql("SELECT 1").scalar_one() == 1
 
 
+def test_sqlite_data_survives_engine_reopen(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'persistence.db'}"
+    engine = create_database_engine(database_url)
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(SystemSetting(key="test.persistence", value="survives-reopen"))
+        session.commit()
+
+    engine.dispose()
+    create_database_engine.cache_clear()
+
+    reopened = create_database_engine(database_url)
+    try:
+        with Session(reopened) as session:
+            row = session.query(SystemSetting).filter_by(key="test.persistence").one()
+            assert row.value == "survives-reopen"
+    finally:
+        reopened.dispose()
+        create_database_engine.cache_clear()
+
+
 def test_settings_parse_cors() -> None:
     settings = Settings(cors_origins="http://a.test, http://b.test")
     assert settings.cors_origin_list == ["http://a.test", "http://b.test"]
@@ -45,9 +72,13 @@ def test_settings_rejects_short_secret() -> None:
         Settings(api_secret_key="short")
 
 
-def test_settings_reject_default_secret_outside_local() -> None:
+@pytest.mark.parametrize(
+    "placeholder",
+    ["local-development-only", "change-me-for-non-local-use"],
+)
+def test_settings_rejects_shipped_placeholder_secret_outside_local(placeholder: str) -> None:
     with pytest.raises(ValidationError, match="API_SECRET_KEY"):
-        Settings(app_env="production")
+        Settings(app_env="production", api_secret_key=placeholder)
 
 
 def test_settings_accept_explicit_non_local_secret() -> None:

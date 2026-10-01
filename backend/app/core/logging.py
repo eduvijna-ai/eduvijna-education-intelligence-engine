@@ -5,6 +5,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Request, Response
@@ -35,6 +36,7 @@ async def request_context_middleware(
     finally:
         event: dict[str, Any] = {
             "event": "http_request",
+            "timestamp": datetime.now(UTC).isoformat(),
             "request_id": request_id,
             "method": request.method,
             "path": request.url.path,

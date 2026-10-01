@@ -6,6 +6,12 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_API_SECRET = "local-development-only"
+UNSAFE_API_SECRETS = frozenset(
+    {
+        LOCAL_API_SECRET,
+        "change-me-for-non-local-use",
+    }
+)
 
 
 class Settings(BaseSettings):
@@ -27,7 +33,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def require_non_local_secret(self) -> Settings:
         environment = self.app_env.strip().lower()
-        if environment != "local" and self.api_secret_key == LOCAL_API_SECRET:
+        if environment != "local" and self.api_secret_key in UNSAFE_API_SECRETS:
             raise ValueError("API_SECRET_KEY must be explicitly configured outside local mode")
         return self
 
