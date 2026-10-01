@@ -13,16 +13,16 @@ builder:
 reviewer:
   product: Codex
 source_of_truth: GitHub
-current_day: 1
+current_day: 2
 
 days:
   1:
     name: Foundation
-    state: ACTIVE
-    founder_approval: false
+    state: COMPLETE
+    founder_approval: true
   2:
     name: Canonical Domain Model
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
     depends_on: 1
   3:
