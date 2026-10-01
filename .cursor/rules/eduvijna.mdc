@@ -1,0 +1,12 @@
+---
+description: Eduvijna v1 engineering and budget rules
+alwaysApply: true
+---
+
+Read AGENTS.md and the ACTIVE file under docs/execution before editing.
+
+When Cursor is used for implementation, select Composer 2.5 Fast. Do not use a different Cursor model for project implementation.
+
+Do not enable usage-based billing or paid overage. If a requested execution mode requires it, stop and use the approved zero-overage workflow instead.
+
+Never unlock the next development day and never set founder_approval=true.

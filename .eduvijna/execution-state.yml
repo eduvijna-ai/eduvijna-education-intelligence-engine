@@ -6,8 +6,10 @@ budget:
   cursor_pro_plus_usd: 60
   paid_overage_planned: false
 builder:
-  product: Cursor Cloud Agent
-  required_model: Composer 2.5 Fast
+  preferred_product: Cursor
+  required_cursor_model: Composer 2.5 Fast
+  cloud_agent_on_demand_billing: disabled
+  zero_overage_fallback: ChatGPT-GitHub connected implementation
 reviewer:
   product: Codex
 source_of_truth: GitHub
