@@ -13,8 +13,9 @@ Eduvijna is an education intelligence platform spanning:
 
 - Kickoff: 2026-10-01
 - Source of truth: this GitHub repository.
-- Primary builder: Cursor Cloud Agent.
-- Cursor implementation model: **Composer 2.5 Fast**.
+- Primary implementation mode: zero-overage connected implementation.
+- Cursor implementation model, whenever Cursor is used: **Composer 2.5 Fast**.
+- Cursor Cloud Agent usage-based/on-demand billing: **disabled by project budget policy**.
 - Independent review: Codex.
 - Deterministic verification: GitHub Actions.
 - Founder approval is required at the end of every development day.

@@ -1,0 +1,34 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_ENV: local
+      DATABASE_URL: sqlite:////app/data/eduvijna.db
+      API_SECRET_KEY: local-development-only
+      CORS_ORIGINS: http://localhost:5173
+      ANYTHINGLLM_BASE_URL: ${ANYTHINGLLM_BASE_URL:-}
+      ANYTHINGLLM_API_KEY: ${ANYTHINGLLM_API_KEY:-}
+    volumes:
+      - eduvijna_sqlite:/app/data
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  eduvijna_sqlite:
