@@ -17,7 +17,7 @@ Commit `bf79bcc` fixes the domain semantics by adding explicit prerequisite/targ
 
 Codex's first D02 review identified durable-model risks. The current branch now enforces and tests:
 
-- D01 Founder approval / D02 ACTIVE execution state;
+- D01 UAT deferred by Founder / explicit D02 continuation authorization / D03 locked;
 - safe prerequisite relationships for transient UUID-backed objects;
 - SQLite foreign keys in runtime, migration connections, synthetic verification and tests;
 - sibling code uniqueness regardless of node type;
