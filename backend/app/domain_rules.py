@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Iterable
+from collections.abc import Iterable
 
 from app.models.enums import PolicyScopeType
 from app.schemas.domain import DiagnosticTaxonomyInput, PolicyRuleInput, QuestionInput
