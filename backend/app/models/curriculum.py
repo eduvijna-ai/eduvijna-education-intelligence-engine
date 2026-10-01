@@ -10,10 +10,13 @@ from sqlalchemy import (
     Date,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -101,11 +104,34 @@ class CurriculumNode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "curriculum_nodes"
     __table_args__ = (
         UniqueConstraint(
+            "id",
+            "curriculum_version_id",
+            name="uq_curriculum_node_id_version",
+        ),
+        UniqueConstraint(
             "curriculum_version_id",
             "parent_id",
-            "node_type",
             "code",
             name="uq_curriculum_node_scope",
+        ),
+        Index(
+            "uq_curriculum_node_root_code",
+            "curriculum_version_id",
+            "code",
+            unique=True,
+            sqlite_where=text("parent_id IS NULL"),
+            postgresql_where=text("parent_id IS NULL"),
+        ),
+        ForeignKeyConstraint(
+            ["parent_id", "parent_version_id"],
+            ["curriculum_nodes.id", "curriculum_nodes.curriculum_version_id"],
+            name="fk_curriculum_node_parent_same_version",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "(parent_id IS NULL AND parent_version_id IS NULL) OR "
+            "(parent_id IS NOT NULL AND parent_version_id = curriculum_version_id)",
+            name="ck_curriculum_node_parent_version",
         ),
     )
 
@@ -114,11 +140,8 @@ class CurriculumNode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("curriculum_versions.id", ondelete="CASCADE"),
         index=True,
     )
-    parent_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey("curriculum_nodes.id", ondelete="CASCADE"),
-        index=True,
-    )
+    parent_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    parent_version_id: Mapped[str | None] = mapped_column(String(36), index=True)
     node_type: Mapped[str] = mapped_column(String(32), index=True)
     code: Mapped[str] = mapped_column(String(128), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -128,10 +151,12 @@ class CurriculumNode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     curriculum_version: Mapped[CurriculumVersion] = relationship(back_populates="nodes")
     parent: Mapped[CurriculumNode | None] = relationship(
-        remote_side="CurriculumNode.id",
+        remote_side=lambda: [CurriculumNode.id, CurriculumNode.curriculum_version_id],
+        foreign_keys=lambda: [CurriculumNode.parent_id, CurriculumNode.parent_version_id],
         back_populates="children",
     )
     children: Mapped[list[CurriculumNode]] = relationship(
+        foreign_keys=lambda: [CurriculumNode.parent_id, CurriculumNode.parent_version_id],
         back_populates="parent",
         cascade="all, delete-orphan",
     )
