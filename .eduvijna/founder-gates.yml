@@ -36,3 +36,18 @@ on_founder_reject:
 production:
   founder_approval_required: true
   auto_deploy_without_founder: false
+
+
+approval_signal:
+  required: true
+  source: explicit_founder_message
+  exact_form: "APPROVE DAY <N>"
+  pr_merge_counts_as_approval: false
+  ci_green_counts_as_approval: false
+  codex_green_counts_as_approval: false
+  issue_close_counts_as_approval: false
+  time_or_calendar_counts_as_approval: false
+  agent_inference_allowed: false
+  if_signal_absent:
+    current_day_must_not_be_completed: true
+    next_day_must_remain_locked: true
