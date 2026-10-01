@@ -57,6 +57,7 @@ def test_settings_load_development_env_and_process_env_wins(tmp_path, monkeypatc
         encoding="utf-8",
     )
     monkeypatch.setenv("API_SECRET_KEY", "process-secret-value")
+    monkeypatch.delenv("ANYTHINGLLM_API_KEY", raising=False)
     settings = Settings(_env_file=env_file)
     assert settings.api_secret_key == "process-secret-value"
     assert settings.anythingllm_api_key == "file-anything-key"
