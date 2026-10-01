@@ -533,7 +533,11 @@ def test_prerequisite_edges_require_concept_nodes(tmp_path: Path) -> None:
 def test_question_prerequisites_require_concept_nodes(tmp_path: Path) -> None:
     session, _ = _integrity_session(tmp_path, "question-concept-only.db")
     try:
-        pack = CurriculumPack(code="question-concept-pack", name="Question Concept Pack", country="IN")
+        pack = CurriculumPack(
+            code="question-concept-pack",
+            name="Question Concept Pack",
+            country="IN",
+        )
         version = CurriculumVersion(curriculum_pack=pack, version_code="v1")
         unit = CurriculumNode(
             curriculum_version=version,
