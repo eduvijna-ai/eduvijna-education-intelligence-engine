@@ -31,7 +31,7 @@ migration:
 	cd backend && .venv/bin/alembic revision --autogenerate -m "$(name)"
 
 migration-check:
-	docker compose run --rm -e DATABASE_URL=sqlite:////tmp/migration-ci.db backend sh -c 'rm -f /tmp/migration-ci.db && alembic upgrade head && alembic downgrade -1 && alembic upgrade head'
+	docker compose run --rm -e DATABASE_URL=sqlite:////tmp/migration-ci.db backend sh -c 'rm -f /tmp/migration-ci.db && alembic upgrade head && alembic downgrade 20261001_0001 && alembic upgrade head'
 
 down:
 	docker compose down

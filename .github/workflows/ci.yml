@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p data
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
-          DATABASE_URL=sqlite:///./data/migration-ci.db alembic downgrade -1
+          DATABASE_URL=sqlite:///./data/migration-ci.db alembic downgrade 20261001_0001
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
 
   frontend:
