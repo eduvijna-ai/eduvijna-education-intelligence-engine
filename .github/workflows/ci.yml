@@ -72,6 +72,16 @@ jobs:
           done
           docker compose logs
           exit 1
+      - name: Wait for frontend
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs frontend
+          exit 1
       - name: Verify API and frontend
         run: |
           curl --fail --silent http://127.0.0.1:8000/health
