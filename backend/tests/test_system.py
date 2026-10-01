@@ -84,3 +84,14 @@ def test_settings_rejects_shipped_placeholder_secret_outside_local(placeholder: 
 def test_settings_accept_explicit_non_local_secret() -> None:
     settings = Settings(app_env="production", api_secret_key="a-production-secret")
     assert settings.app_env == "production"
+
+
+def test_domain_model_info(client: TestClient) -> None:
+    response = client.get("/api/v1/system/domain-model")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "d02"
+    assert "concept" in payload["curriculum_node_types"]
+    assert "single_choice" in payload["question_types"]
+    assert "official_syllabus" in payload["source_types"]
+    assert "prerequisite_gap" in payload["diagnostic_categories"]

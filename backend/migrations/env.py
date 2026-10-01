@@ -8,7 +8,7 @@ from sqlalchemy import engine_from_config, pool
 from app.core.config import get_settings
 from app.db.alembic import escape_alembic_config_value
 from app.db.base import Base
-from app.models import SystemSetting  # noqa: F401
+import app.models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
@@ -39,6 +39,11 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        if connection.dialect.name == "sqlite":
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            # SQLAlchemy 2.x autobegins on execute. End that setup
+            # transaction so Alembic owns and commits its version-row DML.
+            connection.commit()
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

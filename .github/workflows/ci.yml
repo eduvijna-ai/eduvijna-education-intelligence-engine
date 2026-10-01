@@ -29,11 +29,22 @@ jobs:
         run: mypy app
       - name: Pytest
         run: pytest
+      - name: Verify canonical domain sample
+        run: python -m app.domain_verify
       - name: Migration round-trip
         run: |
           mkdir -p data
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
-          DATABASE_URL=sqlite:///./data/migration-ci.db alembic downgrade -1
+          DATABASE_URL=sqlite:///./data/migration-ci.db alembic current --verbose
+          DATABASE_URL=sqlite:///./data/migration-ci.db python - <<'PY'
+          import sqlite3
+          connection = sqlite3.connect("./data/migration-ci.db")
+          try:
+              print("alembic_version rows:", connection.execute("SELECT version_num FROM alembic_version").fetchall())
+          finally:
+              connection.close()
+          PY
+          DATABASE_URL=sqlite:///./data/migration-ci.db alembic downgrade 20261001_0001
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
 
   frontend:
