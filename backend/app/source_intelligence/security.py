@@ -22,7 +22,7 @@ class SourceFetchError(RuntimeError):
 def system_resolver(hostname: str) -> list[str]:
     addresses: list[str] = []
     for entry in socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM):
-        address = entry[4][0]
+        address = str(entry[4][0])
         if address not in addresses:
             addresses.append(address)
     return addresses
