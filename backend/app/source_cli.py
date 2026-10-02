@@ -103,9 +103,17 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     register = subparsers.add_parser("register")
-    register.add_argument("--source-type", required=True, choices=[item.value for item in SourceType])
+    register.add_argument(
+        "--source-type",
+        required=True,
+        choices=[item.value for item in SourceType],
+    )
     register.add_argument("--title", required=True)
-    register.add_argument("--trust-tier", required=True, choices=[item.value for item in SourceTrustTier])
+    register.add_argument(
+        "--trust-tier",
+        required=True,
+        choices=[item.value for item in SourceTrustTier],
+    )
     register.add_argument("--authority")
     register.add_argument("--url")
     register.add_argument("--country")
