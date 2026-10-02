@@ -54,7 +54,6 @@ from app.source_intelligence.service import (
 )
 from app.source_intelligence.storage import LocalSourceStorage, SourceStorageError
 
-
 PUBLIC_IP = "93.184.216.34"
 
 
