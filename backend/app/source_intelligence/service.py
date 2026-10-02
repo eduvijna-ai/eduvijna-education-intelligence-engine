@@ -855,6 +855,7 @@ class SourceIntelligenceService:
 
         target: Any
         target_type: str
+        collection: list[Any]
         if payload.curriculum_version_id is not None:
             target_type = "curriculum_version"
             target = self.session.get(CurriculumVersion, str(payload.curriculum_version_id))
