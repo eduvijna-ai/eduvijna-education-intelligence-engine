@@ -417,6 +417,56 @@ def test_no_silent_update_and_pattern_drift_activation_flow(tmp_path: Path) -> N
         create_database_engine.cache_clear()
 
 
+def test_failed_activation_rolls_back_without_false_success_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session, service = _session_and_service(tmp_path)
+    try:
+        source = _official_source(service)
+        first = service.ingest_manual(
+            source.id,
+            ManualSourceRevisionInput(metadata={"version": 1}),
+        )
+        first = _extract_diff_validate_approve_activate(service, first)
+
+        second = service.ingest_manual(
+            source.id,
+            ManualSourceRevisionInput(metadata={"version": 2}),
+        )
+        service.create_diff(second.id)
+        assert service.validate_revision(second.id).valid
+        service.approve_revision(second.id, actor_id="founder")
+
+        caplog.clear()
+
+        def fail_commit() -> None:
+            raise RuntimeError("synthetic commit failure")
+
+        monkeypatch.setattr(session, "commit", fail_commit)
+        with pytest.raises(RuntimeError, match="synthetic commit failure"):
+            service.activate_revision(second.id, actor_id="founder")
+
+        session.expire_all()
+        persisted_first = session.get(SourceRevision, first.id)
+        persisted_second = session.get(SourceRevision, second.id)
+        assert persisted_first is not None
+        assert persisted_second is not None
+        assert persisted_first.status == SourceRevisionStatus.ACTIVE.value
+        assert persisted_first.active_slot == 1
+        assert persisted_second.status == SourceRevisionStatus.APPROVED.value
+        assert persisted_second.active_slot is None
+
+        messages = "\n".join(record.getMessage() for record in caplog.records)
+        assert "source_activated" not in messages
+        assert "source_superseded" not in messages
+    finally:
+        session.rollback()
+        session.close()
+        create_database_engine.cache_clear()
+
+
 def test_single_active_revision_database_invariant(tmp_path: Path) -> None:
     session, service = _session_and_service(tmp_path)
     try:
