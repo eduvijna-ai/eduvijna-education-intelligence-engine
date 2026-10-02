@@ -245,13 +245,13 @@ def main() -> None:
         elif args.command == "retry":
             print(service.retry_revision(args.id, actor_id=args.actor).id)
         elif args.command == "inspect":
-            source = session.get(Source, args.id)
-            if source is None:
+            inspected_source = session.get(Source, args.id)
+            if inspected_source is None:
                 revision = session.get(SourceRevision, args.id)
                 if revision is None:
                     raise SystemExit("source or revision not found")
-                source = revision.source
-            _print_source(source, session)
+                inspected_source = revision.source
+            _print_source(inspected_source, session)
     finally:
         session.close()
 
