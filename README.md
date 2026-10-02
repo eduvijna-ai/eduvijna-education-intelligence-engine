@@ -73,4 +73,13 @@ Then start the stack with:
 make dev
 ```
 
-Day 3 remains locked until Day 1 and Day 2 are explicitly closed.
+Day 3 Source Intelligence is the active development scope. Day 4 remains locked until Day 3 receives explicit Founder approval.
+
+Source documents are stored under the configured private runtime storage path (default
+`./data/private/sources`), which is excluded from Git. Engineering verification commands:
+
+```bash
+make source-verify
+make source-help
+```
+
