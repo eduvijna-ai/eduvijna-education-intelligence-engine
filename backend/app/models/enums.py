@@ -21,6 +21,32 @@ class SourceStatus(StrEnum):
     INACTIVE = "inactive"
 
 
+class SourceRevisionStatus(StrEnum):
+    STAGED = "staged"
+    EXTRACTED = "extracted"
+    VALIDATED = "validated"
+    APPROVED = "approved"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    FAILED = "failed"
+    SUPERSEDED = "superseded"
+
+
+class SourceIngestionMethod(StrEnum):
+    URL = "url"
+    PDF = "pdf"
+    DOCX = "docx"
+    CSV = "csv"
+    JSON = "json"
+    MANUAL = "manual"
+
+
+class SourceExtractionStatus(StrEnum):
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class SourceTrustTier(StrEnum):
     OFFICIAL_PRIMARY = "official_primary"
     OFFICIAL_SUPPORTING = "official_supporting"
