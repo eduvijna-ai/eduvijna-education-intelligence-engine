@@ -752,6 +752,11 @@ class SourceIntelligenceService:
                     payload={"replacement_revision_id": revision.id},
                 )
 
+            # Preserve the one-active-revision invariant during the transaction:
+            # release the previous active slot before assigning it to the candidate.
+            if active_revisions:
+                self.session.flush()
+
             revision.status = SourceRevisionStatus.ACTIVE.value
             revision.active_slot = 1
             revision.activated_at = now
