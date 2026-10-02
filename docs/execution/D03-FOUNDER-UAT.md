@@ -71,12 +71,17 @@ Trying to activate before approval must fail.
 
 Ingesting a changed revision must not alter the currently active checksum.
 
+If two candidates were reviewed against the same active revision, activating one makes the other
+candidate stale. The stale candidate must fail activation until it receives a fresh diff against
+the new active revision, is validated again and is approved again.
+
 ## 7. Security acceptance
 
 Automated tests must prove:
 
 - file:// and local/private URL targets are rejected;
 - redirects to private targets are rejected;
+- the actual connected peer is checked against private/non-public addresses;
 - oversized responses are rejected;
 - path traversal filenames are sanitized;
 - backend credentials are not exposed to the frontend container.
