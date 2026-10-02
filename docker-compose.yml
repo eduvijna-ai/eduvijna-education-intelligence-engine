@@ -9,6 +9,10 @@ services:
       - API_SECRET_KEY
       - MCP_API_KEY
       - CORS_ORIGINS
+      - SOURCE_STORAGE_DIR
+      - SOURCE_MAX_BYTES
+      - SOURCE_URL_TIMEOUT_SECONDS
+      - SOURCE_MAX_REDIRECTS
       - DATABASE_URL=sqlite:////app/data/eduvijna.db
     volumes:
       - eduvijna_sqlite:/app/data
