@@ -1,6 +1,6 @@
 # D03 — Source Intelligence
 
-Status: **ACTIVE**
+Status: **FOUNDER REVIEW**
 
 Founder approval to start: **GRANTED**
 
@@ -81,7 +81,9 @@ No source-document dumps are committed to Git. Tests use synthetic content.
 
 ### D3-22 — URL/file safety
 Only public HTTP/HTTPS targets are permitted. Block embedded credentials, localhost/private/link-
-local/reserved targets, unsafe redirects, oversized responses and storage path traversal.
+local/reserved targets, unsafe redirects, oversized responses and storage path traversal. Real
+network retrieval also verifies the connected peer address so DNS rebinding cannot redirect an
+approved hostname to a private destination after preflight validation.
 
 ### D3-23 — Audit events
 Persist source register/ingest/extract/diff/validate/approve/activate/supersede/reject/retry events.
@@ -110,7 +112,9 @@ Synthetic tests cover URL, PDF, DOCX, CSV, JSON and manual metadata.
 
 ### D3-30 — Lifecycle/adversarial tests
 Cover duplicate checksum, corrupt documents, invalid transitions, approval gating, candidate drift,
-single-active revision and preservation of the existing active source.
+single-active revision and preservation of the existing active source. Competing candidates reviewed
+against an older active revision must be rejected as stale and require a fresh diff, validation and
+approval before activation.
 
 ### D3-31 — Governance/provenance tests
 Verify trust classification and revision-aware persistence. Competitive evidence cannot support a
