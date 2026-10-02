@@ -40,6 +40,37 @@ def _is_public_address(address: str) -> bool:
     )
 
 
+def _connected_peer_address(response: httpx.Response) -> str | None:
+    stream = response.extensions.get("network_stream")
+    get_extra_info = getattr(stream, "get_extra_info", None)
+    if not callable(get_extra_info):
+        return None
+
+    server_addr = get_extra_info("server_addr")
+    if isinstance(server_addr, tuple) and server_addr:
+        return str(server_addr[0])
+    if isinstance(server_addr, str):
+        return server_addr
+
+    network_socket = get_extra_info("socket")
+    get_peer_name = getattr(network_socket, "getpeername", None)
+    if callable(get_peer_name):
+        peer = get_peer_name()
+        if isinstance(peer, tuple) and peer:
+            return str(peer[0])
+        if isinstance(peer, str):
+            return peer
+    return None
+
+
+def validate_connected_peer(response: httpx.Response) -> None:
+    address = _connected_peer_address(response)
+    if address is None:
+        raise SourceFetchError("source connection peer address could not be verified")
+    if not _is_public_address(address):
+        raise UnsafeSourceUrl("source connection reached a non-public address")
+
+
 def validate_source_url(url: str, *, resolver: Resolver = system_resolver) -> None:
     parsed = urlsplit(url)
     if parsed.scheme.lower() not in {"http", "https"}:
@@ -108,11 +139,14 @@ class SourceUrlFetcher:
             timeout=self.timeout_seconds,
             transport=self.transport,
             headers={"user-agent": "Eduvijna-Source-Intelligence/1.0"},
+            trust_env=False,
         ) as client:
             for redirect_count in range(self.max_redirects + 1):
                 validate_source_url(current, resolver=self.resolver)
                 try:
                     with client.stream("GET", current) as response:
+                        if self.transport is None:
+                            validate_connected_peer(response)
                         if response.status_code in {301, 302, 303, 307, 308}:
                             if redirect_count >= self.max_redirects:
                                 raise SourceFetchError("source URL exceeded redirect limit")
