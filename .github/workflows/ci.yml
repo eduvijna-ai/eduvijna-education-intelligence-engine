@@ -77,7 +77,9 @@ jobs:
       - name: Validate Compose
         run: docker compose --env-file .env.development config
       - name: Start local stack
-        run: docker compose up --build -d
+        run: |
+          ANYTHINGLLM_API_KEY=ci-shell-override \
+          docker compose --env-file .env.development up --build -d
       - name: Wait for backend
         run: |
           for i in {1..30}; do
@@ -112,9 +114,14 @@ jobs:
 
           settings = get_settings()
           assert settings.anythingllm_base_url == "http://anythingllm.example"
-          assert settings.anythingllm_api_key == "ci-dummy-anything-key"
+          assert settings.anythingllm_api_key == "ci-shell-override"
           assert settings.mcp_api_key == "ci-dummy-mcp-key"
           PY
+          docker compose exec -T frontend sh -c '
+            test -z "${ANYTHINGLLM_API_KEY+x}" &&
+            test -z "${API_SECRET_KEY+x}" &&
+            test -z "${MCP_API_KEY+x}"
+          '
       - name: Seed SQLite persistence record
         run: |
           docker compose exec -T backend python - <<'PY'
@@ -134,8 +141,9 @@ jobs:
           PY
       - name: Restart persistence smoke
         run: |
-          docker compose down
-          docker compose up -d
+          docker compose --env-file .env.development down
+          ANYTHINGLLM_API_KEY=ci-shell-override \
+          docker compose --env-file .env.development up -d
           for i in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8000/ready >/dev/null; then
               break
@@ -159,4 +167,4 @@ jobs:
         run: docker compose logs
       - name: Cleanup
         if: always()
-        run: docker compose down
+        run: docker compose --env-file .env.development down
