@@ -13,7 +13,7 @@ builder:
 reviewer:
   product: Codex
 source_of_truth: GitHub
-current_day: 2
+current_day: 3
 
 days:
   1:
@@ -23,12 +23,13 @@ days:
     continuation_authorized: false
   2:
     name: Canonical Domain Model
-    state: FOUNDER_REVIEW
+    state: COMPLETE
     founder_approval: false
+    approval_signal: "Day2 signoff provided. Start Day3"
     depends_on: 1
   3:
     name: Source Intelligence
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
     depends_on: 2
   4:
