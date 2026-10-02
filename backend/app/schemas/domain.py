@@ -4,13 +4,14 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import (
     BlueprintRuleType,
     CognitiveLevel,
     CurriculumNodeType,
     DiagnosticCategory,
+    PaperMode,
     PolicyScopeType,
     QuestionAssetType,
     QuestionOrigin,
@@ -312,6 +313,114 @@ class DiagnosticTaxonomyInput(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class RubricCriterionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    max_marks: float = Field(gt=0)
+    scoring_guidance: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class RubricInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criteria: list[RubricCriterionInput] = Field(default_factory=list)
+    total_marks: float | None = Field(default=None, gt=0)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_rubric(self) -> RubricInput:
+        codes = [criterion.code for criterion in self.criteria]
+        if len(codes) != len(set(codes)):
+            raise ValueError("rubric criterion codes must be unique")
+        if self.total_marks is not None and self.criteria:
+            criterion_total = sum(criterion.max_marks for criterion in self.criteria)
+            if abs(criterion_total - self.total_marks) > 1e-9:
+                raise ValueError("rubric total_marks must equal the sum of criterion max_marks")
+        return self
+
+
+class DistributionTargetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=128)
+    weight: float = Field(ge=0, le=1)
+
+
+class PaperSectionBlueprintInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=128)
+    title: str | None = None
+    exact_count: int | None = Field(default=None, ge=0)
+    min_count: int | None = Field(default=None, ge=0)
+    max_count: int | None = Field(default=None, ge=0)
+    question_type_counts: dict[str, int] = Field(default_factory=dict)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> PaperSectionBlueprintInput:
+        if self.min_count is not None and self.max_count is not None and self.min_count > self.max_count:
+            raise ValueError("section min_count cannot exceed max_count")
+        if self.exact_count is not None:
+            if self.min_count is not None and self.exact_count < self.min_count:
+                raise ValueError("section exact_count contradicts min_count")
+            if self.max_count is not None and self.exact_count > self.max_count:
+                raise ValueError("section exact_count contradicts max_count")
+        if any(count < 0 for count in self.question_type_counts.values()):
+            raise ValueError("section question_type_counts cannot contain negative values")
+        if self.exact_count is not None and self.question_type_counts:
+            if sum(self.question_type_counts.values()) != self.exact_count:
+                raise ValueError("section question_type_counts must sum to exact_count")
+        return self
+
+
+class PaperBlueprintInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: PaperMode
+    total_question_count: int | None = Field(default=None, ge=1)
+    sections: list[PaperSectionBlueprintInput] = Field(default_factory=list)
+    topic_distribution: list[DistributionTargetInput] = Field(default_factory=list)
+    difficulty_distribution: list[DistributionTargetInput] = Field(default_factory=list)
+    cognitive_distribution: list[DistributionTargetInput] = Field(default_factory=list)
+    competency_distribution: list[DistributionTargetInput] = Field(default_factory=list)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @staticmethod
+    def _validate_distribution(
+        name: str,
+        distribution: list[DistributionTargetInput],
+    ) -> None:
+        keys = [target.key for target in distribution]
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"{name} keys must be unique")
+        if distribution:
+            total = sum(target.weight for target in distribution)
+            if abs(total - 1.0) > 1e-9:
+                raise ValueError(f"{name} weights must sum to 1")
+
+    @model_validator(mode="after")
+    def validate_blueprint(self) -> PaperBlueprintInput:
+        section_codes = [section.code for section in self.sections]
+        if len(section_codes) != len(set(section_codes)):
+            raise ValueError("paper section codes must be unique")
+        if self.total_question_count is not None and self.sections:
+            fixed_counts = [section.exact_count for section in self.sections]
+            if all(count is not None for count in fixed_counts):
+                fixed_total = sum(count for count in fixed_counts if count is not None)
+                if fixed_total != self.total_question_count:
+                    raise ValueError("fixed section counts must sum to total_question_count")
+        self._validate_distribution("topic_distribution", self.topic_distribution)
+        self._validate_distribution("difficulty_distribution", self.difficulty_distribution)
+        self._validate_distribution("cognitive_distribution", self.cognitive_distribution)
+        self._validate_distribution("competency_distribution", self.competency_distribution)
+        return self
+
+
 class QuestionOptionInput(BaseModel):
     option_key: str = Field(min_length=1, max_length=32)
     text: str = Field(min_length=1)
@@ -333,7 +442,18 @@ class QuestionAssetInput(BaseModel):
 
 
 class QuestionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    external_code: str | None = Field(default=None, max_length=128)
+    content_version: int = Field(default=1, ge=1)
     origin_type: QuestionOrigin
+    curriculum_version_id: UUID | None = None
+    exam_version_id: UUID | None = None
+    primary_curriculum_node_id: UUID | None = None
+    competency_ids: list[UUID] = Field(default_factory=list)
+    learning_outcome_ids: list[UUID] = Field(default_factory=list)
+    prerequisite_concept_ids: list[UUID] = Field(default_factory=list)
+    source_ids: list[UUID] = Field(default_factory=list)
     question_type: QuestionType
     stem_text: str = Field(min_length=1)
     stem_latex: str | None = None
@@ -345,7 +465,7 @@ class QuestionInput(BaseModel):
     age_min: int | None = Field(default=None, ge=0)
     age_max: int | None = Field(default=None, ge=0)
     grade_year_codes: list[str] = Field(default_factory=list)
-    rubric_json: dict[str, Any] = Field(default_factory=dict)
+    rubric_json: RubricInput | None = None
     status: QuestionStatus = QuestionStatus.DRAFT
     options: list[QuestionOptionInput] = Field(default_factory=list)
     assets: list[QuestionAssetInput] = Field(default_factory=list)
@@ -365,15 +485,25 @@ class QuestionInput(BaseModel):
             raise ValueError("age_min cannot exceed age_max")
         if len(self.grade_year_codes) != len(set(self.grade_year_codes)):
             raise ValueError("grade_year_codes must be unique")
+        for name, values in (
+            ("competency_ids", self.competency_ids),
+            ("learning_outcome_ids", self.learning_outcome_ids),
+            ("prerequisite_concept_ids", self.prerequisite_concept_ids),
+            ("source_ids", self.source_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"{name} must contain unique identifiers")
         return self
 
 
 class TestDefinitionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=512)
     curriculum_version_id: UUID | None = None
     exam_version_id: UUID | None = None
-    blueprint_json: dict[str, Any] = Field(default_factory=dict)
+    blueprint_json: PaperBlueprintInput
     status: TestStatus = TestStatus.DRAFT
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
