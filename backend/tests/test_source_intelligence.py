@@ -13,7 +13,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.models import (
