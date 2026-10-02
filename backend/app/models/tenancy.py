@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -25,6 +33,7 @@ class Institution(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "institutions"
     __table_args__ = (
         UniqueConstraint("organization_id", "code", name="uq_institution_org_code"),
+        UniqueConstraint("id", "organization_id", name="uq_institution_id_org"),
     )
 
     organization_id: Mapped[str] = mapped_column(
@@ -40,6 +49,7 @@ class Teacher(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "teachers"
     __table_args__ = (
         UniqueConstraint("institution_id", "external_code", name="uq_teacher_institution_code"),
+        UniqueConstraint("id", "institution_id", name="uq_teacher_id_institution"),
     )
 
     institution_id: Mapped[str] = mapped_column(
@@ -55,6 +65,11 @@ class Learner(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "learners"
     __table_args__ = (
         UniqueConstraint("institution_id", "external_code", name="uq_learner_institution_code"),
+        ForeignKeyConstraint(
+            ["primary_teacher_id", "institution_id"],
+            ["teachers.id", "teachers.institution_id"],
+            name="fk_learner_teacher_same_institution",
+        ),
     )
 
     institution_id: Mapped[str] = mapped_column(
@@ -73,6 +88,15 @@ class AdminActor(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "admin_actors"
     __table_args__ = (
         UniqueConstraint("external_code", name="uq_admin_actor_external_code"),
+        CheckConstraint(
+            "institution_id IS NULL OR organization_id IS NOT NULL",
+            name="ck_admin_institution_requires_organization",
+        ),
+        ForeignKeyConstraint(
+            ["institution_id", "organization_id"],
+            ["institutions.id", "institutions.organization_id"],
+            name="fk_admin_institution_same_organization",
+        ),
     )
 
     organization_id: Mapped[str | None] = mapped_column(
@@ -91,6 +115,11 @@ class ApiClient(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "api_clients"
     __table_args__ = (
         UniqueConstraint("client_code", name="uq_api_client_code"),
+        ForeignKeyConstraint(
+            ["institution_id", "organization_id"],
+            ["institutions.id", "institutions.organization_id"],
+            name="fk_api_client_institution_same_organization",
+        ),
     )
 
     organization_id: Mapped[str] = mapped_column(
