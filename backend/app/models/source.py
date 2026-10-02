@@ -1,14 +1,107 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Date, DateTime, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import SourceStatus, SourceTrustTier, SourceType
+from app.models.enums import (
+    SourceExtractionStatus,
+    SourceIngestionMethod,
+    SourceRevisionStatus,
+    SourceStatus,
+    SourceTrustTier,
+    SourceType,
+)
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.curriculum import CurriculumVersion
+    from app.models.examination import ExamVersion
+    from app.models.policy import PolicyRule
+    from app.models.question import Question
+
+
+curriculum_version_source_revisions = Table(
+    "curriculum_version_source_revisions",
+    Base.metadata,
+    mapped_column(
+        "curriculum_version_id",
+        String(36),
+        ForeignKey("curriculum_versions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    mapped_column(
+        "source_revision_id",
+        String(36),
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+exam_version_source_revisions = Table(
+    "exam_version_source_revisions",
+    Base.metadata,
+    mapped_column(
+        "exam_version_id",
+        String(36),
+        ForeignKey("exam_versions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    mapped_column(
+        "source_revision_id",
+        String(36),
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+question_source_revisions = Table(
+    "question_source_revisions",
+    Base.metadata,
+    mapped_column(
+        "question_id",
+        String(36),
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    mapped_column(
+        "source_revision_id",
+        String(36),
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+policy_rule_source_revisions = Table(
+    "policy_rule_source_revisions",
+    Base.metadata,
+    mapped_column(
+        "policy_rule_id",
+        String(36),
+        ForeignKey("policy_rules.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    mapped_column(
+        "source_revision_id",
+        String(36),
+        ForeignKey("source_revisions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
 
 
 class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -39,6 +132,12 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
+    revisions: Mapped[list[SourceRevision]] = relationship(
+        back_populates="source",
+        cascade="all, delete-orphan",
+        order_by="SourceRevision.revision_number",
+    )
+
     @staticmethod
     def official_type_values() -> tuple[str, ...]:
         return (
@@ -50,3 +149,104 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             SourceType.MARKING_SCHEME.value,
             SourceType.SAMPLE_PAPER.value,
         )
+
+
+class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "source_revisions"
+    __table_args__ = (
+        UniqueConstraint("source_id", "revision_number", name="uq_source_revision_number"),
+        UniqueConstraint("source_id", "checksum", name="uq_source_revision_checksum"),
+    )
+
+    source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    ingestion_method: Mapped[str] = mapped_column(
+        String(32),
+        default=SourceIngestionMethod.MANUAL.value,
+        nullable=False,
+        index=True,
+    )
+    checksum: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_path: Mapped[str | None] = mapped_column(Text)
+    original_filename: Mapped[str | None] = mapped_column(String(512))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    extraction_status: Mapped[str] = mapped_column(
+        String(32),
+        default=SourceExtractionStatus.PENDING.value,
+        nullable=False,
+        index=True,
+    )
+    extracted_text: Mapped[str | None] = mapped_column(Text)
+    extraction_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default=SourceRevisionStatus.STAGED.value,
+        nullable=False,
+        index=True,
+    )
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    approved_by: Mapped[str | None] = mapped_column(String(255))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    anythingllm_document_id: Mapped[str | None] = mapped_column(String(255))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+    source: Mapped[Source] = relationship(back_populates="revisions")
+    curriculum_versions: Mapped[list[CurriculumVersion]] = relationship(
+        secondary=curriculum_version_source_revisions
+    )
+    exam_versions: Mapped[list[ExamVersion]] = relationship(
+        secondary=exam_version_source_revisions
+    )
+    questions: Mapped[list[Question]] = relationship(secondary=question_source_revisions)
+    policy_rules: Mapped[list[PolicyRule]] = relationship(secondary=policy_rule_source_revisions)
+
+
+class SourceDiff(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "source_diffs"
+    __table_args__ = (
+        UniqueConstraint(
+            "from_revision_id",
+            "to_revision_id",
+            name="uq_source_diff_revision_pair",
+        ),
+    )
+
+    source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    from_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="CASCADE"), index=True
+    )
+    to_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="CASCADE"), index=True
+    )
+    checksum_changed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    metadata_changes_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    content_diff_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+
+
+class SourceAuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "source_audit_events"
+
+    source_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="CASCADE"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    request_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
