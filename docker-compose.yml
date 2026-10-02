@@ -3,13 +3,13 @@ services:
     build:
       context: ./backend
     environment:
-      APP_ENV: ${APP_ENV:-local}
-      DATABASE_URL: sqlite:////app/data/eduvijna.db
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
-      ANYTHINGLLM_BASE_URL: ${ANYTHINGLLM_BASE_URL:-}
-      ANYTHINGLLM_API_KEY: ${ANYTHINGLLM_API_KEY:-}
-      API_SECRET_KEY: ${API_SECRET_KEY:-local-development-only}
-      MCP_API_KEY: ${MCP_API_KEY:-}
+      - APP_ENV
+      - ANYTHINGLLM_BASE_URL
+      - ANYTHINGLLM_API_KEY
+      - API_SECRET_KEY
+      - MCP_API_KEY
+      - CORS_ORIGINS
+      - DATABASE_URL=sqlite:////app/data/eduvijna.db
     volumes:
       - eduvijna_sqlite:/app/data
     ports:
