@@ -78,7 +78,7 @@ jobs:
         run: docker compose --env-file .env.development config
       - name: Start local stack
         run: |
-          ANYTHINGLLM_API_KEY=ci-shell-override \
+          export ANYTHINGLLM_API_KEY=ci-shell-override
           docker compose --env-file .env.development up --build -d
       - name: Wait for backend
         run: |
@@ -142,7 +142,7 @@ jobs:
       - name: Restart persistence smoke
         run: |
           docker compose --env-file .env.development down
-          ANYTHINGLLM_API_KEY=ci-shell-override \
+          export ANYTHINGLLM_API_KEY=ci-shell-override
           docker compose --env-file .env.development up -d
           for i in {1..30}; do
             if curl --fail --silent http://127.0.0.1:8000/ready >/dev/null; then
