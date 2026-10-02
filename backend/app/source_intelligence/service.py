@@ -206,6 +206,35 @@ class SourceIntelligenceService:
         self._pending_log_events.clear()
         self.session.rollback()
 
+    def _record_ingestion_failure(
+        self,
+        *,
+        source: Source,
+        method: SourceIngestionMethod,
+        error: Exception,
+        actor_id: str | None,
+        request_id: str | None,
+    ) -> None:
+        self._rollback()
+        self._audit(
+            source=source,
+            revision=None,
+            event_type="source_ingestion_failed",
+            outcome="failed",
+            actor_id=actor_id,
+            request_id=request_id,
+            payload={
+                "ingestion_method": method.value,
+                "error_type": type(error).__name__,
+                "reason": str(error)[:500],
+            },
+        )
+        try:
+            self._commit()
+        except Exception:
+            # Preserve the original ingestion error if audit persistence itself is unavailable.
+            self._rollback()
+
     def register_source(
         self,
         payload: SourceRegistrationInput,
@@ -372,18 +401,29 @@ class SourceIntelligenceService:
         actor_id: str | None = None,
         request_id: str | None = None,
     ) -> SourceRevision:
-        if method not in _UPLOAD_MIME:
-            raise ValueError("upload method must be pdf, docx, csv, or json")
-        content_type, default_filename = _UPLOAD_MIME[method]
-        return self._ingest_bytes(
-            source=self._source(source_id),
-            method=method,
-            content=content,
-            content_type=content_type,
-            filename=filename or default_filename,
-            actor_id=actor_id,
-            request_id=request_id,
-        )
+        source = self._source(source_id)
+        try:
+            if method not in _UPLOAD_MIME:
+                raise ValueError("upload method must be pdf, docx, csv, or json")
+            content_type, default_filename = _UPLOAD_MIME[method]
+            return self._ingest_bytes(
+                source=source,
+                method=method,
+                content=content,
+                content_type=content_type,
+                filename=filename or default_filename,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            self._record_ingestion_failure(
+                source=source,
+                method=method,
+                error=exc,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+            raise
 
     def ingest_url(
         self,
@@ -394,24 +434,34 @@ class SourceIntelligenceService:
         request_id: str | None = None,
     ) -> SourceRevision:
         source = self._source(source_id)
-        target_url = url or source.url
-        if not target_url:
-            raise ValueError("URL ingestion requires a source URL")
+        try:
+            target_url = url or source.url
+            if not target_url:
+                raise ValueError("URL ingestion requires a source URL")
 
-        fetched = self.fetcher.fetch(target_url)
-        return self._ingest_bytes(
-            source=source,
-            method=SourceIngestionMethod.URL,
-            content=fetched.content,
-            content_type=fetched.content_type,
-            filename=fetched.filename,
-            actor_id=actor_id,
-            request_id=request_id,
-            metadata={
-                "requested_url": target_url,
-                "final_url": fetched.final_url,
-            },
-        )
+            fetched = self.fetcher.fetch(target_url)
+            return self._ingest_bytes(
+                source=source,
+                method=SourceIngestionMethod.URL,
+                content=fetched.content,
+                content_type=fetched.content_type,
+                filename=fetched.filename,
+                actor_id=actor_id,
+                request_id=request_id,
+                metadata={
+                    "requested_url": target_url,
+                    "final_url": fetched.final_url,
+                },
+            )
+        except Exception as exc:
+            self._record_ingestion_failure(
+                source=source,
+                method=SourceIngestionMethod.URL,
+                error=exc,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+            raise
 
     def ingest_manual(
         self,
@@ -689,6 +739,19 @@ class SourceIntelligenceService:
             revision.status = SourceRevisionStatus.REJECTED.value
             revision.failure_reason = "; ".join(errors)
 
+        checksum_verified = checks["checksum_format"] and checks["storage_integrity"]
+        self._audit(
+            source=source,
+            revision=revision,
+            event_type="source_checksum_verified",
+            outcome="success" if checksum_verified else "failed",
+            actor_id=actor_id,
+            request_id=request_id,
+            payload={
+                "checksum_format": checks["checksum_format"],
+                "storage_integrity": checks["storage_integrity"],
+            },
+        )
         self._audit(
             source=source,
             revision=revision,
