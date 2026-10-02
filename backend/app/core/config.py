@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     mcp_api_key: str | None = None
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:5173"
+    source_storage_dir: str = "./data/private/sources"
+    source_max_bytes: int = Field(default=25 * 1024 * 1024, gt=0)
+    source_url_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    source_max_redirects: int = Field(default=3, ge=0, le=10)
 
     @model_validator(mode="after")
     def require_non_local_secret(self) -> Settings:
