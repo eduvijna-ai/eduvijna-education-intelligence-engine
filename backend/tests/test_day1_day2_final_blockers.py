@@ -18,10 +18,16 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.models import AdminActor, ApiClient, Institution, Learner, Organization, Teacher
-from app.models.enums import PaperMode, QuestionOrigin, QuestionType
-from app.models.enums import TestStatus as DomainTestStatus
-from app.schemas.domain import QuestionInput
-from app.schemas.domain import TestDefinitionInput as DomainTestDefinitionInput
+from app.models.enums import (
+    PaperMode,
+    QuestionOrigin,
+    QuestionType,
+    TestStatus as DomainTestStatus,
+)
+from app.schemas.domain import (
+    QuestionInput,
+    TestDefinitionInput as DomainTestDefinitionInput,
+)
 
 
 def _new_session(tmp_path: Path, name: str) -> Session:
