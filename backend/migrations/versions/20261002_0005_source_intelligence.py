@@ -113,9 +113,8 @@ def upgrade() -> None:
         sa.Column("summary", sa.Text(), nullable=True),
         *_timestamps(),
         sa.UniqueConstraint(
-            "from_revision_id",
             "to_revision_id",
-            name="uq_source_diff_revision_pair",
+            name="uq_source_diff_to_revision",
         ),
     )
     op.create_index("ix_source_diffs_source_id", "source_diffs", ["source_id"])
