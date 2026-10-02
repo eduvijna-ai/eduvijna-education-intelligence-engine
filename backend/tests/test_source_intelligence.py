@@ -3,8 +3,6 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
-from uuid import uuid4
-
 import httpx
 import pytest
 from docx import Document
@@ -26,7 +24,6 @@ from app.models import (
     PolicyRule,
     Question,
     SourceAuditEvent,
-    SourceDiff,
     SourceRevision,
 )
 from app.models.enums import (
