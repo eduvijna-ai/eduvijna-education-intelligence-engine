@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -157,6 +158,11 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("source_id", "revision_number", name="uq_source_revision_number"),
         UniqueConstraint("source_id", "checksum", name="uq_source_revision_checksum"),
+        UniqueConstraint("source_id", "active_slot", name="uq_source_single_active_revision"),
+        CheckConstraint(
+            "active_slot IS NULL OR (active_slot = 1 AND status = 'active')",
+            name="ck_source_revision_active_slot",
+        ),
     )
 
     source_id: Mapped[str] = mapped_column(
@@ -191,6 +197,7 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    active_slot: Mapped[int | None] = mapped_column(Integer)
     failure_reason: Mapped[str | None] = mapped_column(Text)
     approved_by: Mapped[str | None] = mapped_column(String(255))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
