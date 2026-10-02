@@ -232,15 +232,27 @@ def test_upload_ingestion_extracts_supported_formats(
         create_database_engine.cache_clear()
 
 
-def test_corrupt_pdf_has_explicit_failed_state_and_can_retry(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("method", "filename", "error_code"),
+    [
+        (SourceIngestionMethod.PDF, "broken.pdf", "corrupt_pdf"),
+        (SourceIngestionMethod.DOCX, "broken.docx", "corrupt_docx"),
+    ],
+)
+def test_corrupt_documents_have_explicit_failed_state_and_can_retry(
+    tmp_path: Path,
+    method: SourceIngestionMethod,
+    filename: str,
+    error_code: str,
+) -> None:
     session, service = _session_and_service(tmp_path)
     try:
         source = _official_source(service)
         revision = service.ingest_upload(
             source.id,
-            method=SourceIngestionMethod.PDF,
-            content=b"not a pdf",
-            filename="broken.pdf",
+            method=method,
+            content=b"not a valid document",
+            filename=filename,
         )
         with pytest.raises(SourceExtractionError):
             service.extract_revision(revision.id)
@@ -248,7 +260,7 @@ def test_corrupt_pdf_has_explicit_failed_state_and_can_retry(tmp_path: Path) -> 
         session.refresh(revision)
         assert revision.status == SourceRevisionStatus.FAILED.value
         assert revision.failure_reason
-        assert "corrupt_pdf" in revision.failure_reason
+        assert error_code in revision.failure_reason
 
         retried = service.retry_revision(revision.id, actor_id="founder")
         assert retried.status == SourceRevisionStatus.STAGED.value
@@ -316,6 +328,97 @@ def test_url_ingestion_with_mocked_http(tmp_path: Path) -> None:
         assert revision.metadata_json["final_url"] == "https://official.example/syllabus.json"
         extracted = service.extract_revision(revision.id)
         assert '"version": 1' in (extracted.extracted_text or "")
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_url_network_failure_is_audited_and_retryable(tmp_path: Path) -> None:
+    def failing_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("synthetic connection failure", request=request)
+
+    failing_fetcher = SourceUrlFetcher(
+        timeout_seconds=1,
+        max_bytes=4096,
+        max_redirects=1,
+        resolver=_public_resolver,
+        transport=httpx.MockTransport(failing_handler),
+    )
+    session, service = _session_and_service(tmp_path, fetcher=failing_fetcher)
+    try:
+        source = _official_source(
+            service,
+            url="https://official.example/source.json",
+        )
+        with pytest.raises(SourceFetchError):
+            service.ingest_url(
+                source.id,
+                actor_id="founder",
+                request_id="req-failed-fetch",
+            )
+
+        failed_event = session.scalar(
+            select(SourceAuditEvent).where(
+                SourceAuditEvent.source_id == source.id,
+                SourceAuditEvent.event_type == "source_ingestion_failed",
+            )
+        )
+        assert failed_event is not None
+        assert failed_event.outcome == "failed"
+        assert failed_event.payload_json["ingestion_method"] == SourceIngestionMethod.URL.value
+        assert failed_event.payload_json["error_type"] == "SourceFetchError"
+        assert "source URL retrieval failed" in failed_event.payload_json["reason"]
+
+        service.fetcher = SourceUrlFetcher(
+            timeout_seconds=1,
+            max_bytes=4096,
+            max_redirects=1,
+            resolver=_public_resolver,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    request=request,
+                    headers={"content-type": "application/json"},
+                    content=b'{"retry":"succeeded"}',
+                )
+            ),
+        )
+        revision = service.ingest_url(source.id, actor_id="founder")
+        assert revision.status == SourceRevisionStatus.STAGED.value
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_unsupported_url_content_has_explicit_failed_revision_state(tmp_path: Path) -> None:
+    fetcher = SourceUrlFetcher(
+        timeout_seconds=1,
+        max_bytes=4096,
+        max_redirects=1,
+        resolver=_public_resolver,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                request=request,
+                headers={"content-type": "application/zip"},
+                content=b"PK synthetic unsupported content",
+            )
+        ),
+    )
+    session, service = _session_and_service(tmp_path, fetcher=fetcher)
+    try:
+        source = _official_source(
+            service,
+            url="https://official.example/source.zip",
+        )
+        revision = service.ingest_url(source.id)
+        with pytest.raises(SourceExtractionError, match="unsupported source content type"):
+            service.extract_revision(revision.id)
+
+        session.refresh(revision)
+        assert revision.status == SourceRevisionStatus.FAILED.value
+        assert revision.failure_reason
+        assert "unsupported_source_format" in revision.failure_reason
     finally:
         session.close()
         create_database_engine.cache_clear()
@@ -673,6 +776,7 @@ def test_audit_events_cover_lifecycle_without_storing_document_content(tmp_path:
             "source_ingested",
             "source_extracted",
             "source_diff_created",
+            "source_checksum_verified",
             "source_validated",
             "source_approved",
             "source_activated",
