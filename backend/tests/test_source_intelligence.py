@@ -45,6 +45,7 @@ from app.source_intelligence.security import (
     SourceFetchError,
     SourceUrlFetcher,
     UnsafeSourceUrl,
+    validate_connected_peer,
     validate_source_url,
 )
 from app.source_intelligence.service import (
@@ -464,6 +465,31 @@ def test_url_security_blocks_unsafe_targets_redirects_and_size() -> None:
     )
     with pytest.raises(SourceFetchError, match="size limit"):
         size_fetcher.fetch("https://official.example/source")
+
+
+class _SyntheticNetworkStream:
+    def __init__(self, address: str) -> None:
+        self.address = address
+
+    def get_extra_info(self, name: str) -> object | None:
+        if name == "server_addr":
+            return (self.address, 443)
+        return None
+
+
+def test_connected_peer_validation_blocks_dns_rebinding_target() -> None:
+    private_response = httpx.Response(
+        200,
+        extensions={"network_stream": _SyntheticNetworkStream("127.0.0.1")},
+    )
+    with pytest.raises(UnsafeSourceUrl, match="non-public address"):
+        validate_connected_peer(private_response)
+
+    public_response = httpx.Response(
+        200,
+        extensions={"network_stream": _SyntheticNetworkStream(PUBLIC_IP)},
+    )
+    validate_connected_peer(public_response)
 
 
 def test_no_silent_update_and_pattern_drift_activation_flow(tmp_path: Path) -> None:
