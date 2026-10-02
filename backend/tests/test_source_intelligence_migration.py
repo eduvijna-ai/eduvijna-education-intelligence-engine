@@ -14,7 +14,11 @@ from sqlalchemy.schema import CreateTable
 from app.models import SourceAuditEvent, SourceDiff, SourceRevision
 
 
-def _run_alembic(database_path: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run_alembic(
+    database_path: Path,
+    *args: str,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
     backend_root = Path(__file__).resolve().parents[1]
     environment = os.environ.copy()
     environment["DATABASE_URL"] = f"sqlite:///{database_path}"
