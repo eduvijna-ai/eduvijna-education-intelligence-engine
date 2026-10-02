@@ -17,7 +17,7 @@ from app.models.question import (
     TestDefinition,
     TestQuestion,
 )
-from app.models.source import Source
+from app.models.source import Source, SourceAuditEvent, SourceDiff, SourceRevision
 from app.models.system_setting import SystemSetting
 from app.models.tenancy import AdminActor, ApiClient, Institution, Learner, Organization, Teacher
 
@@ -44,6 +44,9 @@ __all__ = [
     "QuestionAsset",
     "QuestionOption",
     "Source",
+    "SourceAuditEvent",
+    "SourceDiff",
+    "SourceRevision",
     "SystemSetting",
     "Teacher",
     "TestDefinition",

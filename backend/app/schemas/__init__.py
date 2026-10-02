@@ -43,3 +43,21 @@ __all__ = [
     "SourceInput",
     "TestDefinitionInput",
 ]
+
+from app.schemas.source_intelligence import (
+    ManualSourceRevisionInput,
+    SourceDiffSummary,
+    SourceProvenanceLinkInput,
+    SourceRegistrationInput,
+    SourceRevisionSummary,
+    SourceValidationResult,
+)
+
+__all__ += [
+    "ManualSourceRevisionInput",
+    "SourceDiffSummary",
+    "SourceProvenanceLinkInput",
+    "SourceRegistrationInput",
+    "SourceRevisionSummary",
+    "SourceValidationResult",
+]

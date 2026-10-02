@@ -31,6 +31,8 @@ jobs:
         run: pytest
       - name: Verify canonical domain sample
         run: python -m app.domain_verify
+      - name: Verify Source Intelligence sample
+        run: python -m app.source_verify
       - name: Migration round-trip
         run: |
           mkdir -p data
@@ -102,6 +104,7 @@ jobs:
         run: |
           make lint
           make test
+          make source-verify
       - name: Verify API frontend and development env
         run: |
           curl --fail --silent http://127.0.0.1:8000/health
@@ -114,6 +117,8 @@ jobs:
           assert settings.anythingllm_base_url == "http://anythingllm.example"
           assert settings.anythingllm_api_key == "ci-dummy-anything-key"
           assert settings.mcp_api_key == "ci-dummy-mcp-key"
+          assert settings.source_storage_dir == "./data/private/sources"
+          assert settings.source_max_bytes == 26214400
           PY
           docker compose --env-file .env.development run --rm \
             -e ANYTHINGLLM_API_KEY=ci-process-override \
