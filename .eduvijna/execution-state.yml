@@ -29,7 +29,7 @@ days:
     depends_on: 1
   3:
     name: Source Intelligence
-    state: ACTIVE
+    state: FOUNDER_REVIEW
     founder_approval: false
     depends_on: 2
   4:
