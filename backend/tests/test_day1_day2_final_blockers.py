@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,8 +18,8 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.models import AdminActor, ApiClient, Institution, Learner, Organization, Teacher
-from app.models.enums import PaperMode, QuestionOrigin, QuestionType, TestStatus
-from app.schemas.domain import QuestionInput, TestDefinitionInput
+from app.models.enums import PaperMode, QuestionOrigin, QuestionType, TestStatus as DomainTestStatus
+from app.schemas.domain import QuestionInput, TestDefinitionInput as DomainTestDefinitionInput
 
 
 def _new_session(tmp_path: Path, name: str) -> Session:
@@ -176,10 +176,10 @@ def test_rubric_and_paper_blueprint_are_structurally_validated() -> None:
             },
         )
 
-    test = TestDefinitionInput(
+    test = DomainTestDefinitionInput(
         code="paper-x",
         title="Paper X",
-        status=TestStatus.DRAFT,
+        status=DomainTestStatus.DRAFT,
         blueprint_json={
             "mode": PaperMode.CUSTOM,
             "total_question_count": 10,
@@ -201,7 +201,7 @@ def test_rubric_and_paper_blueprint_are_structurally_validated() -> None:
     assert test.blueprint_json.sections[0].exact_count == 10
 
     with pytest.raises(ValidationError):
-        TestDefinitionInput(
+        DomainTestDefinitionInput(
             code="invalid-paper",
             title="Invalid",
             blueprint_json={
@@ -216,11 +216,18 @@ def test_rubric_and_paper_blueprint_are_structurally_validated() -> None:
         )
 
 
-def _alembic_config() -> Config:
+def _run_alembic(database_path: Path, *args: str) -> None:
     backend_root = Path(__file__).resolve().parents[1]
-    config = Config(str(backend_root / "alembic.ini"))
-    config.set_main_option("script_location", str(backend_root / "migrations"))
-    return config
+    environment = os.environ.copy()
+    environment["DATABASE_URL"] = f"sqlite:///{database_path}"
+    subprocess.run(
+        ["alembic", "-c", str(backend_root / "alembic.ini"), *args],
+        cwd=backend_root,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def _insert_pre_gap_question_graph(database_path: Path) -> dict[str, str]:
@@ -415,16 +422,15 @@ def test_populated_sqlite_migration_preserves_question_children(
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path}")
     get_settings.cache_clear()
     create_database_engine.cache_clear()
-    config = _alembic_config()
 
-    command.upgrade(config, "20261001_0002")
+    _run_alembic(database_path, "upgrade", "20261001_0002")
     ids = _insert_pre_gap_question_graph(database_path)
 
-    command.upgrade(config, "head")
+    _run_alembic(database_path, "upgrade", "head")
     _assert_question_graph_survives(database_path, ids)
 
-    command.downgrade(config, "20261001_0002")
+    _run_alembic(database_path, "downgrade", "20261001_0002")
     _assert_question_graph_survives(database_path, ids)
 
-    command.upgrade(config, "head")
+    _run_alembic(database_path, "upgrade", "head")
     _assert_question_graph_survives(database_path, ids)
