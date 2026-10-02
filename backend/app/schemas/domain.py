@@ -363,7 +363,11 @@ class PaperSectionBlueprintInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_counts(self) -> PaperSectionBlueprintInput:
-        if self.min_count is not None and self.max_count is not None and self.min_count > self.max_count:
+        if (
+            self.min_count is not None
+            and self.max_count is not None
+            and self.min_count > self.max_count
+        ):
             raise ValueError("section min_count cannot exceed max_count")
         if self.exact_count is not None:
             if self.min_count is not None and self.exact_count < self.min_count:
