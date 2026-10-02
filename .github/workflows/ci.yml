@@ -177,3 +177,24 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose --env-file .env.development down
+
+
+  source-handoff:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package exact source snapshot
+        run: |
+          mkdir -p handoff
+          archive="handoff/eduvijna-source-${GITHUB_SHA}.zip"
+          git archive --format=zip --output="${archive}" HEAD
+          sha256sum "${archive}" > "${archive}.sha256"
+          printf '%s\n' "${GITHUB_SHA}" > handoff/COMMIT_SHA.txt
+      - name: Upload source handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-handoff-${{ github.sha }}
+          path: handoff/
+          if-no-files-found: error
+          retention-days: 30
