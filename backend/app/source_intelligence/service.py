@@ -127,6 +127,7 @@ class SourceIntelligenceService:
             max_redirects=settings.source_max_redirects,
         )
         self.max_bytes = settings.source_max_bytes
+        self._pending_log_events: list[dict[str, Any]] = []
 
     def _source(self, source_id: str) -> Source:
         source = self.session.get(Source, source_id)
@@ -179,19 +180,31 @@ class SourceIntelligenceService:
             payload_json=payload or {},
         )
         self.session.add(event)
-        logger.info(
-            json.dumps(
-                {
-                    "event": "source_intelligence",
-                    "source_event": event_type,
-                    "source_id": source.id,
-                    "source_revision_id": revision.id if revision is not None else None,
-                    "request_id": request_id,
-                    "outcome": outcome,
-                },
-                separators=(",", ":"),
-            )
+        self._pending_log_events.append(
+            {
+                "event": "source_intelligence",
+                "source_event": event_type,
+                "source_id": source.id,
+                "source_revision_id": revision.id if revision is not None else None,
+                "request_id": request_id,
+                "outcome": outcome,
+            }
         )
+
+    def _commit(self) -> None:
+        pending = list(self._pending_log_events)
+        try:
+            self.session.commit()
+        except Exception:
+            self._pending_log_events.clear()
+            raise
+        self._pending_log_events.clear()
+        for entry in pending:
+            logger.info(json.dumps(entry, separators=(",", ":")))
+
+    def _rollback(self) -> None:
+        self._pending_log_events.clear()
+        self.session.rollback()
 
     def register_source(
         self,
@@ -233,7 +246,7 @@ class SourceIntelligenceService:
             actor_id=actor_id,
             request_id=request_id,
         )
-        self.session.commit()
+        self._commit()
         return source
 
     def _next_revision_number(self, source_id: str) -> int:
@@ -268,7 +281,7 @@ class SourceIntelligenceService:
                 request_id=request_id,
                 payload={"checksum": checksum},
             )
-            self.session.commit()
+            self._commit()
         return revision
 
     def _ingest_bytes(
@@ -341,10 +354,10 @@ class SourceIntelligenceService:
                     "byte_size": len(content),
                 },
             )
-            self.session.commit()
+            self._commit()
             return revision
         except Exception:
-            self.session.rollback()
+            self._rollback()
             if stored_path is not None:
                 self.storage.delete(stored_path)
             raise
@@ -456,7 +469,7 @@ class SourceIntelligenceService:
             actor_id=actor_id,
             request_id=request_id,
         )
-        self.session.commit()
+        self._commit()
         return revision
 
     def extract_revision(
@@ -493,7 +506,7 @@ class SourceIntelligenceService:
                 request_id=request_id,
                 payload={"error_code": exc.code},
             )
-            self.session.commit()
+            self._commit()
             raise
 
         revision.extraction_status = SourceExtractionStatus.SUCCEEDED.value
@@ -510,7 +523,7 @@ class SourceIntelligenceService:
             request_id=request_id,
             payload={"text_length": len(result.text)},
         )
-        self.session.commit()
+        self._commit()
         return revision
 
     def create_diff(
@@ -621,7 +634,7 @@ class SourceIntelligenceService:
             request_id=request_id,
             payload={"pattern_drift_candidate": pattern_drift},
         )
-        self.session.commit()
+        self._commit()
         return diff
 
     def validate_revision(
@@ -685,7 +698,7 @@ class SourceIntelligenceService:
             request_id=request_id,
             payload={"checks": checks, "errors": errors},
         )
-        self.session.commit()
+        self._commit()
         return SourceValidationResult(valid=valid, checks=checks, errors=errors)
 
     def approve_revision(
@@ -709,7 +722,7 @@ class SourceIntelligenceService:
             actor_id=actor_id,
             request_id=request_id,
         )
-        self.session.commit()
+        self._commit()
         return revision
 
     def activate_revision(
@@ -772,10 +785,10 @@ class SourceIntelligenceService:
                 actor_id=actor_id,
                 request_id=request_id,
             )
-            self.session.commit()
+            self._commit()
             return revision
         except Exception:
-            self.session.rollback()
+            self._rollback()
             raise
 
     def reject_revision(
@@ -804,7 +817,7 @@ class SourceIntelligenceService:
             request_id=request_id,
             payload={"reason": reason[:500]},
         )
-        self.session.commit()
+        self._commit()
         return revision
 
     def retry_revision(
@@ -839,7 +852,7 @@ class SourceIntelligenceService:
             actor_id=actor_id,
             request_id=request_id,
         )
-        self.session.commit()
+        self._commit()
         return revision
 
     def link_provenance(
@@ -902,5 +915,5 @@ class SourceIntelligenceService:
             request_id=request_id,
             payload={"target_type": target_type, "target_id": target.id},
         )
-        self.session.commit()
+        self._commit()
         return revision
