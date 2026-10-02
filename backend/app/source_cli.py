@@ -247,10 +247,13 @@ def main() -> None:
         elif args.command == "inspect":
             inspected_source = session.get(Source, args.id)
             if inspected_source is None:
-                inspected_revision = session.get(SourceRevision, args.id)
-                if inspected_revision is None:
+                candidate_revision: SourceRevision | None = session.get(
+                    SourceRevision,
+                    args.id,
+                )
+                if candidate_revision is None:
                     raise SystemExit("source or revision not found")
-                inspected_source = inspected_revision.source
+                inspected_source = candidate_revision.source
             _print_source(inspected_source, session)
     finally:
         session.close()
