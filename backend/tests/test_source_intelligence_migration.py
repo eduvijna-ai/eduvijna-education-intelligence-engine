@@ -44,10 +44,10 @@ def _seed_day2_records(database_path: Path) -> dict[str, str]:
     try:
         connection.execute(
             """
-            INSERT INTO system_settings (id, key, value, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO system_settings (id, key, value, created_at)
+            VALUES (?, ?, ?, ?)
             """,
-            (ids["setting"], "day3.migration.seed", "preserve", now, now),
+            (ids["setting"], "day3.migration.seed", "preserve", now),
         )
         connection.execute(
             """
