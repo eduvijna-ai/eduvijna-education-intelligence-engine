@@ -592,6 +592,12 @@ class SourceIntelligenceService:
         }:
             raise SourceLifecycleError("revision must be extracted before diffing")
 
+        if revision.status in {
+            SourceRevisionStatus.ACTIVE.value,
+            SourceRevisionStatus.SUPERSEDED.value,
+        }:
+            raise SourceLifecycleError("active or superseded revisions cannot be re-diffed")
+
         previous = self.session.scalar(
             select(SourceRevision)
             .where(
@@ -601,15 +607,25 @@ class SourceIntelligenceService:
             )
             .order_by(SourceRevision.revision_number.desc())
         )
+        previous_id = previous.id if previous else None
 
         existing = self.session.scalar(
-            select(SourceDiff).where(
-                SourceDiff.from_revision_id == (previous.id if previous else None),
-                SourceDiff.to_revision_id == revision.id,
-            )
+            select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
         )
-        if existing is not None:
+        refreshing = existing is not None and existing.from_revision_id != previous_id
+        if existing is not None and not refreshing:
             return existing
+
+        if refreshing:
+            self.session.delete(existing)
+            self.session.flush()
+            if revision.status in {
+                SourceRevisionStatus.VALIDATED.value,
+                SourceRevisionStatus.APPROVED.value,
+            }:
+                revision.status = SourceRevisionStatus.EXTRACTED.value
+                revision.approved_by = None
+                revision.approved_at = None
 
         old_lines = (previous.extracted_text or "").splitlines() if previous else []
         new_lines = (revision.extracted_text or "").splitlines()
@@ -652,7 +668,7 @@ class SourceIntelligenceService:
         )
         diff = SourceDiff(
             source_id=source.id,
-            from_revision_id=previous.id if previous else None,
+            from_revision_id=previous_id,
             to_revision_id=revision.id,
             checksum_changed=checksum_changed,
             metadata_changes_json=metadata_changes,
@@ -678,11 +694,14 @@ class SourceIntelligenceService:
         self._audit(
             source=source,
             revision=revision,
-            event_type="source_diff_created",
+            event_type="source_diff_refreshed" if refreshing else "source_diff_created",
             outcome="review_required" if pattern_drift else "success",
             actor_id=actor_id,
             request_id=request_id,
-            payload={"pattern_drift_candidate": pattern_drift},
+            payload={
+                "pattern_drift_candidate": pattern_drift,
+                "based_on_active_revision_id": previous_id,
+            },
         )
         self._commit()
         return diff
@@ -722,10 +741,24 @@ class SourceIntelligenceService:
                 revision.ingestion_method == SourceIngestionMethod.MANUAL.value
             )
 
-        diff_exists = self.session.scalar(
-            select(SourceDiff.id).where(SourceDiff.to_revision_id == revision.id)
+        source_diff = self.session.scalar(
+            select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
         )
-        checks["diff_created"] = diff_exists is not None
+        current_active = self.session.scalar(
+            select(SourceRevision)
+            .where(
+                SourceRevision.source_id == source.id,
+                SourceRevision.id != revision.id,
+                SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
+            )
+            .order_by(SourceRevision.revision_number.desc())
+        )
+        current_active_id = current_active.id if current_active else None
+        checks["diff_created"] = source_diff is not None
+        checks["diff_current"] = (
+            source_diff is not None
+            and source_diff.from_revision_id == current_active_id
+        )
 
         for check_name, passed in checks.items():
             if not passed:
@@ -814,6 +847,17 @@ class SourceIntelligenceService:
                     .with_for_update()
                 )
             )
+            current_active_id = active_revisions[0].id if active_revisions else None
+            source_diff = self.session.scalar(
+                select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
+            )
+            if source_diff is None:
+                raise SourceLifecycleError("approved revision does not have a source diff")
+            if source_diff.from_revision_id != current_active_id:
+                raise SourceLifecycleError(
+                    "candidate diff is stale; refresh diff, validate, and approve again"
+                )
+
             for active in active_revisions:
                 active.status = SourceRevisionStatus.SUPERSEDED.value
                 active.active_slot = None
