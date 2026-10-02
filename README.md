@@ -62,9 +62,10 @@ API_SECRET_KEY=
 MCP_API_KEY=
 ```
 
-Native Pydantic settings and Docker Compose both consume the development file. Real process
-environment variables take precedence over file values. Docker keeps its container-specific
-SQLite path while still receiving Founder-supplied API/AnythingLLM/MCP credentials.
+Native Pydantic settings and the documented Docker Compose commands consume the development
+file. Real process environment variables take precedence over file values. Docker keeps its
+container-specific SQLite path while receiving Founder-supplied API/AnythingLLM/MCP credentials
+only in the backend container. The frontend container receives only VITE_API_BASE_URL.
 
 Then start the stack with:
 

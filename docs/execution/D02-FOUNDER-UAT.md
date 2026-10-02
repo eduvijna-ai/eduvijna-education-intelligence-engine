@@ -9,7 +9,8 @@ Day 3 remains locked until both days are explicitly approved.
 ## 1. Start the local stack
 
 ```bash
-docker compose up --build -d
+make env
+make dev
 ```
 
 Expected: backend and frontend become healthy.
@@ -139,10 +140,11 @@ docker compose exec backend alembic current
 Expected:
 
 ```text
-20261001_0002
+20261002_0004
 ```
 
-Verify D02 -> D01 -> D02 explicitly:
+Automated CI verifies the full migration chain and populated-data preservation. For a disposable
+local UAT database only, verify head -> D01 -> head explicitly:
 
 ```bash
 docker compose exec backend alembic downgrade 20261001_0001
@@ -157,13 +159,18 @@ The automated suite verifies:
 
 - SQLite foreign keys are enabled;
 - orphan FK rows are rejected;
+- learners cannot reference a primary teacher from another institution;
+- Admin/API-client institution references cannot cross organization boundaries;
 - concept prerequisite edges persist correctly;
 - concept self-reference/duplicates are rejected where applicable;
 - curriculum root codes are unique per version;
 - sibling codes are unique within version/parent scope regardless of node type;
 - curriculum parents cannot cross CurriculumVersion boundaries;
 - exam exact counts cannot contradict persisted min/max ranges;
-- PostgreSQL dialect compilation succeeds without PostgreSQL-only canonical types.
+- PostgreSQL dialect compilation succeeds without PostgreSQL-only canonical types;
+- populated question options/assets/provenance/test membership survive migration upgrade/downgrade/re-upgrade;
+- canonical question context/provenance, rubric and paper-blueprint schemas reject malformed inputs;
+- backend credentials are not injected into the frontend container.
 
 ## 9. Confirm scope discipline
 

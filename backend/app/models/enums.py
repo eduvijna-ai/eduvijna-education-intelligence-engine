@@ -118,6 +118,11 @@ class TestStatus(StrEnum):
     RETIRED = "retired"
 
 
+class PaperMode(StrEnum):
+    CUSTOM = "custom"
+    REPLICA = "replica"
+
+
 class PolicyScopeType(StrEnum):
     COUNTRY = "country"
     BOARD = "board"

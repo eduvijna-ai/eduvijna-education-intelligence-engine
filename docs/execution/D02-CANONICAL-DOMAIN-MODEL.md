@@ -465,6 +465,12 @@ Support many-to-many associations for:
 - prerequisite concepts;
 - source/provenance.
 
+The canonical Pydantic question contract must explicitly carry curriculum version, exam version,
+primary curriculum node, competency, learning-outcome, prerequisite-concept and source/provenance
+identifiers. Unknown top-level question-context fields must be rejected rather than silently ignored.
+
+Rubric metadata must use a typed criterion/marks contract rather than unrestricted JSON.
+
 ## Test / paper model
 
 Create a canonical test/paper record sufficient for later generation and execution layers.
@@ -480,6 +486,10 @@ Minimum concepts:
 - blueprint_json;
 - status;
 - metadata.
+
+The blueprint payload must be structurally validated for custom/replica mode, sections,
+exact/range counts and topic/difficulty/cognitive/competency distributions instead of accepting
+an arbitrary dictionary.
 
 ### TestQuestion
 
@@ -557,7 +567,9 @@ The migration must:
 - downgrade cleanly back to D01;
 - upgrade again successfully.
 
-SQLite foreign-key-safe downgrade ordering is required.
+SQLite foreign-key-safe upgrade and downgrade behavior is required. Batch table recreation must
+not cascade-delete existing question options, assets, provenance links, test membership or other
+dependent rows. A populated-database migration regression is mandatory.
 
 ## Tests
 
@@ -659,8 +671,11 @@ D02 is ready for Founder review only when:
 - [ ] TestDefinition/TestQuestion exists;
 - [ ] policy records/precedence fields and deterministic hard-rule resolution exist;
 - [ ] CurriculumVersion/ExamVersion/Question/Policy source provenance is supported;
-- [ ] Organization/Institution/Teacher/Learner/Admin/API-client ownership models exist with enforced foreign keys;
-- [ ] age/grade applicability and rubric metadata are represented in the canonical question contract;
+- [ ] Organization/Institution/Teacher/Learner/Admin/API-client ownership models exist with enforced foreign keys and cross-tenant ownership consistency;
+- [ ] age/grade applicability and a typed rubric contract are represented in the canonical question contract;
+- [ ] canonical question context/provenance identifiers survive validation/serialization;
+- [ ] paper blueprint custom/replica, section and distribution structures validate;
+- [ ] populated SQLite migrations preserve dependent question data and pass foreign_key_check;
 - [ ] Pydantic validation tests pass;
 - [ ] SQLite persistence tests pass;
 - [ ] PostgreSQL dialect compilation test passes;
