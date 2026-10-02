@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    Column,
     Date,
     DateTime,
     ForeignKey,
@@ -38,13 +39,13 @@ if TYPE_CHECKING:
 curriculum_version_source_revisions = Table(
     "curriculum_version_source_revisions",
     Base.metadata,
-    mapped_column(
+    Column(
         "curriculum_version_id",
         String(36),
         ForeignKey("curriculum_versions.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    mapped_column(
+    Column(
         "source_revision_id",
         String(36),
         ForeignKey("source_revisions.id", ondelete="CASCADE"),
@@ -55,13 +56,13 @@ curriculum_version_source_revisions = Table(
 exam_version_source_revisions = Table(
     "exam_version_source_revisions",
     Base.metadata,
-    mapped_column(
+    Column(
         "exam_version_id",
         String(36),
         ForeignKey("exam_versions.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    mapped_column(
+    Column(
         "source_revision_id",
         String(36),
         ForeignKey("source_revisions.id", ondelete="CASCADE"),
@@ -72,13 +73,13 @@ exam_version_source_revisions = Table(
 question_source_revisions = Table(
     "question_source_revisions",
     Base.metadata,
-    mapped_column(
+    Column(
         "question_id",
         String(36),
         ForeignKey("questions.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    mapped_column(
+    Column(
         "source_revision_id",
         String(36),
         ForeignKey("source_revisions.id", ondelete="CASCADE"),
@@ -89,13 +90,13 @@ question_source_revisions = Table(
 policy_rule_source_revisions = Table(
     "policy_rule_source_revisions",
     Base.metadata,
-    mapped_column(
+    Column(
         "policy_rule_id",
         String(36),
         ForeignKey("policy_rules.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    mapped_column(
+    Column(
         "source_revision_id",
         String(36),
         ForeignKey("source_revisions.id", ondelete="CASCADE"),
