@@ -570,6 +570,74 @@ def test_failed_activation_rolls_back_without_false_success_log(
         create_database_engine.cache_clear()
 
 
+def test_conflicting_candidate_activation_requires_rediff_and_reapproval(
+    tmp_path: Path,
+) -> None:
+    session, service = _session_and_service(tmp_path)
+    try:
+        source = _official_source(service)
+        first = service.ingest_manual(
+            source.id,
+            ManualSourceRevisionInput(metadata={"version": 1}),
+        )
+        first = _extract_diff_validate_approve_activate(service, first)
+
+        second = service.ingest_manual(
+            source.id,
+            ManualSourceRevisionInput(metadata={"version": 2}),
+        )
+        service.create_diff(second.id)
+        assert service.validate_revision(second.id).valid
+        service.approve_revision(second.id, actor_id="founder")
+
+        third = service.ingest_manual(
+            source.id,
+            ManualSourceRevisionInput(metadata={"version": 3}),
+        )
+        third_diff = service.create_diff(third.id)
+        assert third_diff.from_revision_id == first.id
+        assert service.validate_revision(third.id).valid
+        service.approve_revision(third.id, actor_id="founder")
+
+        service.activate_revision(second.id, actor_id="founder")
+
+        with pytest.raises(SourceLifecycleError, match="candidate diff is stale"):
+            service.activate_revision(third.id, actor_id="founder")
+
+        session.refresh(second)
+        session.refresh(third)
+        assert second.status == SourceRevisionStatus.ACTIVE.value
+        assert third.status == SourceRevisionStatus.APPROVED.value
+
+        refreshed_diff = service.create_diff(third.id, actor_id="founder")
+        session.refresh(third)
+        assert refreshed_diff.from_revision_id == second.id
+        assert third.status == SourceRevisionStatus.EXTRACTED.value
+        assert third.approved_by is None
+        assert third.approved_at is None
+
+        assert service.validate_revision(third.id, actor_id="founder").valid
+        service.approve_revision(third.id, actor_id="founder")
+        service.activate_revision(third.id, actor_id="founder")
+
+        session.refresh(second)
+        session.refresh(third)
+        assert second.status == SourceRevisionStatus.SUPERSEDED.value
+        assert third.status == SourceRevisionStatus.ACTIVE.value
+
+        refreshed_event = session.scalar(
+            select(SourceAuditEvent).where(
+                SourceAuditEvent.source_id == source.id,
+                SourceAuditEvent.source_revision_id == third.id,
+                SourceAuditEvent.event_type == "source_diff_refreshed",
+            )
+        )
+        assert refreshed_event is not None
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
 def test_single_active_revision_database_invariant(tmp_path: Path) -> None:
     session, service = _session_and_service(tmp_path)
     try:
@@ -619,7 +687,7 @@ def test_validation_requires_diff_and_storage_integrity(tmp_path: Path) -> None:
         service.extract_revision(revision.id)
         rejected = service.validate_revision(revision.id)
         assert not rejected.valid
-        assert "diff_created" in rejected.errors[-1]
+        assert any("diff_created" in error for error in rejected.errors)
 
         retried = service.retry_revision(revision.id)
         service.extract_revision(retried.id)
