@@ -221,9 +221,8 @@ class SourceDiff(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "source_diffs"
     __table_args__ = (
         UniqueConstraint(
-            "from_revision_id",
             "to_revision_id",
-            name="uq_source_diff_revision_pair",
+            name="uq_source_diff_to_revision",
         ),
     )
 
