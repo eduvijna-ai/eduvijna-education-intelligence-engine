@@ -423,7 +423,7 @@ class SourceIntelligenceService:
             payload={
                 "ingestion_method": method.value,
                 "error_type": type(error).__name__,
-                "reason": str(error)[:500],
+                "reason": redact_log_text(str(error))[:500],
             },
         )
         try:
@@ -446,8 +446,24 @@ class SourceIntelligenceService:
         )
         if errors:
             raise SourceGovernanceError("; ".join(errors))
+        self._validate_registration_ownership(payload)
 
         source = Source(
+            organization_id=(
+                str(payload.organization_id)
+                if payload.organization_id is not None
+                else None
+            ),
+            institution_id=(
+                str(payload.institution_id)
+                if payload.institution_id is not None
+                else None
+            ),
+            teacher_id=(
+                str(payload.teacher_id)
+                if payload.teacher_id is not None
+                else None
+            ),
             source_type=payload.source_type.value,
             title=payload.title,
             url=payload.url,
