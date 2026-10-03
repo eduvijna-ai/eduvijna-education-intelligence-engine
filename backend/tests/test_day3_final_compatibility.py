@@ -105,7 +105,11 @@ def _insert_source_0005(
         "institution_content": "institution",
         "teacher_content": "teacher",
     }.get(source_type, "official_primary")
-    authority = None if source_type in {"institution_content", "teacher_content"} else "Synthetic Authority"
+    authority = (
+        None
+        if source_type in {"institution_content", "teacher_content"}
+        else "Synthetic Authority"
+    )
     connection.execute(
         """
         INSERT INTO sources (
