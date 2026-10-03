@@ -1182,28 +1182,47 @@ class SourceIntelligenceService:
         if revision.status != SourceRevisionStatus.EXTRACTED.value:
             raise SourceLifecycleError("only extracted revisions can be validated")
 
-        errors = _governance_errors(source.source_type, source.trust_tier, source.authority)
+        snapshot = revision.metadata_json.get("source_snapshot")
+        snapshot_is_dict = isinstance(snapshot, dict)
+        snapshot_checksum = (
+            self._snapshot_checksum(snapshot) if snapshot_is_dict else ""
+        )
+        governance_errors = (
+            _governance_errors(
+                str(snapshot.get("source_type")),
+                str(snapshot.get("trust_tier")),
+                snapshot.get("authority"),
+            )
+            if snapshot_is_dict
+            else ["source snapshot is unavailable"]
+        )
+        errors = list(governance_errors)
+
+        actual_checksum: str | None = None
+        storage_integrity = False
+        try:
+            _, actual_checksum, storage_integrity = self._content_integrity(revision)
+        except (OSError, SourceStorageError):
+            storage_integrity = False
+
         checks: dict[str, bool] = {
             "checksum_format": len(revision.checksum) == 64,
+            "source_snapshot_integrity": (
+                snapshot_is_dict
+                and snapshot_checksum == revision.source_snapshot_checksum
+            ),
             "extraction_succeeded": (
                 revision.extraction_status == SourceExtractionStatus.SUCCEEDED.value
             ),
             "extracted_content_present": bool((revision.extracted_text or "").strip()),
-            "source_governance": not errors,
+            "extraction_binding": (
+                actual_checksum is not None
+                and revision.extracted_checksum == actual_checksum
+                and actual_checksum == revision.checksum
+            ),
+            "storage_integrity": storage_integrity,
+            "source_governance": not governance_errors,
         }
-
-        if revision.storage_path:
-            try:
-                stored = self.storage.read(revision.storage_path)
-                checks["storage_integrity"] = (
-                    len(stored) == revision.byte_size and _sha256(stored) == revision.checksum
-                )
-            except OSError:
-                checks["storage_integrity"] = False
-        else:
-            checks["storage_integrity"] = (
-                revision.ingestion_method == SourceIngestionMethod.MANUAL.value
-            )
 
         source_diff = self.session.scalar(
             select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
@@ -1216,6 +1235,7 @@ class SourceIntelligenceService:
                 SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
             )
             .order_by(SourceRevision.revision_number.desc())
+            .execution_options(populate_existing=True)
         )
         current_active_id = current_active.id if current_active else None
         checks["diff_created"] = source_diff is not None
@@ -1229,14 +1249,23 @@ class SourceIntelligenceService:
                 errors.append(f"validation check failed: {check_name}")
 
         valid = not errors
-        if valid:
+        if valid and actual_checksum is not None:
             revision.status = SourceRevisionStatus.VALIDATED.value
+            revision.validated_checksum = actual_checksum
+            revision.approval_fingerprint = None
             revision.failure_reason = None
         else:
             revision.status = SourceRevisionStatus.REJECTED.value
+            revision.validated_checksum = None
+            revision.approval_fingerprint = None
             revision.failure_reason = "; ".join(errors)
 
-        checksum_verified = checks["checksum_format"] and checks["storage_integrity"]
+        checksum_verified = (
+            checks["checksum_format"]
+            and checks["storage_integrity"]
+            and checks["extraction_binding"]
+            and checks["source_snapshot_integrity"]
+        )
         self._audit(
             source=source,
             revision=revision,
@@ -1247,6 +1276,10 @@ class SourceIntelligenceService:
             payload={
                 "checksum_format": checks["checksum_format"],
                 "storage_integrity": checks["storage_integrity"],
+                "extraction_binding": checks["extraction_binding"],
+                "source_snapshot_integrity": checks[
+                    "source_snapshot_integrity"
+                ],
             },
         )
         self._audit(
