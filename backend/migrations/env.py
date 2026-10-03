@@ -32,12 +32,43 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def _set_sqlite_foreign_keys(connection: object, enabled: bool) -> None:
-    # SQLite table-recreation migrations must run with FK actions disabled or
-    # dropping the old parent table can cascade-delete valid child rows.
-    value = "ON" if enabled else "OFF"
-    connection.exec_driver_sql(f"PRAGMA foreign_keys={value}")  # type: ignore[attr-defined]
+def _run_sqlite_migrations(connection: object) -> None:
+    # SQLite batch table recreation must disable FK actions, but DDL and the
+    # alembic_version update still need one explicit transaction so any failure
+    # restores the previous schema and revision atomically.
+    connection.exec_driver_sql("PRAGMA foreign_keys=OFF")  # type: ignore[attr-defined]
     connection.commit()  # type: ignore[attr-defined]
+
+    try:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            transactional_ddl=True,
+        )
+        connection.exec_driver_sql("BEGIN IMMEDIATE")  # type: ignore[attr-defined]
+        try:
+            context.run_migrations()
+            violations = connection.exec_driver_sql(  # type: ignore[attr-defined]
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+            if violations:
+                raise RuntimeError(
+                    "SQLite foreign-key violations after migration: "
+                    + repr(violations[:20])
+                )
+            connection.commit()  # type: ignore[attr-defined]
+        except Exception:
+            connection.rollback()  # type: ignore[attr-defined]
+            raise
+    finally:
+        if connection.in_transaction():  # type: ignore[attr-defined]
+            connection.rollback()  # type: ignore[attr-defined]
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")  # type: ignore[attr-defined]
+        enabled = connection.exec_driver_sql(  # type: ignore[attr-defined]
+            "PRAGMA foreign_keys"
+        ).scalar_one()
+        if enabled != 1:
+            raise RuntimeError("SQLite foreign-key enforcement could not be restored")
 
 
 def run_migrations_online() -> None:
@@ -47,34 +78,13 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        is_sqlite = connection.dialect.name == "sqlite"
-        if is_sqlite:
-            _set_sqlite_foreign_keys(connection, False)
+        if connection.dialect.name == "sqlite":
+            _run_sqlite_migrations(connection)
+            return
 
-        migration_succeeded = False
-        try:
-            context.configure(connection=connection, target_metadata=target_metadata)
-            with context.begin_transaction():
-                context.run_migrations()
-            migration_succeeded = True
-
-            if is_sqlite:
-                violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
-                if violations:
-                    raise RuntimeError(
-                        "SQLite foreign-key violations after migration: "
-                        + repr(violations[:20])
-                    )
-                if connection.in_transaction():
-                    connection.commit()
-        finally:
-            if is_sqlite:
-                if connection.in_transaction():
-                    connection.rollback()
-                _set_sqlite_foreign_keys(connection, True)
-
-        if not migration_succeeded:
-            raise RuntimeError("migration did not complete successfully")
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 if context.is_offline_mode():
