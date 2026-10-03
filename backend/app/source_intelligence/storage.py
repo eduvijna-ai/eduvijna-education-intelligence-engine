@@ -38,12 +38,15 @@ class LocalSourceStorage:
         content: bytes,
     ) -> str:
         safe_name = self.sanitize_filename(filename)
-        relative = (
-            Path(source_id)
-            / f"{revision_number:04d}-{checksum[:16]}-{safe_name}"
-        )
+        del revision_number
+        relative = Path(source_id) / f"{checksum}-{safe_name}"
         target = self._resolve_relative(relative.as_posix())
         target.parent.mkdir(parents=True, exist_ok=True)
+
+        if target.exists():
+            if target.read_bytes() != content:
+                raise SourceStorageError("content-addressed storage checksum collision")
+            return relative.as_posix()
 
         descriptor, temporary = tempfile.mkstemp(
             prefix=".ingest-",
@@ -54,7 +57,15 @@ class LocalSourceStorage:
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, target)
+            try:
+                os.link(temporary, target)
+            except FileExistsError as exc:
+                if target.read_bytes() != content:
+                    raise SourceStorageError(
+                        "content-addressed storage checksum collision"
+                    ) from exc
+            finally:
+                os.unlink(temporary)
         except Exception:
             try:
                 os.unlink(temporary)

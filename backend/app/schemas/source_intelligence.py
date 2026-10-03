@@ -14,9 +14,31 @@ from app.models.enums import (
 )
 
 
+class SourceAccessScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    system: bool = False
+    organization_id: UUID | None = None
+    institution_id: UUID | None = None
+    teacher_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> SourceAccessScope:
+        if self.system:
+            return self
+        if self.teacher_id is not None and self.institution_id is None:
+            raise ValueError("teacher scope requires institution_id")
+        if self.institution_id is not None and self.organization_id is None:
+            raise ValueError("institution scope requires organization_id")
+        return self
+
+
 class SourceRegistrationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    organization_id: UUID | None = None
+    institution_id: UUID | None = None
+    teacher_id: UUID | None = None
     source_type: SourceType
     title: str = Field(min_length=1, max_length=512)
     url: str | None = None
@@ -29,6 +51,52 @@ class SourceRegistrationInput(BaseModel):
     trust_tier: SourceTrustTier
     anythingllm_workspace: str | None = Field(default=None, max_length=255)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_ownership(self) -> SourceRegistrationInput:
+        if self.source_type is SourceType.INSTITUTION_CONTENT:
+            if self.organization_id is None or self.institution_id is None:
+                raise ValueError(
+                    "institution content requires organization_id and institution_id"
+                )
+            if self.teacher_id is not None:
+                raise ValueError("institution content cannot set teacher_id")
+        elif self.source_type is SourceType.TEACHER_CONTENT:
+            if (
+                self.organization_id is None
+                or self.institution_id is None
+                or self.teacher_id is None
+            ):
+                raise ValueError(
+                    "teacher content requires organization_id, institution_id, and teacher_id"
+                )
+        elif any(
+            value is not None
+            for value in (
+                self.organization_id,
+                self.institution_id,
+                self.teacher_id,
+            )
+        ):
+            raise ValueError(
+                "shared source types cannot carry organization/institution/teacher ownership"
+            )
+        return self
+
+
+class SourceMetadataUpdateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    url: str | None = None
+    authority: str | None = Field(default=None, max_length=255)
+    country: str | None = Field(default=None, max_length=128)
+    board_or_exam: str | None = Field(default=None, max_length=255)
+    academic_year: str | None = Field(default=None, max_length=64)
+    effective_date: date | None = None
+    copyright_classification: str | None = Field(default=None, max_length=128)
+    anythingllm_workspace: str | None = Field(default=None, max_length=255)
+    metadata_json: dict[str, Any] | None = None
 
 
 class ManualSourceRevisionInput(BaseModel):

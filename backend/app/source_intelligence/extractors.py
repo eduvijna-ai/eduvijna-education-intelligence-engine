@@ -133,7 +133,7 @@ def _extract_docx(content: bytes) -> ExtractionResult:
 def _extract_csv(content: bytes) -> ExtractionResult:
     decoded = _decode_utf8(content)
     try:
-        rows = list(csv.reader(io.StringIO(decoded)))
+        rows = list(csv.reader(io.StringIO(decoded), strict=True))
     except csv.Error as exc:
         raise SourceExtractionError("invalid_csv", "CSV could not be parsed") from exc
 
@@ -154,9 +154,12 @@ def _extract_csv(content: bytes) -> ExtractionResult:
 
 def _extract_json(content: bytes) -> ExtractionResult:
     decoded = _decode_utf8(content)
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-standard JSON constant: {value}")
+
     try:
-        payload = json.loads(decoded)
-    except json.JSONDecodeError as exc:
+        payload = json.loads(decoded, parse_constant=reject_constant)
+    except (json.JSONDecodeError, ValueError) as exc:
         raise SourceExtractionError("invalid_json", "JSON could not be parsed") from exc
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
     return ExtractionResult(
@@ -185,33 +188,68 @@ def _extract_text(content: bytes) -> ExtractionResult:
     return ExtractionResult(text=text, metadata={"format": "text"})
 
 
+_MIME_FORMATS: dict[str, str] = {
+    "application/pdf": "pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "text/csv": "csv",
+    "application/csv": "csv",
+    "application/json": "json",
+    "text/json": "json",
+    "text/html": "html",
+    "application/xhtml+xml": "html",
+    "text/plain": "text",
+    "text/markdown": "text",
+}
+
+_SUFFIX_FORMATS: dict[str, str] = {
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".csv": "csv",
+    ".json": "json",
+    ".html": "html",
+    ".htm": "html",
+    ".txt": "text",
+    ".md": "text",
+}
+
+
+def _resolve_source_format(content_type: str, filename: str | None) -> str:
+    mime = content_type.split(";", 1)[0].strip().lower()
+    suffix = Path(filename or "").suffix.lower()
+    mime_format = _MIME_FORMATS.get(mime)
+    suffix_format = _SUFFIX_FORMATS.get(suffix)
+
+    if mime_format is not None and suffix_format is not None and mime_format != suffix_format:
+        raise SourceExtractionError(
+            "source_format_mismatch",
+            "source MIME type and filename extension disagree",
+        )
+
+    source_format = mime_format or suffix_format
+    if source_format is None:
+        raise SourceExtractionError(
+            "unsupported_source_format",
+            f"unsupported source content type: {content_type}",
+        )
+    return source_format
+
+
 def extract_content(
     *,
     content: bytes,
     content_type: str,
     filename: str | None,
 ) -> ExtractionResult:
-    mime = content_type.split(";", 1)[0].strip().lower()
-    suffix = Path(filename or "").suffix.lower()
+    source_format = _resolve_source_format(content_type, filename)
 
-    if mime == "application/pdf" or suffix == ".pdf":
+    if source_format == "pdf":
         return _extract_pdf(content)
-    if (
-        mime
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        or suffix == ".docx"
-    ):
+    if source_format == "docx":
         return _extract_docx(content)
-    if mime in {"text/csv", "application/csv"} or suffix == ".csv":
+    if source_format == "csv":
         return _extract_csv(content)
-    if mime in {"application/json", "text/json"} or suffix == ".json":
+    if source_format == "json":
         return _extract_json(content)
-    if mime in {"text/html", "application/xhtml+xml"} or suffix in {".html", ".htm"}:
+    if source_format == "html":
         return _extract_html(content)
-    if mime.startswith("text/") or suffix in {".txt", ".md"}:
-        return _extract_text(content)
-
-    raise SourceExtractionError(
-        "unsupported_source_format",
-        f"unsupported source content type: {content_type}",
-    )
+    return _extract_text(content)

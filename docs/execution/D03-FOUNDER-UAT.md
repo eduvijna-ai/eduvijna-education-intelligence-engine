@@ -94,3 +94,25 @@ LangGraph generation, public Source CRUD APIs or Day-4 work.
 ## Founder response
 
 If accepted, provide an explicit Day-3 signoff. The system must then unlock only Day 4.
+
+
+## Rework closure verification
+
+The automated Day-3 regression additionally verifies:
+
+- prohibited/private URL targets are rejected before a real request is sent;
+- concurrent identical uploads do not delete the successful stored object;
+- concurrent different uploads receive distinct revision numbers;
+- withdrawing approval in another session prevents stale activation;
+- active status and active slot cannot disagree;
+- source bytes cannot be substituted before extraction or changed after approval;
+- manual metadata checksum/size is recomputed during validation;
+- institution/teacher source ownership and internal access scopes are enforced;
+- MIME/method/filename conflicts, malformed CSV and non-standard JSON constants are rejected;
+- missing storage produces a failed state and identical re-ingestion restores it safely;
+- synthetic tokens are absent from configured logs;
+- same source bytes plus material metadata changes create a reviewable candidate revision;
+- deliberately failed SQLite migrations leave the previous schema/revision intact and can be retried.
+
+Founder does not need to reproduce the concurrency and migration-failure injections manually.
+A green exact-commit CI run is the deterministic evidence for those cases.

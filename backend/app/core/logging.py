@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -12,12 +13,42 @@ from fastapi import Request, Response
 
 logger = logging.getLogger("eduvijna.http")
 
+_QUERY_SECRET_RE = re.compile(
+    r"(?i)([?&](?:access_token|api_key|apikey|key|token|secret|password)=)[^&\s]+"
+)
+_AUTH_SECRET_RE = re.compile(
+    r"(?i)(authorization:\s*(?:bearer|basic)\s+)[^\s]+"
+)
+
+
+def redact_log_text(value: str) -> str:
+    value = _QUERY_SECRET_RE.sub(r"\1[REDACTED]", value)
+    return _AUTH_SECRET_RE.sub(r"\1[REDACTED]", value)
+
+
+class SecretRedactionFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = redact_log_text(message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
+
 
 def configure_logging(level: str = "INFO") -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(message)s",
     )
+    root = logging.getLogger()
+    for handler in root.handlers:
+        if not any(isinstance(item, SecretRedactionFilter) for item in handler.filters):
+            handler.addFilter(SecretRedactionFilter())
+
+    # Dependency request logs can include complete URLs. Keep them out of INFO output.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 async def request_context_middleware(

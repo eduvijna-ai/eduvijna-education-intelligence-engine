@@ -12,6 +12,7 @@ from app.models import Source, SourceAuditEvent, SourceDiff, SourceRevision
 from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
 from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
+    SourceMetadataUpdateInput,
     SourceRegistrationInput,
 )
 from app.source_intelligence.service import SourceIntelligenceService
@@ -114,6 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=[item.value for item in SourceTrustTier],
     )
+    register.add_argument("--organization-id")
+    register.add_argument("--institution-id")
+    register.add_argument("--teacher-id")
     register.add_argument("--authority")
     register.add_argument("--url")
     register.add_argument("--country")
@@ -149,6 +153,19 @@ def build_parser() -> argparse.ArgumentParser:
     manual.add_argument("--note")
     manual.add_argument("--actor", default="engineering-cli")
 
+    metadata = subparsers.add_parser("stage-metadata")
+    metadata.add_argument("source_id")
+    metadata.add_argument("--title")
+    metadata.add_argument("--url")
+    metadata.add_argument("--authority")
+    metadata.add_argument("--country")
+    metadata.add_argument("--board-or-exam")
+    metadata.add_argument("--academic-year")
+    metadata.add_argument("--copyright-classification")
+    metadata.add_argument("--anythingllm-workspace")
+    metadata.add_argument("--metadata-json")
+    metadata.add_argument("--actor", default="engineering-cli")
+
     for name in ("extract", "diff", "validate", "approve", "activate", "inspect"):
         command = subparsers.add_parser(name)
         command.add_argument("id")
@@ -175,6 +192,9 @@ def main() -> None:
         if args.command == "register":
             source = service.register_source(
                 SourceRegistrationInput(
+                    organization_id=args.organization_id,
+                    institution_id=args.institution_id,
+                    teacher_id=args.teacher_id,
                     source_type=SourceType(args.source_type),
                     title=args.title,
                     url=args.url,
@@ -219,6 +239,30 @@ def main() -> None:
                     metadata=_json(args.metadata_json),
                     note=args.note,
                 ),
+                actor_id=args.actor,
+            )
+            print(revision.id)
+            return
+
+        if args.command == "stage-metadata":
+            values = {
+                "title": args.title,
+                "url": args.url,
+                "authority": args.authority,
+                "country": args.country,
+                "board_or_exam": args.board_or_exam,
+                "academic_year": args.academic_year,
+                "copyright_classification": args.copyright_classification,
+                "anythingllm_workspace": args.anythingllm_workspace,
+            }
+            update_payload = {
+                key: value for key, value in values.items() if value is not None
+            }
+            if args.metadata_json is not None:
+                update_payload["metadata_json"] = _json(args.metadata_json)
+            revision = service.stage_metadata_update(
+                args.source_id,
+                SourceMetadataUpdateInput(**update_payload),
                 actor_id=args.actor,
             )
             print(revision.id)

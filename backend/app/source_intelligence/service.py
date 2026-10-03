@@ -4,19 +4,26 @@ import difflib
 import hashlib
 import json
 import logging
-from datetime import UTC, datetime
+import time
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.logging import redact_log_text
 from app.models import (
+    Institution,
+    Organization,
     PolicyRule,
     Source,
     SourceAuditEvent,
     SourceDiff,
     SourceRevision,
+    Teacher,
 )
 from app.models.curriculum import CurriculumVersion
 from app.models.enums import (
@@ -31,6 +38,8 @@ from app.models.examination import ExamVersion
 from app.models.question import Question
 from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
+    SourceAccessScope,
+    SourceMetadataUpdateInput,
     SourceProvenanceLinkInput,
     SourceRegistrationInput,
     SourceValidationResult,
@@ -40,7 +49,7 @@ from app.source_intelligence.extractors import (
     extract_content,
 )
 from app.source_intelligence.security import SourceUrlFetcher
-from app.source_intelligence.storage import LocalSourceStorage
+from app.source_intelligence.storage import LocalSourceStorage, SourceStorageError
 
 logger = logging.getLogger("eduvijna.source")
 
@@ -52,6 +61,13 @@ _UPLOAD_MIME: dict[SourceIngestionMethod, tuple[str, str]] = {
     ),
     SourceIngestionMethod.CSV: ("text/csv", "source.csv"),
     SourceIngestionMethod.JSON: ("application/json", "source.json"),
+}
+
+_UPLOAD_SUFFIX: dict[SourceIngestionMethod, str] = {
+    SourceIngestionMethod.PDF: ".pdf",
+    SourceIngestionMethod.DOCX: ".docx",
+    SourceIngestionMethod.CSV: ".csv",
+    SourceIngestionMethod.JSON: ".json",
 }
 
 _ALLOWED_TRUST: dict[SourceType, set[SourceTrustTier]] = {
@@ -96,6 +112,16 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
 def _governance_errors(source_type: str, trust_tier: str, authority: str | None) -> list[str]:
     errors: list[str] = []
     typed_source = SourceType(source_type)
@@ -117,6 +143,7 @@ class SourceIntelligenceService:
         *,
         storage: LocalSourceStorage | None = None,
         fetcher: SourceUrlFetcher | None = None,
+        access_scope: SourceAccessScope | None = None,
     ) -> None:
         settings = get_settings()
         self.session = session
@@ -126,24 +153,116 @@ class SourceIntelligenceService:
             max_bytes=settings.source_max_bytes,
             max_redirects=settings.source_max_redirects,
         )
+        self.access_scope = access_scope or SourceAccessScope(system=True)
         self.max_bytes = settings.source_max_bytes
         self._pending_log_events: list[dict[str, Any]] = []
 
+    def _assert_source_access(self, source: Source) -> None:
+        scope = self.access_scope
+        if scope.system or source.organization_id is None:
+            return
+        if str(scope.organization_id) != source.organization_id:
+            raise PermissionError("source is outside organization scope")
+        if (
+            scope.institution_id is not None
+            and source.institution_id is not None
+            and str(scope.institution_id) != source.institution_id
+        ):
+            raise PermissionError("source is outside institution scope")
+        if (
+            scope.teacher_id is not None
+            and source.teacher_id is not None
+            and str(scope.teacher_id) != source.teacher_id
+        ):
+            raise PermissionError("source is outside teacher scope")
+
+    def _assert_registration_scope(self, payload: SourceRegistrationInput) -> None:
+        scope = self.access_scope
+        if scope.system or payload.organization_id is None:
+            return
+        if scope.organization_id != payload.organization_id:
+            raise PermissionError("cannot register source outside organization scope")
+        if (
+            scope.institution_id is not None
+            and payload.institution_id is not None
+            and scope.institution_id != payload.institution_id
+        ):
+            raise PermissionError("cannot register source outside institution scope")
+        if (
+            scope.teacher_id is not None
+            and payload.teacher_id is not None
+            and scope.teacher_id != payload.teacher_id
+        ):
+            raise PermissionError("cannot register source outside teacher scope")
+
+    def _validate_registration_ownership(
+        self,
+        payload: SourceRegistrationInput,
+    ) -> None:
+        self._assert_registration_scope(payload)
+        if payload.organization_id is None:
+            return
+
+        organization = self.session.get(Organization, str(payload.organization_id))
+        if organization is None:
+            raise SourceGovernanceError("source organization does not exist")
+
+        if payload.institution_id is not None:
+            institution = self.session.get(Institution, str(payload.institution_id))
+            if institution is None:
+                raise SourceGovernanceError("source institution does not exist")
+            if institution.organization_id != organization.id:
+                raise SourceGovernanceError(
+                    "source institution does not belong to organization"
+                )
+
+        if payload.teacher_id is not None:
+            teacher = self.session.get(Teacher, str(payload.teacher_id))
+            if teacher is None:
+                raise SourceGovernanceError("source teacher does not exist")
+            if payload.institution_id is None or teacher.institution_id != str(
+                payload.institution_id
+            ):
+                raise SourceGovernanceError(
+                    "source teacher does not belong to institution"
+                )
+
     def _source(self, source_id: str) -> Source:
-        source = self.session.get(Source, source_id)
+        source = self.session.scalar(
+            select(Source)
+            .where(Source.id == source_id)
+            .execution_options(populate_existing=True)
+        )
         if source is None:
             raise LookupError(f"source not found: {source_id}")
+        self._assert_source_access(source)
         return source
 
-    def _revision(self, revision_id: str) -> SourceRevision:
-        revision = self.session.get(SourceRevision, revision_id)
+    def _revision(
+        self,
+        revision_id: str,
+        *,
+        for_update: bool = False,
+    ) -> SourceRevision:
+        statement = (
+            select(SourceRevision)
+            .where(SourceRevision.id == revision_id)
+            .execution_options(populate_existing=True)
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        revision = self.session.scalar(statement)
         if revision is None:
             raise LookupError(f"source revision not found: {revision_id}")
+        self._assert_source_access(revision.source)
         return revision
 
     @staticmethod
     def _source_snapshot(source: Source) -> dict[str, Any]:
         return {
+            "organization_id": source.organization_id,
+            "institution_id": source.institution_id,
+            "teacher_id": source.teacher_id,
             "source_type": source.source_type,
             "title": source.title,
             "url": source.url,
@@ -157,7 +276,85 @@ class SourceIntelligenceService:
             "copyright_classification": source.copyright_classification,
             "trust_tier": source.trust_tier,
             "anythingllm_workspace": source.anythingllm_workspace,
+            "metadata_json": source.metadata_json,
         }
+
+    @staticmethod
+    def _snapshot_checksum(snapshot: dict[str, Any]) -> str:
+        return _sha256(_canonical_json_bytes(snapshot))
+
+    @staticmethod
+    def _apply_snapshot(source: Source, snapshot: dict[str, Any]) -> None:
+        source.title = str(snapshot["title"])
+        source.url = snapshot.get("url")
+        source.authority = snapshot.get("authority")
+        source.country = snapshot.get("country")
+        source.board_or_exam = snapshot.get("board_or_exam")
+        source.academic_year = snapshot.get("academic_year")
+        effective_date = snapshot.get("effective_date")
+        source.effective_date = (
+            date.fromisoformat(str(effective_date)) if effective_date else None
+        )
+        source.copyright_classification = snapshot.get(
+            "copyright_classification"
+        )
+        source.anythingllm_workspace = snapshot.get("anythingllm_workspace")
+        source.metadata_json = dict(snapshot.get("metadata_json") or {})
+
+    def _revision_content_bytes(self, revision: SourceRevision) -> bytes:
+        if revision.ingestion_method == SourceIngestionMethod.MANUAL.value:
+            manual_metadata = revision.metadata_json.get("manual_metadata")
+            if not isinstance(manual_metadata, dict):
+                raise SourceStorageError("manual revision metadata is unavailable")
+            return _canonical_json_bytes(manual_metadata)
+        if not revision.storage_path:
+            raise SourceStorageError("revision does not have stored content")
+        return self.storage.read(revision.storage_path)
+
+    def _content_integrity(
+        self,
+        revision: SourceRevision,
+    ) -> tuple[bytes, str, bool]:
+        content = self._revision_content_bytes(revision)
+        checksum = _sha256(content)
+        valid = len(content) == revision.byte_size and checksum == revision.checksum
+        return content, checksum, valid
+
+    def _approval_fingerprint(self, revision: SourceRevision) -> str:
+        source_diff = self.session.scalar(
+            select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
+        )
+        payload = {
+            "revision_id": revision.id,
+            "checksum": revision.checksum,
+            "source_snapshot_checksum": revision.source_snapshot_checksum,
+            "extracted_checksum": revision.extracted_checksum,
+            "validated_checksum": revision.validated_checksum,
+            "extracted_text_checksum": _sha256(
+                (revision.extracted_text or "").encode("utf-8")
+            ),
+            "content_type": revision.content_type,
+            "byte_size": revision.byte_size,
+            "diff_from_revision_id": (
+                source_diff.from_revision_id if source_diff is not None else None
+            ),
+        }
+        return _sha256(_canonical_json_bytes(payload))
+
+    @staticmethod
+    def _validate_upload_filename(
+        method: SourceIngestionMethod,
+        filename: str | None,
+    ) -> None:
+        if not filename:
+            return
+        suffix = Path(filename).suffix.lower()
+        expected = _UPLOAD_SUFFIX[method]
+        if suffix and suffix != expected:
+            raise ValueError(
+                f"upload filename extension {suffix!r} does not match "
+                f"ingestion method {method.value!r}"
+            )
 
     def _audit(
         self,
@@ -226,7 +423,7 @@ class SourceIntelligenceService:
             payload={
                 "ingestion_method": method.value,
                 "error_type": type(error).__name__,
-                "reason": str(error)[:500],
+                "reason": redact_log_text(str(error))[:500],
             },
         )
         try:
@@ -249,8 +446,24 @@ class SourceIntelligenceService:
         )
         if errors:
             raise SourceGovernanceError("; ".join(errors))
+        self._validate_registration_ownership(payload)
 
         source = Source(
+            organization_id=(
+                str(payload.organization_id)
+                if payload.organization_id is not None
+                else None
+            ),
+            institution_id=(
+                str(payload.institution_id)
+                if payload.institution_id is not None
+                else None
+            ),
+            teacher_id=(
+                str(payload.teacher_id)
+                if payload.teacher_id is not None
+                else None
+            ),
             source_type=payload.source_type.value,
             title=payload.title,
             url=payload.url,
@@ -286,31 +499,85 @@ class SourceIntelligenceService:
         )
         return int(maximum or 0) + 1
 
-    def _duplicate(
+    def _find_identity_revision(
+        self,
+        *,
+        source_id: str,
+        checksum: str,
+        source_snapshot_checksum: str,
+    ) -> SourceRevision | None:
+        return self.session.scalar(
+            select(SourceRevision)
+            .where(
+                SourceRevision.source_id == source_id,
+                SourceRevision.checksum == checksum,
+                SourceRevision.source_snapshot_checksum == source_snapshot_checksum,
+            )
+            .execution_options(populate_existing=True)
+        )
+
+    def _audit_duplicate(
         self,
         *,
         source: Source,
-        checksum: str,
+        revision: SourceRevision,
         actor_id: str | None,
         request_id: str | None,
-    ) -> SourceRevision | None:
-        revision = self.session.scalar(
-            select(SourceRevision).where(
-                SourceRevision.source_id == source.id,
-                SourceRevision.checksum == checksum,
-            )
+    ) -> None:
+        self._audit(
+            source=source,
+            revision=revision,
+            event_type="duplicate_content_detected",
+            outcome="no_change",
+            actor_id=actor_id,
+            request_id=request_id,
+            payload={
+                "checksum": revision.checksum,
+                "source_snapshot_checksum": revision.source_snapshot_checksum,
+            },
         )
-        if revision is not None:
-            self._audit(
-                source=source,
-                revision=revision,
-                event_type="duplicate_content_detected",
-                outcome="no_change",
-                actor_id=actor_id,
-                request_id=request_id,
-                payload={"checksum": checksum},
-            )
-            self._commit()
+        self._commit()
+
+    def _restore_missing_storage(
+        self,
+        *,
+        source: Source,
+        revision: SourceRevision,
+        content: bytes,
+        filename: str | None,
+        actor_id: str | None,
+        request_id: str | None,
+    ) -> SourceRevision:
+        restored_path = self.storage.write_revision(
+            source_id=source.id,
+            revision_number=revision.revision_number,
+            checksum=revision.checksum,
+            filename=filename or revision.original_filename,
+            content=content,
+        )
+        revision.storage_path = restored_path
+        if revision.status in {
+            SourceRevisionStatus.FAILED.value,
+            SourceRevisionStatus.REJECTED.value,
+        }:
+            revision.status = SourceRevisionStatus.STAGED.value
+            revision.extraction_status = SourceExtractionStatus.PENDING.value
+            revision.extracted_text = None
+            revision.extracted_checksum = None
+            revision.validated_checksum = None
+            revision.approval_fingerprint = None
+            revision.failure_reason = None
+            revision.approved_by = None
+            revision.approved_at = None
+        self._audit(
+            source=source,
+            revision=revision,
+            event_type="source_content_restored",
+            outcome="success",
+            actor_id=actor_id,
+            request_id=request_id,
+        )
+        self._commit()
         return revision
 
     def _ingest_bytes(
@@ -324,6 +591,7 @@ class SourceIntelligenceService:
         actor_id: str | None,
         request_id: str | None,
         metadata: dict[str, Any] | None = None,
+        source_snapshot: dict[str, Any] | None = None,
     ) -> SourceRevision:
         if not content:
             raise ValueError("source content cannot be empty")
@@ -331,34 +599,58 @@ class SourceIntelligenceService:
             raise ValueError("source exceeds configured size limit")
 
         checksum = _sha256(content)
-        duplicate = self._duplicate(
-            source=source,
+        snapshot = source_snapshot or self._source_snapshot(source)
+        snapshot_checksum = self._snapshot_checksum(snapshot)
+        duplicate = self._find_identity_revision(
+            source_id=source.id,
             checksum=checksum,
-            actor_id=actor_id,
-            request_id=request_id,
+            source_snapshot_checksum=snapshot_checksum,
         )
         if duplicate is not None:
+            if (
+                duplicate.ingestion_method != SourceIngestionMethod.MANUAL.value
+                and (
+                    not duplicate.storage_path
+                    or not self.storage.exists(duplicate.storage_path)
+                )
+            ):
+                return self._restore_missing_storage(
+                    source=source,
+                    revision=duplicate,
+                    content=content,
+                    filename=filename,
+                    actor_id=actor_id,
+                    request_id=request_id,
+                )
+            self._audit_duplicate(
+                source=source,
+                revision=duplicate,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
             return duplicate
 
-        number = self._next_revision_number(source.id)
-        stored_path: str | None = None
-        try:
-            stored_path = self.storage.write_revision(
-                source_id=source.id,
-                revision_number=number,
-                checksum=checksum,
-                filename=filename,
-                content=content,
-            )
-            revision_metadata = {
-                "source_snapshot": self._source_snapshot(source),
-                **(metadata or {}),
-            }
+        stored_path = self.storage.write_revision(
+            source_id=source.id,
+            revision_number=0,
+            checksum=checksum,
+            filename=filename,
+            content=content,
+        )
+        revision_metadata = {
+            "source_snapshot": snapshot,
+            **(metadata or {}),
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(6):
+            number = self._next_revision_number(source.id)
             revision = SourceRevision(
                 source_id=source.id,
                 revision_number=number,
                 ingestion_method=method.value,
                 checksum=checksum,
+                source_snapshot_checksum=snapshot_checksum,
                 content_type=content_type,
                 byte_size=len(content),
                 storage_path=stored_path,
@@ -369,27 +661,47 @@ class SourceIntelligenceService:
                 metadata_json=revision_metadata,
             )
             self.session.add(revision)
-            self.session.flush()
-            self._audit(
-                source=source,
-                revision=revision,
-                event_type="source_ingested",
-                outcome="staged",
-                actor_id=actor_id,
-                request_id=request_id,
-                payload={
-                    "ingestion_method": method.value,
-                    "checksum": checksum,
-                    "byte_size": len(content),
-                },
-            )
-            self._commit()
-            return revision
-        except Exception:
-            self._rollback()
-            if stored_path is not None:
-                self.storage.delete(stored_path)
-            raise
+            try:
+                self.session.flush()
+                self._audit(
+                    source=source,
+                    revision=revision,
+                    event_type="source_ingested",
+                    outcome="staged",
+                    actor_id=actor_id,
+                    request_id=request_id,
+                    payload={
+                        "ingestion_method": method.value,
+                        "checksum": checksum,
+                        "byte_size": len(content),
+                        "source_snapshot_checksum": snapshot_checksum,
+                    },
+                )
+                self._commit()
+                return revision
+            except (IntegrityError, OperationalError) as exc:
+                last_error = exc
+                self._rollback()
+                duplicate = self._find_identity_revision(
+                    source_id=source.id,
+                    checksum=checksum,
+                    source_snapshot_checksum=snapshot_checksum,
+                )
+                if duplicate is not None:
+                    self._audit_duplicate(
+                        source=source,
+                        revision=duplicate,
+                        actor_id=actor_id,
+                        request_id=request_id,
+                    )
+                    return duplicate
+                if isinstance(exc, OperationalError) and "locked" not in str(exc).lower():
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+
+        raise SourceLifecycleError(
+            "could not allocate source revision after concurrent writes"
+        ) from last_error
 
     def ingest_upload(
         self,
@@ -405,6 +717,7 @@ class SourceIntelligenceService:
         try:
             if method not in _UPLOAD_MIME:
                 raise ValueError("upload method must be pdf, docx, csv, or json")
+            self._validate_upload_filename(method, filename)
             content_type, default_filename = _UPLOAD_MIME[method]
             return self._ingest_bytes(
                 source=source,
@@ -463,6 +776,93 @@ class SourceIntelligenceService:
             )
             raise
 
+    def _ingest_manual_snapshot(
+        self,
+        *,
+        source: Source,
+        payload: ManualSourceRevisionInput,
+        snapshot: dict[str, Any],
+        actor_id: str | None,
+        request_id: str | None,
+    ) -> SourceRevision:
+        canonical_bytes = _canonical_json_bytes(payload.metadata)
+        canonical = canonical_bytes.decode("utf-8")
+        checksum = _sha256(canonical_bytes)
+        snapshot_checksum = self._snapshot_checksum(snapshot)
+        duplicate = self._find_identity_revision(
+            source_id=source.id,
+            checksum=checksum,
+            source_snapshot_checksum=snapshot_checksum,
+        )
+        if duplicate is not None:
+            self._audit_duplicate(
+                source=source,
+                revision=duplicate,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+            return duplicate
+
+        last_error: Exception | None = None
+        for attempt in range(6):
+            revision = SourceRevision(
+                source_id=source.id,
+                revision_number=self._next_revision_number(source.id),
+                ingestion_method=SourceIngestionMethod.MANUAL.value,
+                checksum=checksum,
+                source_snapshot_checksum=snapshot_checksum,
+                content_type="application/vnd.eduvijna.metadata+json",
+                byte_size=len(canonical_bytes),
+                storage_path=None,
+                original_filename=None,
+                retrieved_at=_utc_now(),
+                extraction_status=SourceExtractionStatus.SUCCEEDED.value,
+                extracted_text=canonical,
+                extracted_checksum=checksum,
+                status=SourceRevisionStatus.EXTRACTED.value,
+                metadata_json={
+                    "source_snapshot": snapshot,
+                    "manual_metadata": payload.metadata,
+                    "note": payload.note,
+                },
+            )
+            self.session.add(revision)
+            try:
+                self.session.flush()
+                self._audit(
+                    source=source,
+                    revision=revision,
+                    event_type="manual_source_ingested",
+                    outcome="extracted",
+                    actor_id=actor_id,
+                    request_id=request_id,
+                )
+                self._commit()
+                return revision
+            except (IntegrityError, OperationalError) as exc:
+                last_error = exc
+                self._rollback()
+                duplicate = self._find_identity_revision(
+                    source_id=source.id,
+                    checksum=checksum,
+                    source_snapshot_checksum=snapshot_checksum,
+                )
+                if duplicate is not None:
+                    self._audit_duplicate(
+                        source=source,
+                        revision=duplicate,
+                        actor_id=actor_id,
+                        request_id=request_id,
+                    )
+                    return duplicate
+                if isinstance(exc, OperationalError) and "locked" not in str(exc).lower():
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+
+        raise SourceLifecycleError(
+            "could not allocate manual source revision after concurrent writes"
+        ) from last_error
+
     def ingest_manual(
         self,
         source_id: str,
@@ -472,50 +872,111 @@ class SourceIntelligenceService:
         request_id: str | None = None,
     ) -> SourceRevision:
         source = self._source(source_id)
-        canonical = json.dumps(
-            payload.metadata,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        content = canonical.encode("utf-8")
-        checksum = _sha256(content)
-        duplicate = self._duplicate(
+        return self._ingest_manual_snapshot(
             source=source,
-            checksum=checksum,
+            payload=payload,
+            snapshot=self._source_snapshot(source),
             actor_id=actor_id,
             request_id=request_id,
         )
-        if duplicate is not None:
-            return duplicate
 
-        revision = SourceRevision(
-            source_id=source.id,
-            revision_number=self._next_revision_number(source.id),
-            ingestion_method=SourceIngestionMethod.MANUAL.value,
-            checksum=checksum,
-            content_type="application/vnd.eduvijna.metadata+json",
-            byte_size=len(content),
-            storage_path=None,
-            original_filename=None,
-            retrieved_at=_utc_now(),
-            extraction_status=SourceExtractionStatus.SUCCEEDED.value,
-            extracted_text=canonical,
-            extraction_metadata_json={"format": "manual_metadata"},
-            status=SourceRevisionStatus.EXTRACTED.value,
-            metadata_json={
-                "source_snapshot": self._source_snapshot(source),
-                "manual_metadata": payload.metadata,
-                "note": payload.note,
-            },
+    def stage_metadata_update(
+        self,
+        source_id: str,
+        payload: SourceMetadataUpdateInput,
+        *,
+        actor_id: str | None = None,
+        request_id: str | None = None,
+    ) -> SourceRevision:
+        source = self._source(source_id)
+        active = self.session.scalar(
+            select(SourceRevision)
+            .where(
+                SourceRevision.source_id == source.id,
+                SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
+            )
+            .execution_options(populate_existing=True)
         )
-        self.session.add(revision)
-        self.session.flush()
+        if active is None:
+            raise SourceLifecycleError(
+                "metadata updates require an existing active source revision"
+            )
+
+        snapshot = self._source_snapshot(source)
+        for field_name in payload.model_fields_set:
+            value = getattr(payload, field_name)
+            if field_name == "effective_date":
+                snapshot[field_name] = value.isoformat() if value is not None else None
+            else:
+                snapshot[field_name] = value
+
+        errors = _governance_errors(
+            str(snapshot["source_type"]),
+            str(snapshot["trust_tier"]),
+            snapshot.get("authority"),
+        )
+        if errors:
+            raise SourceGovernanceError("; ".join(errors))
+
+        new_snapshot_checksum = self._snapshot_checksum(snapshot)
+        if new_snapshot_checksum == active.source_snapshot_checksum:
+            raise SourceLifecycleError("source metadata update contains no material changes")
+
+        if active.ingestion_method == SourceIngestionMethod.MANUAL.value:
+            manual_metadata = active.metadata_json.get("manual_metadata")
+            if not isinstance(manual_metadata, dict):
+                raise SourceLifecycleError("active manual source metadata is unavailable")
+            revision = self._ingest_manual_snapshot(
+                source=source,
+                payload=ManualSourceRevisionInput(
+                    metadata=manual_metadata,
+                    note="metadata-only source revision",
+                ),
+                snapshot=snapshot,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+        else:
+            content, _, integrity_ok = self._content_integrity(active)
+            if not integrity_ok:
+                raise SourceLifecycleError(
+                    "active source content failed integrity check"
+                )
+            revision = self._ingest_bytes(
+                source=source,
+                method=SourceIngestionMethod(active.ingestion_method),
+                content=content,
+                content_type=active.content_type,
+                filename=active.original_filename,
+                actor_id=actor_id,
+                request_id=request_id,
+                metadata={"metadata_only_change": True},
+                source_snapshot=snapshot,
+            )
+            if revision.status == SourceRevisionStatus.STAGED.value:
+                revision.status = SourceRevisionStatus.EXTRACTED.value
+                revision.extraction_status = SourceExtractionStatus.SUCCEEDED.value
+                revision.extracted_text = active.extracted_text
+                revision.extracted_checksum = active.extracted_checksum
+                revision.extraction_metadata_json = dict(
+                    active.extraction_metadata_json
+                )
+                self._audit(
+                    source=source,
+                    revision=revision,
+                    event_type="source_extraction_reused",
+                    outcome="success",
+                    actor_id=actor_id,
+                    request_id=request_id,
+                    payload={"based_on_revision_id": active.id},
+                )
+                self._commit()
+
         self._audit(
             source=source,
             revision=revision,
-            event_type="manual_source_ingested",
-            outcome="extracted",
+            event_type="source_metadata_change_staged",
+            outcome="review_required",
             actor_id=actor_id,
             request_id=request_id,
         )
@@ -533,20 +994,33 @@ class SourceIntelligenceService:
         source = revision.source
         if revision.status != SourceRevisionStatus.STAGED.value:
             raise SourceLifecycleError("only staged revisions can be extracted")
-        if not revision.storage_path:
-            raise SourceLifecycleError("revision does not have stored content")
 
-        content = self.storage.read(revision.storage_path)
         try:
+            content, actual_checksum, integrity_ok = self._content_integrity(revision)
+            if not integrity_ok:
+                raise SourceExtractionError(
+                    "content_integrity_mismatch",
+                    "stored source bytes do not match revision checksum/size",
+                )
             result = extract_content(
                 content=content,
                 content_type=revision.content_type,
                 filename=revision.original_filename,
             )
-        except SourceExtractionError as exc:
+        except (SourceExtractionError, OSError, SourceStorageError) as exc:
+            if isinstance(exc, SourceExtractionError):
+                failure = exc
+            else:
+                failure = SourceExtractionError(
+                    "storage_read_failed",
+                    "stored source content could not be read",
+                )
             revision.extraction_status = SourceExtractionStatus.FAILED.value
             revision.status = SourceRevisionStatus.FAILED.value
-            revision.failure_reason = f"{exc.code}: {exc}"
+            revision.failure_reason = f"{failure.code}: {failure}"
+            revision.extracted_checksum = None
+            revision.validated_checksum = None
+            revision.approval_fingerprint = None
             self._audit(
                 source=source,
                 revision=revision,
@@ -554,13 +1028,18 @@ class SourceIntelligenceService:
                 outcome="failed",
                 actor_id=actor_id,
                 request_id=request_id,
-                payload={"error_code": exc.code},
+                payload={"error_code": failure.code},
             )
             self._commit()
-            raise
+            if failure is exc:
+                raise
+            raise failure from exc
 
         revision.extraction_status = SourceExtractionStatus.SUCCEEDED.value
         revision.extracted_text = result.text
+        revision.extracted_checksum = actual_checksum
+        revision.validated_checksum = None
+        revision.approval_fingerprint = None
         revision.extraction_metadata_json = result.metadata
         revision.status = SourceRevisionStatus.EXTRACTED.value
         revision.failure_reason = None
@@ -571,7 +1050,10 @@ class SourceIntelligenceService:
             outcome="success",
             actor_id=actor_id,
             request_id=request_id,
-            payload={"text_length": len(result.text)},
+            payload={
+                "text_length": len(result.text),
+                "input_checksum": actual_checksum,
+            },
         )
         self._commit()
         return revision
@@ -624,6 +1106,8 @@ class SourceIntelligenceService:
                 SourceRevisionStatus.APPROVED.value,
             }:
                 revision.status = SourceRevisionStatus.EXTRACTED.value
+                revision.validated_checksum = None
+                revision.approval_fingerprint = None
                 revision.approved_by = None
                 revision.approved_at = None
 
@@ -663,7 +1147,7 @@ class SourceIntelligenceService:
         checksum_changed = previous is not None and previous.checksum != revision.checksum
         pattern_drift = (
             previous is not None
-            and checksum_changed
+            and (checksum_changed or bool(metadata_changes))
             and source.source_type in Source.official_type_values()
         )
         diff = SourceDiff(
@@ -718,28 +1202,49 @@ class SourceIntelligenceService:
         if revision.status != SourceRevisionStatus.EXTRACTED.value:
             raise SourceLifecycleError("only extracted revisions can be validated")
 
-        errors = _governance_errors(source.source_type, source.trust_tier, source.authority)
+        raw_snapshot = revision.metadata_json.get("source_snapshot")
+        snapshot: dict[str, Any] | None = (
+            raw_snapshot if isinstance(raw_snapshot, dict) else None
+        )
+        snapshot_checksum = (
+            self._snapshot_checksum(snapshot) if snapshot is not None else ""
+        )
+        governance_errors = (
+            _governance_errors(
+                str(snapshot.get("source_type")),
+                str(snapshot.get("trust_tier")),
+                snapshot.get("authority"),
+            )
+            if snapshot is not None
+            else ["source snapshot is unavailable"]
+        )
+        errors = list(governance_errors)
+
+        actual_checksum: str | None = None
+        storage_integrity = False
+        try:
+            _, actual_checksum, storage_integrity = self._content_integrity(revision)
+        except (OSError, SourceStorageError):
+            storage_integrity = False
+
         checks: dict[str, bool] = {
             "checksum_format": len(revision.checksum) == 64,
+            "source_snapshot_integrity": (
+                snapshot is not None
+                and snapshot_checksum == revision.source_snapshot_checksum
+            ),
             "extraction_succeeded": (
                 revision.extraction_status == SourceExtractionStatus.SUCCEEDED.value
             ),
             "extracted_content_present": bool((revision.extracted_text or "").strip()),
-            "source_governance": not errors,
+            "extraction_binding": (
+                actual_checksum is not None
+                and revision.extracted_checksum == actual_checksum
+                and actual_checksum == revision.checksum
+            ),
+            "storage_integrity": storage_integrity,
+            "source_governance": not governance_errors,
         }
-
-        if revision.storage_path:
-            try:
-                stored = self.storage.read(revision.storage_path)
-                checks["storage_integrity"] = (
-                    len(stored) == revision.byte_size and _sha256(stored) == revision.checksum
-                )
-            except OSError:
-                checks["storage_integrity"] = False
-        else:
-            checks["storage_integrity"] = (
-                revision.ingestion_method == SourceIngestionMethod.MANUAL.value
-            )
 
         source_diff = self.session.scalar(
             select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
@@ -752,6 +1257,7 @@ class SourceIntelligenceService:
                 SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
             )
             .order_by(SourceRevision.revision_number.desc())
+            .execution_options(populate_existing=True)
         )
         current_active_id = current_active.id if current_active else None
         checks["diff_created"] = source_diff is not None
@@ -765,14 +1271,23 @@ class SourceIntelligenceService:
                 errors.append(f"validation check failed: {check_name}")
 
         valid = not errors
-        if valid:
+        if valid and actual_checksum is not None:
             revision.status = SourceRevisionStatus.VALIDATED.value
+            revision.validated_checksum = actual_checksum
+            revision.approval_fingerprint = None
             revision.failure_reason = None
         else:
             revision.status = SourceRevisionStatus.REJECTED.value
+            revision.validated_checksum = None
+            revision.approval_fingerprint = None
             revision.failure_reason = "; ".join(errors)
 
-        checksum_verified = checks["checksum_format"] and checks["storage_integrity"]
+        checksum_verified = (
+            checks["checksum_format"]
+            and checks["storage_integrity"]
+            and checks["extraction_binding"]
+            and checks["source_snapshot_integrity"]
+        )
         self._audit(
             source=source,
             revision=revision,
@@ -783,6 +1298,10 @@ class SourceIntelligenceService:
             payload={
                 "checksum_format": checks["checksum_format"],
                 "storage_integrity": checks["storage_integrity"],
+                "extraction_binding": checks["extraction_binding"],
+                "source_snapshot_integrity": checks[
+                    "source_snapshot_integrity"
+                ],
             },
         )
         self._audit(
@@ -804,12 +1323,30 @@ class SourceIntelligenceService:
         actor_id: str,
         request_id: str | None = None,
     ) -> SourceRevision:
-        revision = self._revision(revision_id)
+        revision = self._revision(revision_id, for_update=True)
         if revision.status != SourceRevisionStatus.VALIDATED.value:
             raise SourceLifecycleError("only validated revisions can be approved")
+
+        try:
+            _, actual_checksum, integrity_ok = self._content_integrity(revision)
+        except (OSError, SourceStorageError) as exc:
+            raise SourceLifecycleError(
+                "validated source content is unavailable"
+            ) from exc
+
+        if (
+            not integrity_ok
+            or revision.validated_checksum != actual_checksum
+            or revision.extracted_checksum != actual_checksum
+        ):
+            raise SourceLifecycleError(
+                "validated source content changed before approval"
+            )
+
         revision.status = SourceRevisionStatus.APPROVED.value
         revision.approved_by = actor_id
         revision.approved_at = _utc_now()
+        revision.approval_fingerprint = self._approval_fingerprint(revision)
         self._audit(
             source=revision.source,
             revision=revision,
@@ -817,6 +1354,7 @@ class SourceIntelligenceService:
             outcome="success",
             actor_id=actor_id,
             request_id=request_id,
+            payload={"approval_fingerprint": revision.approval_fingerprint},
         )
         self._commit()
         return revision
@@ -828,13 +1366,41 @@ class SourceIntelligenceService:
         actor_id: str,
         request_id: str | None = None,
     ) -> SourceRevision:
-        revision = self._revision(revision_id)
+        revision = self._revision(revision_id, for_update=True)
         if revision.status == SourceRevisionStatus.ACTIVE.value:
             return revision
         if revision.status != SourceRevisionStatus.APPROVED.value:
             raise SourceLifecycleError("only approved revisions can be activated")
 
-        source = revision.source
+        source = self._source(revision.source_id)
+        try:
+            _, actual_checksum, integrity_ok = self._content_integrity(revision)
+        except (OSError, SourceStorageError) as exc:
+            raise SourceLifecycleError(
+                "approved source content is unavailable"
+            ) from exc
+
+        if (
+            not integrity_ok
+            or revision.validated_checksum != actual_checksum
+            or revision.extracted_checksum != actual_checksum
+        ):
+            raise SourceLifecycleError(
+                "approved source content changed before activation"
+            )
+        if not revision.approval_fingerprint:
+            raise SourceLifecycleError("approved revision has no approval fingerprint")
+        if revision.approval_fingerprint != self._approval_fingerprint(revision):
+            raise SourceLifecycleError(
+                "approved source evidence changed before activation"
+            )
+
+        snapshot = revision.metadata_json.get("source_snapshot")
+        if not isinstance(snapshot, dict):
+            raise SourceLifecycleError("approved revision source snapshot is unavailable")
+        if self._snapshot_checksum(snapshot) != revision.source_snapshot_checksum:
+            raise SourceLifecycleError("approved revision source snapshot changed")
+
         now = _utc_now()
         try:
             active_revisions = list(
@@ -844,15 +1410,20 @@ class SourceIntelligenceService:
                         SourceRevision.source_id == source.id,
                         SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
                     )
+                    .execution_options(populate_existing=True)
                     .with_for_update()
                 )
             )
             current_active_id = active_revisions[0].id if active_revisions else None
             source_diff = self.session.scalar(
-                select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
+                select(SourceDiff)
+                .where(SourceDiff.to_revision_id == revision.id)
+                .execution_options(populate_existing=True)
             )
             if source_diff is None:
-                raise SourceLifecycleError("approved revision does not have a source diff")
+                raise SourceLifecycleError(
+                    "approved revision does not have a source diff"
+                )
             if source_diff.from_revision_id != current_active_id:
                 raise SourceLifecycleError(
                     "candidate diff is stale; refresh diff, validate, and approve again"
@@ -872,8 +1443,6 @@ class SourceIntelligenceService:
                     payload={"replacement_revision_id": revision.id},
                 )
 
-            # Preserve the one-active-revision invariant during the transaction:
-            # release the previous active slot before assigning it to the candidate.
             if active_revisions:
                 self.session.flush()
 
@@ -881,6 +1450,7 @@ class SourceIntelligenceService:
             revision.active_slot = 1
             revision.activated_at = now
             revision.superseded_at = None
+            self._apply_snapshot(source, snapshot)
             source.status = SourceStatus.ACTIVE.value
             source.checksum = revision.checksum
             source.retrieved_at = revision.retrieved_at
@@ -914,6 +1484,8 @@ class SourceIntelligenceService:
             raise SourceLifecycleError("active or superseded revisions cannot be rejected")
         revision.status = SourceRevisionStatus.REJECTED.value
         revision.active_slot = None
+        revision.validated_checksum = None
+        revision.approval_fingerprint = None
         revision.failure_reason = reason
         self._audit(
             source=revision.source,
@@ -947,7 +1519,10 @@ class SourceIntelligenceService:
             revision.status = SourceRevisionStatus.STAGED.value
             revision.extraction_status = SourceExtractionStatus.PENDING.value
             revision.extracted_text = None
+            revision.extracted_checksum = None
             revision.extraction_metadata_json = {}
+        revision.validated_checksum = None
+        revision.approval_fingerprint = None
         revision.failure_reason = None
         revision.approved_by = None
         revision.approved_at = None
