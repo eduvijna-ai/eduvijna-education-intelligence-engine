@@ -774,6 +774,93 @@ class SourceIntelligenceService:
             )
             raise
 
+    def _ingest_manual_snapshot(
+        self,
+        *,
+        source: Source,
+        payload: ManualSourceRevisionInput,
+        snapshot: dict[str, Any],
+        actor_id: str | None,
+        request_id: str | None,
+    ) -> SourceRevision:
+        canonical_bytes = _canonical_json_bytes(payload.metadata)
+        canonical = canonical_bytes.decode("utf-8")
+        checksum = _sha256(canonical_bytes)
+        snapshot_checksum = self._snapshot_checksum(snapshot)
+        duplicate = self._find_identity_revision(
+            source_id=source.id,
+            checksum=checksum,
+            source_snapshot_checksum=snapshot_checksum,
+        )
+        if duplicate is not None:
+            self._audit_duplicate(
+                source=source,
+                revision=duplicate,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+            return duplicate
+
+        last_error: Exception | None = None
+        for attempt in range(6):
+            revision = SourceRevision(
+                source_id=source.id,
+                revision_number=self._next_revision_number(source.id),
+                ingestion_method=SourceIngestionMethod.MANUAL.value,
+                checksum=checksum,
+                source_snapshot_checksum=snapshot_checksum,
+                content_type="application/vnd.eduvijna.metadata+json",
+                byte_size=len(canonical_bytes),
+                storage_path=None,
+                original_filename=None,
+                retrieved_at=_utc_now(),
+                extraction_status=SourceExtractionStatus.SUCCEEDED.value,
+                extracted_text=canonical,
+                extracted_checksum=checksum,
+                status=SourceRevisionStatus.EXTRACTED.value,
+                metadata_json={
+                    "source_snapshot": snapshot,
+                    "manual_metadata": payload.metadata,
+                    "note": payload.note,
+                },
+            )
+            self.session.add(revision)
+            try:
+                self.session.flush()
+                self._audit(
+                    source=source,
+                    revision=revision,
+                    event_type="manual_source_ingested",
+                    outcome="extracted",
+                    actor_id=actor_id,
+                    request_id=request_id,
+                )
+                self._commit()
+                return revision
+            except (IntegrityError, OperationalError) as exc:
+                last_error = exc
+                self._rollback()
+                duplicate = self._find_identity_revision(
+                    source_id=source.id,
+                    checksum=checksum,
+                    source_snapshot_checksum=snapshot_checksum,
+                )
+                if duplicate is not None:
+                    self._audit_duplicate(
+                        source=source,
+                        revision=duplicate,
+                        actor_id=actor_id,
+                        request_id=request_id,
+                    )
+                    return duplicate
+                if isinstance(exc, OperationalError) and "locked" not in str(exc).lower():
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+
+        raise SourceLifecycleError(
+            "could not allocate manual source revision after concurrent writes"
+        ) from last_error
+
     def ingest_manual(
         self,
         source_id: str,
@@ -783,50 +870,93 @@ class SourceIntelligenceService:
         request_id: str | None = None,
     ) -> SourceRevision:
         source = self._source(source_id)
-        canonical = json.dumps(
-            payload.metadata,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        content = canonical.encode("utf-8")
-        checksum = _sha256(content)
-        duplicate = self._duplicate(
+        return self._ingest_manual_snapshot(
             source=source,
-            checksum=checksum,
+            payload=payload,
+            snapshot=self._source_snapshot(source),
             actor_id=actor_id,
             request_id=request_id,
         )
-        if duplicate is not None:
-            return duplicate
 
-        revision = SourceRevision(
-            source_id=source.id,
-            revision_number=self._next_revision_number(source.id),
-            ingestion_method=SourceIngestionMethod.MANUAL.value,
-            checksum=checksum,
-            content_type="application/vnd.eduvijna.metadata+json",
-            byte_size=len(content),
-            storage_path=None,
-            original_filename=None,
-            retrieved_at=_utc_now(),
-            extraction_status=SourceExtractionStatus.SUCCEEDED.value,
-            extracted_text=canonical,
-            extraction_metadata_json={"format": "manual_metadata"},
-            status=SourceRevisionStatus.EXTRACTED.value,
-            metadata_json={
-                "source_snapshot": self._source_snapshot(source),
-                "manual_metadata": payload.metadata,
-                "note": payload.note,
-            },
+    def stage_metadata_update(
+        self,
+        source_id: str,
+        payload: SourceMetadataUpdateInput,
+        *,
+        actor_id: str | None = None,
+        request_id: str | None = None,
+    ) -> SourceRevision:
+        source = self._source(source_id)
+        active = self.session.scalar(
+            select(SourceRevision)
+            .where(
+                SourceRevision.source_id == source.id,
+                SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
+            )
+            .execution_options(populate_existing=True)
         )
-        self.session.add(revision)
-        self.session.flush()
+        if active is None:
+            raise SourceLifecycleError(
+                "metadata updates require an existing active source revision"
+            )
+
+        snapshot = self._source_snapshot(source)
+        for field_name in payload.model_fields_set:
+            value = getattr(payload, field_name)
+            if field_name == "effective_date":
+                snapshot[field_name] = value.isoformat() if value is not None else None
+            else:
+                snapshot[field_name] = value
+
+        errors = _governance_errors(
+            str(snapshot["source_type"]),
+            str(snapshot["trust_tier"]),
+            snapshot.get("authority"),
+        )
+        if errors:
+            raise SourceGovernanceError("; ".join(errors))
+
+        new_snapshot_checksum = self._snapshot_checksum(snapshot)
+        if new_snapshot_checksum == active.source_snapshot_checksum:
+            raise SourceLifecycleError("source metadata update contains no material changes")
+
+        if active.ingestion_method == SourceIngestionMethod.MANUAL.value:
+            manual_metadata = active.metadata_json.get("manual_metadata")
+            if not isinstance(manual_metadata, dict):
+                raise SourceLifecycleError("active manual source metadata is unavailable")
+            revision = self._ingest_manual_snapshot(
+                source=source,
+                payload=ManualSourceRevisionInput(
+                    metadata=manual_metadata,
+                    note="metadata-only source revision",
+                ),
+                snapshot=snapshot,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
+        else:
+            content, _, integrity_ok = self._content_integrity(active)
+            if not integrity_ok:
+                raise SourceLifecycleError(
+                    "active source content failed integrity check"
+                )
+            revision = self._ingest_bytes(
+                source=source,
+                method=SourceIngestionMethod(active.ingestion_method),
+                content=content,
+                content_type=active.content_type,
+                filename=active.original_filename,
+                actor_id=actor_id,
+                request_id=request_id,
+                metadata={"metadata_only_change": True},
+                source_snapshot=snapshot,
+            )
+
         self._audit(
             source=source,
             revision=revision,
-            event_type="manual_source_ingested",
-            outcome="extracted",
+            event_type="source_metadata_change_staged",
+            outcome="review_required",
             actor_id=actor_id,
             request_id=request_id,
         )
