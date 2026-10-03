@@ -1184,10 +1184,12 @@ class SourceIntelligenceService:
         if revision.status != SourceRevisionStatus.EXTRACTED.value:
             raise SourceLifecycleError("only extracted revisions can be validated")
 
-        snapshot = revision.metadata_json.get("source_snapshot")
-        snapshot_is_dict = isinstance(snapshot, dict)
+        raw_snapshot = revision.metadata_json.get("source_snapshot")
+        snapshot: dict[str, Any] | None = (
+            raw_snapshot if isinstance(raw_snapshot, dict) else None
+        )
         snapshot_checksum = (
-            self._snapshot_checksum(snapshot) if snapshot_is_dict else ""
+            self._snapshot_checksum(snapshot) if snapshot is not None else ""
         )
         governance_errors = (
             _governance_errors(
@@ -1195,7 +1197,7 @@ class SourceIntelligenceService:
                 str(snapshot.get("trust_tier")),
                 snapshot.get("authority"),
             )
-            if snapshot_is_dict
+            if snapshot is not None
             else ["source snapshot is unavailable"]
         )
         errors = list(governance_errors)
@@ -1210,7 +1212,7 @@ class SourceIntelligenceService:
         checks: dict[str, bool] = {
             "checksum_format": len(revision.checksum) == 64,
             "source_snapshot_integrity": (
-                snapshot_is_dict
+                snapshot is not None
                 and snapshot_checksum == revision.source_snapshot_checksum
             ),
             "extraction_succeeded": (
