@@ -99,10 +99,7 @@ class _PinnedHTTPConnection(http.client.HTTPConnection):
         self.sock = socket.create_connection(
             (self._pinned_ip, self.port),
             self.timeout,
-            self.source_address,
         )
-        if self._tunnel_host:
-            self._tunnel()
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -113,11 +110,13 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         port: int,
         timeout: float,
     ) -> None:
+        self._ssl_context = ssl.create_default_context()
+        self._server_hostname = hostname
         super().__init__(
             hostname,
             port=port,
             timeout=timeout,
-            context=ssl.create_default_context(),
+            context=self._ssl_context,
         )
         self._pinned_ip = pinned_ip
 
@@ -125,15 +124,10 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         sock = socket.create_connection(
             (self._pinned_ip, self.port),
             self.timeout,
-            self.source_address,
         )
-        if self._tunnel_host:
-            self.sock = sock
-            self._tunnel()
-            sock = self.sock
-        self.sock = self._context.wrap_socket(
+        self.sock = self._ssl_context.wrap_socket(
             sock,
-            server_hostname=self.host,
+            server_hostname=self._server_hostname,
         )
 
 
