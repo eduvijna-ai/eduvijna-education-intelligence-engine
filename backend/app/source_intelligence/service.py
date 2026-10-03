@@ -715,6 +715,7 @@ class SourceIntelligenceService:
         try:
             if method not in _UPLOAD_MIME:
                 raise ValueError("upload method must be pdf, docx, csv, or json")
+            self._validate_upload_filename(method, filename)
             content_type, default_filename = _UPLOAD_MIME[method]
             return self._ingest_bytes(
                 source=source,
