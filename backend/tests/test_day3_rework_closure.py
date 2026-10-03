@@ -8,7 +8,6 @@ from uuid import UUID
 
 import httpx
 import pytest
-from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,7 +20,6 @@ from app.models import (
     Organization,
     Question,
     Source,
-    SourceAuditEvent,
     SourceRevision,
     Teacher,
 )
@@ -493,7 +491,9 @@ def test_manual_revision_checksum_is_recomputed(tmp_path: Path) -> None:
         create_database_engine.cache_clear()
 
 
-def _tenancy(session: Session) -> tuple[Organization, Institution, Teacher, Organization, Institution]:
+def _tenancy(
+    session: Session,
+) -> tuple[Organization, Institution, Teacher, Organization, Institution]:
     org_a = Organization(code="org-a", name="Org A")
     org_b = Organization(code="org-b", name="Org B")
     session.add_all([org_a, org_b])
