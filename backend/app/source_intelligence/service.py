@@ -609,8 +609,10 @@ class SourceIntelligenceService:
         if duplicate is not None:
             if (
                 duplicate.ingestion_method != SourceIngestionMethod.MANUAL.value
-                and duplicate.storage_path
-                and not self.storage.exists(duplicate.storage_path)
+                and (
+                    not duplicate.storage_path
+                    or not self.storage.exists(duplicate.storage_path)
+                )
             ):
                 return self._restore_missing_storage(
                     source=source,
@@ -1495,7 +1497,10 @@ class SourceIntelligenceService:
             revision.status = SourceRevisionStatus.STAGED.value
             revision.extraction_status = SourceExtractionStatus.PENDING.value
             revision.extracted_text = None
+            revision.extracted_checksum = None
             revision.extraction_metadata_json = {}
+        revision.validated_checksum = None
+        revision.approval_fingerprint = None
         revision.failure_reason = None
         revision.approved_by = None
         revision.approved_at = None
