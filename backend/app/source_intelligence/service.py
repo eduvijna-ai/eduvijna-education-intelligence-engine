@@ -1086,6 +1086,8 @@ class SourceIntelligenceService:
                 SourceRevisionStatus.APPROVED.value,
             }:
                 revision.status = SourceRevisionStatus.EXTRACTED.value
+                revision.validated_checksum = None
+                revision.approval_fingerprint = None
                 revision.approved_by = None
                 revision.approved_at = None
 
@@ -1125,7 +1127,7 @@ class SourceIntelligenceService:
         checksum_changed = previous is not None and previous.checksum != revision.checksum
         pattern_drift = (
             previous is not None
-            and checksum_changed
+            and (checksum_changed or bool(metadata_changes))
             and source.source_type in Source.official_type_values()
         )
         diff = SourceDiff(
