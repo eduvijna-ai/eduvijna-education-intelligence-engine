@@ -118,6 +118,25 @@ class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "teacher_id IS NULL OR institution_id IS NOT NULL",
             name="ck_source_teacher_requires_institution",
         ),
+        CheckConstraint(
+            "("
+            "source_type = 'institution_content' "
+            "AND organization_id IS NOT NULL "
+            "AND institution_id IS NOT NULL "
+            "AND teacher_id IS NULL"
+            ") OR ("
+            "source_type = 'teacher_content' "
+            "AND organization_id IS NOT NULL "
+            "AND institution_id IS NOT NULL "
+            "AND teacher_id IS NOT NULL"
+            ") OR ("
+            "source_type NOT IN ('institution_content','teacher_content') "
+            "AND organization_id IS NULL "
+            "AND institution_id IS NULL "
+            "AND teacher_id IS NULL"
+            ")",
+            name="ck_source_ownership_shape",
+        ),
         ForeignKeyConstraint(
             ["institution_id", "organization_id"],
             ["institutions.id", "institutions.organization_id"],
@@ -195,7 +214,7 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         UniqueConstraint("source_id", "active_slot", name="uq_source_single_active_revision"),
         CheckConstraint(
-            "(status = 'active' AND active_slot = 1) OR "
+            "(status = 'active' AND active_slot IS 1) OR "
             "(status <> 'active' AND active_slot IS NULL)",
             name="ck_source_revision_active_slot",
         ),
