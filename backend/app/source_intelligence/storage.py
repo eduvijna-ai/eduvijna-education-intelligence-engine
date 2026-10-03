@@ -59,11 +59,11 @@ class LocalSourceStorage:
                 os.fsync(stream.fileno())
             try:
                 os.link(temporary, target)
-            except FileExistsError:
+            except FileExistsError as exc:
                 if target.read_bytes() != content:
                     raise SourceStorageError(
                         "content-addressed storage checksum collision"
-                    )
+                    ) from exc
             finally:
                 os.unlink(temporary)
         except Exception:
