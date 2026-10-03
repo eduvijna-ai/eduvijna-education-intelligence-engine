@@ -1301,12 +1301,30 @@ class SourceIntelligenceService:
         actor_id: str,
         request_id: str | None = None,
     ) -> SourceRevision:
-        revision = self._revision(revision_id)
+        revision = self._revision(revision_id, for_update=True)
         if revision.status != SourceRevisionStatus.VALIDATED.value:
             raise SourceLifecycleError("only validated revisions can be approved")
+
+        try:
+            _, actual_checksum, integrity_ok = self._content_integrity(revision)
+        except (OSError, SourceStorageError) as exc:
+            raise SourceLifecycleError(
+                "validated source content is unavailable"
+            ) from exc
+
+        if (
+            not integrity_ok
+            or revision.validated_checksum != actual_checksum
+            or revision.extracted_checksum != actual_checksum
+        ):
+            raise SourceLifecycleError(
+                "validated source content changed before approval"
+            )
+
         revision.status = SourceRevisionStatus.APPROVED.value
         revision.approved_by = actor_id
         revision.approved_at = _utc_now()
+        revision.approval_fingerprint = self._approval_fingerprint(revision)
         self._audit(
             source=revision.source,
             revision=revision,
@@ -1314,6 +1332,7 @@ class SourceIntelligenceService:
             outcome="success",
             actor_id=actor_id,
             request_id=request_id,
+            payload={"approval_fingerprint": revision.approval_fingerprint},
         )
         self._commit()
         return revision
@@ -1325,13 +1344,41 @@ class SourceIntelligenceService:
         actor_id: str,
         request_id: str | None = None,
     ) -> SourceRevision:
-        revision = self._revision(revision_id)
+        revision = self._revision(revision_id, for_update=True)
         if revision.status == SourceRevisionStatus.ACTIVE.value:
             return revision
         if revision.status != SourceRevisionStatus.APPROVED.value:
             raise SourceLifecycleError("only approved revisions can be activated")
 
-        source = revision.source
+        source = self._source(revision.source_id)
+        try:
+            _, actual_checksum, integrity_ok = self._content_integrity(revision)
+        except (OSError, SourceStorageError) as exc:
+            raise SourceLifecycleError(
+                "approved source content is unavailable"
+            ) from exc
+
+        if (
+            not integrity_ok
+            or revision.validated_checksum != actual_checksum
+            or revision.extracted_checksum != actual_checksum
+        ):
+            raise SourceLifecycleError(
+                "approved source content changed before activation"
+            )
+        if not revision.approval_fingerprint:
+            raise SourceLifecycleError("approved revision has no approval fingerprint")
+        if revision.approval_fingerprint != self._approval_fingerprint(revision):
+            raise SourceLifecycleError(
+                "approved source evidence changed before activation"
+            )
+
+        snapshot = revision.metadata_json.get("source_snapshot")
+        if not isinstance(snapshot, dict):
+            raise SourceLifecycleError("approved revision source snapshot is unavailable")
+        if self._snapshot_checksum(snapshot) != revision.source_snapshot_checksum:
+            raise SourceLifecycleError("approved revision source snapshot changed")
+
         now = _utc_now()
         try:
             active_revisions = list(
@@ -1341,15 +1388,20 @@ class SourceIntelligenceService:
                         SourceRevision.source_id == source.id,
                         SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
                     )
+                    .execution_options(populate_existing=True)
                     .with_for_update()
                 )
             )
             current_active_id = active_revisions[0].id if active_revisions else None
             source_diff = self.session.scalar(
-                select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
+                select(SourceDiff)
+                .where(SourceDiff.to_revision_id == revision.id)
+                .execution_options(populate_existing=True)
             )
             if source_diff is None:
-                raise SourceLifecycleError("approved revision does not have a source diff")
+                raise SourceLifecycleError(
+                    "approved revision does not have a source diff"
+                )
             if source_diff.from_revision_id != current_active_id:
                 raise SourceLifecycleError(
                     "candidate diff is stale; refresh diff, validate, and approve again"
@@ -1369,8 +1421,6 @@ class SourceIntelligenceService:
                     payload={"replacement_revision_id": revision.id},
                 )
 
-            # Preserve the one-active-revision invariant during the transaction:
-            # release the previous active slot before assigning it to the candidate.
             if active_revisions:
                 self.session.flush()
 
@@ -1378,6 +1428,7 @@ class SourceIntelligenceService:
             revision.active_slot = 1
             revision.activated_at = now
             revision.superseded_at = None
+            self._apply_snapshot(source, snapshot)
             source.status = SourceStatus.ACTIVE.value
             source.checksum = revision.checksum
             source.retrieved_at = revision.retrieved_at
