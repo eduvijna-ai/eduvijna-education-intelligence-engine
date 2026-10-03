@@ -41,6 +41,28 @@ def _is_public_address(address: str) -> bool:
         return False
 
 
+def _connected_peer_address(response: httpx.Response) -> str | None:
+    stream = response.extensions.get("network_stream")
+    get_extra_info = getattr(stream, "get_extra_info", None)
+    if not callable(get_extra_info):
+        return None
+
+    server_addr = get_extra_info("server_addr")
+    if isinstance(server_addr, tuple) and server_addr:
+        return str(server_addr[0])
+    if isinstance(server_addr, str):
+        return server_addr
+    return None
+
+
+def validate_connected_peer(response: httpx.Response) -> None:
+    address = _connected_peer_address(response)
+    if address is None:
+        raise SourceFetchError("source connection peer address could not be verified")
+    if not _is_public_address(address):
+        raise UnsafeSourceUrl("source connection reached a non-global address")
+
+
 def _validated_addresses(
     url: str,
     *,
