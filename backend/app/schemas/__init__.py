@@ -46,7 +46,9 @@ __all__ = [
 
 from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
+    SourceAccessScope,
     SourceDiffSummary,
+    SourceMetadataUpdateInput,
     SourceProvenanceLinkInput,
     SourceRegistrationInput,
     SourceRevisionSummary,
@@ -55,7 +57,9 @@ from app.schemas.source_intelligence import (
 
 __all__ += [
     "ManualSourceRevisionInput",
+    "SourceAccessScope",
     "SourceDiffSummary",
+    "SourceMetadataUpdateInput",
     "SourceProvenanceLinkInput",
     "SourceRegistrationInput",
     "SourceRevisionSummary",
