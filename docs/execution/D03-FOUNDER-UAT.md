@@ -116,3 +116,33 @@ The automated Day-3 regression additionally verifies:
 
 Founder does not need to reproduce the concurrency and migration-failure injections manually.
 A green exact-commit CI run is the deterministic evidence for those cases.
+
+
+## 9. Legacy compatibility check
+
+If a local database was created from the earlier Day-3 handoff and is still on migration
+`20261002_0005`, inspect legacy tenant-source ownership before upgrading:
+
+```bash
+cd backend
+python -m app.source_legacy_repair inspect
+```
+
+If institution/teacher sources are listed, prepare an explicit JSON mapping and apply it:
+
+```bash
+python -m app.source_legacy_repair apply --mapping legacy-source-ownership.json
+alembic upgrade head
+```
+
+Expected:
+
+- missing ownership causes migration to fail before schema changes;
+- no source ownership is guessed;
+- after a valid mapping, migration reaches `20261003_0007`;
+- old extracted/validated/approved file candidates require fresh review;
+- old active/superseded revisions remain active/superseded;
+- `alembic check` reports no drift.
+
+The compatibility regressions are automated in
+`backend/tests/test_day3_final_compatibility.py`.
