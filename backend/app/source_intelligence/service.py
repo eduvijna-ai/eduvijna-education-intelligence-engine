@@ -953,6 +953,24 @@ class SourceIntelligenceService:
                 metadata={"metadata_only_change": True},
                 source_snapshot=snapshot,
             )
+            if revision.status == SourceRevisionStatus.STAGED.value:
+                revision.status = SourceRevisionStatus.EXTRACTED.value
+                revision.extraction_status = SourceExtractionStatus.SUCCEEDED.value
+                revision.extracted_text = active.extracted_text
+                revision.extracted_checksum = active.extracted_checksum
+                revision.extraction_metadata_json = dict(
+                    active.extraction_metadata_json
+                )
+                self._audit(
+                    source=source,
+                    revision=revision,
+                    event_type="source_extraction_reused",
+                    outcome="success",
+                    actor_id=actor_id,
+                    request_id=request_id,
+                    payload={"based_on_revision_id": active.id},
+                )
+                self._commit()
 
         self._audit(
             source=source,
