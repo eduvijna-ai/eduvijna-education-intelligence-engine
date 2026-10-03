@@ -31,7 +31,7 @@ days:
     name: Source Intelligence
     state: FOUNDER_REVIEW
     founder_approval: false
-    rework_scope: D3-R01..D3-R10
+    rework_scope: D3-R01..D3-R12
     rework_engineering_status: COMPLETE
     depends_on: 2
   4:
