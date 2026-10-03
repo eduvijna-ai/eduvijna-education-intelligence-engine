@@ -974,20 +974,33 @@ class SourceIntelligenceService:
         source = revision.source
         if revision.status != SourceRevisionStatus.STAGED.value:
             raise SourceLifecycleError("only staged revisions can be extracted")
-        if not revision.storage_path:
-            raise SourceLifecycleError("revision does not have stored content")
 
-        content = self.storage.read(revision.storage_path)
         try:
+            content, actual_checksum, integrity_ok = self._content_integrity(revision)
+            if not integrity_ok:
+                raise SourceExtractionError(
+                    "content_integrity_mismatch",
+                    "stored source bytes do not match revision checksum/size",
+                )
             result = extract_content(
                 content=content,
                 content_type=revision.content_type,
                 filename=revision.original_filename,
             )
-        except SourceExtractionError as exc:
+        except (SourceExtractionError, OSError, SourceStorageError) as exc:
+            if isinstance(exc, SourceExtractionError):
+                failure = exc
+            else:
+                failure = SourceExtractionError(
+                    "storage_read_failed",
+                    "stored source content could not be read",
+                )
             revision.extraction_status = SourceExtractionStatus.FAILED.value
             revision.status = SourceRevisionStatus.FAILED.value
-            revision.failure_reason = f"{exc.code}: {exc}"
+            revision.failure_reason = f"{failure.code}: {failure}"
+            revision.extracted_checksum = None
+            revision.validated_checksum = None
+            revision.approval_fingerprint = None
             self._audit(
                 source=source,
                 revision=revision,
@@ -995,13 +1008,18 @@ class SourceIntelligenceService:
                 outcome="failed",
                 actor_id=actor_id,
                 request_id=request_id,
-                payload={"error_code": exc.code},
+                payload={"error_code": failure.code},
             )
             self._commit()
-            raise
+            if failure is exc:
+                raise
+            raise failure from exc
 
         revision.extraction_status = SourceExtractionStatus.SUCCEEDED.value
         revision.extracted_text = result.text
+        revision.extracted_checksum = actual_checksum
+        revision.validated_checksum = None
+        revision.approval_fingerprint = None
         revision.extraction_metadata_json = result.metadata
         revision.status = SourceRevisionStatus.EXTRACTED.value
         revision.failure_reason = None
@@ -1012,7 +1030,10 @@ class SourceIntelligenceService:
             outcome="success",
             actor_id=actor_id,
             request_id=request_id,
-            payload={"text_length": len(result.text)},
+            payload={
+                "text_length": len(result.text),
+                "input_checksum": actual_checksum,
+            },
         )
         self._commit()
         return revision
