@@ -29,8 +29,9 @@ days:
     depends_on: 1
   3:
     name: Source Intelligence
-    state: FOUNDER_REVIEW
+    state: REWORK
     founder_approval: false
+    rework_scope: D3-R01..D3-R10
     depends_on: 2
   4:
     name: NCF NCERT CBSE
