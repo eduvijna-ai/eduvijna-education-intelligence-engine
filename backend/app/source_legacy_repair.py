@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import create_engine, text
 
 from app.core.config import get_settings
@@ -174,21 +175,20 @@ def apply_mapping(connection: Any, mapping_path: Path) -> list[str]:
 
         metadata = _json_object(row["metadata_json"])
         metadata[REPAIR_KEY] = validated
+        statement = text(
+            """
+            UPDATE sources
+            SET metadata_json = :metadata_json
+            WHERE id = :source_id
+            """
+        ).bindparams(
+            sa.bindparam("metadata_json", type_=sa.JSON()),
+            sa.bindparam("source_id", type_=sa.String(36)),
+        )
         connection.execute(
-            text(
-                """
-                UPDATE sources
-                SET metadata_json = :metadata_json
-                WHERE id = :source_id
-                """
-            ),
+            statement,
             {
-                "metadata_json": json.dumps(
-                    metadata,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
+                "metadata_json": metadata,
                 "source_id": source_id,
             },
         )
