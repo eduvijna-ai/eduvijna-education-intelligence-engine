@@ -112,6 +112,16 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
 def _governance_errors(source_type: str, trust_tier: str, authority: str | None) -> list[str]:
     errors: list[str] = []
     typed_source = SourceType(source_type)
@@ -133,6 +143,7 @@ class SourceIntelligenceService:
         *,
         storage: LocalSourceStorage | None = None,
         fetcher: SourceUrlFetcher | None = None,
+        access_scope: SourceAccessScope | None = None,
     ) -> None:
         settings = get_settings()
         self.session = session
@@ -142,24 +153,116 @@ class SourceIntelligenceService:
             max_bytes=settings.source_max_bytes,
             max_redirects=settings.source_max_redirects,
         )
+        self.access_scope = access_scope or SourceAccessScope(system=True)
         self.max_bytes = settings.source_max_bytes
         self._pending_log_events: list[dict[str, Any]] = []
 
+    def _assert_source_access(self, source: Source) -> None:
+        scope = self.access_scope
+        if scope.system or source.organization_id is None:
+            return
+        if str(scope.organization_id) != source.organization_id:
+            raise PermissionError("source is outside organization scope")
+        if (
+            scope.institution_id is not None
+            and source.institution_id is not None
+            and str(scope.institution_id) != source.institution_id
+        ):
+            raise PermissionError("source is outside institution scope")
+        if (
+            scope.teacher_id is not None
+            and source.teacher_id is not None
+            and str(scope.teacher_id) != source.teacher_id
+        ):
+            raise PermissionError("source is outside teacher scope")
+
+    def _assert_registration_scope(self, payload: SourceRegistrationInput) -> None:
+        scope = self.access_scope
+        if scope.system or payload.organization_id is None:
+            return
+        if scope.organization_id != payload.organization_id:
+            raise PermissionError("cannot register source outside organization scope")
+        if (
+            scope.institution_id is not None
+            and payload.institution_id is not None
+            and scope.institution_id != payload.institution_id
+        ):
+            raise PermissionError("cannot register source outside institution scope")
+        if (
+            scope.teacher_id is not None
+            and payload.teacher_id is not None
+            and scope.teacher_id != payload.teacher_id
+        ):
+            raise PermissionError("cannot register source outside teacher scope")
+
+    def _validate_registration_ownership(
+        self,
+        payload: SourceRegistrationInput,
+    ) -> None:
+        self._assert_registration_scope(payload)
+        if payload.organization_id is None:
+            return
+
+        organization = self.session.get(Organization, str(payload.organization_id))
+        if organization is None:
+            raise SourceGovernanceError("source organization does not exist")
+
+        if payload.institution_id is not None:
+            institution = self.session.get(Institution, str(payload.institution_id))
+            if institution is None:
+                raise SourceGovernanceError("source institution does not exist")
+            if institution.organization_id != organization.id:
+                raise SourceGovernanceError(
+                    "source institution does not belong to organization"
+                )
+
+        if payload.teacher_id is not None:
+            teacher = self.session.get(Teacher, str(payload.teacher_id))
+            if teacher is None:
+                raise SourceGovernanceError("source teacher does not exist")
+            if payload.institution_id is None or teacher.institution_id != str(
+                payload.institution_id
+            ):
+                raise SourceGovernanceError(
+                    "source teacher does not belong to institution"
+                )
+
     def _source(self, source_id: str) -> Source:
-        source = self.session.get(Source, source_id)
+        source = self.session.scalar(
+            select(Source)
+            .where(Source.id == source_id)
+            .execution_options(populate_existing=True)
+        )
         if source is None:
             raise LookupError(f"source not found: {source_id}")
+        self._assert_source_access(source)
         return source
 
-    def _revision(self, revision_id: str) -> SourceRevision:
-        revision = self.session.get(SourceRevision, revision_id)
+    def _revision(
+        self,
+        revision_id: str,
+        *,
+        for_update: bool = False,
+    ) -> SourceRevision:
+        statement = (
+            select(SourceRevision)
+            .where(SourceRevision.id == revision_id)
+            .execution_options(populate_existing=True)
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        revision = self.session.scalar(statement)
         if revision is None:
             raise LookupError(f"source revision not found: {revision_id}")
+        self._assert_source_access(revision.source)
         return revision
 
     @staticmethod
     def _source_snapshot(source: Source) -> dict[str, Any]:
         return {
+            "organization_id": source.organization_id,
+            "institution_id": source.institution_id,
+            "teacher_id": source.teacher_id,
             "source_type": source.source_type,
             "title": source.title,
             "url": source.url,
@@ -173,7 +276,85 @@ class SourceIntelligenceService:
             "copyright_classification": source.copyright_classification,
             "trust_tier": source.trust_tier,
             "anythingllm_workspace": source.anythingllm_workspace,
+            "metadata_json": source.metadata_json,
         }
+
+    @staticmethod
+    def _snapshot_checksum(snapshot: dict[str, Any]) -> str:
+        return _sha256(_canonical_json_bytes(snapshot))
+
+    @staticmethod
+    def _apply_snapshot(source: Source, snapshot: dict[str, Any]) -> None:
+        source.title = str(snapshot["title"])
+        source.url = snapshot.get("url")
+        source.authority = snapshot.get("authority")
+        source.country = snapshot.get("country")
+        source.board_or_exam = snapshot.get("board_or_exam")
+        source.academic_year = snapshot.get("academic_year")
+        effective_date = snapshot.get("effective_date")
+        source.effective_date = (
+            date.fromisoformat(str(effective_date)) if effective_date else None
+        )
+        source.copyright_classification = snapshot.get(
+            "copyright_classification"
+        )
+        source.anythingllm_workspace = snapshot.get("anythingllm_workspace")
+        source.metadata_json = dict(snapshot.get("metadata_json") or {})
+
+    def _revision_content_bytes(self, revision: SourceRevision) -> bytes:
+        if revision.ingestion_method == SourceIngestionMethod.MANUAL.value:
+            manual_metadata = revision.metadata_json.get("manual_metadata")
+            if not isinstance(manual_metadata, dict):
+                raise SourceStorageError("manual revision metadata is unavailable")
+            return _canonical_json_bytes(manual_metadata)
+        if not revision.storage_path:
+            raise SourceStorageError("revision does not have stored content")
+        return self.storage.read(revision.storage_path)
+
+    def _content_integrity(
+        self,
+        revision: SourceRevision,
+    ) -> tuple[bytes, str, bool]:
+        content = self._revision_content_bytes(revision)
+        checksum = _sha256(content)
+        valid = len(content) == revision.byte_size and checksum == revision.checksum
+        return content, checksum, valid
+
+    def _approval_fingerprint(self, revision: SourceRevision) -> str:
+        source_diff = self.session.scalar(
+            select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
+        )
+        payload = {
+            "revision_id": revision.id,
+            "checksum": revision.checksum,
+            "source_snapshot_checksum": revision.source_snapshot_checksum,
+            "extracted_checksum": revision.extracted_checksum,
+            "validated_checksum": revision.validated_checksum,
+            "extracted_text_checksum": _sha256(
+                (revision.extracted_text or "").encode("utf-8")
+            ),
+            "content_type": revision.content_type,
+            "byte_size": revision.byte_size,
+            "diff_from_revision_id": (
+                source_diff.from_revision_id if source_diff is not None else None
+            ),
+        }
+        return _sha256(_canonical_json_bytes(payload))
+
+    @staticmethod
+    def _validate_upload_filename(
+        method: SourceIngestionMethod,
+        filename: str | None,
+    ) -> None:
+        if not filename:
+            return
+        suffix = Path(filename).suffix.lower()
+        expected = _UPLOAD_SUFFIX[method]
+        if suffix and suffix != expected:
+            raise ValueError(
+                f"upload filename extension {suffix!r} does not match "
+                f"ingestion method {method.value!r}"
+            )
 
     def _audit(
         self,
