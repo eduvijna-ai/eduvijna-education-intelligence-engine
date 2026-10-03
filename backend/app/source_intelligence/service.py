@@ -4,19 +4,26 @@ import difflib
 import hashlib
 import json
 import logging
-from datetime import UTC, datetime
+import time
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.logging import redact_log_text
 from app.models import (
+    Institution,
+    Organization,
     PolicyRule,
     Source,
     SourceAuditEvent,
     SourceDiff,
     SourceRevision,
+    Teacher,
 )
 from app.models.curriculum import CurriculumVersion
 from app.models.enums import (
@@ -31,6 +38,8 @@ from app.models.examination import ExamVersion
 from app.models.question import Question
 from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
+    SourceAccessScope,
+    SourceMetadataUpdateInput,
     SourceProvenanceLinkInput,
     SourceRegistrationInput,
     SourceValidationResult,
@@ -40,7 +49,7 @@ from app.source_intelligence.extractors import (
     extract_content,
 )
 from app.source_intelligence.security import SourceUrlFetcher
-from app.source_intelligence.storage import LocalSourceStorage
+from app.source_intelligence.storage import LocalSourceStorage, SourceStorageError
 
 logger = logging.getLogger("eduvijna.source")
 
@@ -52,6 +61,13 @@ _UPLOAD_MIME: dict[SourceIngestionMethod, tuple[str, str]] = {
     ),
     SourceIngestionMethod.CSV: ("text/csv", "source.csv"),
     SourceIngestionMethod.JSON: ("application/json", "source.json"),
+}
+
+_UPLOAD_SUFFIX: dict[SourceIngestionMethod, str] = {
+    SourceIngestionMethod.PDF: ".pdf",
+    SourceIngestionMethod.DOCX: ".docx",
+    SourceIngestionMethod.CSV: ".csv",
+    SourceIngestionMethod.JSON: ".json",
 }
 
 _ALLOWED_TRUST: dict[SourceType, set[SourceTrustTier]] = {
