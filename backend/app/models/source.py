@@ -11,6 +11,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     String,
     Table,
@@ -108,7 +109,36 @@ policy_rule_source_revisions = Table(
 
 class Source(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "sources"
+    __table_args__ = (
+        CheckConstraint(
+            "institution_id IS NULL OR organization_id IS NOT NULL",
+            name="ck_source_institution_requires_organization",
+        ),
+        CheckConstraint(
+            "teacher_id IS NULL OR institution_id IS NOT NULL",
+            name="ck_source_teacher_requires_institution",
+        ),
+        ForeignKeyConstraint(
+            ["institution_id", "organization_id"],
+            ["institutions.id", "institutions.organization_id"],
+            name="fk_source_institution_same_organization",
+        ),
+        ForeignKeyConstraint(
+            ["teacher_id", "institution_id"],
+            ["teachers.id", "teachers.institution_id"],
+            name="fk_source_teacher_same_institution",
+        ),
+    )
 
+    organization_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), index=True
+    )
+    institution_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("institutions.id", ondelete="CASCADE"), index=True
+    )
+    teacher_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("teachers.id", ondelete="CASCADE"), index=True
+    )
     source_type: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     url: Mapped[str | None] = mapped_column(Text)
@@ -157,10 +187,16 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "source_revisions"
     __table_args__ = (
         UniqueConstraint("source_id", "revision_number", name="uq_source_revision_number"),
-        UniqueConstraint("source_id", "checksum", name="uq_source_revision_checksum"),
+        UniqueConstraint(
+            "source_id",
+            "checksum",
+            "source_snapshot_checksum",
+            name="uq_source_revision_identity",
+        ),
         UniqueConstraint("source_id", "active_slot", name="uq_source_single_active_revision"),
         CheckConstraint(
-            "active_slot IS NULL OR (active_slot = 1 AND status = 'active')",
+            "(status = 'active' AND active_slot = 1) OR "
+            "(status <> 'active' AND active_slot IS NULL)",
             name="ck_source_revision_active_slot",
         ),
     )
@@ -176,6 +212,9 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     checksum: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    source_snapshot_checksum: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )
     content_type: Mapped[str] = mapped_column(String(255), nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_path: Mapped[str | None] = mapped_column(Text)
@@ -188,6 +227,9 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
     extracted_text: Mapped[str | None] = mapped_column(Text)
+    extracted_checksum: Mapped[str | None] = mapped_column(String(64))
+    validated_checksum: Mapped[str | None] = mapped_column(String(64))
+    approval_fingerprint: Mapped[str | None] = mapped_column(String(64))
     extraction_metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSON, default=dict, nullable=False
     )
