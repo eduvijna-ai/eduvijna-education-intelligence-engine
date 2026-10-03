@@ -1464,6 +1464,8 @@ class SourceIntelligenceService:
             raise SourceLifecycleError("active or superseded revisions cannot be rejected")
         revision.status = SourceRevisionStatus.REJECTED.value
         revision.active_slot = None
+        revision.validated_checksum = None
+        revision.approval_fingerprint = None
         revision.failure_reason = reason
         self._audit(
             source=revision.source,
