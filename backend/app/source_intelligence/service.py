@@ -499,31 +499,85 @@ class SourceIntelligenceService:
         )
         return int(maximum or 0) + 1
 
-    def _duplicate(
+    def _find_identity_revision(
+        self,
+        *,
+        source_id: str,
+        checksum: str,
+        source_snapshot_checksum: str,
+    ) -> SourceRevision | None:
+        return self.session.scalar(
+            select(SourceRevision)
+            .where(
+                SourceRevision.source_id == source_id,
+                SourceRevision.checksum == checksum,
+                SourceRevision.source_snapshot_checksum == source_snapshot_checksum,
+            )
+            .execution_options(populate_existing=True)
+        )
+
+    def _audit_duplicate(
         self,
         *,
         source: Source,
-        checksum: str,
+        revision: SourceRevision,
         actor_id: str | None,
         request_id: str | None,
-    ) -> SourceRevision | None:
-        revision = self.session.scalar(
-            select(SourceRevision).where(
-                SourceRevision.source_id == source.id,
-                SourceRevision.checksum == checksum,
-            )
+    ) -> None:
+        self._audit(
+            source=source,
+            revision=revision,
+            event_type="duplicate_content_detected",
+            outcome="no_change",
+            actor_id=actor_id,
+            request_id=request_id,
+            payload={
+                "checksum": revision.checksum,
+                "source_snapshot_checksum": revision.source_snapshot_checksum,
+            },
         )
-        if revision is not None:
-            self._audit(
-                source=source,
-                revision=revision,
-                event_type="duplicate_content_detected",
-                outcome="no_change",
-                actor_id=actor_id,
-                request_id=request_id,
-                payload={"checksum": checksum},
-            )
-            self._commit()
+        self._commit()
+
+    def _restore_missing_storage(
+        self,
+        *,
+        source: Source,
+        revision: SourceRevision,
+        content: bytes,
+        filename: str | None,
+        actor_id: str | None,
+        request_id: str | None,
+    ) -> SourceRevision:
+        restored_path = self.storage.write_revision(
+            source_id=source.id,
+            revision_number=revision.revision_number,
+            checksum=revision.checksum,
+            filename=filename or revision.original_filename,
+            content=content,
+        )
+        revision.storage_path = restored_path
+        if revision.status in {
+            SourceRevisionStatus.FAILED.value,
+            SourceRevisionStatus.REJECTED.value,
+        }:
+            revision.status = SourceRevisionStatus.STAGED.value
+            revision.extraction_status = SourceExtractionStatus.PENDING.value
+            revision.extracted_text = None
+            revision.extracted_checksum = None
+            revision.validated_checksum = None
+            revision.approval_fingerprint = None
+            revision.failure_reason = None
+            revision.approved_by = None
+            revision.approved_at = None
+        self._audit(
+            source=source,
+            revision=revision,
+            event_type="source_content_restored",
+            outcome="success",
+            actor_id=actor_id,
+            request_id=request_id,
+        )
+        self._commit()
         return revision
 
     def _ingest_bytes(
@@ -537,6 +591,7 @@ class SourceIntelligenceService:
         actor_id: str | None,
         request_id: str | None,
         metadata: dict[str, Any] | None = None,
+        source_snapshot: dict[str, Any] | None = None,
     ) -> SourceRevision:
         if not content:
             raise ValueError("source content cannot be empty")
@@ -544,34 +599,56 @@ class SourceIntelligenceService:
             raise ValueError("source exceeds configured size limit")
 
         checksum = _sha256(content)
-        duplicate = self._duplicate(
-            source=source,
+        snapshot = source_snapshot or self._source_snapshot(source)
+        snapshot_checksum = self._snapshot_checksum(snapshot)
+        duplicate = self._find_identity_revision(
+            source_id=source.id,
             checksum=checksum,
-            actor_id=actor_id,
-            request_id=request_id,
+            source_snapshot_checksum=snapshot_checksum,
         )
         if duplicate is not None:
+            if (
+                duplicate.ingestion_method != SourceIngestionMethod.MANUAL.value
+                and duplicate.storage_path
+                and not self.storage.exists(duplicate.storage_path)
+            ):
+                return self._restore_missing_storage(
+                    source=source,
+                    revision=duplicate,
+                    content=content,
+                    filename=filename,
+                    actor_id=actor_id,
+                    request_id=request_id,
+                )
+            self._audit_duplicate(
+                source=source,
+                revision=duplicate,
+                actor_id=actor_id,
+                request_id=request_id,
+            )
             return duplicate
 
-        number = self._next_revision_number(source.id)
-        stored_path: str | None = None
-        try:
-            stored_path = self.storage.write_revision(
-                source_id=source.id,
-                revision_number=number,
-                checksum=checksum,
-                filename=filename,
-                content=content,
-            )
-            revision_metadata = {
-                "source_snapshot": self._source_snapshot(source),
-                **(metadata or {}),
-            }
+        stored_path = self.storage.write_revision(
+            source_id=source.id,
+            revision_number=0,
+            checksum=checksum,
+            filename=filename,
+            content=content,
+        )
+        revision_metadata = {
+            "source_snapshot": snapshot,
+            **(metadata or {}),
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(6):
+            number = self._next_revision_number(source.id)
             revision = SourceRevision(
                 source_id=source.id,
                 revision_number=number,
                 ingestion_method=method.value,
                 checksum=checksum,
+                source_snapshot_checksum=snapshot_checksum,
                 content_type=content_type,
                 byte_size=len(content),
                 storage_path=stored_path,
@@ -582,27 +659,47 @@ class SourceIntelligenceService:
                 metadata_json=revision_metadata,
             )
             self.session.add(revision)
-            self.session.flush()
-            self._audit(
-                source=source,
-                revision=revision,
-                event_type="source_ingested",
-                outcome="staged",
-                actor_id=actor_id,
-                request_id=request_id,
-                payload={
-                    "ingestion_method": method.value,
-                    "checksum": checksum,
-                    "byte_size": len(content),
-                },
-            )
-            self._commit()
-            return revision
-        except Exception:
-            self._rollback()
-            if stored_path is not None:
-                self.storage.delete(stored_path)
-            raise
+            try:
+                self.session.flush()
+                self._audit(
+                    source=source,
+                    revision=revision,
+                    event_type="source_ingested",
+                    outcome="staged",
+                    actor_id=actor_id,
+                    request_id=request_id,
+                    payload={
+                        "ingestion_method": method.value,
+                        "checksum": checksum,
+                        "byte_size": len(content),
+                        "source_snapshot_checksum": snapshot_checksum,
+                    },
+                )
+                self._commit()
+                return revision
+            except (IntegrityError, OperationalError) as exc:
+                last_error = exc
+                self._rollback()
+                duplicate = self._find_identity_revision(
+                    source_id=source.id,
+                    checksum=checksum,
+                    source_snapshot_checksum=snapshot_checksum,
+                )
+                if duplicate is not None:
+                    self._audit_duplicate(
+                        source=source,
+                        revision=duplicate,
+                        actor_id=actor_id,
+                        request_id=request_id,
+                    )
+                    return duplicate
+                if isinstance(exc, OperationalError) and "locked" not in str(exc).lower():
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+
+        raise SourceLifecycleError(
+            "could not allocate source revision after concurrent writes"
+        ) from last_error
 
     def ingest_upload(
         self,
