@@ -60,7 +60,7 @@ def validate_connected_peer(response: httpx.Response) -> None:
     if address is None:
         raise SourceFetchError("source connection peer address could not be verified")
     if not _is_public_address(address):
-        raise UnsafeSourceUrl("source connection reached a non-global address")
+        raise UnsafeSourceUrl("source connection reached a non-public address")
 
 
 def _validated_addresses(
