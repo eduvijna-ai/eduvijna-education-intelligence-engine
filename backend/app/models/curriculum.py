@@ -42,10 +42,17 @@ class EducationFramework(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[str] = mapped_column(String(128), index=True)
+    authority: Mapped[str | None] = mapped_column(String(255))
+    version_code: Mapped[str | None] = mapped_column(String(64), index=True)
     description: Mapped[str | None] = mapped_column(Text)
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    source_locator: Mapped[str | None] = mapped_column(String(1024))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     curriculum_packs: Mapped[list[CurriculumPack]] = relationship(back_populates="framework")
+    competencies: Mapped[list[Competency]] = relationship(back_populates="framework")
 
 
 class CurriculumPack(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -61,6 +68,10 @@ class CurriculumPack(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     authority: Mapped[str | None] = mapped_column(String(255))
     country: Mapped[str] = mapped_column(String(128), index=True)
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    source_locator: Mapped[str | None] = mapped_column(String(1024))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
@@ -92,6 +103,10 @@ class CurriculumVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    source_locator: Mapped[str | None] = mapped_column(String(1024))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
     curriculum_pack: Mapped[CurriculumPack] = relationship(back_populates="versions")
@@ -158,6 +173,11 @@ class CurriculumNode(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    official_text: Mapped[str | None] = mapped_column(Text)
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    source_locator: Mapped[str | None] = mapped_column(String(1024))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
     curriculum_version: Mapped[CurriculumVersion] = relationship(back_populates="nodes")
@@ -194,6 +214,11 @@ class LearningOutcome(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     code: Mapped[str] = mapped_column(String(128), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_text: Mapped[str | None] = mapped_column(Text)
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    source_locator: Mapped[str | None] = mapped_column(String(1024))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
@@ -210,12 +235,21 @@ class Competency(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("code", name="uq_competency_code"),
     )
 
+    framework_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("education_frameworks.id", ondelete="SET NULL"), index=True
+    )
     code: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    official_text: Mapped[str | None] = mapped_column(Text)
+    source_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    source_locator: Mapped[str | None] = mapped_column(String(1024))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
+    framework: Mapped[EducationFramework | None] = relationship(back_populates="competencies")
     nodes: Mapped[list[CurriculumNode]] = relationship(
         secondary=curriculum_node_competencies,
         back_populates="competencies",
