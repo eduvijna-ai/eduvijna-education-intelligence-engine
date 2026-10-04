@@ -100,7 +100,8 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "((learning_outcome_id IS NOT NULL) + (competency_id IS NOT NULL)) = 1",
+            "((learning_outcome_id IS NOT NULL AND competency_id IS NULL) OR "
+            "(learning_outcome_id IS NULL AND competency_id IS NOT NULL))",
             name="ck_curriculum_alignment_one_target",
         ),
         sa.CheckConstraint(
@@ -133,14 +134,6 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "curriculum_node_id",
-            "learning_outcome_id",
-            "competency_id",
-            "relationship_type",
-            "source_revision_id",
-            name="uq_curriculum_alignment_evidence",
-        ),
     )
     op.create_index(
         "ix_curriculum_alignments_curriculum_version_id",
@@ -171,6 +164,32 @@ def upgrade() -> None:
         "ix_curriculum_alignments_source_revision_id",
         "curriculum_alignments",
         ["source_revision_id"],
+    )
+    op.create_index(
+        "uq_curriculum_alignment_lo_evidence",
+        "curriculum_alignments",
+        [
+            "curriculum_node_id",
+            "learning_outcome_id",
+            "relationship_type",
+            "source_revision_id",
+        ],
+        unique=True,
+        sqlite_where=sa.text("learning_outcome_id IS NOT NULL"),
+        postgresql_where=sa.text("learning_outcome_id IS NOT NULL"),
+    )
+    op.create_index(
+        "uq_curriculum_alignment_competency_evidence",
+        "curriculum_alignments",
+        [
+            "curriculum_node_id",
+            "competency_id",
+            "relationship_type",
+            "source_revision_id",
+        ],
+        unique=True,
+        sqlite_where=sa.text("competency_id IS NOT NULL"),
+        postgresql_where=sa.text("competency_id IS NOT NULL"),
     )
 
     op.create_table(
