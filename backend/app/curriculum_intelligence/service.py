@@ -36,6 +36,7 @@ from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
     SourceRegistrationInput,
 )
+from app.source_intelligence.security import SourceFetchError
 from app.source_intelligence.service import SourceIntelligenceService
 
 DAY4_NAMESPACE = UUID("9d8e89be-1342-4cb7-8c2b-895399afca30")
@@ -173,7 +174,7 @@ class CurriculumIntelligenceService:
                         actor_id=actor_id,
                         request_id=request_id,
                     )
-                except Exception as exc:
+                except SourceFetchError as exc:
                     if not fallback_on_fetch_error:
                         raise
                     source.metadata_json = {
