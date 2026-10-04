@@ -108,12 +108,13 @@
       "parent_code": "grade-ix-math-number-systems",
       "sequence": 1,
       "official_text": null,
-      "source_key": "cbse-learning-standards-mathematics",
+      "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "CBSE Learning Standards PDF page22 > ClassIX > NumberSystems > NumberSystem; historical, not2026-27 evidence",
       "metadata_json": {
         "normalization": "synthetic_label_from_older_learning_standard",
         "academic_year_verified": false,
-        "source_context": "Historical learning standards; refers to NCF2005, not2026-27"
+        "source_context": "Historical learning standards; refers to NCF2005, not2026-27",
+        "fixture_semantics": "Synthetic syllabus membership, not learning-standard membership"
       }
     },
     {
@@ -123,13 +124,14 @@
       "parent_code": "grade-ix-math-real-numbers",
       "sequence": 1,
       "official_text": null,
-      "source_key": "cbse-learning-standards-mathematics",
+      "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "Learning outcome context",
       "metadata_json": {
         "normalization": "derived_topic",
         "official_mapping": false,
         "academic_year_verified": false,
-        "source_context": "Historical learning standards; refers to NCF2005, not2026-27"
+        "source_context": "Historical learning standards; refers to NCF2005, not2026-27",
+        "fixture_semantics": "Synthetic syllabus membership, not learning-standard membership"
       }
     },
     {
@@ -139,13 +141,14 @@
       "parent_code": "grade-ix-math-real-number-classification",
       "sequence": 1,
       "official_text": null,
-      "source_key": "cbse-learning-standards-mathematics",
+      "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "Derived from Class IX real-number learning outcome",
       "metadata_json": {
         "normalization": "derived_concept",
         "official_mapping": false,
         "academic_year_verified": false,
-        "source_context": "Historical learning standards; refers to NCF2005, not2026-27"
+        "source_context": "Historical learning standards; refers to NCF2005, not2026-27",
+        "fixture_semantics": "Synthetic syllabus membership, not learning-standard membership"
       }
     },
     {

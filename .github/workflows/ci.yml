@@ -84,6 +84,36 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  day5-official-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend
+        run: pip install -e '.[dev]'
+      - name: Verify required Day 5 official evidence
+        env:
+          SOURCE_URL_TIMEOUT_SECONDS: '20'
+          SOURCE_MAX_BYTES: '67108864'
+        run: |
+          mkdir -p evidence
+          python -m app.day5_verify --fetch-official > evidence/day5-source-report.json
+      - name: Upload metadata-only Day 5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: day5-source-evidence-${{ github.sha }}
+          path: backend/evidence/day5-source-report.json
+          if-no-files-found: error
+          retention-days: 30
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

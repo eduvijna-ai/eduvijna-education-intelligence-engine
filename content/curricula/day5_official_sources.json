@@ -1,0 +1,110 @@
+[
+  {
+    "key": "scert-syllabus-index",
+    "source_type": "official_syllabus",
+    "title": "scert syllabus index",
+    "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/Displaycontent.aspx?encry=Z+4YBPX+caUE5uiQSu6xdg%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "syllabus_index",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-ps-english-syllabus",
+    "source_type": "official_syllabus",
+    "title": "scert ps english syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-bs-english-syllabus",
+    "source_type": "official_syllabus",
+    "title": "scert bs english syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_EM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-textbooks-2025-26-draft",
+    "source_type": "official_authority",
+    "title": "scert textbooks 2025 26 draft",
+    "url": "https://scert.telangana.gov.in/DisplayImage.aspx?encry=Ytc1G1ftx++8OiL2XRvtdg%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": "2025-26",
+    "document_type": "textbook_index",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "draft",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-learning-outcomes-index",
+    "source_type": "official_authority",
+    "title": "scert learning outcomes index",
+    "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=SJZ%2FfnzG7N12MF87SAyR3A%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "learning_outcome_index",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-physical-science-handbook-x",
+    "source_type": "official_authority",
+    "title": "scert physical science handbook x",
+    "url": "https://www.scert.telangana.gov.in/PDF/publication/moduls/Phy_HB_X_EM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "teacher_handbook",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  }
+]

@@ -1,0 +1,161 @@
+{
+  "approved_tasks": [
+    "D5-01",
+    "D5-02",
+    "D5-03",
+    "D5-04",
+    "D5-05",
+    "D5-06",
+    "D5-07",
+    "D5-08",
+    "D5-09",
+    "D5-10",
+    "D5-11",
+    "D5-12",
+    "D5-13",
+    "D5-14",
+    "D5-15",
+    "D5-16",
+    "D5-17",
+    "D5-18",
+    "D5-19",
+    "D5-20",
+    "D5-21",
+    "D5-22",
+    "D5-23",
+    "D5-24",
+    "D5-25",
+    "D5-26",
+    "D5-27",
+    "D5-28",
+    "D5-29",
+    "D5-30",
+    "D5-31",
+    "D5-32",
+    "D5-33",
+    "D5-34"
+  ],
+  "base_commit": "7f1f86fe9e24dee3a663f1e7702df0946c1138ba",
+  "scope_status": "blocked_pending_official_documents",
+  "packs": [
+    {
+      "code": "ts-scert",
+      "grades": [
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V",
+        "VI",
+        "VII",
+        "VIII",
+        "IX",
+        "X"
+      ],
+      "academic_version": null
+    },
+    {
+      "code": "tgbie",
+      "years": [
+        "First Year",
+        "Second Year"
+      ],
+      "academic_version": null
+    }
+  ],
+  "required_detailed_slices": [
+    {
+      "key": "scert-viii-physical-science-english",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "scert-viii-biological-science-english",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "scert-viii-science-telugu-correspondence",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "intermediate-first-year-mathematics-english",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "intermediate-second-year-mathematics-english",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "intermediate-first-year-mathematics-telugu",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "historical-first-year-mathematics-ia-uat",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "scert-learning-outcomes",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    },
+    {
+      "key": "scert-academic-standards",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+    }
+  ],
+  "blocked_sources": [
+    {
+      "url": "https://tgbie.cgg.gov.in",
+      "reason": "Official portal returned F5 HTTP 403; no alternate automated bypass",
+      "affected_tasks": [
+        "D5-02",
+        "D5-10",
+        "D5-11",
+        "D5-14",
+        "D5-31"
+      ],
+      "manual_route": "Authorized official source upload through the normal private ingestion lifecycle; verify issuing authority/version/applicability before use"
+    }
+  ],
+  "claims_excluded": [
+    "2025-26 textbooks establish 2026-27 syllabus",
+    "historical Mathematics IA is current",
+    "catalogue means full hierarchy",
+    "textbook or assessment establishes membership",
+    "NCERT outcomes automatically Telangana outcomes"
+  ]
+}

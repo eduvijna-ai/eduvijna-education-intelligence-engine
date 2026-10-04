@@ -13,7 +13,7 @@ builder:
 reviewer:
   product: Codex
 source_of_truth: GitHub
-current_day: 4
+current_day: 5
 
 days:
   1:
@@ -37,14 +37,17 @@ days:
     depends_on: 2
   4:
     name: NCF NCERT CBSE
-    state: ACTIVE
+    state: COMPLETE
     founder_approval: false
     activation_signal: "Founder authorized Day 4 start"
+    approval_signal: "Day 4 signoff. prepare day 5 tasks list"
     depends_on: 3
   5:
     name: Telangana Curricula
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    activation_signal: "add below or attached tasks and start to Day5"
+    approved_scope: D5-01..D5-34
     depends_on: 4
   6:
     name: Education Intelligence Validators

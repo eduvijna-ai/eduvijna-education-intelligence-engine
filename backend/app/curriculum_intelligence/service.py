@@ -10,6 +10,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.source_domains import require_domain
 from app.models.curriculum import (
     Competency,
     CurriculumNode,
@@ -114,7 +115,9 @@ class CurriculumIntelligenceService:
         }
 
     @classmethod
-    def _require_curriculum_revision(cls, revision: SourceRevision) -> None:
+    def _require_curriculum_revision(
+        cls, revision: SourceRevision, purpose: str = "membership"
+    ) -> None:
         """One domain policy for every curriculum semantic creation/update."""
         cls._require_revision(revision)
         if cls._is_assessment_source(revision):
@@ -122,6 +125,10 @@ class CurriculumIntelligenceService:
                 "assessment sources cannot establish syllabus membership "
                 "or curriculum alignment/semantics"
             )
+        try:
+            require_domain(revision.metadata_json.get("source_snapshot", {}), purpose)
+        except ValueError as exc:
+            raise CurriculumIntelligenceError(str(exc)) from exc
 
     @staticmethod
     def _assert_source_binding(
@@ -355,7 +362,7 @@ class CurriculumIntelligenceService:
         source_locator: str | None = None,
         description: str | None = None,
     ) -> EducationFramework:
-        self._require_curriculum_revision(revision)
+        self._require_curriculum_revision(revision, "framework")
         framework = self.session.scalar(
             select(EducationFramework).where(EducationFramework.code == code)
         )
@@ -382,7 +389,7 @@ class CurriculumIntelligenceService:
     def ensure_pack(
         self,
         *,
-        framework: EducationFramework,
+        framework: EducationFramework | None,
         code: str,
         name: str,
         authority: str,
@@ -402,7 +409,7 @@ class CurriculumIntelligenceService:
             )
             self.session.add(pack)
         self._assert_source_binding(pack, revision)
-        pack.framework_id = framework.id
+        pack.framework_id = framework.id if framework is not None else None
         pack.name = name
         pack.authority = authority
         pack.country = country
@@ -555,7 +562,7 @@ class CurriculumIntelligenceService:
         specs: Iterable[CompetencySpec],
         revision: SourceRevision,
     ) -> dict[str, Competency]:
-        self._require_curriculum_revision(revision)
+        self._require_curriculum_revision(revision, "competency")
         result: dict[str, Competency] = {}
         for spec in specs:
             competency = self.session.scalar(select(Competency).where(Competency.code == spec.code))
@@ -588,7 +595,7 @@ class CurriculumIntelligenceService:
         specs: Iterable[LearningOutcomeSpec],
         revision: SourceRevision,
     ) -> dict[str, LearningOutcome]:
-        self._require_curriculum_revision(revision)
+        self._require_curriculum_revision(revision, "outcome")
         result: dict[str, LearningOutcome] = {}
         for spec in specs:
             outcome = self.session.scalar(
@@ -620,7 +627,7 @@ class CurriculumIntelligenceService:
         revision = self.session.get(SourceRevision, str(payload.source_revision_id))
         if revision is None:
             raise LookupError("alignment source revision not found")
-        self._require_curriculum_revision(revision)
+        self._require_curriculum_revision(revision, "alignment")
         if self._is_assessment_source(revision):
             raise CurriculumIntelligenceError(
                 "assessment sources cannot establish curriculum alignment"
@@ -1020,8 +1027,6 @@ class CurriculumIntelligenceService:
         path = self.hierarchy_path(node_id)
         version = path[-1].curriculum_version
         pack = version.curriculum_pack
-        if pack.framework_id is None:
-            raise CurriculumIntelligenceError("curriculum pack has no framework")
         path_ids = [node.id for node in path]
         alignments = list(
             self.session.scalars(
@@ -1034,7 +1039,7 @@ class CurriculumIntelligenceService:
             )
         )
         return CurriculumPathResult(
-            framework_id=UUID(pack.framework_id),
+            framework_id=UUID(pack.framework_id) if pack.framework_id is not None else None,
             curriculum_pack_id=UUID(pack.id),
             curriculum_version_id=UUID(version.id),
             node_ids=[UUID(node_id) for node_id in path_ids],

@@ -133,7 +133,7 @@ class CoverageSummary(BaseModel):
 class CurriculumPathResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    framework_id: UUID
+    framework_id: UUID | None
     curriculum_pack_id: UUID
     curriculum_version_id: UUID
     node_ids: list[UUID]
