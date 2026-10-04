@@ -65,3 +65,25 @@ __all__ += [
     "SourceRevisionSummary",
     "SourceValidationResult",
 ]
+
+from app.schemas.curriculum_intelligence import (
+    AssessmentEvidenceInput,
+    CompetencySpec,
+    CoverageSummary,
+    CurriculumAlignmentInput,
+    CurriculumNodeSpec,
+    CurriculumPathResult,
+    LearningOutcomeSpec,
+    OfficialSourceManifestEntry,
+)
+
+__all__ += [
+    "AssessmentEvidenceInput",
+    "CompetencySpec",
+    "CoverageSummary",
+    "CurriculumAlignmentInput",
+    "CurriculumNodeSpec",
+    "CurriculumPathResult",
+    "LearningOutcomeSpec",
+    "OfficialSourceManifestEntry",
+]
