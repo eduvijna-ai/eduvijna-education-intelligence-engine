@@ -56,7 +56,9 @@
       "official_text": null,
       "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "Mathematics Class IX (2026-27)",
-      "metadata_json": {"normalization": "official_grade_label"}
+      "metadata_json": {
+        "normalization": "official_grade_label"
+      }
     },
     {
       "node_type": "medium",
@@ -67,7 +69,10 @@
       "official_text": null,
       "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "Eduvijna canonical medium placeholder",
-      "metadata_json": {"normalization": "derived", "medium_specific_source": false}
+      "metadata_json": {
+        "normalization": "derived",
+        "medium_specific_source": false
+      }
     },
     {
       "node_type": "subject",
@@ -78,7 +83,9 @@
       "official_text": null,
       "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "Mathematics Class IX (2026-27)",
-      "metadata_json": {"normalization": "official_subject_label"}
+      "metadata_json": {
+        "normalization": "official_subject_label"
+      }
     },
     {
       "node_type": "unit",
@@ -89,7 +96,9 @@
       "official_text": null,
       "source_key": "cbse-mathematics-class-ix-2026-27",
       "source_locator": "Unit: Number Systems",
-      "metadata_json": {"normalization": "official_unit_label"}
+      "metadata_json": {
+        "normalization": "official_unit_label"
+      }
     },
     {
       "node_type": "chapter",
@@ -100,7 +109,9 @@
       "official_text": null,
       "source_key": "cbse-learning-standards-mathematics",
       "source_locator": "Class IX > Number Systems > Real Numbers",
-      "metadata_json": {"normalization": "official_chapter_or_content_domain_label"}
+      "metadata_json": {
+        "normalization": "official_chapter_or_content_domain_label"
+      }
     },
     {
       "node_type": "topic",
@@ -111,7 +122,10 @@
       "official_text": null,
       "source_key": "cbse-learning-standards-mathematics",
       "source_locator": "Learning outcome context",
-      "metadata_json": {"normalization": "derived_topic", "official_mapping": false}
+      "metadata_json": {
+        "normalization": "derived_topic",
+        "official_mapping": false
+      }
     },
     {
       "node_type": "concept",
@@ -122,7 +136,10 @@
       "official_text": null,
       "source_key": "cbse-learning-standards-mathematics",
       "source_locator": "Derived from Class IX real-number learning outcome",
-      "metadata_json": {"normalization": "derived_concept", "official_mapping": false}
+      "metadata_json": {
+        "normalization": "derived_concept",
+        "official_mapping": false
+      }
     },
     {
       "node_type": "grade_year",
@@ -133,7 +150,9 @@
       "official_text": null,
       "source_key": "cbse-class-x-sqp-2026-27",
       "source_locator": "Class X SQP/MS index 2026-27",
-      "metadata_json": {"normalization": "official_grade_label"}
+      "metadata_json": {
+        "normalization": "official_grade_label"
+      }
     },
     {
       "node_type": "medium",
@@ -144,7 +163,10 @@
       "official_text": null,
       "source_key": "cbse-class-x-sqp-2026-27",
       "source_locator": "Eduvijna canonical medium placeholder",
-      "metadata_json": {"normalization": "derived", "medium_specific_source": false}
+      "metadata_json": {
+        "normalization": "derived",
+        "medium_specific_source": false
+      }
     },
     {
       "node_type": "subject",
@@ -155,7 +177,90 @@
       "official_text": null,
       "source_key": "cbse-class-x-sqp-2026-27",
       "source_locator": "Mathematics (Standard) row",
-      "metadata_json": {"normalization": "official_subject_label", "subject_code": "041"}
+      "metadata_json": {
+        "normalization": "official_subject_label",
+        "subject_code": "041"
+      }
+    },
+    {
+      "node_type": "grade_year",
+      "code": "grade-xi",
+      "title": "Class XI",
+      "parent_code": null,
+      "sequence": 11,
+      "official_text": null,
+      "source_key": "cbse-curriculum-release-circular-2026-27",
+      "source_locator": "Release of CBSE Curriculum 2026-27 for Classes IX-XII",
+      "metadata_json": {
+        "normalization": "official_grade_label"
+      }
+    },
+    {
+      "node_type": "medium",
+      "code": "grade-xi-medium-common",
+      "title": "Common / source not medium-specific",
+      "parent_code": "grade-xi",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Eduvijna canonical medium placeholder",
+      "metadata_json": {
+        "normalization": "derived",
+        "medium_specific_source": false
+      }
+    },
+    {
+      "node_type": "subject",
+      "code": "grade-xi-mathematics",
+      "title": "Mathematics",
+      "parent_code": "grade-xi-medium-common",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Senior Secondary Curriculum > Mathematics",
+      "metadata_json": {
+        "normalization": "official_subject_label"
+      }
+    },
+    {
+      "node_type": "grade_year",
+      "code": "grade-xii",
+      "title": "Class XII",
+      "parent_code": null,
+      "sequence": 12,
+      "official_text": null,
+      "source_key": "cbse-curriculum-release-circular-2026-27",
+      "source_locator": "Release of CBSE Curriculum 2026-27 for Classes IX-XII",
+      "metadata_json": {
+        "normalization": "official_grade_label"
+      }
+    },
+    {
+      "node_type": "medium",
+      "code": "grade-xii-medium-common",
+      "title": "Common / source not medium-specific",
+      "parent_code": "grade-xii",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Eduvijna canonical medium placeholder",
+      "metadata_json": {
+        "normalization": "derived",
+        "medium_specific_source": false
+      }
+    },
+    {
+      "node_type": "subject",
+      "code": "grade-xii-mathematics",
+      "title": "Mathematics",
+      "parent_code": "grade-xii-medium-common",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-class-xii-sqp-2026-27",
+      "source_locator": "Class XII SQP/MS index > Mathematics",
+      "metadata_json": {
+        "normalization": "official_subject_label"
+      }
     }
   ],
   "alignments": [
@@ -204,5 +309,6 @@
         "not_a_syllabus_rule": true
       }
     }
-  ]
+  ],
+  "scope_note": "Verification slice covers grade roots IX-XII and representative Mathematics subject records; it is not a full subject/content dump."
 }
