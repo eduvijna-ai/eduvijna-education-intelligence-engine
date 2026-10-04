@@ -169,7 +169,7 @@ def test_day3_migration_preserves_day1_day2_records(tmp_path: Path) -> None:
             "policy_rule_source_revisions",
         }.issubset(tables)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "20261003_0007",
+            "20261004_0008",
         )
     finally:
         connection.close()
