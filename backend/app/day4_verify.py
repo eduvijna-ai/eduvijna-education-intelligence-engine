@@ -104,43 +104,43 @@ def seed_day4_verification(
     competencies: dict[str, Any] = {}
     for raw in bundle["competencies"]:
         source_key = raw["source_key"]
-        spec = CompetencySpec.model_validate(
+        competency_spec = CompetencySpec.model_validate(
             {key: value for key, value in raw.items() if key != "source_key"}
         )
-        result = service.upsert_competencies(
+        competency_result = service.upsert_competencies(
             framework=framework,
-            specs=[spec],
+            specs=[competency_spec],
             revision=revisions[source_key],
         )
-        competencies.update(result)
+        competencies.update(competency_result)
 
     outcomes: dict[str, Any] = {}
     for raw in bundle["learning_outcomes"]:
         source_key = raw["source_key"]
-        spec = LearningOutcomeSpec.model_validate(
+        outcome_spec = LearningOutcomeSpec.model_validate(
             {key: value for key, value in raw.items() if key != "source_key"}
         )
-        result = service.upsert_learning_outcomes(
+        outcome_result = service.upsert_learning_outcomes(
             version=version,
-            specs=[spec],
+            specs=[outcome_spec],
             revision=revisions[source_key],
         )
-        outcomes.update(result)
+        outcomes.update(outcome_result)
 
     nodes: dict[str, CurriculumNode] = {}
     # One node at a time intentionally permits different exact SourceRevisions
     # while parent lookup remains within the canonical curriculum version.
     for raw in bundle["nodes"]:
         source_key = raw["source_key"]
-        spec = CurriculumNodeSpec.model_validate(
+        node_spec = CurriculumNodeSpec.model_validate(
             {key: value for key, value in raw.items() if key != "source_key"}
         )
-        result = service.upsert_nodes(
+        node_result = service.upsert_nodes(
             version=version,
-            specs=[spec],
+            specs=[node_spec],
             revision=revisions[source_key],
         )
-        nodes.update(result)
+        nodes.update(node_result)
 
     alignments: list[Any] = []
     for raw in bundle["alignments"]:
