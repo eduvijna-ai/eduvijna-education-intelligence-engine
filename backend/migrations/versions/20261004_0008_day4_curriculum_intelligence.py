@@ -4,10 +4,11 @@ Revision ID: 20261004_0008
 Revises: 20261003_0007
 Create Date: 2026-10-04
 """
+
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "20261004_0008"
 down_revision = "20261003_0007"
@@ -262,8 +263,12 @@ def upgrade() -> None:
         ["source_revision_id"],
     )
 
+    _create_framework_structure()
+
 
 def downgrade() -> None:
+    op.drop_table("learning_outcome_competency_links")
+    op.drop_table("framework_structure_nodes")
     op.drop_table("assessment_evidence")
     op.drop_table("curriculum_alignments")
 
@@ -289,3 +294,234 @@ def downgrade() -> None:
         batch.drop_index("ix_education_frameworks_version_code")
         batch.drop_column("version_code")
         batch.drop_column("authority")
+
+
+def _create_framework_structure() -> None:
+    """Freeze the typed framework and LO link schema in this Day-4 revision."""
+    op.create_table(
+        "framework_structure_nodes",
+        sa.Column("framework_id", sa.String(length=36), nullable=False),
+        sa.Column("level", sa.String(length=32), nullable=False),
+        sa.Column("code", sa.String(length=128), nullable=False),
+        sa.Column("official_code", sa.String(length=128), nullable=True),
+        sa.Column("title", sa.String(length=512), nullable=False),
+        sa.Column("official_text", sa.Text(), nullable=True),
+        sa.Column("parent_id", sa.String(length=36), nullable=True),
+        sa.Column("parent_level", sa.String(length=32), nullable=True),
+        sa.Column("competency_id", sa.String(length=36), nullable=True),
+        sa.Column("sequence", sa.Integer(), nullable=False),
+        sa.Column("source_revision_id", sa.String(length=36), nullable=False),
+        sa.Column("source_locator", sa.String(length=1024), nullable=False),
+        sa.Column("publication_status", sa.String(length=16), nullable=False),
+        sa.Column("review_status", sa.String(length=32), nullable=False),
+        sa.Column("inferred", sa.Boolean(), nullable=False),
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "(level = 'competency' AND competency_id IS NOT NULL) OR "
+            "(level <> 'competency' AND competency_id IS NULL)",
+            name="ck_framework_structure_competency_leaf",
+        ),
+        sa.CheckConstraint(
+            "level IN ('stage', 'curricular_area', 'goal', 'competency')",
+            name="ck_framework_structure_level",
+        ),
+        sa.CheckConstraint(
+            "(level = 'stage' AND parent_id IS NULL AND parent_level IS NULL) OR "
+            "(parent_id IS NOT NULL AND parent_level IS NOT NULL AND ("
+            "(level = 'curricular_area' AND parent_level = 'stage') OR "
+            "(level = 'goal' AND parent_level = 'curricular_area') OR "
+            "(level = 'competency' AND parent_level = 'goal')))",
+            name="ck_framework_structure_parent_level",
+        ),
+        sa.CheckConstraint(
+            "publication_status IN ('draft', 'final')",
+            name="ck_framework_structure_publication_status",
+        ),
+        sa.CheckConstraint(
+            "review_status IN ('review_required', 'reviewed')",
+            name="ck_framework_structure_review_status",
+        ),
+        sa.ForeignKeyConstraint(
+            ["competency_id"], ["competencies.id"], name=None, ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_revision_id"], ["source_revisions.id"], name=None, ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["framework_id"], ["education_frameworks.id"], name=None, ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["parent_id", "framework_id", "parent_level"],
+            [
+                "framework_structure_nodes.id",
+                "framework_structure_nodes.framework_id",
+                "framework_structure_nodes.level",
+            ],
+            name="fk_framework_structure_parent_scope_level",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("framework_id", "code", name="uq_framework_structure_code"),
+        sa.UniqueConstraint("competency_id", name="uq_framework_structure_competency"),
+        sa.UniqueConstraint(
+            "id", "framework_id", "level", name="uq_framework_structure_id_scope_level"
+        ),
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_competency_id",
+        "framework_structure_nodes",
+        ["competency_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_framework_id",
+        "framework_structure_nodes",
+        ["framework_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_level", "framework_structure_nodes", ["level"], unique=False
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_parent_id",
+        "framework_structure_nodes",
+        ["parent_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_publication_status",
+        "framework_structure_nodes",
+        ["publication_status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_review_status",
+        "framework_structure_nodes",
+        ["review_status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_framework_structure_nodes_source_revision_id",
+        "framework_structure_nodes",
+        ["source_revision_id"],
+        unique=False,
+    )
+    op.create_table(
+        "learning_outcome_competency_links",
+        sa.Column("curriculum_version_id", sa.String(length=36), nullable=False),
+        sa.Column("learning_outcome_id", sa.String(length=36), nullable=False),
+        sa.Column("framework_id", sa.String(length=36), nullable=False),
+        sa.Column("competency_node_id", sa.String(length=36), nullable=False),
+        sa.Column("competency_node_level", sa.String(length=32), nullable=False),
+        sa.Column("relationship_type", sa.String(length=64), nullable=False),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("inferred", sa.Boolean(), nullable=False),
+        sa.Column("publication_status", sa.String(length=16), nullable=False),
+        sa.Column("review_status", sa.String(length=32), nullable=False),
+        sa.Column("source_revision_id", sa.String(length=36), nullable=False),
+        sa.Column("source_locator", sa.String(length=1024), nullable=False),
+        sa.Column("evidence_text", sa.Text(), nullable=True),
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            "status <> 'direct' OR (inferred = false AND review_status = 'reviewed' "
+            "AND evidence_text IS NOT NULL)",
+            name="ck_lo_competency_direct_evidence",
+        ),
+        sa.CheckConstraint(
+            "status = 'direct' OR inferred = true", name="ck_lo_competency_inferred_status"
+        ),
+        sa.CheckConstraint("competency_node_level = 'competency'", name="ck_lo_competency_leaf"),
+        sa.CheckConstraint(
+            "publication_status IN ('draft', 'final')", name="ck_lo_competency_publication_status"
+        ),
+        sa.CheckConstraint(
+            "review_status IN ('review_required', 'reviewed')",
+            name="ck_lo_competency_review_status",
+        ),
+        sa.CheckConstraint(
+            "status IN ('direct', 'partial', 'unresolved', 'review_required')",
+            name="ck_lo_competency_status",
+        ),
+        sa.ForeignKeyConstraint(
+            ["source_revision_id"], ["source_revisions.id"], name=None, ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["learning_outcome_id"], ["learning_outcomes.id"], name=None, ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["framework_id"], ["education_frameworks.id"], name=None, ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["curriculum_version_id"], ["curriculum_versions.id"], name=None, ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["competency_node_id", "framework_id", "competency_node_level"],
+            [
+                "framework_structure_nodes.id",
+                "framework_structure_nodes.framework_id",
+                "framework_structure_nodes.level",
+            ],
+            name="fk_lo_competency_framework_leaf",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "learning_outcome_id",
+            "competency_node_id",
+            "relationship_type",
+            "source_revision_id",
+            name="uq_learning_outcome_competency_evidence",
+        ),
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_competency_node_id",
+        "learning_outcome_competency_links",
+        ["competency_node_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_curriculum_version_id",
+        "learning_outcome_competency_links",
+        ["curriculum_version_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_framework_id",
+        "learning_outcome_competency_links",
+        ["framework_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_learning_outcome_id",
+        "learning_outcome_competency_links",
+        ["learning_outcome_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_publication_status",
+        "learning_outcome_competency_links",
+        ["publication_status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_review_status",
+        "learning_outcome_competency_links",
+        ["review_status"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_source_revision_id",
+        "learning_outcome_competency_links",
+        ["source_revision_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_learning_outcome_competency_links_status",
+        "learning_outcome_competency_links",
+        ["status"],
+        unique=False,
+    )

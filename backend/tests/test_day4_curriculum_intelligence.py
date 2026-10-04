@@ -50,6 +50,9 @@ def test_day4_verification_is_explicitly_synthetic_and_idempotent(db_session: Se
 
     assert first["status"] == "synthetic_verification_passed"
     assert first["official_source_backed_acceptance"] is False
+    assert first["framework"]["code"].startswith("synthetic-")
+    version = db_session.get(CurriculumVersion, first["curriculum"]["version_id"])
+    assert version is not None and version.status == "draft"
     assert first["framework"]["id"] == second["framework"]["id"]
     assert first["curriculum"]["version_id"] == second["curriculum"]["version_id"]
     assert first["curriculum"]["counts"] == second["curriculum"]["counts"]

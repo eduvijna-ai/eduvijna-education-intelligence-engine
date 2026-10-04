@@ -81,6 +81,36 @@ def _official_test_revisions(service: CurriculumIntelligenceService) -> dict[str
         "cbse-curriculum-2026-27": _pdf(["Mathematics 2026-27"]),
         "cbse-class-x-sqp-2026-27": _pdf(["Mathematics Standard SQP MS"]),
     }
+    for key, code, total, questions, summaries, syllabus_key, headings in [
+        (
+            "maths-x",
+            "041",
+            80,
+            38,
+            [(20, 1), (5, 2), (6, 3), (4, 5), (3, 4)],
+            "cbse-mathematics-class-x-2026-27",
+            "Number Systems Real Numbers",
+        ),
+        (
+            "physics-xii",
+            "042",
+            70,
+            33,
+            [(16, 1), (5, 2), (7, 3), (2, 4), (3, 5)],
+            "cbse-physics-xi-xii-2026-27",
+            "Electrostatics Electric Charges and Fields",
+        ),
+    ]:
+        contents[syllabus_key] = _pdf([headings])
+        header = (
+            f"{code} Maximum Marks: {total} Time Allowed: 3 hours. Contains {questions} questions. "
+        )
+        section_text = " ".join(
+            f"SECTION {chr(65 + i)} ({count} x {marks} = {count * marks})"
+            for i, (count, marks) in enumerate(summaries)
+        )
+        contents[f"cbse-{key}-sqp-2026-27"] = _pdf([header + section_text])
+        contents[f"cbse-{key}-ms-2026-27"] = _pdf([f"{code} 2026 Marking Scheme"])
     entries = [entry for entry in load_source_manifest(SOURCE_MANIFEST) if entry.key in contents]
     service.source_service.fetcher = SyntheticEvidenceFetcher(
         {entry.url: contents[entry.key] for entry in entries}
@@ -103,6 +133,13 @@ def test_source_backed_path_requires_verified_bytes_and_exact_pages(
     assert first["path"] == second["path"]
     assert len(first["path"]["learning_outcome_ids"]) == 1
     assert len(first["path"]["competency_ids"]) == 1
+    assert len(first["framework_structure"]["nodes"]) == 4
+    assert first["framework_structure"]["learning_outcome_links"][0]["status"] == "direct"
+    assert all(item["assessment_status"] == "verified" for item in first["initial_baselines"])
+    assert {item["assessment_pattern"]["total_marks"] for item in first["initial_baselines"]} == {
+        70,
+        80,
+    }
 
 
 def test_page_or_checksum_mismatch_cannot_pass_official_gate(

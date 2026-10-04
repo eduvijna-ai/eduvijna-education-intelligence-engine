@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from app.curriculum_intelligence.baseline import seed_reviewed_baselines
+from app.curriculum_intelligence.catalogue import CatalogueExtractionError, extract_stored_index
 from app.curriculum_intelligence.evidence import EvidenceAnchor, check_evidence_anchors
+from app.curriculum_intelligence.framework_structure import FrameworkStructureService
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.models.enums import CurriculumNodeType
 from app.models.source import SourceRevision
@@ -16,6 +19,7 @@ from app.schemas.curriculum_intelligence import (
     CurriculumNodeSpec,
     LearningOutcomeSpec,
 )
+from app.schemas.framework_structure import FrameworkNodeSpec, LearningOutcomeCompetencyInput
 
 OUTCOME_TEXT = (
     "Model and solve contextualised problems using a pair of linear equations and draw conclusions."
@@ -62,7 +66,7 @@ def official_source_demonstration(
 
     checks = {check["key"]: check for check in report["checks"]}
     framework = service.ensure_framework(
-        code="ncfse-2023-content-demonstration",
+        code="ncfse-2023",
         name="National Curriculum Framework for School Education 2023",
         country="India",
         authority="NCERT / Ministry of Education",
@@ -72,7 +76,7 @@ def official_source_demonstration(
     )
     pack = service.ensure_pack(
         framework=framework,
-        code="cbse-content-demonstration",
+        code="cbse",
         name="CBSE",
         authority="Central Board of Secondary Education",
         country="India",
@@ -128,6 +132,52 @@ def official_source_demonstration(
             )
         ],
     )["ncert-grade9-linear-equations-draft"]
+    structure_service = FrameworkStructureService(service.session)
+    framework_specs = []
+    parent_code = None
+    for level, code, title, official_code in (
+        ("stage", "secondary", "Secondary stage", None),
+        ("curricular_area", "secondary-mathematics", "Mathematics", None),
+        ("goal", "secondary-mathematics-cg3", "Algebraic modeling", "CG-3"),
+        ("competency", "secondary-mathematics-cg3-c32", "Contextual equation models", "C-3.2"),
+    ):
+        framework_specs.append(
+            FrameworkNodeSpec.model_validate(
+                {
+                    "level": level,
+                    "code": code,
+                    "title": title,
+                    "official_code": official_code,
+                    "parent_code": parent_code,
+                    "competency_id": competency.id if level == "competency" else None,
+                    "source_locator": "NCERT Grade9 draft PDF page46; normalized hierarchy labels",
+                    "publication_status": "draft",
+                    "review_status": "reviewed",
+                    "inferred": False,
+                }
+            )
+        )
+        parent_code = code
+    structure = structure_service.upsert_nodes(
+        framework=framework,
+        revision=revisions[ncert_key],
+        specs=framework_specs,
+    )
+    competency_node = structure["secondary-mathematics-cg3-c32"]
+    structure_service.link_learning_outcome(
+        LearningOutcomeCompetencyInput(
+            curriculum_version_id=UUID(version.id),
+            learning_outcome_id=UUID(outcome.id),
+            competency_node_id=UUID(competency_node.id),
+            source_revision_id=UUID(revisions[ncert_key].id),
+            source_locator="NCERT Grade9 draft PDF pages56-57 > row13",
+            publication_status="draft",
+            review_status="reviewed",
+            status="direct",
+            inferred=False,
+            evidence_text="The draft table explicitly associates this outcome with CG-3 / C-3.2.",
+        )
+    )
     locator = f"PDF page {checks['cbse_syllabus']['page']} > Linear Equations in Two Variables"
     chain = [
         (CurriculumNodeType.GRADE_YEAR, "ix", "Class IX", "source_grade"),
@@ -241,10 +291,69 @@ def official_source_demonstration(
             metadata_json={"not_a_syllabus_rule": True},
         )
     )
+    catalogue_report: dict[str, Any]
+    try:
+        catalogue_report = extract_stored_index(service, revisions[index_key], kind="curriculum")
+        materialized: list[str] = []
+        for entry in catalogue_report["subjects"]:
+            if entry["grade_scope"] != "explicit_single" or entry["review_required"]:
+                continue
+            grade = entry["grade_candidates"][0].lower()
+            medium = "reviewed-ix-common" if grade == "ix" else f"reviewed-{grade}-medium"
+            if grade not in {"ix", "x", "xi", "xii"}:
+                continue
+            item = service.upsert_nodes(
+                version=version,
+                revision=revisions[index_key],
+                specs=[
+                    CurriculumNodeSpec(
+                        node_type=CurriculumNodeType.SUBJECT,
+                        code="index-" + entry["key"][:40],
+                        title=entry["subject_label"],
+                        parent_code=medium,
+                        source_locator=entry["source_locator"][:1024],
+                        metadata_json={
+                            "catalogue_entry_key": entry["key"],
+                            "official_document_url": entry["url"],
+                            "content_coverage": "catalogue_only",
+                            "review_required": False,
+                        },
+                    )
+                ],
+            )
+            materialized.extend(node.id for node in item.values())
+        catalogue_report["materialized_subject_node_ids"] = materialized
+        catalogue_report["coverage_denominator"] = {
+            "expected_index_entries": catalogue_report["index_subject_count"],
+            "materialized_explicit_grade_entries": len(materialized),
+            "not_materialized_entries": catalogue_report["index_subject_count"] - len(materialized),
+            "detailed_syllabus_paths": 1,
+            "unresolved_shared_grade_scope": sum(
+                item["grade_scope"] == "shared" for item in catalogue_report["subjects"]
+            ),
+        }
+        version.metadata_json = {**version.metadata_json, "source_catalogue": catalogue_report}
+    except CatalogueExtractionError as exc:
+        catalogue_report = {"status": "review_required", "reason": str(exc)}
+    assessment_catalogues = {}
+    for source_key in ("cbse-class-x-sqp-2026-27", "cbse-class-xii-sqp-2026-27"):
+        source_revision = revisions.get(source_key)
+        if source_revision is None:
+            continue
+        try:
+            assessment_catalogues[source_key] = extract_stored_index(
+                service, source_revision, kind="assessment"
+            )
+        except CatalogueExtractionError as exc:
+            assessment_catalogues[source_key] = {"status": "review_required", "reason": str(exc)}
+    baselines = seed_reviewed_baselines(service, version, revisions)
     service.session.commit()
     report.update(
         status="source_backed_path_verified",
         framework_id=framework.id,
+        framework_structure=structure_service.path_for_competency(
+            competency_node.id, curriculum_version_id=version.id
+        ).model_dump(mode="json"),
         curriculum_version_id=version.id,
         path=service.curriculum_path(concept.id).model_dump(mode="json"),
         learning_outcome_id=outcome.id,
@@ -252,6 +361,9 @@ def official_source_demonstration(
         alignment_status="partial",
         prerequisites=[],
         assessment_evidence_id=assessment.id,
+        catalogue_inventory=catalogue_report,
+        assessment_catalogues=assessment_catalogues,
+        initial_baselines=baselines,
         entity_counts=service.entity_counts(version.id),
         coverage=service.coverage(version.id).model_dump(),
         limitations=[

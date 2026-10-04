@@ -3,7 +3,7 @@
   "completeness": "synthetic_demonstration_only_not_official_complete_cbse_ingestion",
   "copyright_policy": "short official labels/outcome plus derived normalized metadata; no source documents",
   "framework": {
-    "code": "ncfse-2023",
+    "code": "synthetic-ncfse-2023",
     "name": "National Curriculum Framework for School Education 2023",
     "authority": "Ministry of Education, Government of India",
     "version_code": "2023",
@@ -11,10 +11,10 @@
     "source_locator": "NCF-SE 2023"
   },
   "curriculum": {
-    "code": "cbse",
+    "code": "synthetic-cbse",
     "name": "Central Board of Secondary Education",
     "authority": "Central Board of Secondary Education (CBSE)",
-    "version_code": "2026-27",
+    "version_code": "synthetic-2026-27",
     "academic_year": "2026-27",
     "source_key": "cbse-curriculum-2026-27",
     "source_locator": "Curriculum 2026-27"

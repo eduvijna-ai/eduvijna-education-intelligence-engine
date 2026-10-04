@@ -215,5 +215,168 @@
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-mathematics-class-x-2026-27",
+    "source_type": "official_syllabus",
+    "title": "Mathematics Class X 2026-27 subject syllabus",
+    "url": "https://cbseacademic.nic.in/web_material/CurriculumMain27/SecPart1/Maths_SecP1X_2026-27.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "subject_syllabus",
+    "version_applicability": "Classes X;2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "grade_codes": [
+        "X"
+      ],
+      "subject_codes": [
+        "041"
+      ],
+      "subject": null,
+      "source_header_review_required": false
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-physics-xi-xii-2026-27",
+    "source_type": "official_syllabus",
+    "title": "Physics Classes XI-XII 2026-27 subject syllabus",
+    "url": "https://cbseacademic.nic.in/web_material/CurriculumMain27/SecPart2/Physics_SecP2_2026-27.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "subject_syllabus",
+    "version_applicability": "Classes XI, XII;2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "grade_codes": [
+        "XI",
+        "XII"
+      ],
+      "subject_codes": [
+        "042"
+      ],
+      "subject": null,
+      "source_header_review_required": true
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-maths-x-sqp-2026-27",
+    "source_type": "sample_paper",
+    "title": "Mathematics (Standard) 2026-27 sample question paper",
+    "url": "https://cbseacademic.nic.in/web_material/SQP/ClassX_2026_27/MathsStandard-SQP.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "sample_question_paper",
+    "version_applicability": "Classes X;2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "grade_codes": [
+        "X"
+      ],
+      "subject_codes": [
+        "041"
+      ],
+      "subject": "Mathematics (Standard)",
+      "source_header_review_required": false
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-maths-x-ms-2026-27",
+    "source_type": "marking_scheme",
+    "title": "Mathematics (Standard) 2026-27 marking scheme",
+    "url": "https://cbseacademic.nic.in/web_material/SQP/ClassX_2026_27/MathsStandard-MS.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "marking_scheme",
+    "version_applicability": "Classes X;2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "grade_codes": [
+        "X"
+      ],
+      "subject_codes": [
+        "041"
+      ],
+      "subject": "Mathematics (Standard)",
+      "source_header_review_required": false
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-physics-xii-sqp-2026-27",
+    "source_type": "sample_paper",
+    "title": "Physics 2026-27 sample question paper",
+    "url": "https://cbseacademic.nic.in/web_material/SQP/ClassXII_2026_27/Physics-SQP.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "sample_question_paper",
+    "version_applicability": "Classes XII;2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "grade_codes": [
+        "XII"
+      ],
+      "subject_codes": [
+        "042"
+      ],
+      "subject": "Physics",
+      "source_header_review_required": false
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-physics-xii-ms-2026-27",
+    "source_type": "marking_scheme",
+    "title": "Physics 2026-27 marking scheme",
+    "url": "https://cbseacademic.nic.in/web_material/SQP/ClassXII_2026_27/Physics-MS.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "marking_scheme",
+    "version_applicability": "Classes XII;2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "grade_codes": [
+        "XII"
+      ],
+      "subject_codes": [
+        "042"
+      ],
+      "subject": "Physics",
+      "source_header_review_required": false
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   }
 ]

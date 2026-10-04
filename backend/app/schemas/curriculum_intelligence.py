@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import CurriculumNodeType, SourceTrustTier, SourceType
+from app.schemas.assessment_pattern import AssessmentPattern
 
 AlignmentStatus = Literal["direct", "partial", "unresolved", "review_required"]
 
@@ -103,6 +104,12 @@ class AssessmentEvidenceInput(BaseModel):
     source_locator: str | None = Field(default=None, max_length=1024)
     evidence_json: dict[str, Any] = Field(default_factory=dict)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_assessment_pattern(self) -> AssessmentEvidenceInput:
+        if self.evidence_type == "assessment_pattern":
+            self.evidence_json = AssessmentPattern.model_validate(self.evidence_json).model_dump()
+        return self
 
 
 class CoverageSummary(BaseModel):

@@ -87,12 +87,16 @@ def seed_day4_verification(
         academic_year=curriculum_data["academic_year"],
         revision=curriculum_revision,
         source_locator=curriculum_data.get("source_locator"),
+        active=False,
         metadata_json={
             "scope": "Classes IX-XII",
             "verification_slice": True,
             "fixture_kind": bundle["fixture_kind"],
         },
     )
+
+    framework.active = False
+    pack.active = False
 
     # Preserve the complete set of exact SourceRevision evidence at version level.
     for revision in revisions.values():
@@ -116,6 +120,8 @@ def seed_day4_verification(
             specs=[competency_spec],
             revision=revisions[source_key],
         )
+        for competency in competency_result.values():
+            competency.active = False
         competencies.update(competency_result)
 
     outcomes: dict[str, Any] = {}
@@ -129,6 +135,8 @@ def seed_day4_verification(
             specs=[outcome_spec],
             revision=revisions[source_key],
         )
+        for outcome in outcome_result.values():
+            outcome.active = False
         outcomes.update(outcome_result)
 
     nodes: dict[str, CurriculumNode] = {}

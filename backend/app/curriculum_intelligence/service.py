@@ -879,8 +879,8 @@ class CurriculumIntelligenceService:
             "entity_id": entity_id,
             "source_revision_id": revision.id,
             "source_id": revision.source_id,
-            "source_url": revision.source.url,
-            "authority": revision.source.authority,
+            "source_url": revision.metadata_json.get("source_snapshot", {}).get("url"),
+            "authority": revision.metadata_json.get("source_snapshot", {}).get("authority"),
             "revision_status": revision.status,
             "source_locator": getattr(entity, "source_locator", None),
             "checksum": revision.checksum,
@@ -948,6 +948,11 @@ class CurriculumIntelligenceService:
                         [node.source_revision_id for node in path]
                         + [row.source_revision_id for row in alignments]
                         + [version.source_revision_id, pack.source_revision_id]
+                        + (
+                            [pack.framework.source_revision_id]
+                            if pack.framework is not None
+                            else []
+                        )
                     )
                     if revision_id
                 }
