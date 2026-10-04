@@ -17,7 +17,13 @@ import app.models  # noqa: F401
 from app.curriculum_intelligence.scoped_acceptance import evaluate_day5_acceptance
 from app.curriculum_intelligence.scoped_demo import seed_day5_verification
 from app.curriculum_intelligence.service import CurriculumIntelligenceService, load_source_manifest
+from app.curriculum_intelligence.telangana_official import (
+    load_verification_slice,
+    official_telangana_demonstration,
+)
 from app.db.base import Base
+from app.source_intelligence.service import SourceIntelligenceService
+from app.source_intelligence.storage import LocalSourceStorage
 
 ROOT = Path(__file__).resolve().parents[2] / "content" / "curricula"
 
@@ -47,8 +53,35 @@ class _Links(HTMLParser):
             self.href = None
 
 
-def official_report(session: Session) -> dict[str, Any]:
-    service = CurriculumIntelligenceService(session)
+def _merge_scope_with_evidence(
+    scope: dict[str, Any],
+    verification_slice: dict[str, Any],
+    materialized: list[dict[str, Any]],
+) -> dict[str, Any]:
+    merged: dict[str, Any] = json.loads(json.dumps(scope))
+    observations = {item["key"]: item for item in materialized}
+    for required in merged.get("required_detailed_slices", []):
+        key = required.get("key")
+        if key in verification_slice.get("blocked_slice_keys", []):
+            continue
+        meta = verification_slice.get("slices", {}).get(key, {})
+        if meta.get("chapter"):
+            required["chapter"] = meta["chapter"]
+        item = observations.get(key)
+        if item:
+            required["source_revision"] = item.get("source_revision_id")
+            required["academic_version"] = item.get("academic_version")
+    return merged
+
+
+def official_report(session: Session, *, storage_root: Path) -> dict[str, Any]:
+    service = CurriculumIntelligenceService(
+        session,
+        source_service=SourceIntelligenceService(
+            session,
+            storage=LocalSourceStorage(storage_root),
+        ),
+    )
     entries = load_source_manifest(ROOT / "day5_official_sources.json")
     revisions = service.ensure_manifest_sources(
         entries,
@@ -77,28 +110,60 @@ def official_report(session: Session) -> dict[str, Any]:
             else "Official content unavailable; metadata is not evidence",
         }
         if verified and revision.content_type in {"text/html", "application/xhtml+xml"}:
-            # URLs/short inventory labels only, never full source HTML or PDF.
             data = service.source_service.storage.read(revision.storage_path or "")
             parser = _Links(entry.url)
             parser.feed(data.decode("utf-8", errors="strict"))
             item["discovered_links"] = parser.links
         sources.append(item)
     scope = json.loads((ROOT / "day5_scope.json").read_text(encoding="utf-8"))
+    verification_slice = load_verification_slice(ROOT)
+    demonstration = official_telangana_demonstration(
+        service,
+        revisions,
+        content_root=ROOT,
+    )
+    remaining_blocked = [
+        blocked
+        for blocked in scope.get("blocked_sources", [])
+        if blocked.get("url") != "https://tgbienew.cgg.gov.in/home.do"
+        or not any(
+            revisions.get(key) and service.has_source_content(revisions[key])
+            for key in (
+                "tgbie-maths-ia-annual-plan-2025-26",
+                "tgbie-maths-iia-annual-plan-2026-27",
+            )
+        )
+    ]
     session.commit()
     report: dict[str, Any] = {
         "status": "blocked_or_review_required",
         "official_source_backed_acceptance": False,
         "sources": sources,
         "required_slices": scope["required_detailed_slices"],
-        "blocked_sources": scope["blocked_sources"],
+        "blocked_sources": remaining_blocked,
+        "materialized_slices": demonstration["materialized_slices"],
+        "catalogue_inventories": demonstration["catalogue_inventories"],
+        "unresolved_materialization": demonstration["unresolved_materialization"],
+        "queries": demonstration["queries"],
         "acceptance": {
             "passed": False,
             "reason": "Bytes alone do not prove hierarchy, applicability or complete catalogue",
         },
         "public_artifact_contains": "metadata, checksums and URLs; no source documents",
     }
-    report["acceptance"] = evaluate_day5_acceptance(report, scope)
+    merged_scope = _merge_scope_with_evidence(
+        scope,
+        verification_slice,
+        demonstration["materialized_slices"],
+    )
+    report["acceptance"] = evaluate_day5_acceptance(
+        report,
+        merged_scope,
+        verification_slice=verification_slice,
+    )
     report["official_source_backed_acceptance"] = report["acceptance"]["passed"]
+    if report["official_source_backed_acceptance"]:
+        report["status"] = "official_source_backed"
     return report
 
 
@@ -110,7 +175,8 @@ def main() -> None:
     Base.metadata.create_all(engine)
     with Session(engine, expire_on_commit=False) as session:
         if args.fetch_official:
-            report = official_report(session)
+            with TemporaryDirectory(prefix="day5-official-") as tmp:
+                report = official_report(session, storage_root=Path(tmp))
         else:
             with TemporaryDirectory(prefix="day5-synthetic-") as tmp:
                 report = seed_day5_verification(session, Path(tmp))

@@ -11,6 +11,7 @@ DOCUMENT_DOMAINS = {
     "curriculum_index": "syllabus",
     "curriculum_release_circular": "syllabus",
     "subject_syllabus": "syllabus",
+    "annual_plan": "syllabus",
     "syllabus": "syllabus",
     "syllabus_index": "syllabus",
     "textbook": "textbook",

@@ -32,7 +32,16 @@
     "metadata_json": {
       "discovery_status": "official_index_discovered; exact_bytes_pending",
       "publication_status": "unverified",
-      "bulk_publication_allowed": false
+      "bulk_publication_allowed": false,
+      "curriculum_scope": {
+        "pack_code": "ts-scert",
+        "version_codes": ["2025-26-syllabus"],
+        "grades": ["VIII"],
+        "media": ["English"],
+        "subjects": ["Physical Science"],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
     }
   },
   {
@@ -50,7 +59,16 @@
     "metadata_json": {
       "discovery_status": "official_index_discovered; exact_bytes_pending",
       "publication_status": "unverified",
-      "bulk_publication_allowed": false
+      "bulk_publication_allowed": false,
+      "curriculum_scope": {
+        "pack_code": "ts-scert",
+        "version_codes": ["2025-26-syllabus"],
+        "grades": ["VIII"],
+        "media": ["English"],
+        "subjects": ["Biological Science"],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
     }
   },
   {
@@ -105,6 +123,58 @@
       "discovery_status": "official_index_discovered; exact_bytes_pending",
       "publication_status": "unverified",
       "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "tgbie-maths-ia-annual-plan-2025-26",
+    "source_type": "official_syllabus",
+    "title": "tgbie mathematics ia annual plan 2025-26",
+    "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Annual_Plan_Mahts-1A.pdf",
+    "authority": "Telangana Board of Intermediate Education",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": "2025-26",
+    "document_type": "annual_plan",
+    "version_applicability": "unverified; annual plan does not alone establish current subject renaming",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "curriculum_scope": {
+        "pack_code": "tgbie",
+        "version_codes": ["2025-26"],
+        "grades": ["First Year"],
+        "media": ["English"],
+        "subjects": ["Mathematics IA"],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "tgbie-maths-iia-annual-plan-2026-27",
+    "source_type": "official_syllabus",
+    "title": "tgbie mathematics iia annual plan 2026-27",
+    "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIA.pdf",
+    "authority": "Telangana Board of Intermediate Education",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": "2026-27",
+    "document_type": "annual_plan",
+    "version_applicability": "unverified; annual plan does not alone establish current subject renaming",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "curriculum_scope": {
+        "pack_code": "tgbie",
+        "version_codes": ["2026-27"],
+        "grades": ["Second Year"],
+        "media": ["English"],
+        "subjects": ["Mathematics IIA"],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
     }
   }
 ]

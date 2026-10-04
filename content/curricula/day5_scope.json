@@ -36,7 +36,7 @@
     "D5-34"
   ],
   "base_commit": "7f1f86fe9e24dee3a663f1e7702df0946c1138ba",
-  "scope_status": "blocked_pending_official_documents",
+  "scope_status": "bounded_official_slices_with_named_blockers",
   "packs": [
     {
       "code": "ts-scert",
@@ -66,19 +66,19 @@
   "required_detailed_slices": [
     {
       "key": "scert-viii-physical-science-english",
-      "chapter": null,
+      "chapter": "1. Force",
       "source_revision": null,
       "academic_version": null,
-      "status": "blocked",
-      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+      "status": "pending_official_materialization",
+      "source_manifest_key": "scert-ps-english-syllabus"
     },
     {
       "key": "scert-viii-biological-science-english",
-      "chapter": null,
+      "chapter": "1. What is Science ?",
       "source_revision": null,
       "academic_version": null,
-      "status": "blocked",
-      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+      "status": "pending_official_materialization",
+      "source_manifest_key": "scert-bs-english-syllabus"
     },
     {
       "key": "scert-viii-science-telugu-correspondence",
@@ -90,19 +90,19 @@
     },
     {
       "key": "intermediate-first-year-mathematics-english",
-      "chapter": null,
+      "chapter": "01. Functions:",
       "source_revision": null,
       "academic_version": null,
-      "status": "blocked",
-      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+      "status": "pending_official_materialization",
+      "source_manifest_key": "tgbie-maths-ia-annual-plan-2025-26"
     },
     {
       "key": "intermediate-second-year-mathematics-english",
-      "chapter": null,
+      "chapter": "01. Complex Numbers",
       "source_revision": null,
       "academic_version": null,
-      "status": "blocked",
-      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+      "status": "pending_official_materialization",
+      "source_manifest_key": "tgbie-maths-iia-annual-plan-2026-27"
     },
     {
       "key": "intermediate-first-year-mathematics-telugu",
@@ -114,11 +114,11 @@
     },
     {
       "key": "historical-first-year-mathematics-ia-uat",
-      "chapter": null,
+      "chapter": "01. Functions:",
       "source_revision": null,
-      "academic_version": null,
-      "status": "blocked",
-      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+      "academic_version": "2025-26-historical-ia",
+      "status": "pending_official_materialization",
+      "source_manifest_key": "tgbie-maths-ia-annual-plan-2025-26"
     },
     {
       "key": "scert-learning-outcomes",
