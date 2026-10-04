@@ -12,7 +12,9 @@
     "trust_tier": "official_primary",
     "metadata_json": {
       "public_git_storage": "metadata_only"
-    }
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   },
   {
     "key": "ncert-learning-outcomes-secondary",
@@ -27,7 +29,9 @@
     "trust_tier": "official_primary",
     "metadata_json": {
       "public_git_storage": "metadata_only"
-    }
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   },
   {
     "key": "cbse-curriculum-2026-27",
@@ -40,6 +44,27 @@
     "academic_year": "2026-27",
     "document_type": "curriculum_index",
     "version_applicability": "CBSE 2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only"
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "cbse-curriculum-release-circular-2026-27",
+    "source_type": "official_authority",
+    "title": "Release of CBSE Curriculum for Academic Session 2026-27",
+    "url": "https://cbseacademic.nic.in/web_material/Circulars/2026/14_Circular_2026.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "curriculum_release_circular",
+    "version_applicability": "Classes IX-XII 2026-27",
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion",
     "copyright_classification": "official_reference",
     "trust_tier": "official_primary",
     "metadata_json": {
@@ -63,7 +88,9 @@
       "subject": "Mathematics",
       "class": "IX",
       "public_git_storage": "metadata_only"
-    }
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   },
   {
     "key": "cbse-learning-standards-mathematics",
@@ -80,7 +107,9 @@
     "metadata_json": {
       "subject": "Mathematics",
       "public_git_storage": "metadata_only"
-    }
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   },
   {
     "key": "cbse-class-x-sqp-2026-27",
@@ -98,7 +127,9 @@
     "metadata_json": {
       "public_git_storage": "metadata_only",
       "contains_marking_scheme_links": true
-    }
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   },
   {
     "key": "cbse-class-xii-sqp-2026-27",
@@ -116,6 +147,8 @@
     "metadata_json": {
       "public_git_storage": "metadata_only",
       "contains_marking_scheme_links": true
-    }
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   }
 ]
