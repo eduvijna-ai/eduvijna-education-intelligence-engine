@@ -103,7 +103,7 @@
     "document_type": "learning_standards",
     "version_applicability": "secondary_mathematics",
     "copyright_classification": "official_reference",
-    "trust_tier": "official_supporting",
+    "trust_tier": "official_primary",
     "metadata_json": {
       "subject": "Mathematics",
       "public_git_storage": "metadata_only"
