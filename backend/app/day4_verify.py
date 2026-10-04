@@ -6,12 +6,15 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+import app.models  # noqa: F401
 from app.curriculum_intelligence.service import (
     CurriculumIntelligenceService,
     load_source_manifest,
 )
+from app.db.base import Base
 from app.db.session import session_factory
 from app.models.curriculum import CurriculumNode
 from app.models.source import Source
@@ -304,9 +307,21 @@ def main() -> None:
         action="store_true",
         help="fail instead of recording registry-only fallback when an official URL is blocked",
     )
+    parser.add_argument(
+        "--app-db",
+        action="store_true",
+        help="use the configured application database instead of an isolated verification DB",
+    )
     args = parser.parse_args()
 
-    session = session_factory()()
+    verification_engine = None
+    if args.app_db:
+        session = session_factory()()
+    else:
+        verification_engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(verification_engine)
+        session = Session(verification_engine, expire_on_commit=False)
+
     try:
         result = seed_day4_verification(
             session,
@@ -316,6 +331,8 @@ def main() -> None:
         print(json.dumps(result, indent=2, sort_keys=True))
     finally:
         session.close()
+        if verification_engine is not None:
+            verification_engine.dispose()
 
 
 if __name__ == "__main__":
