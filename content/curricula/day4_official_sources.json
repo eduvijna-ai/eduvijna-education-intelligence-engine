@@ -150,5 +150,42 @@
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "ncert-publication-index",
+    "source_type": "official_authority",
+    "title": "NCERT official publication index",
+    "url": "https://www.ncert.nic.in/",
+    "authority": "National Council of Educational Research and Training (NCERT)",
+    "country": "India",
+    "document_type": "publication_index",
+    "version_applicability": "official_publication_discovery",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only"
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "ncert-grade-9-phase-i-part-2-draft",
+    "source_type": "official_authority",
+    "title": "NCERT Secondary Stage Phase I Grade 9 Part 2 (draft)",
+    "url": "https://ncert.nic.in/pdf/announcement/Syllabus_Secondary_Stage_Phase_I_Grade_9_Part_2.pdf",
+    "authority": "National Council of Educational Research and Training (NCERT)",
+    "country": "India",
+    "document_type": "learning_standards",
+    "version_applicability": "Grade 9 Phase I; draft publication, not final CBSE membership",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "publication_status": "draft",
+      "review_required": true,
+      "discovery_note": "Official NCERT document; page46 learning standards, pages56-57 outcome-to-competency mapping. Do not silently promote draft to final."
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
   }
 ]

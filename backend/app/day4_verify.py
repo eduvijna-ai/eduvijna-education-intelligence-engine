@@ -228,8 +228,19 @@ def seed_day4_verification(
 
     return {
         "day": 4,
-        "status": "verification_passed",
-        "mode": "official_fetch" if fetch_official else "deterministic_registry_fixture",
+        "status": "synthetic_verification_passed",
+        "official_source_backed_acceptance": False,
+        "unresolved_items": [
+            "Verification bundle is synthetic; official content and mappings require review.",
+            "Full subject coverage is not demonstrated by this representative slice.",
+        ],
+        "mode": (
+            "official_fetch_with_registry_fallback"
+            if fetch_official and blocked
+            else "official_fetch_synthetic_mapping"
+            if fetch_official
+            else "deterministic_registry_fixture"
+        ),
         "framework": {
             "id": framework.id,
             "code": framework.code,
@@ -261,9 +272,7 @@ def seed_day4_verification(
         "learning_outcome": {
             "id": outcomes["ncert-math-ix-real-numbers-logic"].id,
             "code": "ncert-math-ix-real-numbers-logic",
-            "source_revision_id": outcomes[
-                "ncert-math-ix-real-numbers-logic"
-            ].source_revision_id,
+            "source_revision_id": outcomes["ncert-math-ix-real-numbers-logic"].source_revision_id,
         },
         "competency": {
             "id": competencies["math-logical-reasoning"].id,

@@ -1,6 +1,6 @@
 {
-  "fixture_kind": "source_backed_normalized_verification_slice",
-  "completeness": "demonstration_only_not_full_cbse_ingestion",
+  "fixture_kind": "synthetic_normalized_verification_slice",
+  "completeness": "synthetic_demonstration_only_not_official_complete_cbse_ingestion",
   "copyright_policy": "short official labels/outcome plus derived normalized metadata; no source documents",
   "framework": {
     "code": "ncfse-2023",
@@ -148,8 +148,8 @@
       "parent_code": null,
       "sequence": 10,
       "official_text": null,
-      "source_key": "cbse-class-x-sqp-2026-27",
-      "source_locator": "Class X SQP/MS index 2026-27",
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Curriculum 2026-27 > Secondary / Senior Secondary > Mathematics (verification fixture; source check required)",
       "metadata_json": {
         "normalization": "official_grade_label"
       }
@@ -161,8 +161,8 @@
       "parent_code": "grade-x",
       "sequence": 1,
       "official_text": null,
-      "source_key": "cbse-class-x-sqp-2026-27",
-      "source_locator": "Eduvijna canonical medium placeholder",
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Curriculum 2026-27 > Secondary / Senior Secondary > Mathematics (verification fixture; source check required)",
       "metadata_json": {
         "normalization": "derived",
         "medium_specific_source": false
@@ -175,8 +175,8 @@
       "parent_code": "grade-x-medium-common",
       "sequence": 1,
       "official_text": null,
-      "source_key": "cbse-class-x-sqp-2026-27",
-      "source_locator": "Mathematics (Standard) row",
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Curriculum 2026-27 > Secondary / Senior Secondary > Mathematics (verification fixture; source check required)",
       "metadata_json": {
         "normalization": "official_subject_label",
         "subject_code": "041"
@@ -256,8 +256,8 @@
       "parent_code": "grade-xii-medium-common",
       "sequence": 1,
       "official_text": null,
-      "source_key": "cbse-class-xii-sqp-2026-27",
-      "source_locator": "Class XII SQP/MS index > Mathematics",
+      "source_key": "cbse-curriculum-2026-27",
+      "source_locator": "Curriculum 2026-27 > Secondary / Senior Secondary > Mathematics (verification fixture; source check required)",
       "metadata_json": {
         "normalization": "official_subject_label"
       }

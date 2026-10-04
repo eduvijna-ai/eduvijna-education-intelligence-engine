@@ -6,11 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN addgroup --system eduvijna && adduser --system --ingroup eduvijna eduvijna
-COPY pyproject.toml ./
-COPY app ./app
-COPY tests ./tests
-COPY migrations ./migrations
-COPY alembic.ini ./
+COPY backend/pyproject.toml ./
+COPY backend/app ./app
+COPY backend/tests ./tests
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini ./
+COPY content/curricula /content/curricula
 RUN pip install --no-cache-dir '.[dev]'
 RUN mkdir -p /app/data && chown -R eduvijna:eduvijna /app
 

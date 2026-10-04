@@ -44,11 +44,12 @@ def db_session() -> Session:
         create_database_engine.cache_clear()
 
 
-def test_day4_verification_is_source_backed_and_idempotent(db_session: Session) -> None:
+def test_day4_verification_is_explicitly_synthetic_and_idempotent(db_session: Session) -> None:
     first = seed_day4_verification(db_session)
     second = seed_day4_verification(db_session)
 
-    assert first["status"] == "verification_passed"
+    assert first["status"] == "synthetic_verification_passed"
+    assert first["official_source_backed_acceptance"] is False
     assert first["framework"]["id"] == second["framework"]["id"]
     assert first["curriculum"]["version_id"] == second["curriculum"]["version_id"]
     assert first["curriculum"]["counts"] == second["curriculum"]["counts"]
@@ -127,9 +128,7 @@ def test_changed_source_revision_requires_explicit_curriculum_review(
     service = CurriculumIntelligenceService(db_session)
 
     source = db_session.scalar(
-        select(Source).where(
-            Source.url == "https://cbseacademic.nic.in/curriculum_2027.html"
-        )
+        select(Source).where(Source.url == "https://cbseacademic.nic.in/curriculum_2027.html")
     )
     assert source is not None
     new_revision = service.source_service.ingest_manual(
@@ -183,18 +182,19 @@ def test_assessment_evidence_is_separate_from_curriculum_membership(
     )
     evidence = list(
         db_session.scalars(
-            select(AssessmentEvidence).where(
-                AssessmentEvidence.curriculum_version_id == version_id
-            )
+            select(AssessmentEvidence).where(AssessmentEvidence.curriculum_version_id == version_id)
         )
     )
     assert len(evidence) == 1
     assert evidence[0].evidence_json["curriculum_membership_effect"] == "none"
-    assert db_session.scalar(
-        select(func.count(CurriculumNode.id)).where(
-            CurriculumNode.curriculum_version_id == version_id
+    assert (
+        db_session.scalar(
+            select(func.count(CurriculumNode.id)).where(
+                CurriculumNode.curriculum_version_id == version_id
+            )
         )
-    ) == node_count
+        == node_count
+    )
 
 
 class _BlockedFetcher(SourceUrlFetcher):
@@ -247,9 +247,7 @@ def test_alignment_and_assessment_records_have_exact_revision_provenance(
     )
     evidence = list(
         db_session.scalars(
-            select(AssessmentEvidence).where(
-                AssessmentEvidence.curriculum_version_id == version_id
-            )
+            select(AssessmentEvidence).where(AssessmentEvidence.curriculum_version_id == version_id)
         )
     )
     assert alignments
@@ -263,3 +261,192 @@ def test_alignment_and_assessment_records_have_exact_revision_provenance(
         "review_required",
     }
     assert all(item.inferred for item in alignments if item.status != "direct")
+
+
+class _ContentFetcher(SourceUrlFetcher):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.content = b"<html><body>Official test content version one.</body></html>"
+
+    def fetch(self, url: str) -> Any:
+        from app.source_intelligence.security import FetchedSource
+
+        self.calls += 1
+        return FetchedSource(self.content, url, "text/html", "official.html")
+
+
+def test_fresh_official_fetch_extracts_before_lifecycle(
+    db_session: Session, tmp_path: Path
+) -> None:
+    from app.source_intelligence.storage import LocalSourceStorage
+
+    fetcher = _ContentFetcher()
+    sources = SourceIntelligenceService(
+        db_session, fetcher=fetcher, storage=LocalSourceStorage(tmp_path / "sources")
+    )
+    service = CurriculumIntelligenceService(db_session, source_service=sources)
+    entry = load_source_manifest(SOURCE_MANIFEST)[0]
+    revision = service.ensure_manifest_sources([entry], actor_id="test", fetch_content=True)[
+        entry.key
+    ]
+    assert revision.status == "active"
+    assert revision.extraction_status == "succeeded"
+    assert revision.extracted_text
+    assert not service.is_registry_only(revision)
+    assert fetcher.calls == 1
+
+
+def test_official_mode_refetches_registry_and_preserves_changed_content(
+    db_session: Session,
+    tmp_path: Path,
+) -> None:
+    from app.source_intelligence.storage import LocalSourceStorage
+
+    fetcher = _ContentFetcher()
+    sources = SourceIntelligenceService(
+        db_session, fetcher=fetcher, storage=LocalSourceStorage(tmp_path / "sources")
+    )
+    service = CurriculumIntelligenceService(db_session, source_service=sources)
+    entry = load_source_manifest(SOURCE_MANIFEST)[0]
+    registry = service.ensure_manifest_sources([entry], actor_id="test")[entry.key]
+    content = service.ensure_manifest_sources([entry], actor_id="test", fetch_content=True)[
+        entry.key
+    ]
+    assert content.id != registry.id
+    assert registry.status == "superseded"
+    unchanged = service.ensure_manifest_sources([entry], actor_id="test", fetch_content=True)[
+        entry.key
+    ]
+    assert unchanged.id == content.id
+    fetcher.content = b"<html><body>Changed official content.</body></html>"
+    with pytest.raises(CurriculumIntelligenceError, match="requires explicit review"):
+        service.ensure_manifest_sources([entry], actor_id="test", fetch_content=True)
+    db_session.refresh(content)
+    assert content.status == "active"
+    assert fetcher.calls == 3
+
+
+def test_synthetic_provenance_never_claims_source_content(db_session: Session) -> None:
+    result = seed_day4_verification(db_session)
+    provenance = result["framework"]["provenance"]
+    assert provenance["provenance_classification"] == "synthetic_registry_fixture"
+    assert provenance["source_content_verified"] is False
+    assert provenance["mapping_verified"] is False
+
+
+def test_assessment_rejects_wrong_grade_in_same_version(db_session: Session) -> None:
+    from app.schemas.curriculum_intelligence import AssessmentEvidenceInput
+
+    result = seed_day4_verification(db_session)
+    grade = db_session.scalar(select(CurriculumNode).where(CurriculumNode.code == "grade-ix"))
+    subject = db_session.scalar(
+        select(CurriculumNode).where(CurriculumNode.code == "grade-x-mathematics-standard")
+    )
+    assert grade is not None and subject is not None
+    with pytest.raises(CurriculumIntelligenceError, match="supplied grade"):
+        CurriculumIntelligenceService(db_session).add_assessment_evidence(
+            AssessmentEvidenceInput(
+                curriculum_version_id=result["curriculum"]["version_id"],
+                grade_node_id=grade.id,
+                subject_node_id=subject.id,
+                source_revision_id=result["assessment_evidence"]["source_revision_id"],
+                evidence_type="sample_paper",
+            )
+        )
+
+
+def test_sqp_sources_cannot_create_syllabus_nodes(db_session: Session) -> None:
+    result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    version = db_session.get(CurriculumVersion, result["curriculum"]["version_id"])
+    revision = db_session.get(
+        app.models.SourceRevision, result["assessment_evidence"]["source_revision_id"]
+    )
+    assert version is not None and revision is not None
+    with pytest.raises(CurriculumIntelligenceError, match="syllabus membership"):
+        service.upsert_nodes(
+            version=version,
+            revision=revision,
+            specs=[
+                CurriculumNodeSpec(
+                    node_type=CurriculumNodeType.GRADE_YEAR,
+                    code="assessment-only-grade",
+                    title="Forbidden",
+                )
+            ],
+        )
+
+
+def test_internal_query_returns_path_outcomes_and_competencies(db_session: Session) -> None:
+    result = seed_day4_verification(db_session)
+    path = CurriculumIntelligenceService(db_session).curriculum_path(
+        result["founder_path"][-1]["id"]
+    )
+    assert len(path.node_ids) == 7
+    assert str(path.learning_outcome_ids[0]) == result["learning_outcome"]["id"]
+    assert str(path.competency_ids[0]) == result["competency"]["id"]
+    assert len(path.alignment_ids) == 2
+    assert path.source_revision_ids
+
+
+def test_missing_parent_duplicate_codes_and_cycles_rejected(db_session: Session) -> None:
+    result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    version = db_session.get(CurriculumVersion, result["curriculum"]["version_id"])
+    assert version is not None
+    revision = db_session.get(app.models.SourceRevision, version.source_revision_id)
+    assert revision is not None
+    spec = CurriculumNodeSpec(
+        node_type=CurriculumNodeType.GRADE_YEAR, code="test-grade", title="Test"
+    )
+    with pytest.raises(CurriculumIntelligenceError, match="unique node codes"):
+        service.upsert_nodes(version=version, revision=revision, specs=[spec, spec])
+    for code, parent in [("missing", "no-parent"), ("cycle", "cycle")]:
+        with pytest.raises(CurriculumIntelligenceError, match="missing parents or a cycle"):
+            service.upsert_nodes(
+                version=version,
+                revision=revision,
+                specs=[
+                    CurriculumNodeSpec(
+                        node_type=CurriculumNodeType.TOPIC,
+                        code=code,
+                        title="Test",
+                        parent_code=parent,
+                    )
+                ],
+            )
+
+
+def test_dns_failure_is_an_explicit_blocked_source(db_session: Session) -> None:
+    import socket
+
+    class DnsFailure(_BlockedFetcher):
+        def fetch(self, url: str) -> Any:
+            raise socket.gaierror("DNS unavailable")
+
+    service = CurriculumIntelligenceService(
+        db_session, source_service=SourceIntelligenceService(db_session, fetcher=DnsFailure())
+    )
+    entry = load_source_manifest(SOURCE_MANIFEST)[0]
+    revision = service.ensure_manifest_sources([entry], actor_id="test", fetch_content=True)[
+        entry.key
+    ]
+    assert service.is_registry_only(revision)
+    assert revision.source.metadata_json["ingestion_status"] == "blocked_or_unavailable"
+
+
+def test_registry_revision_cannot_back_direct_alignment(db_session: Session) -> None:
+    result = seed_day4_verification(db_session)
+    with pytest.raises(CurriculumIntelligenceError, match="retrieved source content"):
+        CurriculumIntelligenceService(db_session).align(
+            CurriculumAlignmentInput(
+                curriculum_version_id=result["curriculum"]["version_id"],
+                curriculum_node_id=result["founder_path"][-1]["id"],
+                learning_outcome_id=result["learning_outcome"]["id"],
+                relationship_type="directly_addresses",
+                status="direct",
+                source_revision_id=result["learning_outcome"]["source_revision_id"],
+                source_locator="fixture",
+                evidence_text="fixture",
+            )
+        )

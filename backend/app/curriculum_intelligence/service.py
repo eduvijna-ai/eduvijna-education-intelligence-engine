@@ -30,6 +30,7 @@ from app.schemas.curriculum_intelligence import (
     CoverageSummary,
     CurriculumAlignmentInput,
     CurriculumNodeSpec,
+    CurriculumPathResult,
     LearningOutcomeSpec,
     OfficialSourceManifestEntry,
 )
@@ -37,6 +38,7 @@ from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
     SourceRegistrationInput,
 )
+from app.source_intelligence.extractors import SourceExtractionError
 from app.source_intelligence.security import SourceFetchError
 from app.source_intelligence.service import SourceIntelligenceService
 
@@ -107,6 +109,20 @@ class CurriculumIntelligenceService:
                 "SourceRevision; create a new version or perform an explicit reviewed rebind"
             )
 
+    @staticmethod
+    def is_registry_only(revision: SourceRevision) -> bool:
+        metadata = revision.metadata_json.get("manual_metadata", {})
+        return isinstance(metadata, dict) and bool(metadata.get("registry_only"))
+
+    @staticmethod
+    def has_source_content(revision: SourceRevision) -> bool:
+        return (
+            revision.ingestion_method != "manual"
+            and revision.extraction_status == "succeeded"
+            and revision.extracted_checksum == revision.checksum
+            and bool(revision.extracted_text)
+        )
+
     def ensure_manifest_sources(
         self,
         entries: Iterable[OfficialSourceManifestEntry],
@@ -164,18 +180,33 @@ class CurriculumIntelligenceService:
                 .order_by(SourceRevision.revision_number.desc())
                 .execution_options(populate_existing=True)
             )
-            if active is not None:
+            if active is not None and not fetch_content:
                 resolved[entry.key] = active
                 continue
 
             if fetch_content:
+                # Retrieval diagnostics must not linger after a successful retry or
+                # poison the next snapshot identity with a stale blocked status.
+                if source.metadata_json.get("ingestion_status") == "blocked_or_unavailable":
+                    source.metadata_json = {
+                        key: value
+                        for key, value in source.metadata_json.items()
+                        if key not in {"ingestion_status", "ingestion_error", "fallback"}
+                    }
+                    self.session.commit()
                 try:
                     revision = self.source_service.ingest_url(
                         source.id,
                         actor_id=actor_id,
                         request_id=request_id,
                     )
-                except SourceFetchError as exc:
+                    if revision.status == SourceRevisionStatus.STAGED.value:
+                        revision = self.source_service.extract_revision(
+                            revision.id,
+                            actor_id=actor_id,
+                            request_id=request_id,
+                        )
+                except (SourceFetchError, SourceExtractionError, OSError) as exc:
                     if not fallback_on_fetch_error:
                         raise
                     source.metadata_json = {
@@ -185,6 +216,9 @@ class CurriculumIntelligenceService:
                         "fallback": "manual_registry_only",
                     }
                     self.session.commit()
+                    if active is not None:
+                        resolved[entry.key] = active
+                        continue
                     revision = self.source_service.ingest_manual(
                         source.id,
                         ManualSourceRevisionInput(
@@ -232,11 +266,16 @@ class CurriculumIntelligenceService:
                     )
                 )
                 if current is None:
-                    raise CurriculumIntelligenceError(
-                        f"source {entry.key} has no active revision"
-                    )
+                    raise CurriculumIntelligenceError(f"source {entry.key} has no active revision")
                 resolved[entry.key] = current
                 continue
+
+            if revision.status == SourceRevisionStatus.STAGED.value:
+                revision = self.source_service.extract_revision(
+                    revision.id,
+                    actor_id=actor_id,
+                    request_id=request_id,
+                )
 
             if revision.status == SourceRevisionStatus.EXTRACTED.value:
                 self.source_service.create_diff(
@@ -244,6 +283,13 @@ class CurriculumIntelligenceService:
                     actor_id=actor_id,
                     request_id=request_id,
                 )
+                # A changed content revision must go through explicit human review.
+                # Registry metadata is not a previously approved content version.
+                if active is not None and not self.is_registry_only(active):
+                    raise CurriculumIntelligenceError(
+                        f"source {entry.key} changed; candidate {revision.id} requires "
+                        "explicit review; the prior active revision is preserved"
+                    )
                 validation = self.source_service.validate_revision(
                     revision.id,
                     actor_id=actor_id,
@@ -251,8 +297,7 @@ class CurriculumIntelligenceService:
                 )
                 if not validation.valid:
                     raise CurriculumIntelligenceError(
-                        f"source validation failed for {entry.key}: "
-                        + "; ".join(validation.errors)
+                        f"source validation failed for {entry.key}: " + "; ".join(validation.errors)
                     )
                 self.source_service.approve_revision(
                     revision.id,
@@ -368,9 +413,7 @@ class CurriculumIntelligenceService:
         version.source_revision_id = revision.id
         version.source_locator = source_locator
         version.metadata_json = dict(metadata_json or {})
-        version.status = (
-            CurriculumStatus.ACTIVE.value if active else CurriculumStatus.DRAFT.value
-        )
+        version.status = CurriculumStatus.ACTIVE.value if active else CurriculumStatus.DRAFT.value
         self.session.flush()
         return version
 
@@ -395,6 +438,20 @@ class CurriculumIntelligenceService:
         revision: SourceRevision,
     ) -> dict[str, CurriculumNode]:
         self._require_revision(revision)
+        document_type = (
+            revision.metadata_json.get("source_snapshot", {})
+            .get("metadata_json", {})
+            .get("document_type", revision.source.metadata_json.get("document_type", ""))
+        )
+        if document_type in {
+            "assessment_evidence",
+            "sample_paper_index",
+            "sample_question_paper",
+            "marking_scheme",
+        }:
+            raise CurriculumIntelligenceError(
+                "assessment sources cannot establish syllabus membership"
+            )
         specs_list = list(specs)
         codes = [item.code for item in specs_list]
         if len(codes) != len(set(codes)):
@@ -419,14 +476,11 @@ class CurriculumIntelligenceService:
                         continue
                 expected_parent_type = _PARENT_TYPE[spec.node_type.value]
                 if expected_parent_type is None and parent is not None:
-                    raise CurriculumIntelligenceError(
-                        f"{spec.node_type.value} nodes must be roots"
-                    )
+                    raise CurriculumIntelligenceError(f"{spec.node_type.value} nodes must be roots")
                 if expected_parent_type is not None:
                     if parent is None:
                         raise CurriculumIntelligenceError(
-                            f"{spec.node_type.value} requires parent type "
-                            f"{expected_parent_type}"
+                            f"{spec.node_type.value} requires parent type {expected_parent_type}"
                         )
                     if parent.node_type != expected_parent_type:
                         raise CurriculumIntelligenceError(
@@ -484,9 +538,7 @@ class CurriculumIntelligenceService:
         self._require_revision(revision)
         result: dict[str, Competency] = {}
         for spec in specs:
-            competency = self.session.scalar(
-                select(Competency).where(Competency.code == spec.code)
-            )
+            competency = self.session.scalar(select(Competency).where(Competency.code == spec.code))
             if competency is None:
                 competency = Competency(
                     id=stable_uuid("competency", framework.code, spec.code),
@@ -494,6 +546,8 @@ class CurriculumIntelligenceService:
                     name=spec.name,
                 )
                 self.session.add(competency)
+            if competency.framework_id is not None and competency.framework_id != framework.id:
+                raise CurriculumIntelligenceError("competency cannot move between frameworks")
             self._assert_source_binding(competency, revision)
             competency.framework_id = framework.id
             competency.name = spec.name
@@ -560,13 +614,27 @@ class CurriculumIntelligenceService:
         if payload.learning_outcome_id is not None:
             target_kind = "learning_outcome"
             target_id = str(payload.learning_outcome_id)
-            if self.session.get(LearningOutcome, target_id) is None:
+            outcome = self.session.get(LearningOutcome, target_id)
+            if outcome is None:
                 raise LookupError("alignment learning outcome not found")
+            if outcome.curriculum_version_id != version.id:
+                raise CurriculumIntelligenceError(
+                    "alignment outcome must belong to the supplied version"
+                )
         else:
             target_kind = "competency"
             target_id = str(payload.competency_id)
             if self.session.get(Competency, target_id) is None:
                 raise LookupError("alignment competency not found")
+
+        if payload.status == "direct" and (
+            not self.has_source_content(revision)
+            or not payload.source_locator
+            or not payload.evidence_text
+        ):
+            raise CurriculumIntelligenceError(
+                "direct alignment requires retrieved source content, locator and evidence"
+            )
 
         alignment_id = stable_uuid(
             "alignment",
@@ -589,9 +657,7 @@ class CurriculumIntelligenceService:
             )
             self.session.add(alignment)
         alignment.learning_outcome_id = (
-            str(payload.learning_outcome_id)
-            if payload.learning_outcome_id is not None
-            else None
+            str(payload.learning_outcome_id) if payload.learning_outcome_id is not None else None
         )
         alignment.competency_id = (
             str(payload.competency_id) if payload.competency_id is not None else None
@@ -605,9 +671,7 @@ class CurriculumIntelligenceService:
         self.session.flush()
         return alignment
 
-    def add_assessment_evidence(
-        self, payload: AssessmentEvidenceInput
-    ) -> AssessmentEvidence:
+    def add_assessment_evidence(self, payload: AssessmentEvidenceInput) -> AssessmentEvidence:
         revision = self.session.get(SourceRevision, str(payload.source_revision_id))
         if revision is None:
             raise LookupError("assessment source revision not found")
@@ -616,10 +680,13 @@ class CurriculumIntelligenceService:
         if version is None:
             raise LookupError("assessment curriculum version not found")
 
+        source_year = revision.metadata_json.get("source_snapshot", {}).get("academic_year")
+        if source_year and source_year != version.academic_year:
+            raise CurriculumIntelligenceError(
+                "assessment source academic year must match curriculum version"
+            )
         grade_id = str(payload.grade_node_id) if payload.grade_node_id is not None else None
-        subject_id = (
-            str(payload.subject_node_id) if payload.subject_node_id is not None else None
-        )
+        subject_id = str(payload.subject_node_id) if payload.subject_node_id is not None else None
         for node_id, expected_type in (
             (grade_id, CurriculumNodeType.GRADE_YEAR.value),
             (subject_id, CurriculumNodeType.SUBJECT.value),
@@ -634,6 +701,13 @@ class CurriculumIntelligenceService:
             if node.node_type != expected_type:
                 raise CurriculumIntelligenceError(
                     f"assessment evidence expected {expected_type} node"
+                )
+
+        if grade_id is not None and subject_id is not None:
+            path = self.hierarchy_path(subject_id)
+            if not path or path[0].id != grade_id:
+                raise CurriculumIntelligenceError(
+                    "assessment subject must belong to the supplied grade"
                 )
 
         evidence_id = stable_uuid(
@@ -688,8 +762,9 @@ class CurriculumIntelligenceService:
             )
 
         rows = self.session.execute(
-            select(CurriculumAlignment.curriculum_node_id, CurriculumAlignment.status)
-            .where(CurriculumAlignment.curriculum_node_id.in_(node_ids))
+            select(CurriculumAlignment.curriculum_node_id, CurriculumAlignment.status).where(
+                CurriculumAlignment.curriculum_node_id.in_(node_ids)
+            )
         ).all()
         status_by_node: dict[str, set[str]] = {node_id: set() for node_id in node_ids}
         for node_id, status in rows:
@@ -754,6 +829,15 @@ class CurriculumIntelligenceService:
             "revision_status": revision.status,
             "source_locator": getattr(entity, "source_locator", None),
             "checksum": revision.checksum,
+            "provenance_classification": (
+                "synthetic_registry_fixture"
+                if self.is_registry_only(revision)
+                else "source_content_reference"
+                if self.has_source_content(revision)
+                else "manual_metadata_reference"
+            ),
+            "source_content_verified": self.has_source_content(revision),
+            "mapping_verified": False,
         }
 
     def hierarchy_path(self, node_id: str) -> list[CurriculumNode]:
@@ -771,6 +855,49 @@ class CurriculumIntelligenceService:
             current = current.parent
         path.reverse()
         return path
+
+    def curriculum_path(self, node_id: str) -> CurriculumPathResult:
+        """Resolve a canonical path and its evidenced outcome/competency links."""
+        path = self.hierarchy_path(node_id)
+        version = path[-1].curriculum_version
+        pack = version.curriculum_pack
+        if pack.framework_id is None:
+            raise CurriculumIntelligenceError("curriculum pack has no framework")
+        path_ids = [node.id for node in path]
+        alignments = list(
+            self.session.scalars(
+                select(CurriculumAlignment)
+                .where(
+                    CurriculumAlignment.curriculum_version_id == version.id,
+                    CurriculumAlignment.curriculum_node_id.in_(path_ids),
+                )
+                .order_by(CurriculumAlignment.id)
+            )
+        )
+        return CurriculumPathResult(
+            framework_id=UUID(pack.framework_id),
+            curriculum_pack_id=UUID(pack.id),
+            curriculum_version_id=UUID(version.id),
+            node_ids=[UUID(node_id) for node_id in path_ids],
+            learning_outcome_ids=sorted(
+                {UUID(row.learning_outcome_id) for row in alignments if row.learning_outcome_id}
+            ),
+            competency_ids=sorted(
+                {UUID(row.competency_id) for row in alignments if row.competency_id}
+            ),
+            alignment_ids=[UUID(row.id) for row in alignments],
+            source_revision_ids=sorted(
+                {
+                    UUID(revision_id)
+                    for revision_id in (
+                        [node.source_revision_id for node in path]
+                        + [row.source_revision_id for row in alignments]
+                        + [version.source_revision_id, pack.source_revision_id]
+                    )
+                    if revision_id
+                }
+            ),
+        )
 
     def entity_counts(self, version_id: str) -> dict[str, int]:
         return {
