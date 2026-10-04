@@ -76,6 +76,7 @@ jobs:
           mkdir -p evidence
           python -m app.day4_verify --fetch-official > evidence/day4-source-report.json
       - name: Upload metadata-only evidence (no source documents)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: day4-source-evidence-${{ github.sha }}

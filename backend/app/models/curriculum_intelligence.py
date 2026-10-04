@@ -97,6 +97,7 @@ class AssessmentEvidence(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint(
             "curriculum_version_id",
             "source_revision_id",
+            "marking_scheme_revision_id",
             "grade_node_id",
             "subject_node_id",
             "evidence_type",
@@ -127,6 +128,9 @@ class AssessmentEvidence(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("source_revisions.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
+    )
+    marking_scheme_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("source_revisions.id", ondelete="RESTRICT"), index=True
     )
     source_locator: Mapped[str | None] = mapped_column(String(1024))
     evidence_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)

@@ -1,52 +1,67 @@
-# Day 4 engineering delivery evidence
+# Day 4 delivery evidence and Founder verification
 
-Status: IN PROGRESS — source-backed acceptance and final CI/Codex review are gates, not implied by a green synthetic test.
+Scope: D4-01–D4-47 only. The exact-head PR checks and independent Codex review are the merge gates. This document does not record Founder signoff or unlock Day 5.
 
-Scope remains D4-01–D4-47. Day 5 is locked. No Founder approval is recorded here.
+## What is implemented
 
-## Corrections on PR 13
+- Versioned NCF/CBSE framework, CurriculumPack and academic version with exact SourceRevision provenance.
+- Typed stage → curricular area → goal → competency hierarchy and explicit LO→competency evidence links. Draft/final, review status and inference are queryable fields.
+- Canonical grade → medium → subject → unit → chapter → topic → concept paths. Official labels/locators remain separate from normalized/derived labels.
+- Complete official-index inventory, persistent explicit-grade subject catalogue and honest expected/materialized/shared/unmapped coverage denominators.
+- Separate typed assessment sections, marks, categories and source locators. Both SQP and marking-scheme revisions are first-class immutable evidence bindings; a changed scheme creates new evidence rather than overwriting history.
+- Day-3 lifecycle reuse, active-only writes, preserved historical reads, changed-source review gates, strict source-domain/year/grade/subject boundaries, and blocked official-source reporting.
 
-- Official retrieval extracts staged revisions before diff/validation/approval/activation.
-- Official mode retries registry-only revisions and checks previously fetched content for changes. Changed content is staged for explicit review while the old active reference remains intact.
-- DNS, HTTP retrieval and extraction failures record exact official URL and reason. No unofficial substitute is used.
-- The deterministic curriculum bundle and provenance report explicitly identify synthetic/registry-only evidence. Fetching a PDF alone does not verify its curriculum mapping.
-- SQP/MS sources cannot establish syllabus membership. Grade/subject/version bindings are checked independently.
-- Docker builds include the public metadata manifests needed by both acceptance tests and the Founder command.
-- The inherited 0007 snapshot-identity repair preserves colliding historical revision rows, references and audit records.
+Synthetic verification uses distinct synthetic identifiers, inactive framework/pack/outcome/competency fixtures and a draft curriculum version. It cannot populate the canonical active CBSE pack. Fetched content alone does not prove a mapping: reviewed byte-checksum/page anchors and all required aggregate constituents must pass.
 
-## Reproducible commands
+## Actual hosted source evidence
 
-From `backend`, with the backend virtual environment activated:
+CI run `37210627019` at `02d5236c2e9bb8ee03ce317c1b157f0d583fc9e4` produced metadata-only artifact `11306497395` (ZIP SHA-256 `1c25498e255723c05c6d482eafc9fcb2c23f4a72acc25c6a15517a50f2adf2e4`). Inspection established:
+
+- Official NCF 2023 bytes and NCERT Grade 9 draft pages 46/56/57 verified; framework structure and LO evidence created.
+- CBSE IX Mathematics, X Mathematics (source page 3), and XII Physics (source pages 12–13) detailed paths verified.
+- 212 curriculum PDF resources; 205 subject-index entries: IX 69, X 63, shared XI–XII 73. 132 explicit-grade catalogue subjects materialized; shared entries remain review-required.
+- Class X SQP index: 61 parsed subjects, 15 unresolved rows; Class XII index: 78 subjects, 14 unresolved rows. Placeholders are not claimed as published documents.
+- Actual Mathematics Standard SQP/MS: 80 marks, 38 questions, five typed sections; actual Physics SQP/MS: 70 marks, 33 questions, five typed sections. Both patterns were extracted, reconciled and verified.
+- 158 curriculum nodes, two derived concept alignments, one reviewed learning outcome, a four-level framework structure, and separate assessment evidence.
+
+That run exposed a reporting weakness: the old top-level flag checked only the IX path and the detailed-path count was hardcoded. The final implementation replaces that with a fail-closed aggregate across framework/LO links, all grade catalogue scopes, both baseline syllabus paths, both typed assessment patterns and both SQP inventories. The path count is derived from successful paths. A missing constituent produces an incomplete report and nonzero official-verification exit; CI still uploads that diagnostic report.
+
+## Explicit source-review items
+
+These are visible data judgments, not silently accepted final rules:
+
+- The original MoE NCF URL returns 404. Its authoritative replacement is the NCERT-hosted NCF 2023 PDF, linked by Rajya Sabha answer 177 (24 July 2024), page 2. The old URL remains in the blocked inventory.
+- The original NCERT learning-outcomes URL remains unavailable. The reviewed Grade 9 publication used here is explicitly DRAFT; its wording is never promoted to final status.
+- The official Physics syllabus cover contains both 2025-26 and 2026-27. The path retains a source-review warning. No unsupported Physics competency mapping is invented.
+- Shared XI–XII subject entries are candidates until their PDFs establish grade scope. Catalogue-only subjects are not claimed as fully ingested content.
+- Physics B/C response categories are unspecified by the inspected instructions. Unextracted competency emphasis stays unresolved.
+- No unsupported prerequisite edges are seeded; richer prerequisite intelligence remains Day 10.
+
+The older synthetic Learning Standards example refers to NCF 2005 and has no verified 2026-27 applicability. Its Class IX chapter is Number System, not the Class X Real Numbers chapter. It is not used as current-year source-backed proof.
+
+## Reproduce verification
+
+From the repository root with Docker available:
 
 ```
-pytest
-ruff check app tests
-mypy app
-python -m app.domain_verify
-python -m app.source_verify
-python -m app.day4_verify
-python -m app.day4_verify --fetch-official
-alembic upgrade head
-alembic downgrade -1
-alembic upgrade head
-alembic check
+make env
+make lint
+make test
+make day4-verify
+SOURCE_MAX_BYTES=67108864 make day4-verify-official
 ```
 
-From `frontend`: `npm install`, `npm run typecheck`, `npm run build`.
+The last command explicitly opts this invocation into a bounded 64 MiB limit for the approximately 47 MB official NCF PDF. Application defaults remain 25 MiB; no unrestricted fetch path is added. The official-evidence CI job makes the same explicit bounded choice. If a required official site is unavailable, the report names the missing constituent and exits nonzero; it does not substitute unofficial content.
 
-Docker-backed commands remain `make test`, `make lint`, `make day4-verify`, and `make day4-verify-official`. CI checks the complete Compose startup, env propagation and persistence restart flow. The separate `day4-official-evidence` job records source retrieval JSON as a metadata-only artifact; it deliberately does not upload source documents or claim that retrieval proves official mapping acceptance.
+For a virtual-environment workflow, from `backend` run `pytest`, `ruff check app tests`, `mypy app`, `python -m app.domain_verify`, `python -m app.source_verify`, and `python -m app.day4_verify`. Live evidence: `SOURCE_MAX_BYTES=67108864 python -m app.day4_verify --fetch-official`. From `frontend`, run `npm install`, `npm run typecheck` and `npm run build`.
 
-## Evidence boundaries
+Run Alembic on a disposable validation database: upgrade head → downgrade -1 → upgrade head → check. Head is now 0009. Issued 0008 is restored unchanged; 0009 supports installations with either previously issued 0008 schema shape, validates adoption, backfills valid marking-scheme references without changing evidence IDs/audit records, and refuses a lossy downgrade instead of deleting or merging evidence.
 
-Local baseline at original `993b91a` was 107 passing tests. The resumed correction run reached 122 passing tests before final additional regressions. Ruff, mypy, frontend typecheck/build and upgrade/downgrade/re-upgrade/`alembic check` were run; exact final-head results are recorded on the PR after publication.
-
-The cloud shell could not resolve any of the eight initial official hosts/URLs. The new JSON report explicitly returned `official_fetch_with_registry_fallback`, exact blocked URLs/reasons, and `official_source_backed_acceptance: false`. A metadata checksum is never represented as the original PDF checksum. The hosted CI retrieval report must be inspected separately.
-
-The NCERT Grade 9 Phase I Part 2 publication is explicitly DRAFT. Registering it does not promote draft standards into final CBSE membership. Official-source inventory now also includes the NCERT publication index required by the specification.
+Default verification databases are isolated. Use `--app-db` only when intentionally integrating into a reviewed application database; conflicting historical source bindings fail closed rather than silently rebind.
 
 ## Acceptance mapping
 
-“Implemented/tested” below describes an engineering contract, not completed official curriculum ingestion. “Partial/blocked” is an outstanding requirement.
+The initial reviewed scope is IX Mathematics, X Mathematics and XII Physics plus the complete official subject-index inventory. This is not a claim of full content ingestion for every CBSE subject. Tests are synthetic unless explicitly identified as the hosted live-source evidence above.
 
 | ID | Implementation / evidence | Current boundary |
 |---|---|---|
@@ -92,33 +107,13 @@ The NCERT Grade 9 Phase I Part 2 publication is explicitly DRAFT. Registering it
 | D4-40 | assessment separation/binding tests | Implemented/tested |
 | D4-41 | changed-source retains active reference regression | Implemented/tested |
 | D4-42 | SQLite runtime suite; PostgreSQL DDL compilation in domain suite | No live PostgreSQL server claimed |
-| D4-43 | Day4 populated migration; Day3 rollback/identity regressions; Alembic round-trip/check | Exact final result on PR |
+| D4-43 | Day4 populated migration; Day3 rollback/identity regressions; Alembic round-trip/check | 0009 compatibility, populated upgrade/downgrade, failure rollback and exact final checks on PR |
 | D4-44 | full regression/lint/mypy/frontend build; CI Compose | Local checks pass; final-head CI required |
 | D4-45 | `python -m app.day4_verify --fetch-official` | Genuine official-content path verified at a0184ed; new baseline changes require final-head rerun |
 | D4-46 | JSON inventory, entity counts, alignment coverage, catalogue denominator, unresolved items | Exact revisions/checksums/pages; full-content ingestion is never implied by index coverage |
-| D4-47 | this mapping + final PR evidence | Pending final review/CI/source-backed acceptance; Day5 stays locked |
-
-## Official-content proof (second correction)
-
-The first correction `bcb4ef4a3371301a1faa6ed493414463e2157f6b` passed all CI jobs, including complete Compose API/env/persistence restart checks, in run `37208206466`. Local tests on that tree: 130 passed. The hosted metadata-only report proved eight actual URL-ingested active revisions; the original MoE NCF URL returned HTTP 404, and the original NCERT learning-outcomes URL remained unavailable.
-
-A replacement NCF publication is linked by official Rajya Sabha answer 177 (24 July 2024), page 2: `https://ncert.nic.in/pdf/NCFSE-2023-August_2023.pdf`. It is approximately 47 MB. The official-evidence CI job alone explicitly configures `SOURCE_MAX_BYTES=67108864` (64 MiB). Application and normal verification defaults remain 25 MiB. The bound is tested and documented; no unrestricted download path is added. The original unavailable URLs remain in the inventory.
-
-`curriculum_intelligence/evidence.py` verifies the Day-3 stored byte checksum and page-scoped evidence anchors. `official_demo.py` builds a separate representative source-backed path only after all checks pass. Its NCERT Grade 9 outcome remains explicitly DRAFT, and concept alignment stays derived/partial. It never labels this draft final, or claims full CBSE coverage. Full public source documents are never saved in the report.
-
-The historical synthetic fixture was also corrected: the older CBSE Learning Standards PDF calls the Class IX chapter Number System; Real Numbers is a Class X chapter. That older document refers to NCF 2005 and has no verified 2026-27 applicability. It is not used to prove the current-year official path.
-
-The second correction adds a Day-4 schema-failure rollback/retry test and content-evidence regressions for exact pages, tampered checksums, missing/registry sources, idempotent reviewed paths and the bounded explicit size setting. Until a live CI report confirms `official_demonstration.verified`, D4-45 remains blocked. The representative IX–XII scope includes an IX detailed path and explicit incomplete coverage elsewhere; assessment availability is separate and detailed pattern data remains unresolved.
+| D4-47 | this mapping + final PR evidence | All47 mapped; exact-head CI, aggregate source gate and Codex closure required; Day5 stays locked |
 
 
-## Complete initial-scope engineering contracts
+## Final engineering gate
 
-The final candidate adds typed, queryable framework structure and explicit outcome→competency links with publication/review/inference status, exact revisions and locator fields. Historical revisions remain queryable, but all new curriculum/structure/alignment/assessment writes require active revisions. Assessment evidence is restricted to assessment sources and declared grade/subject/year applicability; assessment sources cannot establish curriculum alignments or membership.
-
-The source-backed official index catalogue covers every discovered subject entry and supplemental/introductory resource separately. The inspected page contains 212 PDF anchors and 205 subject entries (69 IX, 63 X, 73 shared XI–XII). Shared entries remain candidate grade scopes, not silently accepted for each grade. The runtime report records expected index entries, materialized explicit-grade entries, unmaterialized/shared entries and detailed syllabus paths. Catalogue-only subjects are not represented as fully ingested content. Placeholders such as error.pdf never become published SQP/MS evidence.
-
-Initial detailed content covers IX Mathematics, X Mathematics and XII Physics. Source headings are separate from derived topic/concept labels. The linked Physics syllabus cover has inconsistent 2025-26/2026-27 text, so its path explicitly remains source-review-required even though the publication link is under the 2026-27 official index. No unsupported Physics competency mapping is invented.
-
-Typed assessment evidence validates paper totals, section totals, question counts, categories and source locators. The source-backed baselines are Class X Mathematics Standard (041): 80 marks, 38 questions, five sections; and Class XII Physics (042): 70 marks, 33 questions, five sections. Numeric section summaries are extracted from actual source text, checked against reviewed facts and reconciled arithmetically. Missing or changed summaries remain review-required. Marking schemes carry their own exact active source revisions; neither paper nor scheme changes syllabus membership. Competency emphasis that is not explicitly extracted stays unresolved rather than being invented.
-
-All limitations above are part of the requested explicit unresolved-coverage contract. They do not assert full ingestion of every curriculum PDF or promote draft/contradictory source material into final rules. The Founder retains review of those source judgments; Day 5 stays locked. Final-head full tests/CI and independent Codex review are still mandatory before merge.
+The final review-fix batch passed 237 backend tests locally, plus Ruff and mypy. Frontend typecheck/build, SQLite migration round trips, PostgreSQL DDL compilation and full Docker Compose API/env/persistence restart checks were also verified during the delivery loop. The final PR records the exact final-head regression count, CI run, aggregate source-evidence artifact and independent Codex result. No failing/incomplete gate may be merged. Founder review follows; Day 5 stays locked.

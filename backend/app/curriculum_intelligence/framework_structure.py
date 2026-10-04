@@ -15,6 +15,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.models.curriculum import (
     Competency,
     CurriculumPack,
@@ -62,6 +63,10 @@ class FrameworkStructureService:
         if revision.status != SourceRevisionStatus.ACTIVE.value:
             raise FrameworkStructureError(
                 "framework evidence writes require an active SourceRevision"
+            )
+        if CurriculumIntelligenceService._is_assessment_source(revision):
+            raise FrameworkStructureError(
+                "assessment sources cannot establish framework structure or learning-outcome links"
             )
         return revision
 

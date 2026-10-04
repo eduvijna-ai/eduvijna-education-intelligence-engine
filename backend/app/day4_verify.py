@@ -239,7 +239,13 @@ def seed_day4_verification(
 
     return {
         "day": 4,
-        "status": "synthetic_verification_passed",
+        "status": (
+            "official_verification_passed_with_source_reviews"
+            if official_demo and official_demo["verified"]
+            else "official_verification_incomplete"
+            if fetch_official
+            else "synthetic_verification_passed"
+        ),
         "official_source_backed_acceptance": bool(official_demo and official_demo["verified"]),
         "official_demonstration": official_demo,
         "unresolved_items": [
@@ -350,6 +356,8 @@ def main() -> None:
             strict_official_fetch=args.strict_official_fetch,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        if args.fetch_official and not result["official_source_backed_acceptance"]:
+            raise SystemExit(1)
     finally:
         session.close()
         if verification_engine is not None:

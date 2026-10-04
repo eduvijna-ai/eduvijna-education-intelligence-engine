@@ -101,12 +101,16 @@ class AssessmentEvidenceInput(BaseModel):
     subject_node_id: UUID | None = None
     evidence_type: str = Field(min_length=1, max_length=64)
     source_revision_id: UUID
+    marking_scheme_revision_id: UUID | None = None
     source_locator: str | None = Field(default=None, max_length=1024)
     evidence_json: dict[str, Any] = Field(default_factory=dict)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_assessment_pattern(self) -> AssessmentEvidenceInput:
+        legacy_scheme = self.metadata_json.get("marking_scheme_revision_id")
+        if legacy_scheme is not None and str(self.marking_scheme_revision_id) != str(legacy_scheme):
+            raise ValueError("use the first-class marking_scheme_revision_id field")
         if self.evidence_type == "assessment_pattern":
             self.evidence_json = AssessmentPattern.model_validate(self.evidence_json).model_dump()
         return self

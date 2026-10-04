@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -700,13 +701,37 @@ class CurriculumIntelligenceService:
         if version is None:
             raise LookupError("assessment curriculum version not found")
 
-        source_year = revision.metadata_json.get("source_snapshot", {}).get("academic_year")
-        if source_year and source_year != version.academic_year:
-            raise CurriculumIntelligenceError(
-                "assessment source academic year must match curriculum version"
+        marking_scheme_id = (
+            str(payload.marking_scheme_revision_id) if payload.marking_scheme_revision_id else None
+        )
+        evidence_revisions = [revision]
+        if marking_scheme_id is not None:
+            marking_scheme = self.session.get(SourceRevision, marking_scheme_id)
+            if marking_scheme is None:
+                raise LookupError("marking scheme source revision not found")
+            self._require_revision(marking_scheme)
+            scheme_type = marking_scheme.metadata_json.get("source_snapshot", {}).get("source_type")
+            if scheme_type != "marking_scheme":
+                raise CurriculumIntelligenceError(
+                    "marking scheme binding requires a marking-scheme source"
+                )
+            evidence_revisions.append(marking_scheme)
+        for evidence_revision in evidence_revisions:
+            source_year = evidence_revision.metadata_json.get("source_snapshot", {}).get(
+                "academic_year"
             )
+            if source_year and source_year != version.academic_year:
+                raise CurriculumIntelligenceError(
+                    "assessment source academic year must match curriculum version"
+                )
         grade_id = str(payload.grade_node_id) if payload.grade_node_id is not None else None
         subject_id = str(payload.subject_node_id) if payload.subject_node_id is not None else None
+        if self._source_metadata(revision).get("document_type") != "sample_paper_index" and (
+            grade_id is None or subject_id is None
+        ):
+            raise CurriculumIntelligenceError(
+                "specific assessment documents require grade and subject"
+            )
         for node_id, expected_type in (
             (grade_id, CurriculumNodeType.GRADE_YEAR.value),
             (subject_id, CurriculumNodeType.SUBJECT.value),
@@ -730,42 +755,76 @@ class CurriculumIntelligenceService:
                     "assessment subject must belong to the supplied grade"
                 )
 
-        applicability = self._source_metadata(revision)
-        if grade_id is not None:
-            grade = self.session.get(CurriculumNode, grade_id)
-            assert grade is not None
-            allowed_grades = applicability.get("grade_codes", [])
-            grade_code = grade.metadata_json.get("grade_code") or grade.title.removeprefix("Class ")
-            if not allowed_grades or grade_code not in allowed_grades:
-                raise CurriculumIntelligenceError(
-                    "assessment source does not apply to supplied grade"
+        for applicable_revision in evidence_revisions:
+            applicability = self._source_metadata(applicable_revision)
+            if grade_id is not None:
+                grade = self.session.get(CurriculumNode, grade_id)
+                assert grade is not None
+                allowed_grades = applicability.get("grade_codes", [])
+                grade_code = grade.metadata_json.get("grade_code") or grade.title.removeprefix(
+                    "Class "
                 )
-        if subject_id is not None:
-            subject = self.session.get(CurriculumNode, subject_id)
-            assert subject is not None
-            allowed_subjects = applicability.get("subject_codes", [])
-            declared_subject = applicability.get("subject")
-            if (
-                allowed_subjects
-                and subject.metadata_json.get("subject_code") not in allowed_subjects
-            ):
-                raise CurriculumIntelligenceError(
-                    "assessment source does not apply to supplied subject"
-                )
-            if declared_subject and subject.title.casefold() != str(declared_subject).casefold():
-                raise CurriculumIntelligenceError(
-                    "assessment source does not apply to supplied subject"
-                )
-            if (
-                not allowed_subjects
-                and not declared_subject
-                and applicability.get("subject_scope") != "index"
-            ):
-                raise CurriculumIntelligenceError(
-                    "assessment source subject applicability is undeclared"
-                )
+                if not allowed_grades or grade_code not in allowed_grades:
+                    raise CurriculumIntelligenceError(
+                        "assessment source does not apply to supplied grade"
+                    )
+            if subject_id is not None:
+                subject = self.session.get(CurriculumNode, subject_id)
+                assert subject is not None
+                allowed_subjects = applicability.get("subject_codes", [])
+                declared_subject = applicability.get("subject")
+                if (
+                    allowed_subjects
+                    and subject.metadata_json.get("subject_code") not in allowed_subjects
+                ):
+                    raise CurriculumIntelligenceError(
+                        "assessment source does not apply to supplied subject"
+                    )
+                if (
+                    declared_subject
+                    and subject.title.casefold() != str(declared_subject).casefold()
+                ):
+                    raise CurriculumIntelligenceError(
+                        "assessment source does not apply to supplied subject"
+                    )
+                if (
+                    not allowed_subjects
+                    and not declared_subject
+                    and applicability.get("subject_scope") != "index"
+                ):
+                    raise CurriculumIntelligenceError(
+                        "assessment source subject applicability is undeclared"
+                    )
 
-        evidence_id = stable_uuid(
+                if subject_id is not None and applicability.get("subject_scope") == "index":
+                    if self.has_source_content(applicable_revision):
+
+                        def normalize(value: str) -> str:
+                            return " ".join(re.findall(r"\w+", value.casefold()))
+
+                        from app.curriculum_intelligence.catalogue import extract_stored_index
+
+                        inventory = extract_stored_index(
+                            self, applicable_revision, kind="assessment"
+                        )
+                        claimed_subject = str(payload.evidence_json.get("subject") or subject.title)
+                        subject_names = {
+                            normalize(item["subject_label"]) for item in inventory["subjects"]
+                        }
+                        if normalize(claimed_subject) not in subject_names or not (
+                            normalize(claimed_subject) == normalize(subject.title)
+                            or normalize(claimed_subject).startswith(normalize(subject.title) + " ")
+                        ):
+                            raise CurriculumIntelligenceError(
+                                "assessment index does not list supplied subject or variant"
+                            )
+                    elif subject.metadata_json.get("subject_code") not in applicability.get(
+                        "registry_fixture_subject_codes", []
+                    ):
+                        raise CurriculumIntelligenceError(
+                            "registry fixture has no evidence for supplied subject"
+                        )
+        identity_parts = [
             "assessment-evidence",
             version.id,
             revision.id,
@@ -773,21 +832,50 @@ class CurriculumIntelligenceService:
             subject_id or "",
             payload.evidence_type,
             payload.source_locator or "",
-        )
-        evidence = self.session.get(AssessmentEvidence, evidence_id)
-        if evidence is None:
-            evidence = AssessmentEvidence(
-                id=evidence_id,
-                curriculum_version_id=version.id,
-                evidence_type=payload.evidence_type,
-                source_revision_id=revision.id,
+        ]
+        if marking_scheme_id is not None:
+            identity_parts.extend(["marking_scheme", marking_scheme_id])
+        evidence_id = stable_uuid(*identity_parts)
+        evidence = self.session.scalar(
+            select(AssessmentEvidence).where(
+                AssessmentEvidence.curriculum_version_id == version.id,
+                AssessmentEvidence.source_revision_id == revision.id,
+                AssessmentEvidence.marking_scheme_revision_id == marking_scheme_id,
+                AssessmentEvidence.grade_node_id == grade_id,
+                AssessmentEvidence.subject_node_id == subject_id,
+                AssessmentEvidence.evidence_type == payload.evidence_type,
+                AssessmentEvidence.source_locator == payload.source_locator,
             )
-            self.session.add(evidence)
+        )
+        metadata = {
+            key: value
+            for key, value in payload.metadata_json.items()
+            if key != "marking_scheme_revision_id"
+        }
+        if evidence is not None:
+            prior_metadata = {
+                key: value
+                for key, value in evidence.metadata_json.items()
+                if key != "marking_scheme_revision_id"
+            }
+            if evidence.evidence_json != payload.evidence_json or prior_metadata != metadata:
+                raise CurriculumIntelligenceError(
+                    "assessment evidence is immutable; use a new revision or evidence locator"
+                )
+            return evidence
+        evidence = AssessmentEvidence(
+            id=evidence_id,
+            curriculum_version_id=version.id,
+            evidence_type=payload.evidence_type,
+            source_revision_id=revision.id,
+            marking_scheme_revision_id=marking_scheme_id,
+        )
+        self.session.add(evidence)
         evidence.grade_node_id = grade_id
         evidence.subject_node_id = subject_id
         evidence.source_locator = payload.source_locator
         evidence.evidence_json = dict(payload.evidence_json)
-        evidence.metadata_json = dict(payload.metadata_json)
+        evidence.metadata_json = metadata
         self.session.flush()
         return evidence
 
@@ -893,6 +981,12 @@ class CurriculumIntelligenceService:
             ),
             "source_content_verified": self.has_source_content(revision),
             "mapping_verified": False,
+            "marking_scheme_revision_id": getattr(entity, "marking_scheme_revision_id", None),
+            "marking_scheme_source_locator": (
+                getattr(entity, "metadata_json", {}).get("marking_scheme_source_locator")
+                if entity_type == "assessment_evidence"
+                else None
+            ),
         }
 
     def hierarchy_path(self, node_id: str) -> list[CurriculumNode]:

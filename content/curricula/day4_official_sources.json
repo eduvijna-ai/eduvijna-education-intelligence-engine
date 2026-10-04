@@ -130,7 +130,10 @@
       "grade_codes": [
         "X"
       ],
-      "subject_scope": "index"
+      "subject_scope": "index",
+      "registry_fixture_subject_codes": [
+        "041"
+      ]
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"
@@ -154,7 +157,10 @@
       "grade_codes": [
         "XII"
       ],
-      "subject_scope": "index"
+      "subject_scope": "index",
+      "registry_fixture_subject_codes": [
+        "042"
+      ]
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"

@@ -482,3 +482,41 @@ def test_framework_ingestion_does_not_commit_callers_transaction(db: Session) ->
     _tree(db, context)
     db.rollback()
     assert db.scalar(select(func.count(FrameworkStructureNode.id))) == 0
+
+
+@pytest.mark.parametrize(
+    "source_type,document_type",
+    [
+        ("sample_paper", None),
+        ("marking_scheme", None),
+        ("official_paper", None),
+        ("answer_key", None),
+        ("official_authority", "assessment_evidence"),
+        ("official_authority", "sample_paper_index"),
+        ("official_authority", "sample_question_paper"),
+        ("official_authority", "marking_scheme"),
+    ],
+)
+def test_assessment_snapshots_cannot_create_framework_or_outcome_mappings(
+    db: Session, source_type: str, document_type: str | None
+) -> None:
+    context = _context(db)
+    nodes = _tree(db, context)
+    context.revision.metadata_json = {
+        "source_snapshot": {
+            "source_type": source_type,
+            "metadata_json": {"document_type": document_type},
+        }
+    }
+    # Editing the live registry cannot disguise the revision's assessment domain.
+    context.revision.source.source_type = "official_authority"
+    context.revision.source.metadata_json = {"document_type": "education_framework"}
+    db.flush()
+    service = FrameworkStructureService(db)
+    with pytest.raises(FrameworkStructureError, match="assessment sources"):
+        service.upsert_nodes(
+            framework=context.framework, revision=context.revision, specs=_specs(context)
+        )
+    with pytest.raises(FrameworkStructureError, match="assessment sources"):
+        service.link_learning_outcome(_link_input(context, nodes["C3.2"].id))
+    assert db.scalar(select(func.count(LearningOutcomeCompetencyLink.id))) == 0

@@ -184,7 +184,22 @@ def seed_reviewed_baselines(
             section.code: (section.question_count, section.maximum_marks)
             for section in observed.sections
         }
-        if observed.status != "verified" or actual_sections != expected_sections:
+        expected_categories = {
+            code: {category: (count, marks) for category, count in categories}
+            for code, _, marks, categories in item["sections"]
+        }
+        actual_categories = {
+            section.code: {
+                category.code: (category.question_count, category.marks_per_question)
+                for category in section.categories
+            }
+            for section in observed.sections
+        }
+        if (
+            observed.status != "verified"
+            or actual_sections != expected_sections
+            or actual_categories != expected_categories
+        ):
             report.update(
                 assessment_status="review_required",
                 extracted_pattern=observed.model_dump(),
@@ -215,12 +230,13 @@ def seed_reviewed_baselines(
                 grade_node_id=UUID(grade_node.id),
                 subject_node_id=UUID(subject.id),
                 source_revision_id=UUID(revisions[sqp_key].id),
+                marking_scheme_revision_id=UUID(revisions[ms_key].id),
                 evidence_type="assessment_pattern",
                 source_locator="PDF page 1 > General Instructions",
                 evidence_json=pattern.model_dump(),
                 metadata_json={
-                    "marking_scheme_revision_id": revisions[ms_key].id,
                     "curriculum_membership_effect": "none",
+                    "marking_scheme_source_locator": "PDF page 1 > marking scheme header",
                     "competency_emphasis_status": "not_explicitly_extracted",
                     "scope": "reviewed section counts and marks; no inferred exam blueprint",
                 },

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from app.curriculum_intelligence.acceptance import evaluate_day4_acceptance
 from app.curriculum_intelligence.baseline import seed_reviewed_baselines
 from app.curriculum_intelligence.catalogue import CatalogueExtractionError, extract_stored_index
 from app.curriculum_intelligence.evidence import EvidenceAnchor, check_evidence_anchors
@@ -58,10 +59,12 @@ def official_source_demonstration(
             ),
         ],
     )
+    report["minimum_path_verified"] = report["verified"]
     report["publication_status"] = {"ncert_grade_9": "draft", "cbse": "2026-27"}
     report["complete_catalogue"] = False
     report["status"] = "blocked_or_review_required"
     if not report["verified"]:
+        report["acceptance"] = evaluate_day4_acceptance(report)
         return report
 
     checks = {check["key"]: check for check in report["checks"]}
@@ -285,6 +288,7 @@ def official_source_demonstration(
             evidence_json={
                 "sample_question_paper_published": True,
                 "marking_scheme_published": True,
+                "subject": "Mathematics (Standard)",
                 "curriculum_membership_effect": "none",
                 "pattern_details": "unresolved",
             },
@@ -327,12 +331,11 @@ def official_source_demonstration(
             "expected_index_entries": catalogue_report["index_subject_count"],
             "materialized_explicit_grade_entries": len(materialized),
             "not_materialized_entries": catalogue_report["index_subject_count"] - len(materialized),
-            "detailed_syllabus_paths": 1,
+            "detailed_syllabus_paths": 0,
             "unresolved_shared_grade_scope": sum(
                 item["grade_scope"] == "shared" for item in catalogue_report["subjects"]
             ),
         }
-        version.metadata_json = {**version.metadata_json, "source_catalogue": catalogue_report}
     except CatalogueExtractionError as exc:
         catalogue_report = {"status": "review_required", "reason": str(exc)}
     assessment_catalogues = {}
@@ -347,6 +350,12 @@ def official_source_demonstration(
         except CatalogueExtractionError as exc:
             assessment_catalogues[source_key] = {"status": "review_required", "reason": str(exc)}
     baselines = seed_reviewed_baselines(service, version, revisions)
+    if catalogue_report.get("extraction_verified"):
+        catalogue_report["coverage_denominator"]["detailed_syllabus_paths"] = 1 + sum(
+            bool(item.get("path") and item.get("syllabus", {}).get("verified"))
+            for item in baselines
+        )
+        version.metadata_json = {**version.metadata_json, "source_catalogue": catalogue_report}
     service.session.commit()
     report.update(
         status="source_backed_path_verified",
@@ -371,5 +380,12 @@ def official_source_demonstration(
             "Derived concept alignment is partial",
             "This is a representative path, not full CBSE coverage",
         ],
+    )
+    report["acceptance"] = evaluate_day4_acceptance(report)
+    report["verified"] = report["acceptance"]["passed"]
+    report["status"] = (
+        "initial_scope_verified_with_source_reviews"
+        if report["verified"]
+        else "initial_scope_incomplete"
     )
     return report
