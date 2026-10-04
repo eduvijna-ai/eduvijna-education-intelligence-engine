@@ -39,8 +39,16 @@ def test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data(
     inspector = inspect(engine)
     assert "curriculum_alignments" in inspector.get_table_names()
     assert "assessment_evidence" in inspector.get_table_names()
-    framework_columns = {column["name"] for column in inspector.get_columns("education_frameworks")}
-    assert {"authority", "version_code", "source_revision_id", "source_locator"} <= framework_columns
+    framework_columns = {
+        column["name"] for column in inspector.get_columns("education_frameworks")
+    }
+    expected_columns = {
+        "authority",
+        "version_code",
+        "source_revision_id",
+        "source_locator",
+    }
+    assert expected_columns <= framework_columns
 
     with engine.connect() as connection:
         assert connection.scalar(
