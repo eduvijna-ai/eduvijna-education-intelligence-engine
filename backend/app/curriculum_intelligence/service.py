@@ -111,6 +111,7 @@ class CurriculumIntelligenceService:
         *,
         actor_id: str,
         fetch_content: bool = False,
+        fallback_on_fetch_error: bool = True,
         request_id: str | None = None,
     ) -> dict[str, SourceRevision]:
         """Register official sources and return exact active revisions.
@@ -166,11 +167,41 @@ class CurriculumIntelligenceService:
                 continue
 
             if fetch_content:
-                revision = self.source_service.ingest_url(
-                    source.id,
-                    actor_id=actor_id,
-                    request_id=request_id,
-                )
+                try:
+                    revision = self.source_service.ingest_url(
+                        source.id,
+                        actor_id=actor_id,
+                        request_id=request_id,
+                    )
+                except Exception as exc:
+                    if not fallback_on_fetch_error:
+                        raise
+                    source.metadata_json = {
+                        **dict(source.metadata_json or {}),
+                        "ingestion_status": "blocked_or_unavailable",
+                        "ingestion_error": str(exc)[:500],
+                        "fallback": "manual_registry_only",
+                    }
+                    self.session.commit()
+                    revision = self.source_service.ingest_manual(
+                        source.id,
+                        ManualSourceRevisionInput(
+                            metadata={
+                                "manifest_key": entry.key,
+                                "registry_only": True,
+                                "official_url": entry.url,
+                                "document_type": entry.document_type,
+                                "version_applicability": entry.version_applicability,
+                                "blocked_reason": str(exc)[:500],
+                            },
+                            note=(
+                                "Official retrieval blocked/unavailable; registry-only "
+                                "fallback, not curriculum text"
+                            ),
+                        ),
+                        actor_id=actor_id,
+                        request_id=request_id,
+                    )
             else:
                 revision = self.source_service.ingest_manual(
                     source.id,
