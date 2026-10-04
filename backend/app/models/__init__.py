@@ -7,8 +7,10 @@ from app.models.curriculum import (
     EducationFramework,
     LearningOutcome,
 )
+from app.models.curriculum_intelligence import AssessmentEvidence, CurriculumAlignment
 from app.models.diagnostic import DiagnosticTaxonomyEntry
 from app.models.examination import ExamBlueprintRule, ExamPack, ExamSection, ExamVersion
+from app.models.framework_structure import FrameworkStructureNode, LearningOutcomeCompetencyLink
 from app.models.policy import PolicyRule
 from app.models.question import (
     Question,
@@ -24,8 +26,10 @@ from app.models.tenancy import AdminActor, ApiClient, Institution, Learner, Orga
 __all__ = [
     "AdminActor",
     "ApiClient",
+    "AssessmentEvidence",
     "Competency",
     "ConceptPrerequisite",
+    "CurriculumAlignment",
     "CurriculumNode",
     "CurriculumPack",
     "CurriculumVersion",
@@ -35,9 +39,11 @@ __all__ = [
     "ExamPack",
     "ExamSection",
     "ExamVersion",
+    "FrameworkStructureNode",
     "Institution",
     "Learner",
     "LearningOutcome",
+    "LearningOutcomeCompetencyLink",
     "Organization",
     "PolicyRule",
     "Question",

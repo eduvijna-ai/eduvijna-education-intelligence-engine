@@ -5,7 +5,7 @@ ifneq ("$(wildcard .env.development)","")
 COMPOSE := docker compose --env-file .env.development
 endif
 
-.PHONY: setup env dev test lint migrate migration down backend-test frontend-build migration-check source-verify source-help
+.PHONY: setup env dev test lint migrate migration down backend-test frontend-build migration-check source-verify source-help day4-verify day4-verify-official
 
 setup: env
 	python3 -m venv backend/.venv
@@ -49,3 +49,9 @@ source-verify:
 
 source-help:
 	$(COMPOSE) run --rm backend python -m app.source_cli --help
+
+day4-verify:
+	$(COMPOSE) run --rm backend python -m app.day4_verify
+
+day4-verify-official:
+	$(COMPOSE) run --rm backend python -m app.day4_verify --fetch-official

@@ -79,7 +79,7 @@ def test_partial_day3_schema_failure_rolls_back_and_can_retry(tmp_path: Path) ->
         connection.close()
 
     _run_alembic(database_path, "upgrade", "head")
-    assert _revision(database_path) == "20261003_0007"
+    assert _revision(database_path) == "20261004_0009"
 
 
 def test_foreign_key_validation_failure_keeps_old_revision_and_schema(
@@ -120,7 +120,7 @@ def test_foreign_key_validation_failure_keeps_old_revision_and_schema(
         connection.close()
 
     _run_alembic(database_path, "upgrade", "head")
-    assert _revision(database_path) == "20261003_0007"
+    assert _revision(database_path) == "20261004_0009"
 
     connection = sqlite3.connect(database_path)
     try:

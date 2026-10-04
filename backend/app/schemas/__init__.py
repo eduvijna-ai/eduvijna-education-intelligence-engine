@@ -1,3 +1,13 @@
+from app.schemas.curriculum_intelligence import (
+    AssessmentEvidenceInput,
+    CompetencySpec,
+    CoverageSummary,
+    CurriculumAlignmentInput,
+    CurriculumNodeSpec,
+    CurriculumPathResult,
+    LearningOutcomeSpec,
+    OfficialSourceManifestEntry,
+)
 from app.schemas.domain import (
     ConceptPrerequisiteGraphInput,
     ConceptPrerequisiteInput,
@@ -20,30 +30,6 @@ from app.schemas.domain import (
     SourceInput,
     TestDefinitionInput,
 )
-
-__all__ = [
-    "ConceptPrerequisiteGraphInput",
-    "ConceptPrerequisiteInput",
-    "CurriculumHierarchyInput",
-    "CurriculumNodeInput",
-    "DiagnosticTaxonomyInput",
-    "DistributionTargetInput",
-    "DomainModelInfo",
-    "ExamBlueprintRuleInput",
-    "ExamSectionInput",
-    "ExamStructureInput",
-    "PaperBlueprintInput",
-    "PaperSectionBlueprintInput",
-    "PolicyRuleInput",
-    "QuestionAssetInput",
-    "QuestionInput",
-    "QuestionOptionInput",
-    "RubricCriterionInput",
-    "RubricInput",
-    "SourceInput",
-    "TestDefinitionInput",
-]
-
 from app.schemas.source_intelligence import (
     ManualSourceRevisionInput,
     SourceAccessScope,
@@ -55,13 +41,41 @@ from app.schemas.source_intelligence import (
     SourceValidationResult,
 )
 
-__all__ += [
+__all__ = [
+    "AssessmentEvidenceInput",
+    "CompetencySpec",
+    "ConceptPrerequisiteGraphInput",
+    "ConceptPrerequisiteInput",
+    "CoverageSummary",
+    "CurriculumAlignmentInput",
+    "CurriculumHierarchyInput",
+    "CurriculumNodeInput",
+    "CurriculumNodeSpec",
+    "CurriculumPathResult",
+    "DiagnosticTaxonomyInput",
+    "DistributionTargetInput",
+    "DomainModelInfo",
+    "ExamBlueprintRuleInput",
+    "ExamSectionInput",
+    "ExamStructureInput",
+    "LearningOutcomeSpec",
     "ManualSourceRevisionInput",
+    "OfficialSourceManifestEntry",
+    "PaperBlueprintInput",
+    "PaperSectionBlueprintInput",
+    "PolicyRuleInput",
+    "QuestionAssetInput",
+    "QuestionInput",
+    "QuestionOptionInput",
+    "RubricCriterionInput",
+    "RubricInput",
     "SourceAccessScope",
     "SourceDiffSummary",
+    "SourceInput",
     "SourceMetadataUpdateInput",
     "SourceProvenanceLinkInput",
     "SourceRegistrationInput",
     "SourceRevisionSummary",
     "SourceValidationResult",
+    "TestDefinitionInput",
 ]
