@@ -1,0 +1,121 @@
+[
+  {
+    "key": "ncfse-2023",
+    "source_type": "official_authority",
+    "title": "National Curriculum Framework for School Education 2023",
+    "url": "https://www.education.gov.in/sites/upload_files/mhrd/files/ncf_2023.pdf",
+    "authority": "Ministry of Education, Government of India",
+    "country": "India",
+    "document_type": "education_framework",
+    "version_applicability": "NCF-SE 2023",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only"
+    }
+  },
+  {
+    "key": "ncert-learning-outcomes-secondary",
+    "source_type": "official_authority",
+    "title": "Learning Outcomes at the Secondary Stage",
+    "url": "https://ncert.nic.in/pdf/publication/otherpublications/learning_outcomes.pdf",
+    "authority": "National Council of Educational Research and Training (NCERT)",
+    "country": "India",
+    "document_type": "learning_outcomes",
+    "version_applicability": "secondary_stage",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only"
+    }
+  },
+  {
+    "key": "cbse-curriculum-2026-27",
+    "source_type": "official_syllabus",
+    "title": "CBSE Curriculum 2026-27",
+    "url": "https://cbseacademic.nic.in/curriculum_2027.html",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "curriculum_index",
+    "version_applicability": "CBSE 2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only"
+    }
+  },
+  {
+    "key": "cbse-mathematics-class-ix-2026-27",
+    "source_type": "official_syllabus",
+    "title": "CBSE Mathematics Class IX 2026-27",
+    "url": "https://cbseacademic.nic.in/web_material/CurriculumMain27/SecPart1/Maths_SecP1IX_2026-27.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "subject_syllabus",
+    "version_applicability": "Class IX Mathematics 2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "subject": "Mathematics",
+      "class": "IX",
+      "public_git_storage": "metadata_only"
+    }
+  },
+  {
+    "key": "cbse-learning-standards-mathematics",
+    "source_type": "official_authority",
+    "title": "CBSE Learning Standards - Mathematics",
+    "url": "https://cbseacademic.nic.in/cbe/documents/Learning_Standards_Maths.pdf",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "document_type": "learning_standards",
+    "version_applicability": "secondary_mathematics",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "subject": "Mathematics",
+      "public_git_storage": "metadata_only"
+    }
+  },
+  {
+    "key": "cbse-class-x-sqp-2026-27",
+    "source_type": "sample_paper",
+    "title": "CBSE Class X Sample Question Papers and Marking Schemes 2026-27",
+    "url": "https://cbseacademic.nic.in/SQP_CLASSX_2026-27.html",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "sample_paper_index",
+    "version_applicability": "Class X 2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "contains_marking_scheme_links": true
+    }
+  },
+  {
+    "key": "cbse-class-xii-sqp-2026-27",
+    "source_type": "sample_paper",
+    "title": "CBSE Class XII Sample Question Papers and Marking Schemes 2026-27",
+    "url": "https://cbseacademic.nic.in/SQP_CLASSXII_2026-27.html",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "country": "India",
+    "board_or_exam": "CBSE",
+    "academic_year": "2026-27",
+    "document_type": "sample_paper_index",
+    "version_applicability": "Class XII 2026-27",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_supporting",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "contains_marking_scheme_links": true
+    }
+  }
+]
