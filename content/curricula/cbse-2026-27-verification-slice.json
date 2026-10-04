@@ -1,0 +1,208 @@
+{
+  "fixture_kind": "source_backed_normalized_verification_slice",
+  "completeness": "demonstration_only_not_full_cbse_ingestion",
+  "copyright_policy": "short official labels/outcome plus derived normalized metadata; no source documents",
+  "framework": {
+    "code": "ncfse-2023",
+    "name": "National Curriculum Framework for School Education 2023",
+    "authority": "Ministry of Education, Government of India",
+    "version_code": "2023",
+    "source_key": "ncfse-2023",
+    "source_locator": "NCF-SE 2023"
+  },
+  "curriculum": {
+    "code": "cbse",
+    "name": "Central Board of Secondary Education",
+    "authority": "Central Board of Secondary Education (CBSE)",
+    "version_code": "2026-27",
+    "academic_year": "2026-27",
+    "source_key": "cbse-curriculum-2026-27",
+    "source_locator": "Curriculum 2026-27"
+  },
+  "competencies": [
+    {
+      "code": "math-logical-reasoning",
+      "name": "Logical reasoning",
+      "description": "Normalized competency used by Eduvijna for the verification slice.",
+      "official_text": null,
+      "source_key": "cbse-mathematics-class-ix-2026-27",
+      "source_locator": "Class IX Mathematics introduction/objectives",
+      "metadata_json": {
+        "mapping_status": "derived",
+        "official_label": "logical reasoning"
+      }
+    }
+  ],
+  "learning_outcomes": [
+    {
+      "code": "ncert-math-ix-real-numbers-logic",
+      "text": "Applies logical reasoning in classifying real numbers, proving their properties and using them in different situations.",
+      "normalized_text": "Classify real numbers and reason about their properties in contextual situations.",
+      "source_key": "cbse-learning-standards-mathematics",
+      "source_locator": "Class IX > Number Systems > Real Numbers",
+      "metadata_json": {
+        "wording_kind": "official_learning_outcome",
+        "attribution": "NCERT learning outcome reproduced in CBSE Learning Standards"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "node_type": "grade_year",
+      "code": "grade-ix",
+      "title": "Class IX",
+      "parent_code": null,
+      "sequence": 9,
+      "official_text": null,
+      "source_key": "cbse-mathematics-class-ix-2026-27",
+      "source_locator": "Mathematics Class IX (2026-27)",
+      "metadata_json": {"normalization": "official_grade_label"}
+    },
+    {
+      "node_type": "medium",
+      "code": "grade-ix-medium-common",
+      "title": "Common / source not medium-specific",
+      "parent_code": "grade-ix",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-mathematics-class-ix-2026-27",
+      "source_locator": "Eduvijna canonical medium placeholder",
+      "metadata_json": {"normalization": "derived", "medium_specific_source": false}
+    },
+    {
+      "node_type": "subject",
+      "code": "grade-ix-mathematics",
+      "title": "Mathematics",
+      "parent_code": "grade-ix-medium-common",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-mathematics-class-ix-2026-27",
+      "source_locator": "Mathematics Class IX (2026-27)",
+      "metadata_json": {"normalization": "official_subject_label"}
+    },
+    {
+      "node_type": "unit",
+      "code": "grade-ix-math-number-systems",
+      "title": "Number Systems",
+      "parent_code": "grade-ix-mathematics",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-mathematics-class-ix-2026-27",
+      "source_locator": "Unit: Number Systems",
+      "metadata_json": {"normalization": "official_unit_label"}
+    },
+    {
+      "node_type": "chapter",
+      "code": "grade-ix-math-real-numbers",
+      "title": "Real Numbers",
+      "parent_code": "grade-ix-math-number-systems",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-learning-standards-mathematics",
+      "source_locator": "Class IX > Number Systems > Real Numbers",
+      "metadata_json": {"normalization": "official_chapter_or_content_domain_label"}
+    },
+    {
+      "node_type": "topic",
+      "code": "grade-ix-math-real-number-classification",
+      "title": "Classification of real numbers",
+      "parent_code": "grade-ix-math-real-numbers",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-learning-standards-mathematics",
+      "source_locator": "Learning outcome context",
+      "metadata_json": {"normalization": "derived_topic", "official_mapping": false}
+    },
+    {
+      "node_type": "concept",
+      "code": "grade-ix-math-classifying-real-numbers",
+      "title": "Classifying real numbers",
+      "parent_code": "grade-ix-math-real-number-classification",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-learning-standards-mathematics",
+      "source_locator": "Derived from Class IX real-number learning outcome",
+      "metadata_json": {"normalization": "derived_concept", "official_mapping": false}
+    },
+    {
+      "node_type": "grade_year",
+      "code": "grade-x",
+      "title": "Class X",
+      "parent_code": null,
+      "sequence": 10,
+      "official_text": null,
+      "source_key": "cbse-class-x-sqp-2026-27",
+      "source_locator": "Class X SQP/MS index 2026-27",
+      "metadata_json": {"normalization": "official_grade_label"}
+    },
+    {
+      "node_type": "medium",
+      "code": "grade-x-medium-common",
+      "title": "Common / source not medium-specific",
+      "parent_code": "grade-x",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-class-x-sqp-2026-27",
+      "source_locator": "Eduvijna canonical medium placeholder",
+      "metadata_json": {"normalization": "derived", "medium_specific_source": false}
+    },
+    {
+      "node_type": "subject",
+      "code": "grade-x-mathematics-standard",
+      "title": "Mathematics (Standard)",
+      "parent_code": "grade-x-medium-common",
+      "sequence": 1,
+      "official_text": null,
+      "source_key": "cbse-class-x-sqp-2026-27",
+      "source_locator": "Mathematics (Standard) row",
+      "metadata_json": {"normalization": "official_subject_label", "subject_code": "041"}
+    }
+  ],
+  "alignments": [
+    {
+      "node_code": "grade-ix-math-classifying-real-numbers",
+      "target_kind": "learning_outcome",
+      "target_code": "ncert-math-ix-real-numbers-logic",
+      "relationship_type": "addresses",
+      "status": "partial",
+      "confidence": 0.85,
+      "inferred": true,
+      "source_key": "cbse-learning-standards-mathematics",
+      "source_locator": "Class IX > Number Systems > Real Numbers",
+      "evidence_text": "The official learning-standard mapping associates the Real Numbers domain with this NCERT learning outcome."
+    },
+    {
+      "node_code": "grade-ix-math-real-number-classification",
+      "target_kind": "competency",
+      "target_code": "math-logical-reasoning",
+      "relationship_type": "develops",
+      "status": "partial",
+      "confidence": 0.75,
+      "inferred": true,
+      "source_key": "cbse-mathematics-class-ix-2026-27",
+      "source_locator": "Class IX Mathematics introduction/objectives",
+      "evidence_text": "The syllabus emphasizes logical reasoning; topic-level relationship is Eduvijna-derived and therefore not marked official."
+    }
+  ],
+  "assessment_evidence": [
+    {
+      "grade_code": "grade-x",
+      "subject_code": "grade-x-mathematics-standard",
+      "evidence_type": "sample_paper_marking_scheme_availability",
+      "source_key": "cbse-class-x-sqp-2026-27",
+      "source_locator": "Mathematics (Standard) > SQP / MS",
+      "evidence_json": {
+        "sample_question_paper_published": true,
+        "marking_scheme_published": true,
+        "academic_year": "2026-27",
+        "subject": "Mathematics (Standard)",
+        "subject_code": "041",
+        "curriculum_membership_effect": "none"
+      },
+      "metadata_json": {
+        "evidence_role": "assessment_pattern_source",
+        "not_a_syllabus_rule": true
+      }
+    }
+  ]
+}
