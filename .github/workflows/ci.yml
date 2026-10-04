@@ -33,6 +33,8 @@ jobs:
         run: python -m app.domain_verify
       - name: Verify Source Intelligence sample
         run: python -m app.source_verify
+      - name: Verify Day 4 curriculum intelligence sample
+        run: python -m app.day4_verify
       - name: Migration round-trip
         run: |
           mkdir -p data
@@ -105,6 +107,7 @@ jobs:
           make lint
           make test
           make source-verify
+          make day4-verify
       - name: Verify API frontend and development env
         run: |
           curl --fail --silent http://127.0.0.1:8000/health
