@@ -8,9 +8,11 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    Index,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,20 +24,33 @@ class CurriculumAlignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "curriculum_alignments"
     __table_args__ = (
         CheckConstraint(
-            "((learning_outcome_id IS NOT NULL) + (competency_id IS NOT NULL)) = 1",
+            "((learning_outcome_id IS NOT NULL AND competency_id IS NULL) OR "
+            "(learning_outcome_id IS NULL AND competency_id IS NOT NULL))",
             name="ck_curriculum_alignment_one_target",
         ),
         CheckConstraint(
             "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
             name="ck_curriculum_alignment_confidence",
         ),
-        UniqueConstraint(
+        Index(
+            "uq_curriculum_alignment_lo_evidence",
             "curriculum_node_id",
             "learning_outcome_id",
+            "relationship_type",
+            "source_revision_id",
+            unique=True,
+            sqlite_where=text("learning_outcome_id IS NOT NULL"),
+            postgresql_where=text("learning_outcome_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_curriculum_alignment_competency_evidence",
+            "curriculum_node_id",
             "competency_id",
             "relationship_type",
             "source_revision_id",
-            name="uq_curriculum_alignment_evidence",
+            unique=True,
+            sqlite_where=text("competency_id IS NOT NULL"),
+            postgresql_where=text("competency_id IS NOT NULL"),
         ),
     )
 
