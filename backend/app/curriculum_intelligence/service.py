@@ -355,9 +355,16 @@ class CurriculumIntelligenceService:
         while unresolved:
             progressed = False
             for code, spec in list(unresolved.items()):
-                if spec.parent_code is not None and spec.parent_code not in by_code:
-                    continue
                 parent = by_code.get(spec.parent_code) if spec.parent_code else None
+                if spec.parent_code is not None and parent is None:
+                    parent = self.session.scalar(
+                        select(CurriculumNode).where(
+                            CurriculumNode.curriculum_version_id == version.id,
+                            CurriculumNode.code == spec.parent_code,
+                        )
+                    )
+                    if parent is None:
+                        continue
                 expected_parent_type = _PARENT_TYPE[spec.node_type.value]
                 if expected_parent_type is None and parent is not None:
                     raise CurriculumIntelligenceError(
