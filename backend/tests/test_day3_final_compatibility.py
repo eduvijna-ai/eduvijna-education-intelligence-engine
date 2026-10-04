@@ -16,6 +16,7 @@ from app.source_legacy_repair import apply_mapping, inspect_pending
 REV_0005 = "20261002_0005"
 REV_0006 = "20261003_0006"
 REV_0007 = "20261003_0007"
+REV_HEAD = "20261004_0008"
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -318,7 +319,7 @@ def test_0005_revision_states_are_migrated_with_real_snapshot_hashes(
         connection.close()
 
     _run_alembic(database_path, "upgrade", "head")
-    assert _revision(database_path) == REV_0007
+    assert _revision(database_path) == REV_HEAD
 
     connection = sqlite3.connect(database_path)
     try:
@@ -526,7 +527,7 @@ def test_legacy_tenant_sources_require_explicit_repair_then_upgrade(
     assert set(updated) == {institution_source_id, teacher_source_id}
 
     _run_alembic(database_path, "upgrade", "head")
-    assert _revision(database_path) == REV_0007
+    assert _revision(database_path) == REV_HEAD
 
     connection = sqlite3.connect(database_path)
     try:
