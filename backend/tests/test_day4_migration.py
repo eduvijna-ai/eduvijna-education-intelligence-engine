@@ -1,71 +1,108 @@
 from __future__ import annotations
 
+import os
+import sqlite3
+import subprocess
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import create_engine, inspect, text
+
+def _run_alembic(
+    database_path: Path,
+    *args: str,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    backend_root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment["DATABASE_URL"] = f"sqlite:///{database_path}"
+    return subprocess.run(
+        ["alembic", "-c", str(backend_root / "alembic.ini"), *args],
+        cwd=backend_root,
+        env=environment,
+        check=check,
+        capture_output=True,
+        text=True,
+    )
 
 
-def _config(database_url: str) -> Config:
-    backend = Path(__file__).resolve().parents[1]
-    config = Config(str(backend / "alembic.ini"))
-    config.set_main_option("script_location", str(backend / "migrations"))
-    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
-    return config
+def _table_names(database_path: Path) -> set[str]:
+    connection = sqlite3.connect(database_path)
+    try:
+        return {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+    finally:
+        connection.close()
+
+
+def _columns(database_path: Path, table_name: str) -> set[str]:
+    connection = sqlite3.connect(database_path)
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute(
+                f"PRAGMA table_info({table_name})"
+            ).fetchall()
+        }
+    finally:
+        connection.close()
 
 
 def test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "day4-migration.db"
-    database_url = f"sqlite:///{database}"
-    config = _config(database_url)
 
-    command.upgrade(config, "20261003_0007")
-    engine = create_engine(database_url)
-    with engine.begin() as connection:
+    _run_alembic(database, "upgrade", "20261003_0007")
+    connection = sqlite3.connect(database)
+    try:
         connection.execute(
-            text(
-                "INSERT INTO education_frameworks "
-                "(id, code, name, country, active, created_at, updated_at) "
-                "VALUES "
-                "('framework-before-d4', 'pre-d4', 'Pre Day 4', 'India', 1, "
-                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-            )
+            """
+            INSERT INTO education_frameworks
+            (id, code, name, country, active, created_at, updated_at)
+            VALUES
+            ('framework-before-d4', 'pre-d4', 'Pre Day 4', 'India', 1,
+             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
         )
+        connection.commit()
+    finally:
+        connection.close()
 
-    command.upgrade(config, "20261004_0008")
-    inspector = inspect(engine)
-    assert "curriculum_alignments" in inspector.get_table_names()
-    assert "assessment_evidence" in inspector.get_table_names()
-    framework_columns = {
-        column["name"] for column in inspector.get_columns("education_frameworks")
-    }
+    _run_alembic(database, "upgrade", "20261004_0008")
+    assert "curriculum_alignments" in _table_names(database)
+    assert "assessment_evidence" in _table_names(database)
     expected_columns = {
         "authority",
         "version_code",
         "source_revision_id",
         "source_locator",
     }
-    assert expected_columns <= framework_columns
+    assert expected_columns <= _columns(database, "education_frameworks")
 
-    with engine.connect() as connection:
-        assert connection.scalar(
-            text("SELECT COUNT(*) FROM education_frameworks WHERE id='framework-before-d4'")
-        ) == 1
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM education_frameworks "
+            "WHERE id='framework-before-d4'"
+        ).fetchone() == (1,)
+    finally:
+        connection.close()
 
-    command.downgrade(config, "20261003_0007")
-    inspector = inspect(engine)
-    assert "curriculum_alignments" not in inspector.get_table_names()
-    assert "assessment_evidence" not in inspector.get_table_names()
-    with engine.connect() as connection:
-        assert connection.scalar(
-            text("SELECT COUNT(*) FROM education_frameworks WHERE id='framework-before-d4'")
-        ) == 1
+    _run_alembic(database, "downgrade", "20261003_0007")
+    assert "curriculum_alignments" not in _table_names(database)
+    assert "assessment_evidence" not in _table_names(database)
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM education_frameworks "
+            "WHERE id='framework-before-d4'"
+        ).fetchone() == (1,)
+    finally:
+        connection.close()
 
-    command.upgrade(config, "head")
-    inspector = inspect(engine)
-    assert "curriculum_alignments" in inspector.get_table_names()
-    assert "assessment_evidence" in inspector.get_table_names()
-    engine.dispose()
+    _run_alembic(database, "upgrade", "head")
+    assert "curriculum_alignments" in _table_names(database)
+    assert "assessment_evidence" in _table_names(database)
