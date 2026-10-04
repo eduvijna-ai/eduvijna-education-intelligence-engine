@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
+from app.curriculum_intelligence.official_demo import official_source_demonstration
 from app.curriculum_intelligence.service import (
     CurriculumIntelligenceService,
     load_source_manifest,
@@ -226,10 +227,13 @@ def seed_day4_verification(
     subject = session.get(CurriculumNode, assessment_row.subject_node_id)
     assert subject is not None
 
+    official_demo = official_source_demonstration(service, revisions) if fetch_official else None
+
     return {
         "day": 4,
         "status": "synthetic_verification_passed",
-        "official_source_backed_acceptance": False,
+        "official_source_backed_acceptance": bool(official_demo and official_demo["verified"]),
+        "official_demonstration": official_demo,
         "unresolved_items": [
             "Verification bundle is synthetic; official content and mappings require review.",
             "Full subject coverage is not demonstrated by this representative slice.",

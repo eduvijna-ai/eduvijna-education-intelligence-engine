@@ -41,10 +41,7 @@ def _columns(database_path: Path, table_name: str) -> set[str]:
     connection = sqlite3.connect(database_path)
     try:
         return {
-            str(row[1])
-            for row in connection.execute(
-                f"PRAGMA table_info({table_name})"
-            ).fetchall()
+            str(row[1]) for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
         }
     finally:
         connection.close()
@@ -85,8 +82,7 @@ def test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data(
     connection = sqlite3.connect(database)
     try:
         assert connection.execute(
-            "SELECT COUNT(*) FROM education_frameworks "
-            "WHERE id='framework-before-d4'"
+            "SELECT COUNT(*) FROM education_frameworks WHERE id='framework-before-d4'"
         ).fetchone() == (1,)
     finally:
         connection.close()
@@ -97,8 +93,7 @@ def test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data(
     connection = sqlite3.connect(database)
     try:
         assert connection.execute(
-            "SELECT COUNT(*) FROM education_frameworks "
-            "WHERE id='framework-before-d4'"
+            "SELECT COUNT(*) FROM education_frameworks WHERE id='framework-before-d4'"
         ).fetchone() == (1,)
     finally:
         connection.close()
@@ -106,3 +101,34 @@ def test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data(
     _run_alembic(database, "upgrade", "head")
     assert "curriculum_alignments" in _table_names(database)
     assert "assessment_evidence" in _table_names(database)
+
+
+def test_day4_failure_rolls_back_partial_schema_and_retries(tmp_path: Path) -> None:
+    database = tmp_path / "day4-failed-upgrade.db"
+    _run_alembic(database, "upgrade", "20261003_0007")
+    connection = sqlite3.connect(database)
+    try:
+        # Simulate a partial/manual schema collision after several earlier D4
+        # alterations would otherwise have succeeded.
+        connection.execute("CREATE TABLE curriculum_alignments (sentinel TEXT)")
+        connection.execute("INSERT INTO curriculum_alignments VALUES ('retain')")
+        connection.commit()
+    finally:
+        connection.close()
+    result = _run_alembic(database, "upgrade", "head", check=False)
+    assert result.returncode != 0
+    assert "source_revision_id" not in _columns(database, "education_frameworks")
+    assert "authority" not in _columns(database, "education_frameworks")
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "20261003_0007",
+        )
+        assert connection.execute("SELECT * FROM curriculum_alignments").fetchall() == [("retain",)]
+        connection.execute("DROP TABLE curriculum_alignments")
+        connection.commit()
+    finally:
+        connection.close()
+    _run_alembic(database, "upgrade", "head")
+    _run_alembic(database, "check")
+    assert "source_revision_id" in _columns(database, "education_frameworks")

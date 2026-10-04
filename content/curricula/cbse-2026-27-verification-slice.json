@@ -39,10 +39,11 @@
       "text": "Applies logical reasoning in classifying real numbers, proving their properties and using them in different situations.",
       "normalized_text": "Classify real numbers and reason about their properties in contextual situations.",
       "source_key": "cbse-learning-standards-mathematics",
-      "source_locator": "Class IX > Number Systems > Real Numbers",
+      "source_locator": "PDF page19 > ClassIX > LO1; page22 > NumberSystems mapping",
       "metadata_json": {
         "wording_kind": "official_learning_outcome",
-        "attribution": "NCERT learning outcome reproduced in CBSE Learning Standards"
+        "attribution": "NCERT learning outcome reproduced in CBSE Learning Standards",
+        "source_context": "Historical learning standards; no2026-27 applicability asserted"
       }
     }
   ],
@@ -103,14 +104,16 @@
     {
       "node_type": "chapter",
       "code": "grade-ix-math-real-numbers",
-      "title": "Real Numbers",
+      "title": "Number System",
       "parent_code": "grade-ix-math-number-systems",
       "sequence": 1,
       "official_text": null,
       "source_key": "cbse-learning-standards-mathematics",
-      "source_locator": "Class IX > Number Systems > Real Numbers",
+      "source_locator": "CBSE Learning Standards PDF page22 > ClassIX > NumberSystems > NumberSystem; historical, not2026-27 evidence",
       "metadata_json": {
-        "normalization": "official_chapter_or_content_domain_label"
+        "normalization": "synthetic_label_from_older_learning_standard",
+        "academic_year_verified": false,
+        "source_context": "Historical learning standards; refers to NCF2005, not2026-27"
       }
     },
     {
@@ -124,7 +127,9 @@
       "source_locator": "Learning outcome context",
       "metadata_json": {
         "normalization": "derived_topic",
-        "official_mapping": false
+        "official_mapping": false,
+        "academic_year_verified": false,
+        "source_context": "Historical learning standards; refers to NCF2005, not2026-27"
       }
     },
     {
@@ -138,7 +143,9 @@
       "source_locator": "Derived from Class IX real-number learning outcome",
       "metadata_json": {
         "normalization": "derived_concept",
-        "official_mapping": false
+        "official_mapping": false,
+        "academic_year_verified": false,
+        "source_context": "Historical learning standards; refers to NCF2005, not2026-27"
       }
     },
     {

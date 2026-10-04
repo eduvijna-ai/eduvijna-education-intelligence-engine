@@ -68,7 +68,10 @@ jobs:
         run: pip install -e '.[dev]'
       - name: Record official retrieval and unresolved acceptance
         env:
-          SOURCE_URL_TIMEOUT_SECONDS: '12'
+          SOURCE_URL_TIMEOUT_SECONDS: '20'
+          # Explicit per-job bound for the officially linked 47 MB NCF PDF.
+          # The app-wide default remains 25 MiB; no unbounded import.
+          SOURCE_MAX_BYTES: '67108864'
         run: |
           mkdir -p evidence
           python -m app.day4_verify --fetch-official > evidence/day4-source-report.json

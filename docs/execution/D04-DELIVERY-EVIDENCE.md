@@ -97,3 +97,15 @@ The NCERT Grade 9 Phase I Part 2 publication is explicitly DRAFT. Registering it
 | D4-45 | `python -m app.day4_verify` | BLOCKED: synthetic path is not official source-backed acceptance |
 | D4-46 | verification JSON inventory/counts/coverage/blocked items | Representative scope report; official completeness not claimed |
 | D4-47 | this mapping + final PR evidence | Pending final review/CI/source-backed acceptance; Day5 stays locked |
+
+## Official-content proof (second correction)
+
+The first correction `bcb4ef4a3371301a1faa6ed493414463e2157f6b` passed all CI jobs, including complete Compose API/env/persistence restart checks, in run `37208206466`. Local tests on that tree: 130 passed. The hosted metadata-only report proved eight actual URL-ingested active revisions; the original MoE NCF URL returned HTTP 404, and the original NCERT learning-outcomes URL remained unavailable.
+
+A replacement NCF publication is linked by official Rajya Sabha answer 177 (24 July 2024), page 2: `https://ncert.nic.in/pdf/NCFSE-2023-August_2023.pdf`. It is approximately 47 MB. The official-evidence CI job alone explicitly configures `SOURCE_MAX_BYTES=67108864` (64 MiB). Application and normal verification defaults remain 25 MiB. The bound is tested and documented; no unrestricted download path is added. The original unavailable URLs remain in the inventory.
+
+`curriculum_intelligence/evidence.py` verifies the Day-3 stored byte checksum and page-scoped evidence anchors. `official_demo.py` builds a separate representative source-backed path only after all checks pass. Its NCERT Grade 9 outcome remains explicitly DRAFT, and concept alignment stays derived/partial. It never labels this draft final, or claims full CBSE coverage. Full public source documents are never saved in the report.
+
+The historical synthetic fixture was also corrected: the older CBSE Learning Standards PDF calls the Class IX chapter Number System; Real Numbers is a Class X chapter. That older document refers to NCF 2005 and has no verified 2026-27 applicability. It is not used to prove the current-year official path.
+
+The second correction adds a Day-4 schema-failure rollback/retry test and content-evidence regressions for exact pages, tampered checksums, missing/registry sources, idempotent reviewed paths and the bounded explicit size setting. Until a live CI report confirms `official_demonstration.verified`, D4-45 remains blocked. The representative IX–XII scope includes an IX detailed path and explicit incomplete coverage elsewhere; assessment availability is separate and detailed pattern data remains unresolved.

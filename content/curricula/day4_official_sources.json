@@ -126,7 +126,11 @@
     "trust_tier": "official_supporting",
     "metadata_json": {
       "public_git_storage": "metadata_only",
-      "contains_marking_scheme_links": true
+      "contains_marking_scheme_links": true,
+      "grade_codes": [
+        "X"
+      ],
+      "subject_scope": "index"
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"
@@ -146,7 +150,11 @@
     "trust_tier": "official_supporting",
     "metadata_json": {
       "public_git_storage": "metadata_only",
-      "contains_marking_scheme_links": true
+      "contains_marking_scheme_links": true,
+      "grade_codes": [
+        "XII"
+      ],
+      "subject_scope": "index"
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"
@@ -184,6 +192,26 @@
       "publication_status": "draft",
       "review_required": true,
       "discovery_note": "Official NCERT document; page46 learning standards, pages56-57 outcome-to-competency mapping. Do not silently promote draft to final."
+    },
+    "checksum": null,
+    "checksum_policy": "sha256_computed_on_source_revision_ingestion"
+  },
+  {
+    "key": "ncfse-2023-ncert-official",
+    "source_type": "official_authority",
+    "title": "NCF School Education 2023 (official NCERT publication)",
+    "url": "https://ncert.nic.in/pdf/NCFSE-2023-August_2023.pdf",
+    "authority": "NCERT / Ministry of Education, Government of India",
+    "country": "India",
+    "document_type": "education_framework",
+    "version_applicability": "NCF-SE 2023",
+    "copyright_classification": "official_reference",
+    "trust_tier": "official_primary",
+    "metadata_json": {
+      "public_git_storage": "metadata_only",
+      "discovery_source": "https://sansad.in/getFile/annex/265/AU177_lKzilA.pdf?source=pqars",
+      "discovery_locator": "Rajya Sabha answer 177 dated 24 July 2024, page 2",
+      "expected_size_note": "Approximately 47 MB; default25MiB rejects. Official verification may explicitly set bounded64MiB limit."
     },
     "checksum": null,
     "checksum_policy": "sha256_computed_on_source_revision_ingestion"

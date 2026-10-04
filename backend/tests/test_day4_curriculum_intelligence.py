@@ -450,3 +450,138 @@ def test_registry_revision_cannot_back_direct_alignment(db_session: Session) -> 
                 evidence_text="fixture",
             )
         )
+
+
+def test_assessment_source_type_and_grade_applicability_are_enforced(db_session: Session) -> None:
+    from app.schemas.curriculum_intelligence import AssessmentEvidenceInput
+
+    result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    grade = db_session.scalar(select(CurriculumNode).where(CurriculumNode.code == "grade-x"))
+    subject = db_session.scalar(
+        select(CurriculumNode).where(CurriculumNode.code == "grade-x-mathematics-standard")
+    )
+    assert grade is not None and subject is not None
+    revisions = {source["key"]: source["source_revision_id"] for source in result["sources"]}
+    for key, error in [
+        ("ncfse-2023", "requires an assessment source"),
+        ("cbse-class-xii-sqp-2026-27", "does not apply to supplied grade"),
+    ]:
+        with pytest.raises(CurriculumIntelligenceError, match=error):
+            service.add_assessment_evidence(
+                AssessmentEvidenceInput(
+                    curriculum_version_id=result["curriculum"]["version_id"],
+                    grade_node_id=grade.id,
+                    subject_node_id=subject.id,
+                    source_revision_id=revisions[key],
+                    evidence_type="sample_paper",
+                )
+            )
+
+
+def test_assessment_source_cannot_back_alignment(db_session: Session) -> None:
+    result = seed_day4_verification(db_session)
+    with pytest.raises(CurriculumIntelligenceError, match="assessment sources"):
+        CurriculumIntelligenceService(db_session).align(
+            CurriculumAlignmentInput(
+                curriculum_version_id=result["curriculum"]["version_id"],
+                curriculum_node_id=result["founder_path"][-1]["id"],
+                learning_outcome_id=result["learning_outcome"]["id"],
+                source_revision_id=result["assessment_evidence"]["source_revision_id"],
+                relationship_type="addresses",
+                status="partial",
+                inferred=True,
+            )
+        )
+
+
+@pytest.mark.parametrize("action", ["node", "alignment", "assessment"])
+def test_superseded_revisions_are_read_only(db_session: Session, action: str) -> None:
+    from app.schemas.curriculum_intelligence import AssessmentEvidenceInput
+
+    result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    revision_id = (
+        result["assessment_evidence"]["source_revision_id"]
+        if action == "assessment"
+        else (result["learning_outcome"]["source_revision_id"])
+    )
+    revision = db_session.get(app.models.SourceRevision, revision_id)
+    version = db_session.get(CurriculumVersion, result["curriculum"]["version_id"])
+    assert revision is not None and version is not None
+    revision.status = "superseded"
+    revision.active_slot = None
+    db_session.flush()
+    with pytest.raises(CurriculumIntelligenceError, match="active SourceRevision"):
+        if action == "node":
+            service.upsert_nodes(
+                version=version,
+                revision=revision,
+                specs=[
+                    CurriculumNodeSpec(
+                        node_type=CurriculumNodeType.GRADE_YEAR, code="new-old", title="Old"
+                    )
+                ],
+            )
+        elif action == "alignment":
+            service.align(
+                CurriculumAlignmentInput(
+                    curriculum_version_id=version.id,
+                    curriculum_node_id=result["founder_path"][-1]["id"],
+                    learning_outcome_id=result["learning_outcome"]["id"],
+                    source_revision_id=revision.id,
+                    relationship_type="new-old",
+                    status="partial",
+                )
+            )
+        else:
+            service.add_assessment_evidence(
+                AssessmentEvidenceInput(
+                    curriculum_version_id=version.id,
+                    source_revision_id=revision.id,
+                    evidence_type="new-old",
+                )
+            )
+    entity_type = "assessment_evidence" if action == "assessment" else "learning_outcome"
+    entity_id = (
+        result["assessment_evidence"]["id"]
+        if action == "assessment"
+        else result["learning_outcome"]["id"]
+    )
+    assert (
+        service.provenance(entity_type=entity_type, entity_id=entity_id)["revision_status"]
+        == "superseded"
+    )
+
+
+def test_competency_alignment_cannot_cross_frameworks(db_session: Session) -> None:
+    from app.schemas.curriculum_intelligence import CompetencySpec
+
+    result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    revision = db_session.get(app.models.SourceRevision, result["competency"]["source_revision_id"])
+    assert revision is not None
+    other = service.ensure_framework(
+        code="other-framework",
+        name="Other",
+        country="India",
+        authority="Synthetic test",
+        version_code="test",
+        revision=revision,
+    )
+    competency = service.upsert_competencies(
+        framework=other,
+        revision=revision,
+        specs=[CompetencySpec(code="other-competency", name="Other")],
+    )["other-competency"]
+    with pytest.raises(CurriculumIntelligenceError, match="curriculum framework"):
+        service.align(
+            CurriculumAlignmentInput(
+                curriculum_version_id=result["curriculum"]["version_id"],
+                curriculum_node_id=result["founder_path"][-1]["id"],
+                competency_id=competency.id,
+                source_revision_id=revision.id,
+                relationship_type="addresses",
+                status="partial",
+            )
+        )

@@ -85,13 +85,32 @@ class CurriculumIntelligenceService:
 
     @staticmethod
     def _require_revision(revision: SourceRevision) -> None:
-        if revision.status not in {
-            SourceRevisionStatus.ACTIVE.value,
-            SourceRevisionStatus.SUPERSEDED.value,
-        }:
+        if revision.status != SourceRevisionStatus.ACTIVE.value:
             raise CurriculumIntelligenceError(
-                "curriculum provenance requires an active or superseded SourceRevision"
+                "new curriculum writes require an active SourceRevision; history is read-only"
             )
+
+    @staticmethod
+    def _source_metadata(revision: SourceRevision) -> dict[str, Any]:
+        snapshot = revision.metadata_json.get("source_snapshot", {})
+        metadata = snapshot.get("metadata_json", {}) if isinstance(snapshot, dict) else {}
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    @classmethod
+    def _is_assessment_source(cls, revision: SourceRevision) -> bool:
+        metadata = cls._source_metadata(revision)
+        snapshot = revision.metadata_json.get("source_snapshot", {})
+        return metadata.get("document_type") in {
+            "assessment_evidence",
+            "sample_paper_index",
+            "sample_question_paper",
+            "marking_scheme",
+        } or snapshot.get("source_type") in {
+            "sample_paper",
+            "marking_scheme",
+            "official_paper",
+            "answer_key",
+        }
 
     @staticmethod
     def _assert_source_binding(
@@ -438,17 +457,7 @@ class CurriculumIntelligenceService:
         revision: SourceRevision,
     ) -> dict[str, CurriculumNode]:
         self._require_revision(revision)
-        document_type = (
-            revision.metadata_json.get("source_snapshot", {})
-            .get("metadata_json", {})
-            .get("document_type", revision.source.metadata_json.get("document_type", ""))
-        )
-        if document_type in {
-            "assessment_evidence",
-            "sample_paper_index",
-            "sample_question_paper",
-            "marking_scheme",
-        }:
+        if self._is_assessment_source(revision):
             raise CurriculumIntelligenceError(
                 "assessment sources cannot establish syllabus membership"
             )
@@ -601,6 +610,10 @@ class CurriculumIntelligenceService:
         if revision is None:
             raise LookupError("alignment source revision not found")
         self._require_revision(revision)
+        if self._is_assessment_source(revision):
+            raise CurriculumIntelligenceError(
+                "assessment sources cannot establish curriculum alignment"
+            )
         version = self.session.get(CurriculumVersion, str(payload.curriculum_version_id))
         node = self.session.get(CurriculumNode, str(payload.curriculum_node_id))
         if version is None or node is None:
@@ -624,8 +637,13 @@ class CurriculumIntelligenceService:
         else:
             target_kind = "competency"
             target_id = str(payload.competency_id)
-            if self.session.get(Competency, target_id) is None:
+            target_competency = self.session.get(Competency, target_id)
+            if target_competency is None:
                 raise LookupError("alignment competency not found")
+            if target_competency.framework_id != version.curriculum_pack.framework_id:
+                raise CurriculumIntelligenceError(
+                    "alignment competency must belong to the curriculum framework"
+                )
 
         if payload.status == "direct" and (
             not self.has_source_content(revision)
@@ -676,6 +694,8 @@ class CurriculumIntelligenceService:
         if revision is None:
             raise LookupError("assessment source revision not found")
         self._require_revision(revision)
+        if not self._is_assessment_source(revision):
+            raise CurriculumIntelligenceError("assessment evidence requires an assessment source")
         version = self.session.get(CurriculumVersion, str(payload.curriculum_version_id))
         if version is None:
             raise LookupError("assessment curriculum version not found")
@@ -708,6 +728,41 @@ class CurriculumIntelligenceService:
             if not path or path[0].id != grade_id:
                 raise CurriculumIntelligenceError(
                     "assessment subject must belong to the supplied grade"
+                )
+
+        applicability = self._source_metadata(revision)
+        if grade_id is not None:
+            grade = self.session.get(CurriculumNode, grade_id)
+            assert grade is not None
+            allowed_grades = applicability.get("grade_codes", [])
+            grade_code = grade.metadata_json.get("grade_code") or grade.title.removeprefix("Class ")
+            if not allowed_grades or grade_code not in allowed_grades:
+                raise CurriculumIntelligenceError(
+                    "assessment source does not apply to supplied grade"
+                )
+        if subject_id is not None:
+            subject = self.session.get(CurriculumNode, subject_id)
+            assert subject is not None
+            allowed_subjects = applicability.get("subject_codes", [])
+            declared_subject = applicability.get("subject")
+            if (
+                allowed_subjects
+                and subject.metadata_json.get("subject_code") not in allowed_subjects
+            ):
+                raise CurriculumIntelligenceError(
+                    "assessment source does not apply to supplied subject"
+                )
+            if declared_subject and subject.title.casefold() != str(declared_subject).casefold():
+                raise CurriculumIntelligenceError(
+                    "assessment source does not apply to supplied subject"
+                )
+            if (
+                not allowed_subjects
+                and not declared_subject
+                and applicability.get("subject_scope") != "index"
+            ):
+                raise CurriculumIntelligenceError(
+                    "assessment source subject applicability is undeclared"
                 )
 
         evidence_id = stable_uuid(
