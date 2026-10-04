@@ -89,6 +89,22 @@ class CurriculumIntelligenceService:
                 "curriculum provenance requires an active or superseded SourceRevision"
             )
 
+    @staticmethod
+    def _assert_source_binding(
+        entity: Any,
+        revision: SourceRevision,
+        *,
+        allow_source_rebind: bool = False,
+    ) -> None:
+        current = getattr(entity, "source_revision_id", None)
+        if current is None or current == revision.id:
+            return
+        if not allow_source_rebind:
+            raise CurriculumIntelligenceError(
+                "active curriculum evidence cannot silently rebind to a different "
+                "SourceRevision; create a new version or perform an explicit reviewed rebind"
+            )
+
     def ensure_manifest_sources(
         self,
         entries: Iterable[OfficialSourceManifestEntry],
@@ -243,6 +259,7 @@ class CurriculumIntelligenceService:
                 country=country,
             )
             self.session.add(framework)
+        self._assert_source_binding(framework, revision)
         framework.name = name
         framework.country = country
         framework.authority = authority
@@ -276,6 +293,7 @@ class CurriculumIntelligenceService:
                 country=country,
             )
             self.session.add(pack)
+        self._assert_source_binding(pack, revision)
         pack.framework_id = framework.id
         pack.name = name
         pack.authority = authority
@@ -312,6 +330,7 @@ class CurriculumIntelligenceService:
                 version_code=version_code,
             )
             self.session.add(version)
+        self._assert_source_binding(version, revision)
         version.academic_year = academic_year
         version.source_revision_id = revision.id
         version.source_locator = source_locator
@@ -400,6 +419,7 @@ class CurriculumIntelligenceService:
                         title=spec.title,
                     )
                     self.session.add(node)
+                self._assert_source_binding(node, revision)
                 node.parent_id = parent.id if parent is not None else None
                 node.parent_version_id = version.id if parent is not None else None
                 node.node_type = spec.node_type.value
@@ -441,6 +461,7 @@ class CurriculumIntelligenceService:
                     name=spec.name,
                 )
                 self.session.add(competency)
+            self._assert_source_binding(competency, revision)
             competency.framework_id = framework.id
             competency.name = spec.name
             competency.description = spec.description
@@ -477,6 +498,7 @@ class CurriculumIntelligenceService:
                     text=spec.text,
                 )
                 self.session.add(outcome)
+            self._assert_source_binding(outcome, revision)
             outcome.text = spec.text
             outcome.normalized_text = spec.normalized_text
             outcome.source_revision_id = revision.id
