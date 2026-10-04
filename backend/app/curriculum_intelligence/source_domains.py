@@ -34,6 +34,7 @@ DOCUMENT_DOMAINS = {
 _ALLOWED = {
     "membership": {"syllabus"},
     "framework": {"framework", "syllabus"},
+    "framework_structure": {"framework", "syllabus", "academic_standard"},
     "outcome": {"learning_outcome", "academic_standard", "syllabus", "framework"},
     "competency": {"academic_standard", "learning_outcome", "framework", "syllabus"},
     "alignment": {"syllabus", "framework", "learning_outcome", "academic_standard"},

@@ -35,6 +35,8 @@ jobs:
         run: python -m app.source_verify
       - name: Verify Day 4 curriculum intelligence sample
         run: python -m app.day4_verify
+      - name: Verify Day 5 generic curriculum contracts
+        run: python -m app.day5_verify
       - name: Migration round-trip
         run: |
           mkdir -p data
@@ -170,6 +172,7 @@ jobs:
           make test
           make source-verify
           make day4-verify
+          make day5-verify
       - name: Verify API frontend and development env
         run: |
           curl --fail --silent http://127.0.0.1:8000/health

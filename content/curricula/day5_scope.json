@@ -149,6 +149,18 @@
         "D5-31"
       ],
       "manual_route": "Authorized official source upload through the normal private ingestion lifecycle; verify issuing authority/version/applicability before use"
+    },
+    {
+      "url": "https://tgbienew.cgg.gov.in/home.do",
+      "reason": "New user-supplied official portal index readable in web discovery, but normal cloud browser returned F5 HTTP 403; no document bytes verified and no bypass retry",
+      "affected_tasks": [
+        "D5-02",
+        "D5-10",
+        "D5-11",
+        "D5-14",
+        "D5-31"
+      ],
+      "manual_route": "Provide the original official PDFs privately for normal ingestion and scoped source review"
     }
   ],
   "claims_excluded": [
@@ -157,5 +169,68 @@
     "catalogue means full hierarchy",
     "textbook or assessment establishes membership",
     "NCERT outcomes automatically Telangana outcomes"
-  ]
+  ],
+  "intermediate_discovery": {
+    "index_url": "https://tgbienew.cgg.gov.in/home.do",
+    "evidence_level": "index discovery only; not fetched syllabus bytes",
+    "separate_versions": [
+      {
+        "academic_year": "2025-26",
+        "first_year": [
+          "Mathematics IA",
+          "Mathematics IB"
+        ],
+        "second_year": [
+          "Mathematics IIA",
+          "Mathematics IIB"
+        ]
+      },
+      {
+        "academic_year": "2026-27",
+        "first_year_syllabus_index_labels": [
+          "Mathematics IA",
+          "Mathematics IB"
+        ],
+        "annual_plan_index_labels": [
+          "IA",
+          "IB",
+          "IIA",
+          "IIB"
+        ]
+      }
+    ],
+    "unverified_dimensions": [
+      "instructional_medium",
+      "exact_chapters",
+      "academic_applicability",
+      "General_Vocational_scope",
+      "MPC_MEC_groups"
+    ],
+    "document_candidates": [
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/MATHEMATICS_IA_SYLLABUS.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/MATHEMATICS_IB_SYLLABUS.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Annual_Plan_Mahts-1A.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIA.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIB.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in//scannedPhotos/Circulars/Validation_Rules_N_FAQs_%282026%29.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      }
+    ]
+  }
 }

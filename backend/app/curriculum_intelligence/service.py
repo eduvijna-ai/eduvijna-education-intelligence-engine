@@ -10,6 +10,13 @@ from uuid import UUID, uuid5
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.scoped_catalogue import checked_text
+from app.curriculum_intelligence.scoped_curriculum import (
+    assert_immutable,
+    exact_scope,
+    validate_entity_scope,
+    validate_version_scope,
+)
 from app.curriculum_intelligence.source_domains import require_domain
 from app.models.curriculum import (
     Competency,
@@ -400,6 +407,19 @@ class CurriculumIntelligenceService:
     ) -> CurriculumPack:
         self._require_curriculum_revision(revision)
         pack = self.session.scalar(select(CurriculumPack).where(CurriculumPack.code == code))
+        scoped = bool(self._source_metadata(revision).get("curriculum_scope")) or bool(
+            pack and pack.metadata_json.get("scope_enforced")
+        )
+        if scoped:
+            source_scope = exact_scope(self, revision)
+            if source_scope.pack_code != code:
+                raise CurriculumIntelligenceError("Source cannot establish another curriculum pack")
+            if (
+                framework is not None
+                and self._source_metadata(revision).get("framework_code") != framework.code
+            ):
+                raise CurriculumIntelligenceError("Framework linkage needs explicit evidence")
+            metadata_json = {**(metadata_json or {}), "scope_enforced": True}
         if pack is None:
             pack = CurriculumPack(
                 id=stable_uuid("curriculum-pack", code),
@@ -409,6 +429,16 @@ class CurriculumIntelligenceService:
             )
             self.session.add(pack)
         self._assert_source_binding(pack, revision)
+        if scoped and pack.source_revision_id is not None:
+            assert_immutable(
+                pack,
+                {
+                    "name": name,
+                    "authority": authority,
+                    "country": country,
+                    "framework_id": framework.id if framework is not None else None,
+                },
+            )
         pack.framework_id = framework.id if framework is not None else None
         pack.name = name
         pack.authority = authority
@@ -432,6 +462,14 @@ class CurriculumIntelligenceService:
         active: bool = True,
     ) -> CurriculumVersion:
         self._require_curriculum_revision(revision)
+        if pack.metadata_json.get("scope_enforced") or self._source_metadata(revision).get(
+            "curriculum_scope"
+        ):
+            metadata_json = {**(metadata_json or {}), "scope_enforced": True}
+        if (metadata_json or {}).get("scope_enforced"):
+            validate_version_scope(
+                self, revision, pack_code=pack.code, version_code=version_code, active=active
+            )
         version = self.session.scalar(
             select(CurriculumVersion).where(
                 CurriculumVersion.curriculum_pack_id == pack.id,
@@ -446,6 +484,15 @@ class CurriculumIntelligenceService:
             )
             self.session.add(version)
         self._assert_source_binding(version, revision)
+        if version.metadata_json and version.metadata_json.get("scope_enforced"):
+            if not (metadata_json or {}).get("scope_enforced"):
+                raise CurriculumIntelligenceError("Cannot remove enforced source scope")
+            assert_immutable(
+                version, {"academic_year": academic_year, "source_locator": source_locator}
+            )
+            if any(version.metadata_json.get(k) != v for k, v in (metadata_json or {}).items()):
+                raise CurriculumIntelligenceError("Scoped version metadata is immutable")
+            return version
         version.academic_year = academic_year
         version.source_revision_id = revision.id
         version.source_locator = source_locator
@@ -460,6 +507,11 @@ class CurriculumIntelligenceService:
         *,
         replacement: CurriculumVersion | None = None,
     ) -> None:
+        if replacement is not None and (
+            replacement.id == version.id
+            or replacement.curriculum_pack_id != version.curriculum_pack_id
+        ):
+            raise CurriculumIntelligenceError("Replacement must be a distinct version of same pack")
         version.status = CurriculumStatus.SUPERSEDED.value
         metadata = dict(version.metadata_json or {})
         if replacement is not None:
@@ -474,13 +526,23 @@ class CurriculumIntelligenceService:
         specs: Iterable[CurriculumNodeSpec],
         revision: SourceRevision,
     ) -> dict[str, CurriculumNode]:
+        with self.session.begin_nested():
+            return self._upsert_nodes(version=version, specs=specs, revision=revision)
+
+    def _upsert_nodes(
+        self,
+        *,
+        version: CurriculumVersion,
+        specs: Iterable[CurriculumNodeSpec],
+        revision: SourceRevision,
+    ) -> dict[str, CurriculumNode]:
         self._require_curriculum_revision(revision)
         if self._is_assessment_source(revision):
             raise CurriculumIntelligenceError(
                 "assessment sources cannot establish syllabus membership"
             )
         specs_list = list(specs)
-        codes = [item.code for item in specs_list]
+        codes = [item.code.strip().casefold() for item in specs_list]
         if len(codes) != len(set(codes)):
             raise CurriculumIntelligenceError(
                 "Day-4 normalized bundles require unique node codes within a version"
@@ -493,12 +555,19 @@ class CurriculumIntelligenceService:
             for code, spec in list(unresolved.items()):
                 parent = by_code.get(spec.parent_code) if spec.parent_code else None
                 if spec.parent_code is not None and parent is None:
-                    parent = self.session.scalar(
-                        select(CurriculumNode).where(
-                            CurriculumNode.curriculum_version_id == version.id,
-                            CurriculumNode.code == spec.parent_code,
+                    parents = list(
+                        self.session.scalars(
+                            select(CurriculumNode).where(
+                                CurriculumNode.curriculum_version_id == version.id,
+                                CurriculumNode.code == spec.parent_code,
+                            )
                         )
                     )
+                    if len(parents) > 1:
+                        raise CurriculumIntelligenceError(
+                            "Ambiguous parent code; explicit scope required"
+                        )
+                    parent = parents[0] if parents else None
                     if parent is None:
                         continue
                 expected_parent_type = _PARENT_TYPE[spec.node_type.value]
@@ -515,6 +584,24 @@ class CurriculumIntelligenceService:
                             f"{parent.node_type}"
                         )
 
+                if version.metadata_json.get("scope_enforced"):
+                    checked_text(spec.title)
+                    if not spec.source_locator:
+                        raise CurriculumIntelligenceError("Source-backed nodes require locator")
+                    if spec.official_text is not None:
+                        checked_text(spec.official_text)
+                        if spec.official_text not in (revision.extracted_text or ""):
+                            raise CurriculumIntelligenceError(
+                                "Official text not found in exact source"
+                            )
+                validate_entity_scope(
+                    self,
+                    version,
+                    revision,
+                    spec.metadata_json,
+                    node_type=spec.node_type.value,
+                    parent_metadata=parent.metadata_json if parent is not None else None,
+                )
                 parent_key = parent.id if parent is not None else "root"
                 node_id = stable_uuid(
                     "curriculum-node",
@@ -524,6 +611,19 @@ class CurriculumIntelligenceService:
                     spec.code,
                 )
                 node = self.session.get(CurriculumNode, node_id)
+                if node is not None and version.metadata_json.get("scope_enforced"):
+                    assert_immutable(
+                        node,
+                        {
+                            "title": spec.title,
+                            "code": spec.code,
+                            "official_text": spec.official_text,
+                            "source_locator": spec.source_locator,
+                            "metadata_json": spec.metadata_json,
+                            "source_revision_id": revision.id,
+                            "sequence": spec.sequence,
+                        },
+                    )
                 if node is None:
                     node = CurriculumNode(
                         id=node_id,
@@ -558,31 +658,77 @@ class CurriculumIntelligenceService:
     def upsert_competencies(
         self,
         *,
-        framework: EducationFramework,
+        framework: EducationFramework | None,
+        curriculum_version: CurriculumVersion | None = None,
         specs: Iterable[CompetencySpec],
         revision: SourceRevision,
     ) -> dict[str, Competency]:
         self._require_curriculum_revision(revision, "competency")
+        if framework is None and curriculum_version is None:
+            raise CurriculumIntelligenceError("Unlinked competencies require curriculum scope")
+        namespace = (
+            framework.code
+            if framework is not None
+            else (curriculum_version.id if curriculum_version is not None else "")
+        )
         result: dict[str, Competency] = {}
         for spec in specs:
+            if curriculum_version is not None:
+                validate_entity_scope(self, curriculum_version, revision, spec.metadata_json)
             competency = self.session.scalar(select(Competency).where(Competency.code == spec.code))
+            if competency is not None and curriculum_version is not None:
+                expected_metadata = {
+                    **spec.metadata_json,
+                    "curriculum_version_id": curriculum_version.id,
+                }
+                assert_immutable(
+                    competency,
+                    {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "official_text": spec.official_text,
+                        "source_locator": spec.source_locator,
+                        "source_revision_id": revision.id,
+                        "metadata_json": expected_metadata,
+                    },
+                )
+            if curriculum_version is not None:
+                checked_text(spec.name)
+                if not spec.source_locator:
+                    raise CurriculumIntelligenceError("Scoped standard requires source locator")
+                if spec.official_text is not None:
+                    checked_text(spec.official_text)
+                    if spec.official_text not in (revision.extracted_text or ""):
+                        raise CurriculumIntelligenceError(
+                            "Standard wording not found in exact source"
+                        )
             if competency is None:
                 competency = Competency(
-                    id=stable_uuid("competency", framework.code, spec.code),
+                    id=stable_uuid("competency", namespace, spec.code),
                     code=spec.code,
                     name=spec.name,
                 )
                 self.session.add(competency)
-            if competency.framework_id is not None and competency.framework_id != framework.id:
+            framework_id = framework.id if framework is not None else None
+            if competency.framework_id is not None and competency.framework_id != framework_id:
                 raise CurriculumIntelligenceError("competency cannot move between frameworks")
             self._assert_source_binding(competency, revision)
-            competency.framework_id = framework.id
+            if curriculum_version is not None:
+                recorded = competency.metadata_json or {}
+                if recorded.get("curriculum_version_id") not in (None, curriculum_version.id):
+                    raise CurriculumIntelligenceError("Competency cannot move between curricula")
+            competency.framework_id = framework_id
             competency.name = spec.name
             competency.description = spec.description
             competency.official_text = spec.official_text
             competency.source_revision_id = revision.id
             competency.source_locator = spec.source_locator
             competency.metadata_json = dict(spec.metadata_json)
+            if curriculum_version is not None:
+                competency.metadata_json = {
+                    **competency.metadata_json,
+                    "curriculum_version_id": curriculum_version.id,
+                }
             competency.active = True
             self.session.flush()
             result[spec.code] = competency
@@ -598,12 +744,30 @@ class CurriculumIntelligenceService:
         self._require_curriculum_revision(revision, "outcome")
         result: dict[str, LearningOutcome] = {}
         for spec in specs:
+            validate_entity_scope(self, version, revision, spec.metadata_json)
+            if version.metadata_json.get("scope_enforced"):
+                checked_text(spec.text)
+                if not spec.source_locator or spec.text not in (revision.extracted_text or ""):
+                    raise CurriculumIntelligenceError(
+                        "Outcome text/locator not established by source"
+                    )
             outcome = self.session.scalar(
                 select(LearningOutcome).where(
                     LearningOutcome.curriculum_version_id == version.id,
                     LearningOutcome.code == spec.code,
                 )
             )
+            if outcome is not None and version.metadata_json.get("scope_enforced"):
+                assert_immutable(
+                    outcome,
+                    {
+                        "text": spec.text,
+                        "normalized_text": spec.normalized_text,
+                        "source_revision_id": revision.id,
+                        "source_locator": spec.source_locator,
+                        "metadata_json": spec.metadata_json,
+                    },
+                )
             if outcome is None:
                 outcome = LearningOutcome(
                     id=stable_uuid("learning-outcome", version.id, spec.code),
@@ -613,6 +777,8 @@ class CurriculumIntelligenceService:
                 )
                 self.session.add(outcome)
             self._assert_source_binding(outcome, revision)
+            if version.metadata_json.get("scope_enforced") and outcome.text is not None:
+                assert_immutable(outcome, {"text": spec.text})
             outcome.text = spec.text
             outcome.normalized_text = spec.normalized_text
             outcome.source_revision_id = revision.id
@@ -640,6 +806,7 @@ class CurriculumIntelligenceService:
             raise CurriculumIntelligenceError(
                 "alignment node must belong to the supplied curriculum version"
             )
+        validate_entity_scope(self, version, revision, node.metadata_json)
         if payload.status not in _ALIGNMENT_STATUSES:
             raise CurriculumIntelligenceError("invalid alignment status")
         if payload.learning_outcome_id is not None:
@@ -658,6 +825,10 @@ class CurriculumIntelligenceService:
             target_competency = self.session.get(Competency, target_id)
             if target_competency is None:
                 raise LookupError("alignment competency not found")
+            if version.metadata_json.get("scope_enforced") and (
+                target_competency.metadata_json.get("curriculum_version_id") != version.id
+            ):
+                raise CurriculumIntelligenceError("Competency lacks evidence for this curriculum")
             if target_competency.framework_id != version.curriculum_pack.framework_id:
                 raise CurriculumIntelligenceError(
                     "alignment competency must belong to the curriculum framework"

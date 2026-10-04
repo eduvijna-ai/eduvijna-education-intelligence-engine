@@ -6,6 +6,7 @@ import argparse
 import json
 from html.parser import HTMLParser
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import urljoin
 
@@ -13,6 +14,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
+from app.curriculum_intelligence.scoped_acceptance import evaluate_day5_acceptance
+from app.curriculum_intelligence.scoped_demo import seed_day5_verification
 from app.curriculum_intelligence.service import CurriculumIntelligenceService, load_source_manifest
 from app.db.base import Base
 
@@ -82,7 +85,7 @@ def official_report(session: Session) -> dict[str, Any]:
         sources.append(item)
     scope = json.loads((ROOT / "day5_scope.json").read_text(encoding="utf-8"))
     session.commit()
-    return {
+    report: dict[str, Any] = {
         "status": "blocked_or_review_required",
         "official_source_backed_acceptance": False,
         "sources": sources,
@@ -94,6 +97,9 @@ def official_report(session: Session) -> dict[str, Any]:
         },
         "public_artifact_contains": "metadata, checksums and URLs; no source documents",
     }
+    report["acceptance"] = evaluate_day5_acceptance(report, scope)
+    report["official_source_backed_acceptance"] = report["acceptance"]["passed"]
+    return report
 
 
 def main() -> None:
@@ -106,15 +112,10 @@ def main() -> None:
         if args.fetch_official:
             report = official_report(session)
         else:
-            # Populated generic verification added alongside scoped contracts.
-            report = {
-                "status": "implementation_in_progress",
-                "official_source_backed_acceptance": False,
-            }
+            with TemporaryDirectory(prefix="day5-synthetic-") as tmp:
+                report = seed_day5_verification(session, Path(tmp))
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    raise SystemExit(
-        1 if args.fetch_official or report["status"] == "implementation_in_progress" else 0
-    )
+    raise SystemExit(1 if args.fetch_official and not report["acceptance"]["passed"] else 0)
 
 
 if __name__ == "__main__":

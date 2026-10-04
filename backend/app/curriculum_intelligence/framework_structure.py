@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
+from app.curriculum_intelligence.source_domains import require_domain
 from app.models.curriculum import (
     Competency,
     CurriculumPack,
@@ -56,7 +57,9 @@ class FrameworkStructureService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def _active_revision(self, revision_id: str) -> SourceRevision:
+    def _active_revision(
+        self, revision_id: str, purpose: str = "framework_structure"
+    ) -> SourceRevision:
         revision = self.session.get(SourceRevision, revision_id, populate_existing=True)
         if revision is None:
             raise LookupError("framework evidence SourceRevision not found")
@@ -68,6 +71,10 @@ class FrameworkStructureService:
             raise FrameworkStructureError(
                 "assessment sources cannot establish framework structure or learning-outcome links"
             )
+        try:
+            require_domain(revision.metadata_json.get("source_snapshot", {}), purpose)
+        except ValueError as exc:
+            raise FrameworkStructureError(str(exc)) from exc
         return revision
 
     def _framework(self, framework_id: str) -> EducationFramework:
@@ -208,7 +215,7 @@ class FrameworkStructureService:
         self, payload: LearningOutcomeCompetencyInput
     ) -> LearningOutcomeCompetencyLink:
         """Add reviewed or explicitly inferred evidence; never infer official mapping."""
-        revision = self._active_revision(str(payload.source_revision_id))
+        revision = self._active_revision(str(payload.source_revision_id), "alignment")
         if payload.status == "direct" and (
             revision.ingestion_method == "manual"
             or revision.extraction_status != "succeeded"
