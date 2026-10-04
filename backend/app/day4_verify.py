@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -93,8 +94,8 @@ def seed_day4_verification(
     for revision in revisions.values():
         service.source_service.link_provenance(
             SourceProvenanceLinkInput(
-                revision_id=revision.id,
-                curriculum_version_id=version.id,
+                revision_id=UUID(revision.id),
+                curriculum_version_id=UUID(version.id),
             ),
             actor_id=actor_id,
             request_id="day4-verification",
@@ -169,11 +170,11 @@ def seed_day4_verification(
         assessment.append(
             service.add_assessment_evidence(
                 AssessmentEvidenceInput(
-                    curriculum_version_id=version.id,
-                    grade_node_id=nodes[raw["grade_code"]].id,
-                    subject_node_id=nodes[raw["subject_code"]].id,
+                    curriculum_version_id=UUID(version.id),
+                    grade_node_id=UUID(nodes[raw["grade_code"]].id),
+                    subject_node_id=UUID(nodes[raw["subject_code"]].id),
                     evidence_type=raw["evidence_type"],
-                    source_revision_id=revisions[raw["source_key"]].id,
+                    source_revision_id=UUID(revisions[raw["source_key"]].id),
                     source_locator=raw.get("source_locator"),
                     evidence_json=raw.get("evidence_json", {}),
                     metadata_json=raw.get("metadata_json", {}),
