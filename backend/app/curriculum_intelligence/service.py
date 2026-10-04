@@ -113,6 +113,16 @@ class CurriculumIntelligenceService:
             "answer_key",
         }
 
+    @classmethod
+    def _require_curriculum_revision(cls, revision: SourceRevision) -> None:
+        """One domain policy for every curriculum semantic creation/update."""
+        cls._require_revision(revision)
+        if cls._is_assessment_source(revision):
+            raise CurriculumIntelligenceError(
+                "assessment sources cannot establish syllabus membership "
+                "or curriculum alignment/semantics"
+            )
+
     @staticmethod
     def _assert_source_binding(
         entity: Any,
@@ -345,7 +355,7 @@ class CurriculumIntelligenceService:
         source_locator: str | None = None,
         description: str | None = None,
     ) -> EducationFramework:
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         framework = self.session.scalar(
             select(EducationFramework).where(EducationFramework.code == code)
         )
@@ -381,7 +391,7 @@ class CurriculumIntelligenceService:
         source_locator: str | None = None,
         metadata_json: dict[str, Any] | None = None,
     ) -> CurriculumPack:
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         pack = self.session.scalar(select(CurriculumPack).where(CurriculumPack.code == code))
         if pack is None:
             pack = CurriculumPack(
@@ -414,7 +424,7 @@ class CurriculumIntelligenceService:
         metadata_json: dict[str, Any] | None = None,
         active: bool = True,
     ) -> CurriculumVersion:
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         version = self.session.scalar(
             select(CurriculumVersion).where(
                 CurriculumVersion.curriculum_pack_id == pack.id,
@@ -457,7 +467,7 @@ class CurriculumIntelligenceService:
         specs: Iterable[CurriculumNodeSpec],
         revision: SourceRevision,
     ) -> dict[str, CurriculumNode]:
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         if self._is_assessment_source(revision):
             raise CurriculumIntelligenceError(
                 "assessment sources cannot establish syllabus membership"
@@ -545,7 +555,7 @@ class CurriculumIntelligenceService:
         specs: Iterable[CompetencySpec],
         revision: SourceRevision,
     ) -> dict[str, Competency]:
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         result: dict[str, Competency] = {}
         for spec in specs:
             competency = self.session.scalar(select(Competency).where(Competency.code == spec.code))
@@ -578,7 +588,7 @@ class CurriculumIntelligenceService:
         specs: Iterable[LearningOutcomeSpec],
         revision: SourceRevision,
     ) -> dict[str, LearningOutcome]:
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         result: dict[str, LearningOutcome] = {}
         for spec in specs:
             outcome = self.session.scalar(
@@ -610,7 +620,7 @@ class CurriculumIntelligenceService:
         revision = self.session.get(SourceRevision, str(payload.source_revision_id))
         if revision is None:
             raise LookupError("alignment source revision not found")
-        self._require_revision(revision)
+        self._require_curriculum_revision(revision)
         if self._is_assessment_source(revision):
             raise CurriculumIntelligenceError(
                 "assessment sources cannot establish curriculum alignment"

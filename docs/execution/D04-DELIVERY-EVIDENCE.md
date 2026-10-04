@@ -24,7 +24,7 @@ CI run `37210627019` at `02d5236c2e9bb8ee03ce317c1b157f0d583fc9e4` produced meta
 - Actual Mathematics Standard SQP/MS: 80 marks, 38 questions, five typed sections; actual Physics SQP/MS: 70 marks, 33 questions, five typed sections. Both patterns were extracted, reconciled and verified.
 - 158 curriculum nodes, two derived concept alignments, one reviewed learning outcome, a four-level framework structure, and separate assessment evidence.
 
-That run exposed a reporting weakness: the old top-level flag checked only the IX path and the detailed-path count was hardcoded. The final implementation replaces that with a fail-closed aggregate across framework/LO links, all grade catalogue scopes, both baseline syllabus paths, both typed assessment patterns and both SQP inventories. The path count is derived from successful paths. A missing constituent produces an incomplete report and nonzero official-verification exit; CI still uploads that diagnostic report.
+That run exposed a reporting weakness: the old top-level flag checked only the IX path and the detailed-path count was hardcoded. The final implementation replaces that with a fail-closed aggregate across framework/LO links, all grade catalogue scopes, both baseline syllabus paths, both typed assessment patterns and both SQP inventories. The path count is derived from successful paths. Eligible entries, unique materialized IDs, per-grade presence and every denominator must reconcile; a nonempty or all-zero count dictionary cannot satisfy this gate. A missing constituent produces an incomplete report and nonzero official-verification exit; CI still uploads that diagnostic report.
 
 ## Explicit source-review items
 
@@ -55,7 +55,7 @@ The last command explicitly opts this invocation into a bounded 64 MiB limit for
 
 For a virtual-environment workflow, from `backend` run `pytest`, `ruff check app tests`, `mypy app`, `python -m app.domain_verify`, `python -m app.source_verify`, and `python -m app.day4_verify`. Live evidence: `SOURCE_MAX_BYTES=67108864 python -m app.day4_verify --fetch-official`. From `frontend`, run `npm install`, `npm run typecheck` and `npm run build`.
 
-Run Alembic on a disposable validation database: upgrade head → downgrade -1 → upgrade head → check. Head is now 0009. Issued 0008 is restored unchanged; 0009 supports installations with either previously issued 0008 schema shape, validates adoption, backfills valid marking-scheme references without changing evidence IDs/audit records, and refuses a lossy downgrade instead of deleting or merging evidence.
+Run Alembic on a disposable validation database: upgrade head → downgrade -1 → upgrade head → check. Head is now 0009. Issued 0008 is restored unchanged; 0009 supports installations with either previously issued 0008 schema shape, validates adoption, backfills valid marking-scheme references without changing evidence IDs/audit records, and refuses a lossy downgrade instead of deleting or merging evidence. Durable created/adopted ownership keeps pre-existing populated framework tables intact during downgrade and repeated upgrade cycles. Missing or corrupt ownership fails safely rather than guessing.
 
 Default verification databases are isolated. Use `--app-db` only when intentionally integrating into a reviewed application database; conflicting historical source bindings fail closed rather than silently rebind.
 
@@ -91,7 +91,7 @@ The initial reviewed scope is IX Mathematics, X Mathematics and XII Physics plus
 | D4-24 | Typed AssessmentPattern/Section/QuestionCategory + numeric-summary extractor | Marks/count arithmetic validated; actual Maths/Physics baseline SQP extraction checked in CI |
 | D4-25 | Assessment source type and immutable snapshot applicability checks | Grade, subject, year, node/version and domain rejection regressions |
 | D4-26 | assessment-source rejection in `upsert_nodes` | Implemented/tested |
-| D4-27 | Exact revision columns on all new structures/links and provenance query | Active-only writes; superseded historical reads; registry/synthetic classification explicit |
+| D4-27 | Exact revision columns on all new structures/links and provenance query | All semantic writers share active/domain guards; historical reads retain provenance; synthetic classification explicit |
 | D4-28 | superseded source references, version supersession | Prior references preserved; source-change regression |
 | D4-29 | unchanged re-fetch and repeat seed tests | Implemented/tested |
 | D4-30 | changed fetch diff/review gate | Active content remains until explicit review |
@@ -116,4 +116,4 @@ The initial reviewed scope is IX Mathematics, X Mathematics and XII Physics plus
 
 ## Final engineering gate
 
-The final review-fix batch passed 237 backend tests locally, plus Ruff and mypy. Frontend typecheck/build, SQLite migration round trips, PostgreSQL DDL compilation and full Docker Compose API/env/persistence restart checks were also verified during the delivery loop. The final PR records the exact final-head regression count, CI run, aggregate source-evidence artifact and independent Codex result. No failing/incomplete gate may be merged. Founder review follows; Day 5 stays locked.
+The final review-fix batch passed 268 backend tests locally, plus Ruff and mypy. Frontend typecheck/build, SQLite migration round trips, PostgreSQL DDL compilation and full Docker Compose API/env/persistence restart checks were also verified during the delivery loop. The final PR records the exact final-head regression count, CI run, aggregate source-evidence artifact and independent Codex result. No failing/incomplete gate may be merged. Founder review follows; Day 5 stays locked.

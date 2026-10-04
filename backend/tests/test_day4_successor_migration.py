@@ -16,11 +16,12 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.framework_structure import FrameworkStructureService
 from app.db.session import create_database_engine
 from app.models.curriculum import CurriculumNode
 from app.models.curriculum_intelligence import AssessmentEvidence
 from app.models.source import SourceAuditEvent
-from tests.test_day4_framework_structure import _context, _tree
+from tests.test_day4_framework_structure import _context, _link_input, _tree
 
 BACKEND = Path(__file__).resolve().parents[1]
 PREVIOUS = "20261004_0008"
@@ -107,6 +108,10 @@ def _seed_legacy(database: Path, *, adopted: bool = False) -> dict[str, str]:
         session.add(audit)
         session.flush()
         nodes = _tree(session, context) if adopted else {}
+        if adopted:
+            FrameworkStructureService(session).link_learning_outcome(
+                _link_input(context, nodes["C3.2"].id)
+            )
         ids = {
             "revision": context.revision.id,
             "scheme": scheme.revision.id,
@@ -159,23 +164,44 @@ def test_0009_upgrades_both_issued_0008_shapes_and_preserves_data(
     ids = _seed_legacy(database, adopted=adopted)
     before = _rows(database, "assessment_evidence")
     audits = _rows(database, "source_audit_events")
-    framework_rows = _rows(database, TABLES[0]) if adopted else []
+    framework_rows = {name: _rows(database, name) for name in TABLES} if adopted else {}
+    settings_before = _rows(database, "system_settings")
     _alembic(database, "upgrade", "head")
     _alembic(database, "check")
     after = _rows(database, "assessment_evidence")
     assert after[0].pop("marking_scheme_revision_id") == ids["scheme"]
     assert after == before
     assert _rows(database, "source_audit_events") == audits
+    ownership = [
+        row
+        for row in _rows(database, "system_settings")
+        if row["key"] == _migration()._OWNERSHIP_KEY
+    ]
+    assert len(ownership) == 1
+    assert ownership[0]["value"] == ("adopted" if adopted else "created")
     if adopted:
-        assert _rows(database, TABLES[0]) == framework_rows
+        assert all(framework_rows.values())  # Both tables contain pre-existing evidence.
+        assert {name: _rows(database, name) for name in TABLES} == framework_rows
     _alembic(database, "downgrade", PREVIOUS)
     assert _rows(database, "assessment_evidence") == before
     engine = create_database_engine(f"sqlite:///{database}")
-    assert not set(TABLES).intersection(sa.inspect(engine).get_table_names())
+    if adopted:
+        assert set(TABLES) <= set(sa.inspect(engine).get_table_names())
+        assert {name: _rows(database, name) for name in TABLES} == framework_rows
+    else:
+        assert not set(TABLES).intersection(sa.inspect(engine).get_table_names())
+    assert _rows(database, "system_settings") == settings_before
     _alembic(database, "upgrade", "head")
     _alembic(database, "check")
     assert _rows(database, "assessment_evidence")[0]["marking_scheme_revision_id"] == ids["scheme"]
     assert _rows(database, "source_audit_events") == audits
+    if adopted:
+        assert {name: _rows(database, name) for name in TABLES} == framework_rows
+    _alembic(database, "downgrade", PREVIOUS)
+    _alembic(database, "upgrade", "head")
+    _alembic(database, "check")
+    if adopted:
+        assert {name: _rows(database, name) for name in TABLES} == framework_rows
     engine.dispose()
 
 
@@ -251,8 +277,10 @@ def test_0009_rolls_back_schema_changes_after_database_failure_then_retries(tmp_
             "CREATE INDEX ix_assessment_evidence_marking_scheme_revision_id ON sources(source_type)"
         )
     before = _rows(database, "assessment_evidence")
+    settings_before = _rows(database, "system_settings")
     _alembic(database, "upgrade", "head", success=False)
     assert _rows(database, "assessment_evidence") == before
+    assert _rows(database, "system_settings") == settings_before
     assert _rows(database, "alembic_version") == [{"version_num": PREVIOUS}]
     assert not set(TABLES).intersection(sa.inspect(engine).get_table_names())
     with engine.begin() as connection:
@@ -314,4 +342,82 @@ def test_0009_downgrade_preserves_new_marking_scheme_binding_in_metadata(tmp_pat
     assert legacy["updated_at"] == before["updated_at"]
     _alembic(database, "upgrade", "head")
     assert _rows(database, "assessment_evidence")[0]["marking_scheme_revision_id"] == ids["scheme"]
+    engine.dispose()
+
+
+@pytest.mark.parametrize("collision", ["key", "id"])
+def test_0009_ownership_collision_does_not_overwrite_settings_and_can_retry(
+    tmp_path: Path, collision: str
+) -> None:
+    database = tmp_path / "ownership-collision.db"
+    _seed_legacy(database, adopted=True)
+    migration = _migration()
+    engine = create_database_engine(f"sqlite:///{database}")
+    settings = sa.Table("system_settings", sa.MetaData(), autoload_with=engine)
+    conflicting_id = migration._OWNERSHIP_ID if collision == "id" else str(uuid4())
+    with engine.begin() as connection:
+        connection.execute(
+            settings.insert().values(
+                id=conflicting_id,
+                key=migration._OWNERSHIP_KEY if collision == "key" else "unrelated.user.setting",
+                value="retain original value",
+                created_at=datetime.now(UTC),
+            )
+        )
+    before = _rows(database, "system_settings")
+    evidence = {name: _rows(database, name) for name in TABLES}
+    result = _alembic(database, "upgrade", "head", success=False)
+    assert "ownership marker collides" in result.stderr
+    assert _rows(database, "system_settings") == before
+    assert {name: _rows(database, name) for name in TABLES} == evidence
+    assert _rows(database, "alembic_version") == [{"version_num": PREVIOUS}]
+    with engine.begin() as connection:
+        connection.execute(settings.delete().where(settings.c.id == conflicting_id))
+    _alembic(database, "upgrade", "head")
+    _alembic(database, "check")
+    _alembic(database, "downgrade", PREVIOUS)
+    assert {name: _rows(database, name) for name in TABLES} == evidence
+    _alembic(database, "upgrade", "head")
+    _alembic(database, "check")
+    engine.dispose()
+
+
+@pytest.mark.parametrize("damage", ["missing", "value", "id", "key"])
+def test_0009_unknown_ownership_blocks_downgrade_without_destroying_evidence(
+    tmp_path: Path, damage: str
+) -> None:
+    database = tmp_path / "unknown-ownership.db"
+    _seed_legacy(database, adopted=True)
+    _alembic(database, "upgrade", "head")
+    migration = _migration()
+    engine = create_database_engine(f"sqlite:///{database}")
+    settings = sa.Table("system_settings", sa.MetaData(), autoload_with=engine)
+    original = next(
+        row for row in _rows(database, "system_settings") if row["key"] == migration._OWNERSHIP_KEY
+    )
+    replacements = {"value": "unknown", "id": str(uuid4()), "key": "unexpected.key"}
+    with engine.begin() as connection:
+        statement = (
+            settings.delete()
+            if damage == "missing"
+            else settings.update().values({damage: replacements[damage]})
+        )
+        connection.execute(statement.where(settings.c.key == migration._OWNERSHIP_KEY))
+    before = _rows(database, "system_settings")
+    framework_rows = {name: _rows(database, name) for name in TABLES}
+    evidence = _rows(database, "assessment_evidence")
+    result = _alembic(database, "downgrade", PREVIOUS, success=False)
+    assert "cannot safely determine framework table ownership" in result.stderr
+    assert _rows(database, "system_settings") == before
+    assert {name: _rows(database, name) for name in TABLES} == framework_rows
+    assert _rows(database, "assessment_evidence") == evidence
+    assert _rows(database, "alembic_version") == [{"version_num": HEAD}]
+    with engine.begin() as connection:
+        damaged_id = replacements["id"] if damage == "id" else original["id"]
+        connection.execute(settings.delete().where(settings.c.id == damaged_id))
+        connection.execute(settings.insert().values(**original))
+    _alembic(database, "downgrade", PREVIOUS)
+    assert {name: _rows(database, name) for name in TABLES} == framework_rows
+    _alembic(database, "upgrade", "head")
+    _alembic(database, "check")
     engine.dispose()

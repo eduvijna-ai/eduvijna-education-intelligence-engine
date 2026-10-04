@@ -588,3 +588,114 @@ def test_competency_alignment_cannot_cross_frameworks(db_session: Session) -> No
                 status="partial",
             )
         )
+
+
+@pytest.mark.parametrize(
+    "writer", ["framework", "pack", "version", "nodes", "competencies", "outcomes", "alignment"]
+)
+def test_every_curriculum_semantic_writer_rejects_assessment_evidence(
+    db_session: Session,
+    writer: str,
+) -> None:
+    from app.schemas.curriculum_intelligence import CompetencySpec, LearningOutcomeSpec
+
+    result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    revision = db_session.get(
+        app.models.SourceRevision, result["assessment_evidence"]["source_revision_id"]
+    )
+    framework = db_session.get(app.models.EducationFramework, result["framework"]["id"])
+    version = db_session.get(CurriculumVersion, result["curriculum"]["version_id"])
+    assert revision is not None and framework is not None and version is not None
+    before = service.entity_counts(version.id)
+    with pytest.raises(CurriculumIntelligenceError, match="assessment sources"):
+        if writer == "framework":
+            service.ensure_framework(
+                code="bad-framework",
+                name="Bad",
+                country="India",
+                authority="Test",
+                version_code="test",
+                revision=revision,
+            )
+        elif writer == "pack":
+            service.ensure_pack(
+                framework=framework,
+                code="bad-pack",
+                name="Bad",
+                country="India",
+                authority="Test",
+                revision=revision,
+            )
+        elif writer == "version":
+            service.ensure_version(
+                pack=version.curriculum_pack,
+                version_code="bad-version",
+                academic_year="2026-27",
+                revision=revision,
+            )
+        elif writer == "nodes":
+            service.upsert_nodes(
+                version=version,
+                revision=revision,
+                specs=[
+                    CurriculumNodeSpec(
+                        node_type=CurriculumNodeType.GRADE_YEAR, code="bad-grade", title="Bad"
+                    )
+                ],
+            )
+        elif writer == "competencies":
+            service.upsert_competencies(
+                framework=framework,
+                revision=revision,
+                specs=[CompetencySpec(code="bad-competency", name="Bad")],
+            )
+        elif writer == "outcomes":
+            service.upsert_learning_outcomes(
+                version=version,
+                revision=revision,
+                specs=[LearningOutcomeSpec(code="bad-outcome", text="Bad")],
+            )
+        else:
+            service.align(
+                CurriculumAlignmentInput(
+                    curriculum_version_id=version.id,
+                    curriculum_node_id=result["founder_path"][-1]["id"],
+                    learning_outcome_id=result["learning_outcome"]["id"],
+                    source_revision_id=revision.id,
+                    relationship_type="addresses",
+                    status="partial",
+                )
+            )
+    assert service.entity_counts(version.id) == before
+    assert not db_session.new
+
+
+@pytest.mark.parametrize(
+    "source_type,document_type",
+    [
+        ("sample_paper", "anything"),
+        ("marking_scheme", "anything"),
+        ("official_paper", "anything"),
+        ("answer_key", "anything"),
+        ("official_authority", "assessment_evidence"),
+        ("official_authority", "sample_paper_index"),
+        ("official_authority", "sample_question_paper"),
+        ("official_authority", "marking_scheme"),
+    ],
+)
+def test_shared_semantic_domain_policy_covers_all_assessment_classifications(
+    source_type: str,
+    document_type: str,
+) -> None:
+    revision = app.models.SourceRevision(
+        status="active",
+        metadata_json={
+            "source_snapshot": {
+                "source_type": source_type,
+                "metadata_json": {"document_type": document_type},
+            }
+        },
+    )
+    with pytest.raises(CurriculumIntelligenceError, match="assessment sources"):
+        CurriculumIntelligenceService._require_curriculum_revision(revision)

@@ -8,8 +8,9 @@ Create Date: 2026-10-04
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import sqlalchemy as sa
 from alembic import op
@@ -31,6 +32,35 @@ _OLD_BINDING = (
 _NEW_BINDING = (*_OLD_BINDING[:2], "marking_scheme_revision_id", *_OLD_BINDING[2:])
 _MS_FK = "fk_assessment_evidence_marking_scheme_revision"
 _MS_INDEX = "ix_assessment_evidence_marking_scheme_revision_id"
+_OWNERSHIP_KEY = "alembic.20261004_0009.framework_ownership"
+_OWNERSHIP_ID = str(uuid5(NAMESPACE_URL, "eduvijna:" + _OWNERSHIP_KEY))
+
+
+def _ownership_table(bind: sa.Connection) -> sa.Table:
+    return sa.Table("system_settings", sa.MetaData(), autoload_with=bind)
+
+
+def _ownership_rows(bind: sa.Connection, settings: sa.Table) -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in bind.execute(
+            sa.select(settings)
+            .where(sa.or_(settings.c.key == _OWNERSHIP_KEY, settings.c.id == _OWNERSHIP_ID))
+            .with_for_update()
+        ).mappings()
+    ]
+
+
+def _read_ownership(bind: sa.Connection, settings: sa.Table) -> str:
+    rows = _ownership_rows(bind, settings)
+    if (
+        len(rows) != 1
+        or rows[0]["key"] != _OWNERSHIP_KEY
+        or rows[0]["id"] != _OWNERSHIP_ID
+        or rows[0]["value"] not in {"created", "adopted"}
+    ):
+        raise RuntimeError("0009 cannot safely determine framework table ownership")
+    return str(rows[0]["value"])
 
 
 def _type_signature(value: sa.types.TypeEngine[Any], bind: sa.Connection) -> str:
@@ -184,10 +214,22 @@ def _marking_scheme_backfill(bind: sa.Connection) -> list[tuple[str, str]]:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    settings = _ownership_table(bind)
+    if _ownership_rows(bind, settings):
+        raise RuntimeError("0009 framework ownership marker collides with an existing setting")
     expected = _framework_metadata()
     adopted = _validate_existing_framework(bind, expected)
     backfill = _marking_scheme_backfill(bind)
-    # Preflight completes before any persistent schema/data changes.
+    # Preflight completes before any persistent schema/data changes. Keep table
+    # ownership in the same transaction as the schema; never overwrite a setting.
+    bind.execute(
+        settings.insert().values(
+            id=_OWNERSHIP_ID,
+            key=_OWNERSHIP_KEY,
+            value="adopted" if adopted else "created",
+            created_at=datetime.now(UTC),
+        )
+    )
     if not adopted:
         for name in _FRAMEWORK_TABLES:
             expected.tables[name].create(bind)
@@ -212,6 +254,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    settings = _ownership_table(bind)
+    ownership = _read_ownership(bind, settings)
     evidence = sa.Table("assessment_evidence", sa.MetaData(), autoload_with=bind)
     binding_columns = [evidence.c[name] for name in _OLD_BINDING]
     collisions = bind.execute(
@@ -246,8 +290,22 @@ def downgrade() -> None:
         batch.drop_constraint(_MS_FK, type_="foreignkey")
         batch.drop_column("marking_scheme_revision_id")
         batch.create_unique_constraint("uq_assessment_evidence_binding", list(_OLD_BINDING))
-    for name in reversed(_FRAMEWORK_TABLES):
-        op.drop_table(name)
+    # A short-lived 0008 already owned these tables. Downgrade must restore that
+    # actual prior shape, including pre-existing framework and LO link evidence.
+    if ownership == "created":
+        for name in reversed(_FRAMEWORK_TABLES):
+            op.drop_table(name)
+    removed = bind.execute(
+        settings.delete().where(
+            sa.and_(
+                settings.c.id == _OWNERSHIP_ID,
+                settings.c.key == _OWNERSHIP_KEY,
+                settings.c.value == ownership,
+            )
+        )
+    )
+    if removed.rowcount != 1:
+        raise RuntimeError("0009 framework ownership marker changed during downgrade")
 
 
 def _framework_metadata() -> sa.MetaData:
