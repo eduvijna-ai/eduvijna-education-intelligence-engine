@@ -23,6 +23,8 @@ class OfficialSourceManifestEntry(BaseModel):
     academic_year: str | None = Field(default=None, max_length=64)
     document_type: str = Field(min_length=1, max_length=128)
     version_applicability: str | None = Field(default=None, max_length=255)
+    checksum: str | None = Field(default=None, min_length=64, max_length=128)
+    checksum_policy: str = Field(default="computed_on_ingestion", max_length=128)
     copyright_classification: str = Field(default="official_reference", max_length=128)
     trust_tier: SourceTrustTier = SourceTrustTier.OFFICIAL_PRIMARY
     metadata_json: dict[str, Any] = Field(default_factory=dict)
