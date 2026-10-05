@@ -311,5 +311,30 @@
         "applicability_status": "unverified"
       }
     }
+  },
+  {
+    "key": "tgbie-official-index",
+    "source_type": "official_authority",
+    "title": "Telangana Board of Intermediate Education official publication index",
+    "url": "https://tgbienew.cgg.gov.in/home.do",
+    "authority": "Telangana Board of Intermediate Education",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": null,
+    "document_type": "publication_index",
+    "version_applicability": "index only; subject/year applicability requires exact linked documents",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official board portal; automated retrieval may be blocked by F5",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "inventory_scope": {
+        "pack_code": "tgbie",
+        "years": [
+          "First Year",
+          "Second Year"
+        ]
+      }
+    }
   }
 ]
