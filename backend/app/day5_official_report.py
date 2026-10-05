@@ -105,9 +105,14 @@ def _slice_task_map(scope: dict[str, Any]) -> dict[str, list[str]]:
 def _catalogue_gaps(report: dict[str, Any]) -> list[dict[str, Any]]:
     gaps: list[dict[str, Any]] = []
     inventories = report.get("catalogue_inventories") or []
-    present = {item.get("pack_code") for item in inventories}
     for pack_code in ("ts-scert", "tgbie"):
-        if pack_code not in present:
+        official = [
+            item
+            for item in inventories
+            if item.get("pack_code") == pack_code
+            and item.get("inventory_kind") == "official_catalogue"
+        ]
+        if not official:
             gaps.append(
                 {
                     "pack_code": pack_code,
@@ -116,18 +121,14 @@ def _catalogue_gaps(report: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
             continue
-        for item in inventories:
-            if item.get("pack_code") != pack_code:
-                continue
-            coverage = item.get("coverage") or {}
-            if coverage.get("status") != "complete":
-                gaps.append(
-                    {
-                        "pack_code": pack_code,
-                        "reason": "Catalogue inventory incomplete or unverified",
-                        "affected_tasks": ["D5-09", "D5-10", "D5-22"],
-                    }
-                )
+        if not any((item.get("coverage") or {}).get("status") == "complete" for item in official):
+            gaps.append(
+                {
+                    "pack_code": pack_code,
+                    "reason": "Official catalogue inventory incomplete or unverified",
+                    "affected_tasks": ["D5-09", "D5-10", "D5-22"],
+                }
+            )
     return gaps
 
 
