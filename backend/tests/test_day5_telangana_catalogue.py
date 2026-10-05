@@ -36,22 +36,23 @@ def _catalogue_html() -> bytes:
             f'<td><a href="/books/{grade}TM_SOC.pdf">{grade}TM_SOC</a></td>'
             "<td></td></tr>"
         )
-    rows.extend(
-        [
-            '<tr><td></td><td>English</td><td><a href="/books/8_SAN_CC.pdf">8_SAN_CC</a></td>'
-            '<td><a href="/books/8_SAN_OC.pdf">8_SAN_OC</a></td><td></td>'
-            '<td><a href="/books/8EM_MAT.pdf">8EM_MAT</a></td>'
-            '<td><a href="/books/8EM_PHY.pdf">8EM_PHY</a></td>'
-            '<td><a href="/books/8EM_BIO.pdf">8EM_BIO</a></td>'
-            '<td><a href="/books/8EM_SOC.pdf">8EM_SOC</a></td><td></td></tr>',
-            '<tr><td></td><td>Urdu</td><td><a href="/books/8UM_URD_FL.pdf">8UM_URD_FL</a></td>'
-            '<td><a href="/books/8UM_URD_SL.pdf">8UM_URD_SL</a></td><td></td>'
-            '<td><a href="/books/8UM_MAT.pdf">8UM_MAT</a></td>'
-            '<td><a href="/books/8UM_PHY.pdf">8UM_PHY</a></td>'
-            '<td><a href="/books/8UM_BIO.pdf">8UM_BIO</a></td>'
-            '<td><a href="/books/8UM_SOC.pdf">8UM_SOC</a></td><td></td></tr>',
-        ]
-    )
+        if grade == 8:
+            rows.extend(
+                [
+                    '<tr><td></td><td>English</td><td><a href="/books/8_SAN_CC.pdf">8_SAN_CC</a></td>'
+                    '<td><a href="/books/8_SAN_OC.pdf">8_SAN_OC</a></td><td></td>'
+                    '<td><a href="/books/8EM_MAT.pdf">8EM_MAT</a></td>'
+                    '<td><a href="/books/8EM_PHY.pdf">8EM_PHY</a></td>'
+                    '<td><a href="/books/8EM_BIO.pdf">8EM_BIO</a></td>'
+                    '<td><a href="/books/8EM_SOC.pdf">8EM_SOC</a></td><td></td></tr>',
+                    '<tr><td></td><td>Urdu</td><td><a href="/books/8UM_URD_FL.pdf">8UM_URD_FL</a></td>'
+                    '<td><a href="/books/8UM_URD_SL.pdf">8UM_URD_SL</a></td><td></td>'
+                    '<td><a href="/books/8UM_MAT.pdf">8UM_MAT</a></td>'
+                    '<td><a href="/books/8UM_PHY.pdf">8UM_PHY</a></td>'
+                    '<td><a href="/books/8UM_BIO.pdf">8UM_BIO</a></td>'
+                    '<td><a href="/books/8UM_SOC.pdf">8UM_SOC</a></td><td></td></tr>',
+                ]
+            )
     return ("<html><body><table>" + "".join(rows) + "</table></body></html>").encode()
 
 
