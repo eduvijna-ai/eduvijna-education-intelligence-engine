@@ -171,6 +171,12 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         revision = revisions.get(entry.key) if revisions else None
         verified = bool(revision and service.has_source_content(revision))
         registry_only = bool(revision and service.is_registry_only(revision))
+        source_metadata = (
+            dict(revision.source.metadata_json or {})
+            if revision is not None and revision.source is not None
+            else {}
+        )
+        ingestion_error = source_metadata.get("ingestion_error")
         item: dict[str, Any] = {
             "key": entry.key,
             "url": entry.url,
@@ -184,7 +190,8 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             "academic_applicability_verified": False,
             "reason": None
             if verified
-            else "Official content unavailable; metadata is not evidence",
+            else str(ingestion_error or "Official content unavailable; metadata is not evidence"),
+            "ingestion_error": ingestion_error,
         }
         if verified and revision and revision.content_type in {
             "text/html",
