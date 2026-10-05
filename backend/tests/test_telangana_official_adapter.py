@@ -51,20 +51,29 @@ def test_subject_codes_disjoint_and_derived_labels_explicit() -> None:
             return SimpleNamespace(model_dump=lambda **kwargs: {"id": node_id})
 
     chapter = ParsedChapter("1", "Force", "page 1, section 1", ("Types",), ("page 1, section 1.1",))
-    for subject in ["Physical Science", "Biological Science"]:
+    identities = [
+        {"grade": "VIII", "medium": "English", "subject": "Physical Science", **DIMENSIONS},
+        {"grade": "VIII", "medium": "English", "subject": "Biological Science", **DIMENSIONS},
+        {"grade": "VIII", "medium": "Telugu", "subject": "Physical Science", **DIMENSIONS},
+    ]
+    for identity in identities:
         _materialize_chapter_path(
             Service(),
             version=None,
             revision=None,
-            grade="VIII",
-            medium="English",
-            subject=subject,
+            grade=identity["grade"],
+            medium=identity["medium"],
+            subject=identity["subject"],
             chapter=chapter,
             applicability=DIMENSIONS,
         )  # type: ignore[arg-type]
-    left, right = specs[:7], specs[7:]
-    assert {s.code for s in left[2:]}.isdisjoint(s.code for s in right[2:])
-    assert left[0].metadata_json["identity"] == {"grade": "VIII", **DIMENSIONS}
+    paths = [specs[index : index + 7] for index in range(0, len(specs), 7)]
+    assert len({path[0].code for path in paths}) == 3
+    for index, (path, identity) in enumerate(zip(paths, identities, strict=True)):
+        assert all(spec.metadata_json["identity"] == identity for spec in path)
+        for other in paths[index + 1 :]:
+            assert {spec.code for spec in path}.isdisjoint(spec.code for spec in other)
+    left = paths[0]
     for spec in left:
         if spec.node_type in {"unit", "concept", "grade_year", "medium", "subject"}:
             assert spec.official_text is None
@@ -403,7 +412,13 @@ def test_fresh_database_reviewed_contract_materializes_and_failed_slice_rolls_ba
         assert wrong["status"] == "no_match"
         leaf = session.get(CurriculumNode, matched["paths"][0]["node_ids"][-1])
         assert leaf is not None
-        for dimension, value in DIMENSIONS.items():
+        complete_identity = {
+            "grade": "VIII",
+            "medium": "English",
+            "subject": "Physical Science",
+            **DIMENSIONS,
+        }
+        for dimension, value in complete_identity.items():
             assert leaf.metadata_json["identity"][dimension] == value
             assert all(
                 node.metadata_json["identity"][dimension] == value

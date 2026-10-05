@@ -138,39 +138,12 @@ def seed_scoped_pack(
     rows = []
     for grade in grades:
         root = grade.lower().replace(" ", "-")
-        service.upsert_nodes(
-            version=version,
-            revision=revision,
-            specs=[
-                CurriculumNodeSpec(
-                    node_type="grade_year",
-                    code=root,
-                    title=grade,
-                    metadata_json={
-                        "identity": {
-                            "grade": grade,
-                            **dict.fromkeys(
-                                (
-                                    "course_family",
-                                    "course_group",
-                                    "subject_language",
-                                    "language_role",
-                                    "book_part",
-                                    "bilingual",
-                                ),
-                                "not_applicable",
-                            ),
-                        }
-                    },
-                    source_locator="synthetic JSON",
-                )
-            ],
-        )
         for medium in ("English", "Telugu"):
-            parent = root
+            parent = f"{root}-{medium.lower()}-grade"
             identity: dict[str, str] = {
                 "grade": grade,
                 "medium": medium,
+                "subject": "science",
                 **dict.fromkeys(
                     (
                         "course_family",
@@ -183,6 +156,19 @@ def seed_scoped_pack(
                     "not_applicable",
                 ),
             }
+            service.upsert_nodes(
+                version=version,
+                revision=revision,
+                specs=[
+                    CurriculumNodeSpec(
+                        node_type="grade_year",
+                        code=parent,
+                        title=grade,
+                        metadata_json={"identity": dict(identity)},
+                        source_locator="synthetic JSON",
+                    )
+                ],
+            )
             specs = []
             for kind, label in (
                 ("medium", medium),

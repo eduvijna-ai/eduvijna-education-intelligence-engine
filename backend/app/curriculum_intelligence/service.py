@@ -545,6 +545,49 @@ class CurriculumIntelligenceService:
         with self.session.begin_nested():
             return self._upsert_nodes(version=version, specs=specs, revision=revision)
 
+    def _validate_scoped_ancestors(
+        self, version: CurriculumVersion, parent: CurriculumNode, identity: dict[str, Any]
+    ) -> None:
+        """New writes cannot extend corrupted, mismatched or stale existing ancestry."""
+        previous: CurriculumNode | None = None
+        for ancestor in self.hierarchy_path(parent.id):
+            if ancestor.curriculum_version_id != version.id:
+                raise CurriculumIntelligenceError("Scoped ancestor crosses curriculum version")
+            if ancestor.node_type not in _PARENT_TYPE or _PARENT_TYPE[ancestor.node_type] != (
+                previous.node_type if previous is not None else None
+            ):
+                raise CurriculumIntelligenceError("Scoped ancestor has invalid hierarchy type")
+            revision = self.session.get(SourceRevision, ancestor.source_revision_id)
+            if revision is None:
+                raise CurriculumIntelligenceError("Scoped ancestor lacks exact source revision")
+            self._require_curriculum_revision(revision)
+            validate_entity_scope(
+                self,
+                version,
+                revision,
+                ancestor.metadata_json,
+                node_type=ancestor.node_type,
+                parent_metadata=previous.metadata_json if previous is not None else None,
+            )
+            if any(
+                ancestor.metadata_json.get("identity", {}).get(field) != identity.get(field)
+                for field in (
+                    "grade",
+                    "medium",
+                    "subject",
+                    "course_family",
+                    "course_group",
+                    "subject_language",
+                    "language_role",
+                    "book_part",
+                    "bilingual",
+                )
+            ):
+                raise CurriculumIntelligenceError(
+                    "Scoped ancestor conflicts with requested identity"
+                )
+            previous = ancestor
+
     def _upsert_nodes(
         self,
         *,
@@ -618,6 +661,8 @@ class CurriculumIntelligenceService:
                     node_type=spec.node_type.value,
                     parent_metadata=parent.metadata_json if parent is not None else None,
                 )
+                if version.metadata_json.get("scope_enforced") and parent is not None:
+                    self._validate_scoped_ancestors(version, parent, spec.metadata_json["identity"])
                 parent_key = parent.id if parent is not None else "root"
                 node_id = stable_uuid(
                     "curriculum-node",

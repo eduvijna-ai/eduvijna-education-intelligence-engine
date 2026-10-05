@@ -125,3 +125,14 @@ Review 5412989754 identified two further P1 gaps. The successor candidate adds r
 - 4182902085: an attached competency must reference the same exact source revision as its framework node. Both records independently require verified standards bytes, immutable approved metadata, a valid locator and original official text/code, with matching official identity. The generic framework competency writer now enforces these checks before writing and preserves immutable existing records.
 
 Adversarial coverage includes omissions and conflicts across all seven hierarchy levels and six dimensions, source-declared versus unapproved not-applicable values, registry-only historical competencies, different revisions, corrupt bytes/metadata/extraction, invalid locators/wording, and different valid codes. Positive Day 4 official-source paths remain covered. These fixes await independent re-review; required Day 5 official acceptance is still blocked.
+
+## Independent review of e7326ee: complete identities and bounded non-PDF locators
+
+Review 5413668811 identified two additional P1 gaps:
+
+- 4183385840: grade, medium and subject join the six other applicability fields on **every** node and ancestor of a source-specific hierarchy. Source-specific roots are separate across media and subjects; generic writes and persisted acceptance cannot borrow a shared unscoped root.
+- 4183385848: non-PDF standards evidence now resolves the claimed locator against original verified bytes before matching official text/code. A locator in Section A cannot borrow wording from Section B. Both generic competency creation and incoming/attached framework evidence use this resolver.
+
+Supported non-PDF locator contracts are `text lines 1-2` (original UTF-8 line numbers), `HTML #unique-container-id` (visible text within a uniquely bounded element), `JSON pointer /section/item` (non-root RFC 6901 pointer), `CSV row 2 column 1` (one-based row and optional column), and `DOCX paragraph 2` (one-based original paragraph index, including empty paragraphs). Ambiguous free-form labels, unsupported formats and unresolved/duplicate/unbounded locations fail closed rather than searching the full document. PDF evidence retains exact page-range verification. These selectors identify evidence locations; they do not themselves establish governing academic applicability.
+
+Tests use authored synthetic content and exercise both successful exact-section attachment and cross-section rejection through both writers, including historical malformed attached records, duplicate HTML IDs, malformed boundaries, hidden scripts/attributes, JSON ambiguity, CSV column isolation and Unicode text. Required source gates remain unchanged; independent review is still required.

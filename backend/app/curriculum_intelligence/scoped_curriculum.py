@@ -135,11 +135,7 @@ def validate_entity_scope(
     identity = metadata.get("identity")
     if not isinstance(identity, dict):
         raise ScopeError("Scoped curriculum entity requires explicit identity")
-    required = ["grade"]
-    if node_type != "grade_year":
-        required.append("medium")
-    if node_type not in {"grade_year", "medium"}:
-        required.append("subject")
+    required = ("grade", "medium", "subject")
     for key, allowed in (
         ("grade", scope.grades),
         ("medium", scope.media),
@@ -175,6 +171,8 @@ def validate_entity_scope(
         "book_part",
         "bilingual",
     ):
+        if node_type is not None and parent_metadata is not None and key not in parent:
+            raise ScopeError(f"Hierarchy parent requires source-declared {key} identity")
         if key in parent and identity.get(key) != parent[key]:
             raise ScopeError(f"Hierarchy crosses parent {key} scope")
 

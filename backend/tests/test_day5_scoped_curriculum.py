@@ -77,6 +77,8 @@ def grade(
         metadata_json={
             "identity": {
                 "grade": identity,
+                "medium": "English",
+                "subject": "science",
                 **dict.fromkeys(
                     (
                         "course_family",
@@ -209,7 +211,7 @@ def test_second_pack_demonstration_is_draft_idempotent_and_roundtrips(
                 select(CurriculumNode).where(CurriculumNode.curriculum_version_id == version.id)
             )
         )
-        assert len([n for n in nodes if n.node_type == "grade_year"]) == expected_grades
+        assert len([n for n in nodes if n.node_type == "grade_year"]) == expected_grades * 2
         assert len(result["paths"]) == expected_grades * 2
         assert {
             n.metadata_json["identity"]["medium"] for n in nodes if n.node_type == "medium"

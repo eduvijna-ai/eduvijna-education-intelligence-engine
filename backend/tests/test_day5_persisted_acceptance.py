@@ -210,11 +210,7 @@ def persisted(tmp_path: Path):
                 (grade, "English", "Science", "Unit", "Force", "Topic", "Concept"),
                 strict=True,
             ):
-                identity = {"grade": grade, **EXTRAS}
-                if node_type != "grade_year":
-                    identity["medium"] = "English"
-                if node_type not in {"grade_year", "medium"}:
-                    identity["subject"] = "Science"
+                identity = {"grade": grade, "medium": "English", "subject": "Science", **EXTRAS}
                 specs.append(
                     CurriculumNodeSpec(
                         node_type=node_type,
@@ -687,7 +683,7 @@ def test_class_viii_governing_source_cannot_authorize_i_to_x_draft_inventory(per
 
 
 @pytest.mark.parametrize("level", range(7))
-@pytest.mark.parametrize("field", list(EXTRAS))
+@pytest.mark.parametrize("field", ["grade", "medium", "subject", *EXTRAS])
 @pytest.mark.parametrize("attack", ["omit", "conflict"])
 def test_all_persisted_path_levels_match_frozen_applicability(persisted, level, field, attack):
     service, report, scope = persisted
@@ -707,9 +703,10 @@ def test_all_persisted_path_levels_match_frozen_applicability(persisted, level, 
 
 
 @pytest.mark.parametrize("level", range(7))
-@pytest.mark.parametrize("field", list(EXTRAS))
+@pytest.mark.parametrize("field", ["grade", "medium", "subject", *EXTRAS])
+@pytest.mark.parametrize("attack", ["omit", "conflict"])
 def test_generic_writer_requires_applicability_on_every_level_and_rolls_back(
-    persisted, level, field
+    persisted, level, field, attack
 ):
     from sqlalchemy import select
 
@@ -722,7 +719,11 @@ def test_generic_writer_requires_applicability_on_every_level_and_rolls_back(
     for index, node in enumerate(nodes):
         metadata = copy.deepcopy(node.metadata_json)
         if index == level:
-            metadata["identity"].pop(field)
+            if attack == "omit":
+                metadata["identity"].pop(field)
+            else:
+                # IX is a valid reviewed grade, but it cannot join this VIII path.
+                metadata["identity"][field] = "IX" if field == "grade" else "forged"
         code = "new-" + node.node_type
         specs.append(
             CurriculumNodeSpec(
@@ -736,7 +737,10 @@ def test_generic_writer_requires_applicability_on_every_level_and_rolls_back(
             )
         )
         parent = code
-    with pytest.raises(ValueError, match="requires source-declared .* applicability"):
+    with pytest.raises(
+        ValueError,
+        match="requires source-declared|does not establish exact|Hierarchy crosses parent",
+    ):
         with service.session.begin_nested():
             service.upsert_nodes(
                 version=nodes[-1].curriculum_version, revision=revision, specs=specs
@@ -774,3 +778,81 @@ def test_generic_hierarchy_does_not_invent_non_applicability(persisted, field, u
     with pytest.raises(ValueError, match="requires source-declared .* applicability"):
         with service.session.begin_nested():
             service.upsert_nodes(version=root.curriculum_version, revision=revision, specs=[spec])
+
+
+@pytest.mark.parametrize("field", ["grade", "medium", "subject", *EXTRAS])
+def test_generic_writer_rejects_incomplete_existing_parent(persisted, field):
+    service, report, _ = persisted
+    item = report["materialized_slices"][0]
+    nodes = service.hierarchy_path(item["path"]["node_ids"][-1])
+    root, medium = nodes[:2]
+    metadata = copy.deepcopy(root.metadata_json)
+    metadata["identity"].pop(field)
+    root.metadata_json = metadata
+    service.session.flush()
+    spec = CurriculumNodeSpec(
+        node_type="medium",
+        code="new-medium",
+        title=medium.title,
+        parent_code=root.code,
+        official_text=medium.official_text,
+        source_locator=medium.source_locator,
+        metadata_json=copy.deepcopy(medium.metadata_json),
+    )
+    revision = service.session.get(SourceRevision, item["source_revision_id"])
+    with pytest.raises(ValueError, match="Hierarchy parent requires source-declared"):
+        service.upsert_nodes(version=root.curriculum_version, revision=revision, specs=[spec])
+
+
+@pytest.mark.parametrize("ancestor_level", [0, 3])
+@pytest.mark.parametrize("field", ["grade", "medium", "subject", *EXTRAS])
+@pytest.mark.parametrize("attack", ["omit", "conflict"])
+def test_writer_cannot_extend_valid_parent_with_corrupt_older_ancestor(
+    persisted, ancestor_level, field, attack
+):
+    from sqlalchemy import select
+
+    service, report, _ = persisted
+    item = report["materialized_slices"][0]
+    nodes = service.hierarchy_path(item["path"]["node_ids"][-1])
+    ancestor, parent, concept = nodes[ancestor_level], nodes[-2], nodes[-1]
+    good_identity = copy.deepcopy(concept.metadata_json)
+    metadata = copy.deepcopy(ancestor.metadata_json)
+    if attack == "omit":
+        metadata["identity"].pop(field)
+    else:
+        metadata["identity"][field] = "IX" if field == "grade" else "forged"
+    ancestor.metadata_json = metadata
+    service.session.flush()
+    assert parent.metadata_json == good_identity
+    prefix = CurriculumNodeSpec(
+        node_type="grade_year",
+        code="prefix-root",
+        title=nodes[0].title,
+        official_text=nodes[0].official_text,
+        source_locator=nodes[0].source_locator,
+        metadata_json=good_identity,
+    )
+    extension = CurriculumNodeSpec(
+        node_type="concept",
+        code="extension-concept",
+        title=concept.title,
+        parent_code=parent.code,
+        official_text=concept.official_text,
+        source_locator=concept.source_locator,
+        metadata_json=good_identity,
+    )
+    revision = service.session.get(SourceRevision, item["source_revision_id"])
+    with pytest.raises(ValueError, match="scope|applicability|identity"):
+        service.upsert_nodes(
+            version=concept.curriculum_version, revision=revision, specs=[prefix, extension]
+        )
+    assert not list(
+        service.session.scalars(
+            select(CurriculumNode).where(
+                CurriculumNode.code.in_(["prefix-root", "extension-concept"])
+            )
+        )
+    )
+    # Verification constrains new writes, not the read-only historical traversal API.
+    assert len(service.curriculum_path(concept.id).node_ids) == 7

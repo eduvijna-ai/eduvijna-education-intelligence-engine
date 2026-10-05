@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 from pypdf import PdfReader
 
+from app.curriculum_intelligence.standards_locators import resolve_standard_locator
+
 if TYPE_CHECKING:
     from app.models.source import SourceRevision
     from app.source_intelligence.service import SourceIntelligenceService
@@ -50,7 +52,7 @@ def require_standards_evidence(
             or source_service._approval_fingerprint(revision) != revision.approval_fingerprint
         ):
             raise StandardsEvidenceError("Academic standards source integrity mismatch")
-        if revision.content_type == "application/pdf":
+        if revision.content_type.split(";", 1)[0].strip().lower() == "application/pdf":
             match = re.search(r"\bpages?\s*(\d+)(?:\s*[-–]\s*(\d+))?\b", locator, re.I)
             reader = PdfReader(io.BytesIO(content))
             start = int(match.group(1)) if match else 0
@@ -59,9 +61,7 @@ def require_standards_evidence(
                 raise StandardsEvidenceError("Standards locator must identify actual PDF pages")
             located = "\n".join(reader.pages[i].extract_text() or "" for i in range(start - 1, end))
         else:
-            located = revision.extracted_text
-            if locator not in located:
-                raise StandardsEvidenceError("Standards locator is absent from source text")
+            located = resolve_standard_locator(content, revision.content_type, locator)
         if any(word not in located for word in words):
             raise StandardsEvidenceError("Standards wording is absent at exact locator")
     except StandardsEvidenceError:

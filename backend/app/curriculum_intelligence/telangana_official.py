@@ -82,7 +82,15 @@ def _materialize_chapter_path(
         not value or value == "unknown" for value in applicability.values()
     ):
         raise TelanganaSyllabusParseError("All reviewed applicability dimensions are required")
-    identity_key = json.dumps({"subject": subject, **applicability}, sort_keys=True)
+    complete_identity = {
+        "grade": grade,
+        "medium": medium,
+        "subject": subject,
+        **applicability,
+    }
+    if any(not value or value == "unknown" for value in complete_identity.values()):
+        raise TelanganaSyllabusParseError("Every path node requires all nine identity dimensions")
+    identity_key = json.dumps(complete_identity, sort_keys=True)
     subject_key = hashlib.sha256(identity_key.encode("utf-8")).hexdigest()[:16]
     root = f"{grade.lower().replace(' ', '-')}-{medium.lower()}-{subject_key}"
     if not chapter.topics or not chapter.topic_locators:
@@ -144,11 +152,11 @@ def _materialize_chapter_path(
                 chapter.topic_locators[0] if node_type in {"topic", "concept"} else chapter.locator
             ),
             metadata_json={
-                "identity": {**identity, **applicability},
+                "identity": dict(complete_identity),
                 "label_status": ("official" if node_type in {"chapter", "topic"} else "derived"),
             },
         )
-        for node_type, code, title, parent, identity in parent_chain
+        for node_type, code, title, parent, _identity in parent_chain
     ]
     nodes = service.upsert_nodes(version=version, specs=specs, revision=revision)
     concept_node = nodes[parent_chain[-1][1]]

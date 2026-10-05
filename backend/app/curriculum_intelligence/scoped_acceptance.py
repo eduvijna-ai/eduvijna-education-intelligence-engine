@@ -210,6 +210,9 @@ def _verify_slice(
         if any(
             node.metadata_json.get("identity", {}).get(field) != required[field]
             for field in (
+                "grade",
+                "medium",
+                "subject",
                 "course_family",
                 "course_group",
                 "subject_language",
