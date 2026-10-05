@@ -39,13 +39,15 @@ def _catalogue_html() -> bytes:
         if grade == 8:
             rows.extend(
                 [
-                    '<tr><td></td><td>English</td><td><a href="/books/8_SAN_CC.pdf">8_SAN_CC</a></td>'
+                    '<tr><td></td><td>English</td>'
+                    '<td><a href="/books/8_SAN_CC.pdf">8_SAN_CC</a></td>'
                     '<td><a href="/books/8_SAN_OC.pdf">8_SAN_OC</a></td><td></td>'
                     '<td><a href="/books/8EM_MAT.pdf">8EM_MAT</a></td>'
                     '<td><a href="/books/8EM_PHY.pdf">8EM_PHY</a></td>'
                     '<td><a href="/books/8EM_BIO.pdf">8EM_BIO</a></td>'
                     '<td><a href="/books/8EM_SOC.pdf">8EM_SOC</a></td><td></td></tr>',
-                    '<tr><td></td><td>Urdu</td><td><a href="/books/8UM_URD_FL.pdf">8UM_URD_FL</a></td>'
+                    '<tr><td></td><td>Urdu</td>'
+                    '<td><a href="/books/8UM_URD_FL.pdf">8UM_URD_FL</a></td>'
                     '<td><a href="/books/8UM_URD_SL.pdf">8UM_URD_SL</a></td><td></td>'
                     '<td><a href="/books/8UM_MAT.pdf">8UM_MAT</a></td>'
                     '<td><a href="/books/8UM_PHY.pdf">8UM_PHY</a></td>'
@@ -85,11 +87,11 @@ def test_scert_catalogue_accounts_for_i_to_x_media_and_parts() -> None:
 def test_scert_catalogue_is_partial_when_grade_inventory_is_incomplete() -> None:
     revision = SimpleNamespace(id="revision-1", checksum="b" * 64)
     html = (
-        "<table><tr><th>Class</th><th>Medium</th><th>First Language</th>"
-        "<th>Maths</th></tr><tr><td>8th</td><td>Telugu</td>"
-        '<td><a href="/8_TEL.pdf">8_TEL</a></td>'
-        '<td><a href="/8TM_MAT.pdf">8TM_MAT</a></td></tr></table>'
-    ).encode()
+        b"<table><tr><th>Class</th><th>Medium</th><th>First Language</th>"
+        b"<th>Maths</th></tr><tr><td>8th</td><td>Telugu</td>"
+        b'<td><a href="/8_TEL.pdf">8_TEL</a></td>'
+        b'<td><a href="/8TM_MAT.pdf">8TM_MAT</a></td></tr></table>'
+    )
     snapshot = scert_textbook_catalogue_snapshot(
         content=html,
         source_url="https://scert.telangana.gov.in/catalogue",
