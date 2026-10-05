@@ -17,7 +17,11 @@ from app.curriculum_intelligence.scoped_curriculum import (
     validate_entity_scope,
     validate_version_scope,
 )
-from app.curriculum_intelligence.source_domains import require_domain
+from app.curriculum_intelligence.source_domains import require_domain, source_domain
+from app.curriculum_intelligence.standards_evidence import (
+    StandardsEvidenceError,
+    require_standards_evidence,
+)
 from app.models.curriculum import (
     Competency,
     CurriculumNode,
@@ -676,6 +680,16 @@ class CurriculumIntelligenceService:
         revision: SourceRevision,
     ) -> dict[str, Competency]:
         self._require_curriculum_revision(revision, "competency")
+        # Validate approved metadata before trusting its semantic domain. Otherwise
+        # a corrupted snapshot could masquerade as an untyped legacy source.
+        if revision.approval_fingerprint and (
+            self.source_service._snapshot_checksum(
+                revision.metadata_json.get("source_snapshot", {})
+            )
+            != revision.source_snapshot_checksum
+            or self.source_service._approval_fingerprint(revision) != revision.approval_fingerprint
+        ):
+            raise CurriculumIntelligenceError("Competency source approval integrity mismatch")
         if framework is None and curriculum_version is None:
             raise CurriculumIntelligenceError("Unlinked competencies require curriculum scope")
         namespace = (
@@ -683,11 +697,49 @@ class CurriculumIntelligenceService:
             if framework is not None
             else (curriculum_version.id if curriculum_version is not None else "")
         )
+        specs_list = list(specs)
+        standard_framework = (
+            framework is not None
+            and source_domain(revision.metadata_json.get("source_snapshot", {}))
+            == "academic_standard"
+        )
+        if (
+            framework is not None
+            and curriculum_version is not None
+            and (curriculum_version.curriculum_pack.framework_id != framework.id)
+        ):
+            raise CurriculumIntelligenceError(
+                "Competency framework is not evidenced by its curriculum"
+            )
+        if standard_framework:
+            for spec in specs_list:
+                try:
+                    require_standards_evidence(
+                        self.source_service,
+                        revision,
+                        locator=spec.source_locator,
+                        official_text=spec.official_text,
+                        official_code=spec.metadata_json.get("official_code"),
+                    )
+                except StandardsEvidenceError as exc:
+                    raise CurriculumIntelligenceError(str(exc)) from exc
         result: dict[str, Competency] = {}
-        for spec in specs:
+        for spec in specs_list:
             if curriculum_version is not None:
                 validate_entity_scope(self, curriculum_version, revision, spec.metadata_json)
             competency = self.session.scalar(select(Competency).where(Competency.code == spec.code))
+            if competency is not None and standard_framework and curriculum_version is None:
+                assert_immutable(
+                    competency,
+                    {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "official_text": spec.official_text,
+                        "source_locator": spec.source_locator,
+                        "source_revision_id": revision.id,
+                        "metadata_json": spec.metadata_json,
+                    },
+                )
             if competency is not None and curriculum_version is not None:
                 expected_metadata = {
                     **spec.metadata_json,

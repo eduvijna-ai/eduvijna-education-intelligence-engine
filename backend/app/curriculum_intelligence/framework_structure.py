@@ -7,19 +7,20 @@ version instead of overwriting historical structure. Reads retain historical row
 
 from __future__ import annotations
 
-import io
 import json
-import re
 from collections.abc import Iterable
 from typing import Any
 from uuid import UUID, uuid5
 
-from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.curriculum_intelligence.source_domains import require_domain, source_domain
+from app.curriculum_intelligence.standards_evidence import (
+    StandardsEvidenceError,
+    require_standards_evidence,
+)
 from app.models.curriculum import (
     Competency,
     CurriculumPack,
@@ -85,53 +86,17 @@ class FrameworkStructureService:
         return revision
 
     def _standard_content(self, revision: SourceRevision, specs: list[FrameworkNodeSpec]) -> None:
-        """An active registry entry is not evidence for a standards competency."""
-        if CurriculumIntelligenceService.is_registry_only(
-            revision
-        ) or not CurriculumIntelligenceService.has_source_content(revision):
-            raise FrameworkStructureError("Academic standards require original source content")
-        try:
-            content, _, valid = self.source_service._content_integrity(revision)
-            snapshot = revision.metadata_json.get("source_snapshot", {})
-            if (
-                not valid
-                or self.source_service._snapshot_checksum(snapshot)
-                != revision.source_snapshot_checksum
-                or not revision.approval_fingerprint
-                or self.source_service._approval_fingerprint(revision)
-                != revision.approval_fingerprint
-            ):
-                raise FrameworkStructureError("Academic standards source integrity mismatch")
-            pages = (
-                [page.extract_text() or "" for page in PdfReader(io.BytesIO(content)).pages]
-                if revision.content_type == "application/pdf"
-                else None
-            )
-            for spec in specs:
-                wording = spec.official_text or spec.official_code
-                if not wording:
-                    raise FrameworkStructureError("Standards node requires official text or code")
-                if pages is not None:
-                    match = re.search(r"\bpage\s*(\d+)\b", spec.source_locator, re.I)
-                    if match is None or not 1 <= int(match.group(1)) <= len(pages):
-                        raise FrameworkStructureError(
-                            "Standards locator must identify an actual PDF page"
-                        )
-                    located_text = pages[int(match.group(1)) - 1]
-                else:
-                    located_text = revision.extracted_text or ""
-                    if spec.source_locator not in located_text:
-                        raise FrameworkStructureError(
-                            "Standards locator is absent from source text"
-                        )
-                if wording not in located_text:
-                    raise FrameworkStructureError("Standards wording is absent at exact locator")
-        except FrameworkStructureError:
-            raise
-        except Exception as exc:
-            raise FrameworkStructureError(
-                "Standards source content unavailable or invalid"
-            ) from exc
+        for spec in specs:
+            try:
+                require_standards_evidence(
+                    self.source_service,
+                    revision,
+                    locator=spec.source_locator,
+                    official_text=spec.official_text,
+                    official_code=spec.official_code,
+                )
+            except StandardsEvidenceError as exc:
+                raise FrameworkStructureError(str(exc)) from exc
 
     def _framework(self, framework_id: str) -> EducationFramework:
         framework = self.session.get(EducationFramework, framework_id)
@@ -246,6 +211,44 @@ class FrameworkStructureService:
                         raise LookupError("framework competency not found")
                     if competency.framework_id != framework.id:
                         raise FrameworkStructureError("cross-framework competency target")
+                    if competency.source_revision_id != revision.id:
+                        raise FrameworkStructureError(
+                            "Attached competency must retain the same exact source revision"
+                        )
+                    if (
+                        source_domain(revision.metadata_json.get("source_snapshot", {}))
+                        == "academic_standard"
+                    ):
+                        attached_code = competency.metadata_json.get("official_code")
+                        try:
+                            require_standards_evidence(
+                                self.source_service,
+                                revision,
+                                locator=competency.source_locator,
+                                official_text=competency.official_text,
+                                official_code=attached_code,
+                            )
+                        except StandardsEvidenceError as exc:
+                            raise FrameworkStructureError(str(exc)) from exc
+                        same_code = bool(attached_code and spec.official_code == attached_code)
+                        same_text = bool(
+                            competency.official_text
+                            and spec.official_text == competency.official_text
+                        )
+                        if (
+                            not (same_code or same_text)
+                            or (
+                                spec.official_code is not None
+                                and spec.official_code != attached_code
+                            )
+                            or (
+                                spec.official_text is not None
+                                and spec.official_text != competency.official_text
+                            )
+                        ):
+                            raise FrameworkStructureError(
+                                "Node and attached competency official identity differ"
+                            )
                     if (
                         competency_id in used_competencies
                         and used_competencies[competency_id] != code

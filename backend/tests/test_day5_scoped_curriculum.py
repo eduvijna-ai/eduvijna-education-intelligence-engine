@@ -74,12 +74,44 @@ def grade(
         code=code,
         title=title,
         source_locator="fixture section 1",
-        metadata_json={"identity": {"grade": identity}},
+        metadata_json={
+            "identity": {
+                "grade": identity,
+                **dict.fromkeys(
+                    (
+                        "course_family",
+                        "course_group",
+                        "subject_language",
+                        "language_role",
+                        "book_part",
+                        "bilingual",
+                    ),
+                    "not_applicable",
+                ),
+            }
+        },
     )
 
 
 def identity() -> dict[str, dict[str, str]]:
-    return {"identity": {"grade": "First Year", "medium": "English", "subject": "science"}}
+    return {
+        "identity": {
+            "grade": "First Year",
+            "medium": "English",
+            "subject": "science",
+            **dict.fromkeys(
+                (
+                    "course_family",
+                    "course_group",
+                    "subject_language",
+                    "language_role",
+                    "book_part",
+                    "bilingual",
+                ),
+                "not_applicable",
+            ),
+        }
+    }
 
 
 def approved_revision(

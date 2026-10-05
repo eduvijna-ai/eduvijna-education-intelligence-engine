@@ -146,7 +146,22 @@ def seed_scoped_pack(
                     node_type="grade_year",
                     code=root,
                     title=grade,
-                    metadata_json={"identity": {"grade": grade}},
+                    metadata_json={
+                        "identity": {
+                            "grade": grade,
+                            **dict.fromkeys(
+                                (
+                                    "course_family",
+                                    "course_group",
+                                    "subject_language",
+                                    "language_role",
+                                    "book_part",
+                                    "bilingual",
+                                ),
+                                "not_applicable",
+                            ),
+                        }
+                    },
                     source_locator="synthetic JSON",
                 )
             ],

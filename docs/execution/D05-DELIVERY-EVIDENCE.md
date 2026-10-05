@@ -116,3 +116,12 @@ Review 5412590700 identified four further gaps. The successor candidate addresse
 - 4182600869: standards competency nodes require non-registry content, original-byte integrity, approved immutable metadata and official wording/code at the verified locator. Active metadata-only revisions cannot create these records.
 
 These are implementation changes awaiting independent re-review, not a declaration that Codex has closed the findings. The required official-source gate remains unchanged.
+
+## Independent review of 373a84d: persisted ancestor and competency repairs
+
+Review 5412989754 identified two further P1 gaps. The successor candidate adds regression-tested guards:
+
+- 4182902078: every scoped hierarchy node, including ancestors written through the generic writer, must retain all six source-declared applicability dimensions. Acceptance independently checks every persisted node against the frozen slice. Explicit not-applicable values are valid only when the source scope declares them.
+- 4182902085: an attached competency must reference the same exact source revision as its framework node. Both records independently require verified standards bytes, immutable approved metadata, a valid locator and original official text/code, with matching official identity. The generic framework competency writer now enforces these checks before writing and preserves immutable existing records.
+
+Adversarial coverage includes omissions and conflicts across all seven hierarchy levels and six dimensions, source-declared versus unapproved not-applicable values, registry-only historical competencies, different revisions, corrupt bytes/metadata/extraction, invalid locators/wording, and different valid codes. Positive Day 4 official-source paths remain covered. These fixes await independent re-review; required Day 5 official acceptance is still blocked.

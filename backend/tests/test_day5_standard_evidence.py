@@ -11,8 +11,11 @@ from app.curriculum_intelligence.framework_structure import (
     FrameworkStructureService,
 )
 from app.curriculum_intelligence.official_demo import official_source_demonstration
-from app.curriculum_intelligence.service import CurriculumIntelligenceService
-from app.models.curriculum import EducationFramework
+from app.curriculum_intelligence.service import (
+    CurriculumIntelligenceError,
+    CurriculumIntelligenceService,
+)
+from app.models.curriculum import Competency, EducationFramework
 from app.schemas.curriculum_intelligence import CompetencySpec, OfficialSourceManifestEntry
 from app.schemas.framework_structure import FrameworkNodeSpec
 from tests.test_day4_official_evidence import (
@@ -69,18 +72,30 @@ def test_registry_only_active_standard_cannot_attach_unscoped_competency(
         actor_id="test",
     )["synthetic-standards-registry"]
     assert revision.status == "active" and evidence_service.is_registry_only(revision)
-    competency = evidence_service.upsert_competencies(
-        framework=framework,
-        revision=revision,
-        specs=[CompetencySpec(code="unscoped-metadata-standard", name="Unverified standard")],
-    )["unscoped-metadata-standard"]
+    with pytest.raises(CurriculumIntelligenceError, match="original source content"):
+        evidence_service.upsert_competencies(
+            framework=framework,
+            revision=revision,
+            specs=[CompetencySpec(code="unscoped-metadata-standard", name="Unverified standard")],
+        )
+    # Historical malformed rows must not be laundered by a valid incoming node.
+    competency = Competency(
+        code="historical-metadata-standard",
+        name="Unverified standard",
+        framework_id=framework.id,
+        source_revision_id=revision.id,
+        metadata_json={},
+    )
+    evidence_service.session.add(competency)
+    evidence_service.session.flush()
     forged = spec.model_copy(update={"code": "metadata-only-node", "competency_id": competency.id})
     structure = FrameworkStructureService(
         evidence_service.session, source_service=evidence_service.source_service
     )
+    _, valid_revision, _ = context(evidence_service)
     before = len(structure.list_nodes(framework.id))
-    with pytest.raises(FrameworkStructureError, match="original source content"):
-        structure.upsert_nodes(framework=framework, revision=revision, specs=[forged])
+    with pytest.raises(FrameworkStructureError, match="same exact source revision"):
+        structure.upsert_nodes(framework=framework, revision=valid_revision, specs=[forged])
     assert len(structure.list_nodes(framework.id)) == before
 
 
@@ -112,3 +127,58 @@ def test_standards_bind_actual_bytes_and_exact_locator(
     )
     with pytest.raises(FrameworkStructureError):
         structure.upsert_nodes(framework=framework, revision=revision, specs=[spec])
+
+
+@pytest.mark.parametrize(
+    "fault", ["locator", "wording", "code", "different-valid-code", "missing-evidence"]
+)
+def test_attached_competency_is_independently_verified(evidence_service, fault):
+    framework, revision, spec = context(evidence_service)
+    competency = evidence_service.session.get(Competency, str(spec.competency_id))
+    if fault == "locator":
+        competency.source_locator = "PDF page 1"
+    elif fault == "wording":
+        competency.official_text = "Invented official wording"
+    elif fault == "code":
+        competency.metadata_json = {**competency.metadata_json, "official_code": "NOT-IN-SOURCE"}
+    elif fault == "different-valid-code":
+        competency.metadata_json = {**competency.metadata_json, "official_code": "CG-3"}
+    else:
+        competency.official_text = None
+        competency.metadata_json = {}
+    evidence_service.session.flush()
+    structure = FrameworkStructureService(
+        evidence_service.session, source_service=evidence_service.source_service
+    )
+    with pytest.raises(FrameworkStructureError):
+        structure.upsert_nodes(framework=framework, revision=revision, specs=[spec])
+
+
+@pytest.mark.parametrize(
+    "fault", ["bytes", "snapshot", "extracted", "locator", "wording", "missing-evidence"]
+)
+def test_generic_framework_writer_checks_actual_standards(evidence_service, fault):
+    framework, revision, _ = context(evidence_service)
+    spec = CompetencySpec(
+        code="new-standard",
+        name="Reviewed standard",
+        source_locator="PDF page 46",
+        metadata_json={"official_code": "C-3.2"},
+    )
+    if fault == "bytes":
+        evidence_service.source_service.storage._resolve_relative(
+            revision.storage_path
+        ).write_bytes(b"changed")
+    elif fault == "snapshot":
+        revision.metadata_json = {**revision.metadata_json, "source_snapshot": {}}
+    elif fault == "extracted":
+        revision.extracted_text += " tampered"
+    elif fault == "locator":
+        spec = spec.model_copy(update={"source_locator": "PDF page 1"})
+    elif fault == "wording":
+        spec = spec.model_copy(update={"official_text": "Invented standard"})
+    else:
+        spec = spec.model_copy(update={"metadata_json": {}})
+    evidence_service.session.flush()
+    with pytest.raises(CurriculumIntelligenceError):
+        evidence_service.upsert_competencies(framework=framework, revision=revision, specs=[spec])

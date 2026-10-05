@@ -684,3 +684,93 @@ def test_class_viii_governing_source_cannot_authorize_i_to_x_draft_inventory(per
     result = evaluate_day5_acceptance(report, scope, service=service)
     assert not result["passed"]
     assert "ts-scert_catalogue" in result["incomplete_components"]
+
+
+@pytest.mark.parametrize("level", range(7))
+@pytest.mark.parametrize("field", list(EXTRAS))
+@pytest.mark.parametrize("attack", ["omit", "conflict"])
+def test_all_persisted_path_levels_match_frozen_applicability(persisted, level, field, attack):
+    service, report, scope = persisted
+    node_id = report["materialized_slices"][0]["path"]["node_ids"][level]
+    node = service.session.get(CurriculumNode, node_id)
+    metadata = copy.deepcopy(node.metadata_json)
+    if attack == "omit":
+        metadata["identity"].pop(field)
+    else:
+        metadata["identity"][field] = "forged"
+    node.metadata_json = metadata
+    service.session.flush()
+    service.session.expire_all()
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert not result["passed"]
+    assert "ts-scert" in result["incomplete_components"]
+
+
+@pytest.mark.parametrize("level", range(7))
+@pytest.mark.parametrize("field", list(EXTRAS))
+def test_generic_writer_requires_applicability_on_every_level_and_rolls_back(
+    persisted, level, field
+):
+    from sqlalchemy import select
+
+    service, report, _ = persisted
+    item = report["materialized_slices"][0]
+    nodes = service.hierarchy_path(item["path"]["node_ids"][-1])
+    revision = service.session.get(SourceRevision, item["source_revision_id"])
+    specs = []
+    parent = None
+    for index, node in enumerate(nodes):
+        metadata = copy.deepcopy(node.metadata_json)
+        if index == level:
+            metadata["identity"].pop(field)
+        code = "new-" + node.node_type
+        specs.append(
+            CurriculumNodeSpec(
+                node_type=node.node_type,
+                code=code,
+                title=node.title,
+                parent_code=parent,
+                official_text=node.official_text,
+                source_locator=node.source_locator,
+                metadata_json=metadata,
+            )
+        )
+        parent = code
+    with pytest.raises(ValueError, match="requires source-declared .* applicability"):
+        with service.session.begin_nested():
+            service.upsert_nodes(
+                version=nodes[-1].curriculum_version, revision=revision, specs=specs
+            )
+    assert not list(
+        service.session.scalars(select(CurriculumNode).where(CurriculumNode.code.like("new-%")))
+    )
+    assert len(service.hierarchy_path(item["path"]["node_ids"][-1])) == 7
+
+
+@pytest.mark.parametrize("field", list(EXTRAS))
+@pytest.mark.parametrize("unverified", ["unknown", "not_applicable"])
+def test_generic_hierarchy_does_not_invent_non_applicability(persisted, field, unverified):
+    service, report, _ = persisted
+    item = report["materialized_slices"][0]
+    root = service.session.get(CurriculumNode, item["path"]["node_ids"][0])
+    revision = service.session.get(SourceRevision, item["source_revision_id"])
+    metadata = copy.deepcopy(root.metadata_json)
+    metadata["identity"][field] = unverified
+    spec = CurriculumNodeSpec(
+        node_type="grade_year",
+        code="unreviewed-root",
+        title=root.title,
+        official_text=root.official_text,
+        source_locator=root.source_locator,
+        metadata_json=metadata,
+    )
+    if EXTRAS[field] == unverified:
+        # The fixture explicitly declares not_applicable for language_role.
+        nodes = service.upsert_nodes(
+            version=root.curriculum_version, revision=revision, specs=[spec]
+        )
+        assert nodes["unreviewed-root"].metadata_json["identity"][field] == unverified
+        return
+    with pytest.raises(ValueError, match="requires source-declared .* applicability"):
+        with service.session.begin_nested():
+            service.upsert_nodes(version=root.curriculum_version, revision=revision, specs=[spec])

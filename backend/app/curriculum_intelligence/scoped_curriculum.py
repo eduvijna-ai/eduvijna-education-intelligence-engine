@@ -159,6 +159,8 @@ def validate_entity_scope(
         ("bilingual", scope.bilingual_states),
     ):
         value = identity.get(key)
+        if node_type is not None and (not value or value == "unknown" or value not in allowed):
+            raise ScopeError(f"Hierarchy node requires source-declared {key} applicability")
         if value not in (None, "unknown") and value not in allowed:
             raise ScopeError(f"Source does not establish exact {key} applicability")
     parent = (parent_metadata or {}).get("identity", {})

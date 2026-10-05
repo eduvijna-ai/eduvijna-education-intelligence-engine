@@ -24,7 +24,7 @@ from app.curriculum_intelligence.source_domains import (
 )
 from app.day4_verify import seed_day4_verification
 from app.db.base import Base
-from app.models.curriculum import CurriculumPack, CurriculumVersion, EducationFramework
+from app.models.curriculum import Competency, CurriculumPack, CurriculumVersion, EducationFramework
 from app.models.source import SourceRevision
 from app.schemas.framework_structure import FrameworkNodeSpec, LearningOutcomeCompetencyInput
 
@@ -211,7 +211,14 @@ def test_outcome_domain_can_link_existing_competency_without_creating_framework(
             competency_id=result["competency"]["id"],
         ),
     ]
-    nodes = structure.upsert_nodes(framework=framework, revision=revision, specs=specs)
+    structure.upsert_nodes(framework=framework, revision=revision, specs=specs[:3])
+    competency = session.get(Competency, result["competency"]["id"])
+    assert competency is not None
+    competency_revision = session.get(SourceRevision, competency.source_revision_id)
+    assert competency_revision is not None
+    nodes = structure.upsert_nodes(
+        framework=framework, revision=competency_revision, specs=specs[3:]
+    )
     _change_domain(session, revision, document_type)
     payload = LearningOutcomeCompetencyInput.model_validate(
         {

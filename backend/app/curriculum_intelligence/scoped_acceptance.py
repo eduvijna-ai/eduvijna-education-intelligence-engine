@@ -206,6 +206,19 @@ def _verify_slice(
         return False
     path_locators = required.get("path_locators", {})
     for node in nodes:
+        # Recheck persisted ancestors independently of the writer's validation.
+        if any(
+            node.metadata_json.get("identity", {}).get(field) != required[field]
+            for field in (
+                "course_family",
+                "course_group",
+                "subject_language",
+                "language_role",
+                "book_part",
+                "bilingual",
+            )
+        ):
+            return False
         if path_locators and node.source_locator != path_locators.get(node.node_type):
             return False
         if (
