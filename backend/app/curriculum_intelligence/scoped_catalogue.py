@@ -421,6 +421,93 @@ def validate_catalogue_row_locators(
     )
 
 
+CATALOGUE_SOURCE_DIMENSIONS = (
+    "official_label",
+    "grade",
+    "academic_year",
+    "instructional_medium",
+    "subject",
+    "subject_language",
+    "language_role",
+    "book_part",
+    "bilingual",
+    "course_family",
+    "resource_kind",
+)
+
+
+def validate_catalogue_row_evidence(
+    service: CurriculumIntelligenceService,
+    revision: SourceRevision,
+    row: ScopedCatalogueRow,
+    *,
+    version: CurriculumVersion,
+) -> None:
+    """Bind claims to one original structured inventory row, never global value sets.
+
+    The supported adapter is an explicit JSON row object. Other formats need an
+    independently implemented row-context adapter; existing locators alone cannot
+    prove the association of headers, inherited cells, or PDF text to a resource.
+    No field is inferred from labels or trusted merely because metadata lists it.
+    """
+    from app.curriculum_intelligence.standards_evidence import source_text_at_locator
+
+    if revision.content_type.split(";", 1)[0].strip().lower() not in {
+        "application/json",
+        "text/json",
+    } or not row.source_locator.startswith("JSON pointer /"):
+        raise ScopedCatalogueError("No supported source-bound catalogue row-context adapter")
+    source_text_at_locator(service.source_service, revision, locator=row.source_locator)
+    try:
+        # Retain the JSON type: a string containing JSON-looking text is not a row object.
+        content, _, valid = service.source_service._content_integrity(revision)
+        if not valid:
+            raise ScopedCatalogueError("Catalogue original-byte integrity mismatch")
+        observed = json.loads(content.decode("utf-8-sig"))
+        for token in row.source_locator[len("JSON pointer /") :].split("/"):
+            key = token.replace("~1", "/").replace("~0", "~")
+            observed = observed[int(key)] if isinstance(observed, list) else observed[key]
+    except (ValueError, TypeError, KeyError, IndexError) as exc:
+        raise ScopedCatalogueError("Catalogue locator must select a structured source row") from exc
+    if not isinstance(observed, dict):
+        raise ScopedCatalogueError("Catalogue locator must select a structured source row")
+    if (
+        observed.get("pack_code") != version.curriculum_pack.code
+        or observed.get("version_code") != version.version_code
+    ):
+        raise ScopedCatalogueError("Catalogue source row contradicts pack/version")
+    for field in CATALOGUE_SOURCE_DIMENSIONS:
+        if observed.get(field) != getattr(row, field):
+            raise ScopedCatalogueError(f"Catalogue source row contradicts {field}")
+    if observed.get("resource_url") != row.resource_url:
+        raise ScopedCatalogueError("Catalogue source row contradicts resource_url")
+    applicability_locator = row.source_locator + "/applicability"
+    if row.applicability.source_locator != applicability_locator:
+        raise ScopedCatalogueError("Catalogue group locator must belong to the same source row")
+    applicability = observed.get("applicability")
+    if not isinstance(applicability, dict) or (
+        applicability.get("status") != row.applicability.status
+        or applicability.get("groups") != list(row.applicability.groups)
+    ):
+        raise ScopedCatalogueError("Catalogue source row contradicts course_group applicability")
+    source_text_at_locator(service.source_service, revision, locator=applicability_locator)
+    # not_applicable is an assertion, never a fallback for a missing dimension.
+    # Both the value and its justification must exist in approved original bytes.
+    inapplicable = [
+        field for field in CATALOGUE_SOURCE_DIMENSIONS if getattr(row, field) == "not_applicable"
+    ]
+    if "not_applicable" in row.applicability.groups:
+        inapplicable.append("course_group")
+    justifications = observed.get("not_applicable_justifications", {})
+    for field in inapplicable:
+        reason = justifications.get(field) if isinstance(justifications, dict) else None
+        if not isinstance(reason, str) or not reason.strip():
+            raise ScopedCatalogueError(
+                f"Source row lacks explicit {field} inapplicability justification"
+            )
+        checked_text(reason)
+
+
 class CatalogueCoverage(_Contract):
     status: Literal["complete", "partial", "failed"]
     snapshot_row_count: int
@@ -535,6 +622,7 @@ def materialize_catalogue(
         for row in snapshot.rows:
             validate_catalogue_row_scope(version, row, scope)
             validate_catalogue_row_locators(service, revision, row)
+            validate_catalogue_row_evidence(service, revision, row, version=version)
         from app.curriculum_intelligence.standards_evidence import source_text_at_locator
 
         source_text_at_locator(

@@ -127,6 +127,8 @@ def approved_revision(
     media: tuple[str, ...] = ("English",),
     subjects: tuple[str, ...] = ("science",),
     declarations: list[dict[str, str]] | None = None,
+    alignments: list[dict[str, str]] | None = None,
+    content: dict[str, Any] | None = None,
     non_applicable_dimensions: bool = False,
 ) -> SourceRevision:
     """Review immutable scope as registered; never fabricate SourceRevision objects."""
@@ -144,6 +146,7 @@ def approved_revision(
             metadata_json={
                 "synthetic": True,
                 "correspondences": declarations or [],
+                "direct_alignments": alignments or [],
                 "document_type": "syllabus",
                 "curriculum_scope": {
                     "pack_code": pack,
@@ -180,7 +183,9 @@ def approved_revision(
         source.id,
         method=SourceIngestionMethod.JSON,
         filename="scope.json",
-        content=json.dumps({"fixture": True, "text": "తెలుగు اردو हिन्दी source evidence"}).encode(),
+        content=json.dumps(
+            content or {"fixture": True, "text": "తెలుగు اردو हिन्दी source evidence"}
+        ).encode(),
         actor_id="test",
     )
     service.source_service.extract_revision(revision.id, actor_id="test")
@@ -580,7 +585,7 @@ def test_reviewed_cross_medium_correspondence_is_exact_idempotent_and_persistent
     declaration = {
         "left_code": left.code,
         "right_code": right.code,
-        "locator": "fixture section 1",
+        "locator": "JSON pointer /text",
         "evidence_text": "source evidence",
     }
     revision = approved_revision(
@@ -793,3 +798,99 @@ def test_pack_creation_rejects_wrong_source_identity(
         service.session.scalar(select(CurriculumPack).where(CurriculumPack.code == "another-board"))
         is None
     )
+
+
+@pytest.mark.parametrize("wrong", [False, True])
+def test_correspondence_wording_is_bound_to_claimed_section(service, wrong):
+    version, _ = scoped(service)
+    left = concept(service, version, "first-year-english-concept")
+    right = concept(service, version, "first-year-telugu-concept")
+    words = f"{left.code} corresponds to {right.code}"
+    locator = "JSON pointer /sections/" + ("A" if wrong else "B")
+    declaration = {
+        "left_code": left.code,
+        "right_code": right.code,
+        "locator": locator,
+        "evidence_text": words,
+    }
+    revision = approved_revision(
+        service,
+        pack=version.curriculum_pack.code,
+        grades=("First Year", "Second Year"),
+        media=("English", "Telugu"),
+        declarations=[declaration],
+        non_applicable_dimensions=True,
+        content={"sections": {"A": "Unrelated source context", "B": words}},
+    )
+    args = dict(
+        left_node_id=left.id,
+        right_node_id=right.id,
+        revision=revision,
+        locator=locator,
+        evidence_text=words,
+    )
+    if wrong:
+        with pytest.raises(ValueError, match="absent at exact locator"):
+            link_correspondence(service, version, **args)
+        assert not version.metadata_json.get("cross_medium_correspondences")
+    else:
+        key = link_correspondence(service, version, **args)
+        assert link_correspondence(service, version, **args) == key
+
+
+@pytest.mark.parametrize(
+    "fault", ["none", "wrong-section", "target-wording", "ancestor-wording", "ambiguous-code"]
+)
+def test_scoped_direct_alignment_uses_bounded_source_and_own_target_proof(service, fault):
+    from app.models.curriculum_intelligence import CurriculumAlignment
+
+    version, _ = scoped(service)
+    node = concept(service, version, "first-year-english-concept")
+    outcome = service.session.scalar(
+        select(LearningOutcome).where(LearningOutcome.curriculum_version_id == version.id)
+    )
+    assert outcome is not None
+    words = f"{node.code} directly addresses {outcome.code}"
+    locator = "JSON pointer /sections/" + ("A" if fault == "wrong-section" else "B")
+    declaration = {
+        "node_code": node.code,
+        "target_id": outcome.id,
+        "relationship_type": "addresses",
+        "source_locator": locator,
+        "evidence_text": words,
+    }
+    revision = approved_revision(
+        service,
+        pack=version.curriculum_pack.code,
+        grades=("First Year", "Second Year"),
+        media=("English", "Telugu"),
+        alignments=[declaration],
+        non_applicable_dimensions=True,
+        content={"sections": {"A": "Unrelated source context", "B": words}},
+    )
+    if fault == "target-wording":
+        outcome.text = "Invented outcome"
+    elif fault == "ancestor-wording":
+        service.hierarchy_path(node.id)[0].official_text = "Invented ancestor quote"
+    elif fault == "ambiguous-code":
+        concept(service, version, "first-year-telugu-concept").code = node.code
+    service.session.flush()
+    payload = CurriculumAlignmentInput(
+        curriculum_version_id=version.id,
+        curriculum_node_id=node.id,
+        learning_outcome_id=outcome.id,
+        source_revision_id=revision.id,
+        status="direct",
+        relationship_type="addresses",
+        source_locator=locator,
+        evidence_text=words,
+    )
+    before = list(service.session.scalars(select(CurriculumAlignment.id)))
+    if fault != "none":
+        with pytest.raises(ValueError):
+            service.align(payload)
+        assert list(service.session.scalars(select(CurriculumAlignment.id))) == before
+    else:
+        link = service.align(payload)
+        assert service.align(payload).id == link.id
+        assert link.evidence_text == words and link.source_locator == locator

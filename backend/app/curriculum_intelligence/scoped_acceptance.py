@@ -9,12 +9,14 @@ from app.curriculum_intelligence.scoped_catalogue import (
     STORAGE_KEY,
     CatalogueSnapshot,
     persisted_catalogue_coverage,
+    validate_catalogue_row_evidence,
     validate_catalogue_row_locators,
     validate_catalogue_row_scope,
 )
 from app.curriculum_intelligence.scoped_curriculum import (
     SourceCurriculumScope,
     exact_scope,
+    validate_correspondence_record,
     validate_entity_scope,
 )
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
@@ -23,7 +25,7 @@ from app.curriculum_intelligence.standards_evidence import (
     require_source_wording,
     source_text_at_locator,
 )
-from app.models.curriculum import Competency, CurriculumVersion, LearningOutcome
+from app.models.curriculum import Competency, CurriculumNode, CurriculumVersion, LearningOutcome
 from app.models.enums import SourceRevisionStatus
 from app.models.source import SourceRevision
 
@@ -93,6 +95,24 @@ def _locator(
 def _verify_slice(
     service: CurriculumIntelligenceService, required: dict[str, Any], item: dict[str, Any]
 ) -> bool:
+    relationship_key = required.get("key") == "scert-viii-science-telugu-correspondence"
+    expected_type = (
+        "cross_medium_correspondence"
+        if relationship_key
+        else (
+            "learning_outcomes"
+            if required.get("key") == "scert-learning-outcomes"
+            else "academic_standards"
+            if required.get("key") == "scert-academic-standards"
+            else "detailed_path"
+        )
+    )
+    if required.get("materialization_type", expected_type) != expected_type:
+        return False
+    if item.get("materialization_type", expected_type) != expected_type:
+        return False
+    if relationship_key:
+        return _verify_correspondence(service, required, item)
     # All expected values come from the frozen scope, never observed report fields.
     fields = (
         "chapter",
@@ -288,6 +308,107 @@ def _verify_slice(
     )
 
 
+def _verify_correspondence(
+    service: CurriculumIntelligenceService, required: dict[str, Any], item: dict[str, Any]
+) -> bool:
+    """A paired requirement is one verified relationship, never a lone medium path."""
+    if (
+        required.get("materialization_type") != "cross_medium_correspondence"
+        or item.get("materialization_type") != "cross_medium_correspondence"
+        or item.get("synthetic") is not False
+    ):
+        return False
+    left_expected, right_expected = required.get("left", {}), required.get("right", {})
+    binding = required.get("correspondence", {})
+    if not left_expected or not right_expected or not binding:
+        return False
+    if (
+        left_expected.get("medium") != "English"
+        or right_expected.get("medium") != "Telugu"
+        or left_expected.get("pack_code") != "ts-scert"
+        or left_expected.get("grade") != "VIII"
+    ):
+        return False
+    for field in ("pack_code", "academic_version", "grade", "subject"):
+        if not left_expected.get(field) or left_expected[field] != right_expected.get(field):
+            return False
+    version = service.session.get(CurriculumVersion, item.get("version_id"))
+    relation_id = item.get("relationship_id")
+    if version is None or not isinstance(relation_id, str) or not relation_id:
+        return False
+    records = version.metadata_json.get("cross_medium_correspondences", {})
+    record = records.get(relation_id)
+    if (
+        not isinstance(record, dict)
+        or validate_correspondence_record(service, version, record) != relation_id
+    ):
+        return False
+    if binding.get("relationship_id") and binding["relationship_id"] != relation_id:
+        return False
+    revision = _revision(service, record.get("source_revision_id"))
+    snapshot = revision.metadata_json.get("source_snapshot", {})
+    if (
+        not binding.get("source_checksum")
+        or binding["source_checksum"] != revision.checksum
+        or record.get("source_checksum") != revision.checksum
+        or (binding.get("source_revision") and binding["source_revision"] != revision.id)
+        or not (
+            binding.get("source_revision")
+            or (binding.get("source_url") and binding.get("source_snapshot_checksum"))
+        )
+        or (binding.get("source_url") and binding["source_url"] != snapshot.get("url"))
+        or (
+            binding.get("source_snapshot_checksum")
+            and binding["source_snapshot_checksum"] != revision.source_snapshot_checksum
+        )
+        or source_domain(snapshot)
+        not in {"syllabus", "framework", "learning_outcome", "academic_standard"}
+    ):
+        return False
+    declaration = {
+        field: record.get(field)
+        for field in ("left_code", "right_code", "locator", "evidence_text")
+    }
+    if not all(
+        binding.get(field) and binding[field] == declaration[field] for field in declaration
+    ) or declaration not in service._source_metadata(revision).get("correspondences", []):
+        return False
+    require_source_wording(
+        service.source_service,
+        revision,
+        locator=record.get("locator"),
+        official_text=record.get("evidence_text"),
+    )
+    if binding.get("node_type") not in {"chapter", "topic", "concept"} or record.get(
+        "left_id"
+    ) == record.get("right_id"):
+        return False
+    for side, expected in (("left", left_expected), ("right", right_expected)):
+        node = service.session.get(CurriculumNode, record.get(side + "_id"))
+        if (
+            node is None
+            or node.curriculum_version_id != version.id
+            or node.code != binding[side + "_code"]
+            or node.node_type != binding["node_type"]
+        ):
+            return False
+        # Source scope for the relationship itself must cover each exact participant.
+        validate_entity_scope(
+            service, version, revision, node.metadata_json, node_type=node.node_type
+        )
+        observed = item.get(side, {})
+        path_ids = observed.get("path", {}).get("node_ids", [])
+        if not path_ids or node.id not in path_ids:
+            return False
+        side_contract = dict(expected) | {"key": side + "-correspondence-path"}
+        if not _verify_slice(service, side_contract, observed):
+            return False
+        leaf = service.session.get(CurriculumNode, path_ids[-1])
+        if leaf is None or leaf.curriculum_version_id != version.id:
+            return False
+    return True
+
+
 def _verify_catalogue(
     service: CurriculumIntelligenceService, item: dict[str, Any], expected: dict[str, Any]
 ) -> bool:
@@ -362,6 +483,7 @@ def _verify_catalogue(
     for row in snapshot.rows:
         validate_catalogue_row_scope(version, row, scope)
         validate_catalogue_row_locators(service, revision, row)
+        validate_catalogue_row_evidence(service, revision, row, version=version)
         if governing_scope is not None:
             validate_catalogue_row_scope(version, row, governing_scope)
     coverage = persisted_catalogue_coverage(version, revision.id)
@@ -407,6 +529,7 @@ def evaluate_day5_acceptance(
     observations = {item.get("key"): item for item in evidence}
     blocked = set((verification_slice or {}).get("blocked_slice_keys", []))
     verified_count = 0
+    verified_by_type: dict[str, int] = {}
     for required in requirements:
         key = required.get("key")
         verified = False
@@ -422,6 +545,18 @@ def evaluate_day5_acceptance(
                 verified = False
         if verified:
             verified_count += 1
+            kind = (
+                "cross_medium_correspondence"
+                if key == "scert-viii-science-telugu-correspondence"
+                else (
+                    "learning_outcomes"
+                    if key == "scert-learning-outcomes"
+                    else "academic_standards"
+                    if key == "scert-academic-standards"
+                    else "detailed_path"
+                )
+            )
+            verified_by_type[kind] = verified_by_type.get(kind, 0) + 1
         else:
             failed.append(str(key))
     inventories = report.get("catalogue_inventories", [])
@@ -524,5 +659,6 @@ def evaluate_day5_acceptance(
         "passed": not failed,
         "incomplete_components": list(dict.fromkeys(failed)),
         "verified_detailed_slice_count": verified_count,
+        "verified_materialization_counts": verified_by_type,
         "scope": "Reviewed bounded Day 5 scope; not all curriculum content",
     }

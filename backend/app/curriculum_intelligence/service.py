@@ -1042,6 +1042,24 @@ class CurriculumIntelligenceService:
                 "direct alignment requires retrieved source content, locator and evidence"
             )
 
+        if payload.status == "direct":
+            try:
+                require_source_wording(
+                    self.source_service,
+                    revision,
+                    locator=payload.source_locator,
+                    official_text=payload.evidence_text,
+                )
+            except StandardsEvidenceError as exc:
+                raise CurriculumIntelligenceError(str(exc)) from exc
+        elif version.metadata_json.get("scope_enforced") and payload.source_locator is not None:
+            try:
+                source_text_at_locator(
+                    self.source_service, revision, locator=payload.source_locator
+                )
+            except StandardsEvidenceError as exc:
+                raise CurriculumIntelligenceError(str(exc)) from exc
+
         alignment_id = stable_uuid(
             "alignment",
             version.id,
@@ -1054,6 +1072,42 @@ class CurriculumIntelligenceService:
         alignment = self.session.get(CurriculumAlignment, alignment_id)
         if version.metadata_json.get("scope_enforced"):
             if payload.status == "direct":
+                candidates = list(
+                    self.session.scalars(
+                        select(CurriculumNode.id)
+                        .where(
+                            CurriculumNode.curriculum_version_id == version.id,
+                            CurriculumNode.code == node.code,
+                        )
+                        .limit(2)
+                    )
+                )
+                if candidates != [node.id]:
+                    raise CurriculumIntelligenceError("Direct assertion has ambiguous node code")
+                self._validate_scoped_ancestors(version, node, node.metadata_json["identity"])
+                target = outcome if target_kind == "learning_outcome" else target_competency
+                if target is None:
+                    raise LookupError("direct alignment target not found")
+                target_revision = self.session.get(SourceRevision, target.source_revision_id)
+                if target_revision is None:
+                    raise CurriculumIntelligenceError("Direct target lacks source revision")
+                self._require_curriculum_revision(
+                    target_revision,
+                    "outcome" if target_kind == "learning_outcome" else "competency",
+                )
+                validate_entity_scope(self, version, target_revision, target.metadata_json)
+                try:
+                    require_source_wording(
+                        self.source_service,
+                        target_revision,
+                        locator=target.source_locator,
+                        official_text=target.text
+                        if isinstance(target, LearningOutcome)
+                        else target.official_text,
+                        official_code=target.metadata_json.get("official_code"),
+                    )
+                except StandardsEvidenceError as exc:
+                    raise CurriculumIntelligenceError(str(exc)) from exc
                 declaration = {
                     "node_code": node.code,
                     "target_id": target_id,
@@ -1061,9 +1115,7 @@ class CurriculumIntelligenceService:
                     "source_locator": payload.source_locator,
                     "evidence_text": payload.evidence_text,
                 }
-                if declaration not in self._source_metadata(revision).get(
-                    "direct_alignments", []
-                ) or (payload.evidence_text or "") not in (revision.extracted_text or ""):
+                if declaration not in self._source_metadata(revision).get("direct_alignments", []):
                     raise CurriculumIntelligenceError(
                         "Direct alignment requires reviewed source assertion"
                     )

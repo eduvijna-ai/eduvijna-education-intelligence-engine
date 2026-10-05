@@ -14,7 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.curriculum_intelligence.scoped_catalogue import checked_text, normalize_label
 from app.curriculum_intelligence.source_domains import source_domain
-from app.curriculum_intelligence.standards_evidence import source_text_at_locator
+from app.curriculum_intelligence.standards_evidence import (
+    StandardsEvidenceError,
+    require_source_wording,
+    source_text_at_locator,
+)
 from app.models.enums import SourceRevisionStatus
 
 if TYPE_CHECKING:
@@ -188,6 +192,89 @@ def assert_immutable(entity: Any, values: dict[str, Any]) -> None:
         raise ScopeError("Source-backed scoped records are immutable; create reviewed new version")
 
 
+def validate_correspondence_record(
+    service: CurriculumIntelligenceService,
+    version: CurriculumVersion,
+    record: dict[str, Any],
+) -> str:
+    """Read-only proof of exact endpoints, own-source paths and relationship bytes."""
+    import json
+
+    from sqlalchemy import select
+
+    from app.models.curriculum import CurriculumNode
+    from app.models.source import SourceRevision
+
+    fields = {
+        "left_code",
+        "right_code",
+        "locator",
+        "evidence_text",
+        "left_id",
+        "right_id",
+        "source_revision_id",
+        "source_checksum",
+    }
+    if set(record) != fields or any(
+        not isinstance(record[field], str) or not record[field].strip() for field in fields
+    ):
+        raise ScopeError("Correspondence record requires complete exact evidence")
+    if not version.metadata_json.get("scope_enforced"):
+        raise ScopeError("Correspondence requires explicit scoped curriculum")
+    revision = service.session.get(SourceRevision, record["source_revision_id"])
+    if revision is None or revision.checksum != record["source_checksum"]:
+        raise ScopeError("Correspondence source identity or checksum mismatch")
+    service._require_curriculum_revision(revision, "alignment")
+    nodes = [service.session.get(CurriculumNode, record[key]) for key in ("left_id", "right_id")]
+    if record["left_id"] == record["right_id"] or any(node is None for node in nodes):
+        raise ScopeError("Correspondence requires two existing distinct nodes")
+    left, right = nodes
+    assert left is not None and right is not None
+    if left.code != record["left_code"] or right.code != record["right_code"]:
+        raise ScopeError("Correspondence endpoint identity mismatch")
+    for node in (left, right):
+        if node.curriculum_version_id != version.id:
+            raise ScopeError("Correspondence crosses curriculum version")
+        matches = list(
+            service.session.scalars(
+                select(CurriculumNode.id)
+                .where(
+                    CurriculumNode.curriculum_version_id == version.id,
+                    CurriculumNode.code == node.code,
+                )
+                .limit(2)
+            )
+        )
+        if matches != [node.id]:
+            raise ScopeError("Correspondence declaration has ambiguous endpoint code")
+        validate_entity_scope(
+            service, version, revision, node.metadata_json, node_type=node.node_type
+        )
+        service._validate_scoped_ancestors(version, node, node.metadata_json["identity"])
+    left_scope, right_scope = left.metadata_json["identity"], right.metadata_json["identity"]
+    if any(left_scope[field] != right_scope[field] for field in ("grade", "subject")):
+        raise ScopeError("Cross-medium correspondence cannot change grade or subject")
+    if left_scope["medium"] == right_scope["medium"] or left.node_type != right.node_type:
+        raise ScopeError("Correspondence must link same-level content in different media")
+    declaration = {
+        field: record[field] for field in ("left_code", "right_code", "locator", "evidence_text")
+    }
+    if declaration not in service._source_metadata(revision).get("correspondences", []):
+        raise ScopeError("No reviewed source declaration establishes this correspondence")
+    try:
+        require_source_wording(
+            service.source_service,
+            revision,
+            locator=record["locator"],
+            official_text=record["evidence_text"],
+        )
+    except StandardsEvidenceError as exc:
+        raise ScopeError(str(exc)) from exc
+    return hashlib.sha256(
+        json.dumps(record, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+
 def link_correspondence(
     service: CurriculumIntelligenceService,
     version: CurriculumVersion,
@@ -198,58 +285,24 @@ def link_correspondence(
     locator: str,
     evidence_text: str,
 ) -> str:
-    """Explicit reviewed correspondence, never title/sequence/translation guessing.
-
-    Reviewed source metadata declares the exact source-backed node code pair.
-    The declaration participates in the immutable Day-3 approval fingerprint.
-    """
-    import json
-
+    """Persist only the same bounded proof independently checked by acceptance."""
     from app.models.curriculum import CurriculumNode
 
-    if not version.metadata_json.get("scope_enforced"):
-        raise ScopeError("Correspondence requires explicit scoped curriculum")
-    service._require_curriculum_revision(revision, "alignment")
-    nodes = [service.session.get(CurriculumNode, key) for key in (left_node_id, right_node_id)]
-    if left_node_id == right_node_id or any(node is None for node in nodes):
+    left = service.session.get(CurriculumNode, left_node_id)
+    right = service.session.get(CurriculumNode, right_node_id)
+    if left is None or right is None:
         raise ScopeError("Correspondence requires two existing distinct nodes")
-    left, right = nodes
-    assert left is not None and right is not None
-    for node in (left, right):
-        if node.curriculum_version_id != version.id:
-            raise ScopeError("Correspondence crosses curriculum version")
-        validate_entity_scope(service, version, revision, node.metadata_json)
-    left_scope, right_scope = left.metadata_json["identity"], right.metadata_json["identity"]
-    if (
-        left_scope["grade"] != right_scope["grade"]
-        or left_scope["subject"] != right_scope["subject"]
-    ):
-        raise ScopeError("Cross-medium correspondence cannot change grade or subject")
-    if left_scope["medium"] == right_scope["medium"] or left.node_type != right.node_type:
-        raise ScopeError("Correspondence must link same-level content in different media")
-    declaration = {
+    record = {
         "left_code": left.code,
         "right_code": right.code,
         "locator": locator,
         "evidence_text": evidence_text,
-    }
-    if declaration not in service._source_metadata(revision).get("correspondences", []):
-        raise ScopeError("No reviewed source declaration establishes this correspondence")
-    if (
-        not locator.strip()
-        or not evidence_text.strip()
-        or evidence_text not in (revision.extracted_text or "")
-    ):
-        raise ScopeError("Exact correspondence wording and locator are required")
-    record = declaration | {
         "left_id": left.id,
         "right_id": right.id,
         "source_revision_id": revision.id,
         "source_checksum": revision.checksum,
     }
-    key = hashlib.sha256(
-        json.dumps(record, sort_keys=True, ensure_ascii=False).encode()
-    ).hexdigest()
+    key = validate_correspondence_record(service, version, record)
     metadata = dict(version.metadata_json)
     links = dict(metadata.get("cross_medium_correspondences", {}))
     if key in links and links[key] != record:

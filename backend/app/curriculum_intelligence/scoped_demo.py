@@ -94,6 +94,40 @@ def synthetic_revision(
                 "grades": grades,
                 "media": media,
                 "subjects": subjects,
+                "catalogue": [
+                    {
+                        "pack_code": pack,
+                        "version_code": version_code,
+                        "official_label": "తెలుగు" if medium == "Telugu" else "Science",
+                        "grade": grade,
+                        "academic_year": "2025-26",
+                        "instructional_medium": medium,
+                        "subject": subject,
+                        "resource_kind": "syllabus_document",
+                        "course_family": "not_applicable",
+                        "subject_language": "not_applicable",
+                        "language_role": "not_applicable",
+                        "book_part": "not_applicable",
+                        "bilingual": "no",
+                        "applicability": {
+                            "status": "explicit_groups",
+                            "groups": ["not_applicable"],
+                        },
+                        "not_applicable_justifications": {
+                            field: "Synthetic fixture explicitly has no subdivision on this axis"
+                            for field in (
+                                "course_family",
+                                "course_group",
+                                "subject_language",
+                                "language_role",
+                                "book_part",
+                            )
+                        },
+                    }
+                    for grade in grades
+                    for medium in media
+                    for subject in subjects
+                ],
             },
             ensure_ascii=False,
         ).encode(),
@@ -137,7 +171,7 @@ def seed_scoped_pack(
         metadata_json={"scope_enforced": True, "synthetic": True},
     )
     paths = []
-    rows = []
+    rows: list[ScopedCatalogueRow] = []
     for grade in grades:
         root = grade.lower().replace(" ", "-")
         for medium in ("English", "Telugu"):
@@ -203,7 +237,7 @@ def seed_scoped_pack(
                     version_id=version.id,
                     source_revision_id=revision.id,
                     source_checksum=revision.checksum,
-                    source_locator="JSON pointer /subjects",
+                    source_locator=f"JSON pointer /catalogue/{len(rows)}",
                     official_label="తెలుగు" if medium == "Telugu" else "Science",
                     grade=grade,
                     academic_year="2025-26",
@@ -218,7 +252,7 @@ def seed_scoped_pack(
                     applicability=CourseApplicability(
                         status="explicit_groups",
                         groups=("not_applicable",),
-                        source_locator="JSON pointer /subjects",
+                        source_locator=f"JSON pointer /catalogue/{len(rows)}/applicability",
                     ),
                 )
             )
@@ -283,7 +317,7 @@ def seed_scoped_pack(
                     "relationship_type": "addresses",
                     "status": "partial",
                     "inferred": True,
-                    "source_locator": "synthetic JSON",
+                    "source_locator": "JSON pointer /text",
                 }
             )
         )

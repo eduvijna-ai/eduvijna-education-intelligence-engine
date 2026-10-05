@@ -35,7 +35,17 @@ def _pdf(pages: list[str]) -> bytes:
             {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
         )
         stream = DecodedStreamObject()
-        stream.set_data(f"BT /F1 9 Tf 20 700 Td ({text}) Tj ET".encode())
+        lines = [
+            line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            for line in text.split("\n")
+        ]
+        stream.set_data(
+            (
+                "BT /F1 9 Tf 20 700 Td 12 TL "
+                + " T* ".join(f"({line}) Tj" for line in lines)
+                + " ET"
+            ).encode()
+        )
         page[NameObject("/Contents")] = stream
     output = io.BytesIO()
     writer.write(output)
@@ -76,11 +86,16 @@ def evidence_service(tmp_path: Path) -> Any:
         create_database_engine.cache_clear()
 
 
-def _official_test_revisions(service: CurriculumIntelligenceService) -> dict[str, Any]:
+def _official_test_revisions(
+    service: CurriculumIntelligenceService,
+    *,
+    outcome_page: str = OUTCOME_TEXT,
+    adjacent_page: str = "Relevant CGs: CG-3, C-3.2",
+) -> dict[str, Any]:
     pages = ["Synthetic page"] * 57
     pages[45] = "Mathematics CG-3 C-3.2"
-    pages[55] = OUTCOME_TEXT
-    pages[56] = "CG-3 C-3.2"
+    pages[55] = "13. Linear Equations in Two Variables\n" + outcome_page
+    pages[56] = adjacent_page + "\n14. Mensuration"
     contents = {
         "ncfse-2023-ncert-official": _pdf(["National Curriculum Framework 2023"]),
         "ncert-grade-9-phase-i-part-2-draft": _pdf(pages),
@@ -402,3 +417,153 @@ def test_assessment_index_rejects_a_subject_absent_from_its_table(
                 evidence_type="sample_paper_marking_scheme_availability",
             )
         )
+
+
+@pytest.mark.parametrize(
+    "wording",
+    [
+        OUTCOME_TEXT,
+        "MODEL  and solve contextualised problems\n"
+        "using a pair of linear equations  and draw conclusions.",
+        "Model and solve contextualised problems, using a pair of linear equations; "
+        "and draw conclusions!",
+    ],
+)
+def test_reviewed_outcome_persists_exact_original_page_span(
+    evidence_service: CurriculumIntelligenceService,
+    wording: str,
+) -> None:
+    from app.curriculum_intelligence.official_demo import _OUTCOME_LOCATOR, _exact_reviewed_outcome
+    from app.curriculum_intelligence.standards_evidence import require_source_wording
+    from app.models.curriculum import LearningOutcome
+
+    revisions = _official_test_revisions(evidence_service, outcome_page=wording)
+    revision = revisions["ncert-grade-9-phase-i-part-2-draft"]
+    selected = _exact_reviewed_outcome(evidence_service, revision)
+    assert selected == wording
+    require_source_wording(
+        evidence_service.source_service, revision, locator=_OUTCOME_LOCATOR, official_text=selected
+    )
+    report = official_source_demonstration(evidence_service, revisions)
+    assert report["verified"] is True
+    outcome = evidence_service.session.get(
+        LearningOutcome, report["path"]["learning_outcome_ids"][0]
+    )
+    assert outcome is not None
+    assert outcome.text == wording
+    assert outcome.normalized_text == "Model contexts with paired equations; interpret solutions."
+    assert outcome.source_locator == _OUTCOME_LOCATOR
+
+
+@pytest.mark.parametrize(
+    "outcome_page", ["No outcome on reviewed page", OUTCOME_TEXT + "\n" + OUTCOME_TEXT]
+)
+def test_reviewed_outcome_wrong_or_ambiguous_page_fails_without_fallback(
+    evidence_service: CurriculumIntelligenceService,
+    outcome_page: str,
+) -> None:
+    from sqlalchemy import func, select
+
+    from app.curriculum_intelligence.official_demo import _exact_reviewed_outcome
+    from app.curriculum_intelligence.standards_evidence import StandardsEvidenceError
+    from app.models.curriculum import LearningOutcome
+
+    revisions = _official_test_revisions(
+        evidence_service, outcome_page=outcome_page, adjacent_page="CG-3 C-3.2 " + OUTCOME_TEXT
+    )
+    with pytest.raises(StandardsEvidenceError, match="missing or ambiguous"):
+        _exact_reviewed_outcome(evidence_service, revisions["ncert-grade-9-phase-i-part-2-draft"])
+    report = official_source_demonstration(evidence_service, revisions)
+    assert report["verified"] is False
+    assert report["minimum_path_verified"] is False
+    assert "path" not in report
+    assert evidence_service.session.scalar(select(func.count()).select_from(LearningOutcome)) == 0
+
+
+@pytest.mark.parametrize("mapping_page", ["CG-3 C-3.2 and CG-3 C-3.2", "CG-3 C-3.20"])
+def test_mapping_quote_ambiguous_or_wrong_identifier_returns_blocked_report(
+    evidence_service: CurriculumIntelligenceService,
+    mapping_page: str,
+) -> None:
+    from sqlalchemy import func, select
+
+    from app.models.curriculum import EducationFramework
+
+    revisions = _official_test_revisions(evidence_service, adjacent_page=mapping_page)
+    report = official_source_demonstration(evidence_service, revisions)
+    assert report["verified"] is False
+    assert report["status"] == "blocked_or_review_required"
+    assert "path" not in report
+    assert (
+        evidence_service.session.scalar(select(func.count()).select_from(EducationFramework)) == 0
+    )
+
+
+def test_direct_mapping_persists_literal_quote_not_normalized_commentary(
+    evidence_service: CurriculumIntelligenceService,
+) -> None:
+    from app.curriculum_intelligence.official_demo import _MAPPING_LOCATOR
+    from app.curriculum_intelligence.standards_evidence import require_source_wording
+    from app.models.framework_structure import LearningOutcomeCompetencyLink
+
+    revisions = _official_test_revisions(evidence_service)
+    report = official_source_demonstration(evidence_service, revisions)
+    link_id = report["framework_structure"]["learning_outcome_links"][0]["id"]
+    link = evidence_service.session.get(LearningOutcomeCompetencyLink, link_id)
+    assert link is not None
+    assert link.evidence_text == OUTCOME_TEXT + "\nRelevant CGs: CG-3, C-3.2"
+    assert link.source_locator == _MAPPING_LOCATOR
+    import hashlib
+    import json
+
+    public_link = report["framework_structure"]["learning_outcome_links"][0]
+    assert "evidence_text" not in public_link
+    assert (
+        public_link["evidence_text_sha256"]
+        == hashlib.sha256(link.evidence_text.encode()).hexdigest()
+    )
+    assert public_link["evidence_text_length"] == len(link.evidence_text)
+    assert link.evidence_text not in json.dumps(report)
+    require_source_wording(
+        evidence_service.source_service,
+        revisions["ncert-grade-9-phase-i-part-2-draft"],
+        locator=link.source_locator,
+        official_text=link.evidence_text,
+    )
+
+
+@pytest.mark.parametrize(
+    "mapping_page",
+    [
+        "CG-3 C-3.2 without an explicit association label",
+        "Relevant CGs: CG-3 C-3.2\n14. Mensuration\nRelevant CGs: CG-3 C-3.2",
+    ],
+)
+def test_mapping_requires_unique_structural_row_and_explicit_association(
+    evidence_service: CurriculumIntelligenceService,
+    mapping_page: str,
+) -> None:
+    revisions = _official_test_revisions(evidence_service, adjacent_page=mapping_page)
+    report = official_source_demonstration(evidence_service, revisions)
+    assert report["verified"] is False
+    check = next(
+        check for check in report["checks"] if check["key"] == "outcome_competency_mapping"
+    )
+    assert check["verified"] is False
+    assert "path" not in report
+
+
+def test_public_quote_redaction_covers_duplicate_nested_locations() -> None:
+    import json
+
+    from app.curriculum_intelligence.official_demo import _redact_public_evidence_quotes
+
+    quote = "Synthetic private row quote. " * 100
+    report = {
+        "links": [{"evidence_text": quote, "source_locator": "PDF page 56"}],
+        "duplicate": {"more": [{"evidence_text": quote}]},
+    }
+    _redact_public_evidence_quotes(report)
+    assert quote not in json.dumps(report)
+    assert report["links"][0]["evidence_text_length"] == len(quote)
+    assert "evidence_text" not in report["duplicate"]["more"][0]

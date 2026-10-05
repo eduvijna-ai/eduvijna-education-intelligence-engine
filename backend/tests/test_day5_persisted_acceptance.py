@@ -66,6 +66,19 @@ def freeze_inventory(service, scope, item):
     scope["packs"] = [p for p in scope.get("packs", []) if p["code"] != pack["code"]] + [pack]
 
 
+def _grade_row(row, grade, source_grades):
+    locator = f"JSON pointer /catalogue/{source_grades.index(grade)}"
+    return row.model_copy(
+        update={
+            "grade": grade,
+            "source_locator": locator,
+            "applicability": row.applicability.model_copy(
+                update={"source_locator": locator + "/applicability"}
+            ),
+        }
+    )
+
+
 @pytest.fixture
 def persisted(tmp_path: Path):
     engine = create_database_engine(f"sqlite:///{tmp_path / 'acceptance.db'}")
@@ -100,6 +113,28 @@ def persisted(tmp_path: Path):
                     "English Science Unit Force Topic Concept section 1"
                 ),
                 "grades": source_grades,
+                "catalogue": [
+                    {
+                        "pack_code": "ts-scert" if index < 10 else "tgbie",
+                        "version_code": "2025-26",
+                        "official_label": "Science",
+                        "grade": grade,
+                        "academic_year": "2025-26",
+                        "instructional_medium": "English",
+                        "subject": "Science",
+                        "subject_language": "English",
+                        "language_role": "not_applicable",
+                        "book_part": "whole",
+                        "bilingual": "no",
+                        "course_family": "General",
+                        "resource_kind": "syllabus_document",
+                        "applicability": {"status": "explicit_groups", "groups": ["MPC"]},
+                        "not_applicable_justifications": {
+                            "language_role": "Science is not a language course."
+                        },
+                    }
+                    for index, grade in enumerate(source_grades)
+                ],
             }
         ).encode()
         checksum = hashlib.sha256(content).hexdigest()
@@ -134,15 +169,7 @@ def persisted(tmp_path: Path):
             draft_snapshot = CatalogueSnapshot(
                 source_revision_id="pending",
                 source_checksum=checksum,
-                rows=tuple(
-                    row.model_copy(
-                        update={
-                            "grade": g,
-                            "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
-                        }
-                    )
-                    for g in grades
-                ),
+                rows=tuple(_grade_row(row, g, source_grades) for g in grades),
                 inventory_observations=(
                     InventoryObservation(
                         source_locator=catalogue_row.source_locator,
@@ -150,15 +177,7 @@ def persisted(tmp_path: Path):
                         reason="reviewed inventory entry",
                         row_identity=catalogue_row.identity,
                     )
-                    for catalogue_row in (
-                        row.model_copy(
-                            update={
-                                "grade": g,
-                                "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
-                            }
-                        )
-                        for g in grades
-                    )
+                    for catalogue_row in (_grade_row(row, g, source_grades) for g in grades)
                 ),
                 inventory_status="complete",
                 extraction_method="reviewed offline test",
@@ -290,15 +309,7 @@ def persisted(tmp_path: Path):
             snapshot = CatalogueSnapshot(
                 source_revision_id=revision.id,
                 source_checksum=revision.checksum,
-                rows=tuple(
-                    row.model_copy(
-                        update={
-                            "grade": g,
-                            "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
-                        }
-                    )
-                    for g in grades
-                ),
+                rows=tuple(_grade_row(row, g, source_grades) for g in grades),
                 inventory_observations=(
                     InventoryObservation(
                         source_locator=catalogue_row.source_locator,
@@ -306,15 +317,7 @@ def persisted(tmp_path: Path):
                         reason="reviewed inventory entry",
                         row_identity=catalogue_row.identity,
                     )
-                    for catalogue_row in (
-                        row.model_copy(
-                            update={
-                                "grade": g,
-                                "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
-                            }
-                        )
-                        for g in grades
-                    )
+                    for catalogue_row in (_grade_row(row, g, source_grades) for g in grades)
                 ),
                 inventory_status="complete",
                 extraction_method="reviewed offline test",
@@ -468,27 +471,46 @@ def draft_inventory(
     original = CatalogueSnapshot.model_validate(
         version.metadata_json["scoped_catalogue_snapshots"][governing.id]["snapshot"]
     )
+    draft_payload = json.loads(service.source_service.storage.read(governing.storage_path))
     if row_overrides:
-        changed_rows = tuple(
-            row.model_copy(update=row_overrides) if index == 0 else row
-            for index, row in enumerate(original.rows)
+        row_overrides = dict(row_overrides)
+        if "applicability" in row_overrides:
+            row_overrides["applicability"] = row_overrides["applicability"].model_copy(
+                update={"source_locator": original.rows[0].source_locator + "/applicability"}
+            )
+        for field, value in row_overrides.items():
+            draft_payload["catalogue"][0][field] = (
+                value.model_dump(mode="json", exclude={"source_locator"})
+                if field == "applicability"
+                else value
+            )
+    draft_content = json.dumps(draft_payload).encode()
+    draft_checksum = hashlib.sha256(draft_content).hexdigest()
+    changed_rows = tuple(
+        row.model_copy(
+            update={
+                **(row_overrides if row_overrides and index == 0 else {}),
+                "source_checksum": draft_checksum,
+            }
         )
-        original = CatalogueSnapshot(
-            source_revision_id=original.source_revision_id,
-            source_checksum=original.source_checksum,
-            rows=changed_rows,
-            inventory_status="complete",
-            extraction_method=original.extraction_method,
-            inventory_observations=tuple(
-                InventoryObservation(
-                    source_locator=row.source_locator,
-                    status="resolved",
-                    reason="reviewed inventory entry",
-                    row_identity=row.identity,
-                )
-                for row in changed_rows
-            ),
-        )
+        for index, row in enumerate(original.rows)
+    )
+    original = CatalogueSnapshot(
+        source_revision_id=original.source_revision_id,
+        source_checksum=draft_checksum,
+        rows=changed_rows,
+        inventory_status="complete",
+        extraction_method=original.extraction_method,
+        inventory_observations=tuple(
+            InventoryObservation(
+                source_locator=row.source_locator,
+                status="resolved",
+                reason="reviewed inventory entry",
+                row_identity=row.identity,
+            )
+            for row in changed_rows
+        ),
+    )
     metadata = copy.deepcopy(service._source_metadata(governing))
     metadata["inventory_scope"] = metadata.pop("curriculum_scope")
     metadata["official_catalogue_review_digests"] = [original.inventory_digest]
@@ -573,7 +595,7 @@ def draft_inventory(
         source.id,
         method=SourceIngestionMethod.JSON,
         filename="draft.json",
-        content=service.source_service.storage.read(governing.storage_path),
+        content=draft_content,
         actor_id="test",
     )
     service.source_service.extract_revision(revision.id, actor_id="test")
@@ -1316,3 +1338,271 @@ def test_code_only_existing_ancestor_and_acceptance_recheck_claim(persisted, cod
             _verify_slice(service, expected, observation)
         with pytest.raises(ValueError):
             service.upsert_nodes(version=version, revision=revision, specs=[spec])
+
+
+def pair_revision(service, version, name, media, content, declarations=()):
+    original = service.session.get(SourceRevision, version.source_revision_id)
+    metadata = copy.deepcopy(service._source_metadata(original))
+    metadata.update(document_type="syllabus", correspondences=list(declarations))
+    metadata["curriculum_scope"]["media"] = media
+    metadata["curriculum_scope"]["applicability_locator"] = "JSON pointer /text"
+    source = service.source_service.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_SYLLABUS,
+            title="Offline paired source",
+            url=f"https://example.invalid/{name}.json",
+            authority="Offline authority",
+            country="India",
+            board_or_exam=version.curriculum_pack.code,
+            academic_year=version.academic_year,
+            copyright_classification="test_response",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json=metadata,
+        ),
+        actor_id="test",
+    )
+    revision = service.source_service.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="pair.json",
+        content=json.dumps(content, ensure_ascii=False).encode(),
+        actor_id="test",
+    )
+    service.source_service.extract_revision(revision.id, actor_id="test")
+    service.source_service.create_diff(revision.id, actor_id="test")
+    assert service.source_service.validate_revision(revision.id, actor_id="test").valid
+    service.source_service.approve_revision(revision.id, actor_id="test")
+    service.source_service.activate_revision(revision.id, actor_id="test")
+    return revision
+
+
+@pytest.fixture
+def paired(persisted):
+    from app.curriculum_intelligence.scoped_curriculum import link_correspondence
+
+    service, report, scope = persisted
+    left_observed = copy.deepcopy(report["materialized_slices"][0])
+    left_expected = copy.deepcopy(scope["required_detailed_slices"][0])
+    version = service.session.get(CurriculumVersion, left_observed["path"]["curriculum_version_id"])
+    revision = pair_revision(
+        service,
+        version,
+        "telugu",
+        ["Telugu"],
+        {"text": "VIII Telugu Science Unit తెలుగు బలం తెలుగు విషయం Concept"},
+    )
+    specs = []
+    parent = None
+    for kind, title in zip(
+        ("grade_year", "medium", "subject", "unit", "chapter", "topic", "concept"),
+        ("VIII", "Telugu", "Science", "Unit", "తెలుగు బలం", "తెలుగు విషయం", "Concept"),
+        strict=True,
+    ):
+        code = "telugu-" + kind
+        specs.append(
+            CurriculumNodeSpec(
+                node_type=kind,
+                code=code,
+                title=title,
+                parent_code=parent,
+                official_text=title,
+                source_locator="JSON pointer /text",
+                metadata_json={
+                    "identity": {
+                        "grade": "VIII",
+                        "medium": "Telugu",
+                        "subject": "Science",
+                        **EXTRAS,
+                    }
+                },
+            )
+        )
+        parent = code
+    nodes = service.upsert_nodes(version=version, revision=revision, specs=specs)
+    right_observed = {
+        "source_revision_id": revision.id,
+        "source_checksum": revision.checksum,
+        "academic_version": version.version_code,
+        "synthetic": False,
+        "path": service.curriculum_path(nodes["telugu-concept"].id).model_dump(mode="json"),
+    }
+    right_expected = {
+        **left_expected,
+        "key": "telugu-side",
+        "source_revision": revision.id,
+        "source_checksum": revision.checksum,
+        "medium": "Telugu",
+        "chapter": "తెలుగు బలం",
+    }
+    left_node = service.session.get(CurriculumNode, left_observed["path"]["node_ids"][-1])
+    declaration = {
+        "left_code": left_node.code,
+        "right_code": "telugu-concept",
+        "locator": "JSON pointer /link",
+        "evidence_text": "The English Force chapter corresponds to the Telugu బలం chapter.",
+    }
+    evidence = pair_revision(
+        service,
+        version,
+        "correspondence",
+        ["English", "Telugu"],
+        {
+            "text": "This reviewed correspondence applies to VIII Science in both media.",
+            "link": declaration,
+        },
+        [declaration],
+    )
+    relationship_id = link_correspondence(
+        service,
+        version,
+        left_node_id=left_node.id,
+        right_node_id=nodes["telugu-concept"].id,
+        revision=evidence,
+        locator=declaration["locator"],
+        evidence_text=declaration["evidence_text"],
+    )
+    requirement = {
+        "key": "scert-viii-science-telugu-correspondence",
+        "materialization_type": "cross_medium_correspondence",
+        "left": left_expected,
+        "right": right_expected,
+        "correspondence": {
+            **declaration,
+            "node_type": "concept",
+            "source_revision": evidence.id,
+            "source_checksum": evidence.checksum,
+        },
+    }
+    observation = {
+        "key": requirement["key"],
+        "materialization_type": "cross_medium_correspondence",
+        "synthetic": False,
+        "version_id": version.id,
+        "relationship_id": relationship_id,
+        "left": left_observed,
+        "right": right_observed,
+    }
+    scope["required_detailed_slices"].append(requirement)
+    report["materialized_slices"].append(observation)
+    service.session.commit()
+    service.session.expire_all()
+    return service, report, scope, version
+
+
+def test_correspondence_requires_true_persisted_paired_evidence(paired):
+    service, report, scope, _ = paired
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert result["passed"], result
+    assert result["verified_detailed_slice_count"] == 3
+    assert result["verified_materialization_counts"]["cross_medium_correspondence"] == 1
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "telugu_only",
+        "missing_record",
+        "wrong_record",
+        "same_medium",
+        "missing_english",
+        "other_pair",
+        "wrong_version",
+        "wrong_binding",
+        "wrong_locator",
+        "wrong_wording",
+        "wrong_materialization_type",
+        "unfrozen_pair",
+        "corrupt_digest",
+        "historical_version",
+        "stale_source",
+        "rehashed_wrong_pair",
+    ],
+)
+def test_correspondence_gate_rejects_unproven_pairs(paired, attack):
+    service, report, scope, version = paired
+    observation = report["materialized_slices"][-1]
+    required = scope["required_detailed_slices"][-1]
+    if attack == "telugu_only":
+        report["materialized_slices"][-1] = {**observation["right"], "key": required["key"]}
+    elif attack == "missing_record":
+        metadata = copy.deepcopy(version.metadata_json)
+        metadata["cross_medium_correspondences"] = {}
+        version.metadata_json = metadata
+    elif attack == "wrong_record":
+        observation["relationship_id"] = "missing"
+    elif attack == "same_medium":
+        observation["right"] = copy.deepcopy(observation["left"])
+        required["right"] = copy.deepcopy(required["left"])
+    elif attack == "missing_english":
+        observation.pop("left")
+    elif attack == "other_pair":
+        observation["left"] = copy.deepcopy(report["materialized_slices"][1])
+    elif attack == "wrong_version":
+        observation["version_id"] = report["materialized_slices"][1]["path"][
+            "curriculum_version_id"
+        ]
+    elif attack == "wrong_binding":
+        required["correspondence"]["source_checksum"] = "f" * 64
+    elif attack == "wrong_locator":
+        required["correspondence"]["locator"] = "JSON pointer /text"
+    elif attack == "wrong_wording":
+        required["correspondence"]["evidence_text"] = "Unverified translation"
+    elif attack == "wrong_materialization_type":
+        observation["materialization_type"] = "detailed_path"
+    elif attack == "unfrozen_pair":
+        required["right"].pop("source_checksum")
+    elif attack == "historical_version":
+        version.status = "superseded"
+    elif attack == "stale_source":
+        evidence = service.session.get(
+            SourceRevision, required["correspondence"]["source_revision"]
+        )
+        evidence.status = "superseded"
+        evidence.active_slot = None
+    elif attack == "rehashed_wrong_pair":
+        metadata = copy.deepcopy(version.metadata_json)
+        record = metadata["cross_medium_correspondences"].pop(observation["relationship_id"])
+        record["right_id"] = report["materialized_slices"][1]["path"]["node_ids"][-1]
+        new_key = hashlib.sha256(
+            json.dumps(record, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        metadata["cross_medium_correspondences"][new_key] = record
+        version.metadata_json = metadata
+        observation["relationship_id"] = new_key
+    elif attack == "corrupt_digest":
+        metadata = copy.deepcopy(version.metadata_json)
+        metadata["cross_medium_correspondences"][observation["relationship_id"]][
+            "evidence_text"
+        ] = "corrupted"
+        version.metadata_json = metadata
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert not result["passed"]
+    assert required["key"] in result["incomplete_components"]
+
+
+def test_correspondence_frozen_source_bindings_replay_without_database_ids(paired, tmp_path):
+    service, _, scope, _ = paired
+    frozen = copy.deepcopy(scope)
+    for requirement in frozen["required_detailed_slices"]:
+        contracts = (
+            [requirement]
+            if "left" not in requirement
+            else [requirement["left"], requirement["right"], requirement["correspondence"]]
+        )
+        for contract in contracts:
+            revision = service.session.get(SourceRevision, contract.pop("source_revision"))
+            contract["source_url"] = revision.metadata_json["source_snapshot"]["url"]
+            contract["source_snapshot_checksum"] = revision.source_snapshot_checksum
+    fresh = tmp_path / "pair-replay"
+    fresh.mkdir()
+    replay = globals()["persisted"].__wrapped__(fresh)
+    replay_service, report, _, _ = globals()["paired"].__wrapped__(next(replay))
+    try:
+        result = evaluate_day5_acceptance(report, frozen, service=replay_service)
+        assert result["passed"], result
+        frozen["required_detailed_slices"][-1]["correspondence"]["source_snapshot_checksum"] = (
+            "f" * 64
+        )
+        assert not evaluate_day5_acceptance(report, frozen, service=replay_service)["passed"]
+    finally:
+        replay.close()

@@ -374,26 +374,160 @@ def test_direct_assertions_require_review_and_source_evidence(changes: dict[str,
         LearningOutcomeCompetencyInput.model_validate(values)
 
 
+def _direct_context(
+    db: Session, tmp_path: Path
+) -> tuple[Context, FrameworkStructureService, dict[str, FrameworkStructureNode]]:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+    from app.source_intelligence.service import SourceIntelligenceService
+    from app.source_intelligence.storage import LocalSourceStorage
+
+    context = _context(db)
+    sources = SourceIntelligenceService(db, storage=LocalSourceStorage(tmp_path / "sources"))
+    source = sources.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_AUTHORITY,
+            title="Synthetic direct mapping fixture",
+            url="https://synthetic.invalid/framework.json",
+            authority="Synthetic",
+            country="Test",
+            copyright_classification="synthetic_fixture",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json={"synthetic": True, "document_type": "education_framework"},
+        ),
+        actor_id="test",
+    )
+    revision = sources.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="direct.json",
+        content=json.dumps(
+            {
+                "mapping": "Synthetic learning outcome maps to Synthetic competency C3.2.",
+                "unrelated": "Another outcome maps to C9.9.",
+            }
+        ).encode(),
+        actor_id="test",
+    )
+    sources.extract_revision(revision.id, actor_id="test")
+    sources.create_diff(revision.id, actor_id="test")
+    assert sources.validate_revision(revision.id, actor_id="test").valid
+    sources.approve_revision(revision.id, actor_id="test")
+    context.revision = sources.activate_revision(revision.id, actor_id="test")
+    for entity in (context.framework, context.version, context.competency, context.outcome):
+        entity.source_revision_id = revision.id
+    context.outcome.source_locator = "JSON pointer /mapping"
+    context.competency.source_locator = "JSON pointer /mapping"
+    context.competency.official_text = "Synthetic competency C3.2"
+    context.competency.metadata_json = {"official_code": "C3.2"}
+    db.flush()
+    service = FrameworkStructureService(db, source_service=sources)
+    specs = [
+        spec.model_copy(
+            update={
+                "source_locator": "JSON pointer /mapping",
+                **(
+                    {"official_text": context.competency.official_text}
+                    if spec.level == "competency"
+                    else {}
+                ),
+            }
+        )
+        for spec in _specs(context)
+    ]
+    nodes = service.upsert_nodes(framework=context.framework, revision=revision, specs=specs)
+    return context, service, nodes
+
+
 def test_direct_link_retains_draft_status_and_registry_only_cannot_claim_direct(
     db: Session,
+    tmp_path: Path,
 ) -> None:
-    context = _context(db)
-    nodes = _tree(db, context)
+    context, service, nodes = _direct_context(db, tmp_path)
     payload = _link_input(
         context,
         nodes["C3.2"].id,
         status="direct",
         inferred=False,
-        evidence_text="Synthetic direct mapping from source",
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
     )
-    service = FrameworkStructureService(db)
     link = service.link_learning_outcome(payload)
     assert link.publication_status == "draft"
     assert link.status == "direct"
+    assert service.link_learning_outcome(payload).id == link.id
     context.revision.ingestion_method = "manual"
     db.flush()
     with pytest.raises(FrameworkStructureError, match="retrieved source content"):
         service.link_learning_outcome(payload)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "cross_section",
+        "fabricated_quote",
+        "different_outcome",
+        "tampered_bytes",
+        "outcome_revision",
+        "node_revision",
+        "competency_revision",
+        "wrong_node_locator",
+    ],
+)
+def test_direct_mapping_requires_bounded_original_quote_and_target_provenance(
+    db: Session,
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    context, service, nodes = _direct_context(db, tmp_path)
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    if failure == "cross_section":
+        payload = payload.model_copy(update={"source_locator": "JSON pointer /unrelated"})
+    elif failure == "fabricated_quote":
+        payload = payload.model_copy(update={"evidence_text": "Invented direct relationship"})
+    elif failure == "different_outcome":
+        payload = payload.model_copy(
+            update={
+                "evidence_text": "Another outcome maps to C9.9.",
+                "source_locator": "JSON pointer /unrelated",
+            }
+        )
+    elif failure == "tampered_bytes":
+        Path(service.source_service.storage.root / context.revision.storage_path).write_bytes(
+            b"tampered"
+        )
+    elif failure == "wrong_node_locator":
+        nodes["C3.2"].source_locator = "JSON pointer /unrelated"
+    else:
+        other = _context(db, "other")
+        target = {
+            "outcome_revision": context.outcome,
+            "node_revision": nodes["C3.2"],
+            "competency_revision": context.competency,
+        }[failure]
+        target.source_revision_id = other.revision.id
+    db.flush()
+    with pytest.raises(FrameworkStructureError):
+        service.link_learning_outcome(payload)
+    assert db.scalar(select(func.count()).select_from(LearningOutcomeCompetencyLink)) == 0
+
+
+def test_inferred_link_commentary_is_not_required_to_be_source_quotation(db: Session) -> None:
+    context = _context(db)
+    nodes = _tree(db, context)
+    payload = _link_input(context, nodes["C3.2"].id, evidence_text="Derived pedagogical commentary")
+    link = FrameworkStructureService(db).link_learning_outcome(payload)
+    assert link.inferred and link.status == "partial"
 
 
 @pytest.mark.parametrize(
@@ -520,3 +654,71 @@ def test_assessment_snapshots_cannot_create_framework_or_outcome_mappings(
     with pytest.raises(FrameworkStructureError, match="assessment sources"):
         service.link_learning_outcome(_link_input(context, nodes["C3.2"].id))
     assert db.scalar(select(func.count(LearningOutcomeCompetencyLink.id))) == 0
+
+
+def test_direct_mapping_can_reference_independently_sourced_outcome_and_standard(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+
+    context, service, nodes = _direct_context(db, tmp_path)
+    sources = service.source_service
+    revisions = {}
+    for name, document_type in (
+        ("outcome", "learning_outcomes"),
+        ("mapping", "learning_standards"),
+    ):
+        source = sources.register_source(
+            SourceRegistrationInput(
+                source_type=SourceType.OFFICIAL_AUTHORITY,
+                title=f"Synthetic {name}",
+                url=f"https://synthetic.invalid/{name}.json",
+                authority="Synthetic",
+                country="Test",
+                copyright_classification="synthetic_fixture",
+                trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+                metadata_json={"synthetic": True, "document_type": document_type},
+            ),
+            actor_id="test",
+        )
+        revision = sources.ingest_upload(
+            source.id,
+            method=SourceIngestionMethod.JSON,
+            filename=f"{name}.json",
+            content=json.dumps(
+                {"mapping": "Synthetic learning outcome maps to Synthetic competency C3.2."}
+            ).encode(),
+            actor_id="test",
+        )
+        sources.extract_revision(revision.id, actor_id="test")
+        sources.create_diff(revision.id, actor_id="test")
+        assert sources.validate_revision(revision.id, actor_id="test").valid
+        sources.approve_revision(revision.id, actor_id="test")
+        revisions[name] = sources.activate_revision(revision.id, actor_id="test")
+    context.outcome.source_revision_id = revisions["outcome"].id
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_revision_id=revisions["mapping"].id,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    link = service.link_learning_outcome(payload)
+    assert link.status == "direct"
+    assert (
+        len(
+            {
+                link.source_revision_id,
+                context.outcome.source_revision_id,
+                context.competency.source_revision_id,
+            }
+        )
+        == 3
+    )

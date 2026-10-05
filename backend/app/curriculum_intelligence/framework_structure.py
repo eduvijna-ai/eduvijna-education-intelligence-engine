@@ -19,6 +19,8 @@ from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.curriculum_intelligence.source_domains import require_domain, source_domain
 from app.curriculum_intelligence.standards_evidence import (
     StandardsEvidenceError,
+    contains_complete_identifier,
+    require_source_wording,
     require_standards_evidence,
 )
 from app.models.curriculum import (
@@ -336,6 +338,71 @@ class FrameworkStructureService:
             raise FrameworkStructureError(
                 "learning outcome cannot link to a cross-framework target"
             )
+        if payload.status == "direct":
+            # A mapping publication may legitimately reference separately sourced
+            # outcomes and standards. Revalidate each target's own exact evidence;
+            # only a node and its attached competency must share their source.
+            if node.source_revision_id != competency.source_revision_id:
+                raise FrameworkStructureError(
+                    "Node and attached competency evidence revisions differ"
+                )
+            if outcome.source_revision_id is None:
+                raise FrameworkStructureError("Direct mapping outcome has no source revision")
+            outcome_revision = self._active_revision(outcome.source_revision_id, "outcome")
+            node_revision = self._active_revision(node.source_revision_id, "framework_structure")
+            competency_revision = self._active_revision(competency.source_revision_id, "competency")
+            competency_code = competency.metadata_json.get("official_code")
+            if not (
+                competency_code
+                and competency_code == node.official_code
+                or competency.official_text
+                and competency.official_text == node.official_text
+            ):
+                raise FrameworkStructureError("Direct mapping target official identities differ")
+            try:
+                require_source_wording(
+                    self.source_service,
+                    revision,
+                    locator=payload.source_locator,
+                    official_text=payload.evidence_text,
+                )
+                require_source_wording(
+                    self.source_service,
+                    outcome_revision,
+                    locator=outcome.source_locator,
+                    official_text=outcome.text,
+                )
+                require_source_wording(
+                    self.source_service,
+                    node_revision,
+                    locator=node.source_locator,
+                    official_text=node.official_text,
+                    official_code=node.official_code,
+                )
+                require_source_wording(
+                    self.source_service,
+                    competency_revision,
+                    locator=competency.source_locator,
+                    official_text=competency.official_text,
+                    official_code=competency_code,
+                )
+            except StandardsEvidenceError as exc:
+                raise FrameworkStructureError(str(exc)) from exc
+            quote = payload.evidence_text or ""
+            if (
+                outcome.text not in quote
+                or (
+                    node.official_code
+                    and not contains_complete_identifier(quote, node.official_code)
+                )
+                or (
+                    not node.official_code
+                    and (not node.official_text or node.official_text not in quote)
+                )
+            ):
+                raise FrameworkStructureError(
+                    "Direct quote must identify both the outcome and competency"
+                )
         values: dict[str, Any] = {
             "curriculum_version_id": str(payload.curriculum_version_id),
             "learning_outcome_id": outcome.id,

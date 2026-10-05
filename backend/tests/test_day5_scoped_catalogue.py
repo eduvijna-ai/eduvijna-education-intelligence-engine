@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -14,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.curriculum_intelligence.scoped_catalogue import (
     CATALOGUE_QUERY_DIMENSIONS,
+    CATALOGUE_SOURCE_DIMENSIONS,
     STORAGE_KEY,
     CatalogueQuery,
     CatalogueSnapshot,
@@ -495,8 +497,29 @@ def test_each_conflicting_query_dimension_prevents_match(dimension: str) -> None
     assert query_catalogue((row(),), full_query(**{dimension: "different"})).status == "no_match"
 
 
-def bounded_inventory_context() -> tuple[Any, Any, Any, CatalogueSnapshot]:
-    content = b'{"inventory": [{"title": "Original row", "group_note": "Applies as declared"}]}'
+def bounded_inventory_context(
+    source_changes: dict[str, Any] | None = None,
+) -> tuple[Any, Any, Any, CatalogueSnapshot]:
+    original = row().model_dump(include=set(CATALOGUE_SOURCE_DIMENSIONS) | {"resource_url"})
+    original.update({"pack_code": "pack", "version_code": "version"})
+    original["applicability"] = {"status": "explicit_groups", "groups": ["MPC"]}
+    original.update(source_changes or {})
+    other = original | {
+        "grade": "IX",
+        "instructional_medium": "English",
+        "subject": "Mathematics",
+        "course_family": "Vocational",
+        "subject_language": "English",
+        "language_role": "second",
+        "book_part": "2",
+        "bilingual": "yes",
+        "official_label": "Other book",
+        "academic_year": "2026-27",
+        "resource_kind": "assessment",
+        "resource_url": "https://example.invalid/other.pdf",
+        "applicability": {"status": "explicit_groups", "groups": ["BPC"]},
+    }
+    content = json.dumps({"inventory": [original, other]}, ensure_ascii=False).encode()
     checksum = hashlib.sha256(content).hexdigest()
     service = MagicMock()
     service.has_source_content.return_value = True
@@ -506,7 +529,7 @@ def bounded_inventory_context() -> tuple[Any, Any, Any, CatalogueSnapshot]:
     service.source_service._approval_fingerprint.return_value = "approved"
     service._source_metadata.return_value = {
         "inventory_scope": approved_scope()
-        .model_copy(update={"applicability_locator": "JSON pointer /inventory/0/group_note"})
+        .model_copy(update={"applicability_locator": "JSON pointer /inventory/0/applicability"})
         .model_dump()
     }
     revision = SimpleNamespace(
@@ -533,20 +556,19 @@ def bounded_inventory_context() -> tuple[Any, Any, Any, CatalogueSnapshot]:
     version.metadata_json = {"scope_enforced": True}
     item = row(
         source_checksum=checksum,
-        source_locator="JSON pointer /inventory/0/title",
+        source_locator="JSON pointer /inventory/0",
         applicability=CourseApplicability(
             status="explicit_groups",
             groups=("MPC",),
-            source_locator="JSON pointer /inventory/0/group_note",
+            source_locator="JSON pointer /inventory/0/applicability",
         ),
     )
     return service, version, revision, snapshot(item, source_checksum=checksum)
 
 
-def test_structural_inventory_and_group_locators_without_normalized_value_lexical_claims() -> None:
+def test_structured_original_inventory_row_binds_all_claimed_dimensions() -> None:
     service, version, revision, inventory = bounded_inventory_context()
-    # The approved normalized group MPC is not required to be literal source text.
-    assert "MPC" not in revision.extracted_text
+    assert json.loads(revision.extracted_text)["inventory"][0]["applicability"]["groups"] == ["MPC"]
     assert materialize_catalogue(service, version, revision, inventory).status == "complete"
 
 
@@ -582,3 +604,148 @@ def test_scope_applicability_locator_requires_original_structure(locator: str | 
         materialize_catalogue(service, version, revision, inventory)
     assert version.metadata_json == {"scope_enforced": True}
     service.session.flush.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "field,allowed,value",
+    [
+        ("grade", "grades", "IX"),
+        ("instructional_medium", "media", "English"),
+        ("subject", "subjects", "Mathematics"),
+        ("course_family", "course_families", "Vocational"),
+        ("subject_language", "subject_languages", "English"),
+        ("language_role", "language_roles", "second"),
+        ("book_part", "book_parts", "2"),
+        ("bilingual", "bilingual_states", "yes"),
+        ("official_label", None, "Other book"),
+        ("resource_kind", None, "assessment"),
+        ("resource_url", None, "https://example.invalid/other.pdf"),
+        ("academic_year", None, "2026-27"),
+    ],
+)
+def test_globally_allowed_other_row_value_cannot_rebind_first_row(
+    field: str, allowed: str | None, value: str
+) -> None:
+    service, version, revision, inventory = bounded_inventory_context()
+    if allowed:
+        service._source_metadata.return_value["inventory_scope"][allowed] += (value,)
+    if field == "academic_year":
+        version.academic_year = value
+    changed = snapshot(
+        inventory.rows[0].model_copy(update={field: value}), source_checksum=revision.checksum
+    )
+    with pytest.raises(ScopedCatalogueError, match="source row contradicts"):
+        materialize_catalogue(service, version, revision, changed)
+    assert version.metadata_json == {"scope_enforced": True}
+    service.session.flush.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "locator",
+    ["JSON pointer /inventory/0/applicability", "JSON pointer /inventory/1/applicability"],
+)
+def test_other_row_group_cannot_be_rebound_even_if_globally_approved(locator: str) -> None:
+    service, version, revision, inventory = bounded_inventory_context()
+    service._source_metadata.return_value["inventory_scope"]["course_groups"] += ("BPC",)
+    changed = snapshot(
+        inventory.rows[0].model_copy(
+            update={
+                "applicability": CourseApplicability(
+                    status="explicit_groups", groups=("BPC",), source_locator=locator
+                )
+            }
+        ),
+        source_checksum=revision.checksum,
+    )
+    with pytest.raises(ScopedCatalogueError, match="source row|same source row"):
+        materialize_catalogue(service, version, revision, changed)
+    service.session.flush.assert_not_called()
+
+
+@pytest.mark.parametrize("justification", [None, "", "Explicitly not a language subject"])
+def test_inapplicability_requires_original_row_value_and_justification(
+    justification: str | None,
+) -> None:
+    source = {"language_role": "not_applicable"}
+    if justification is not None:
+        source["not_applicable_justifications"] = {"language_role": justification}
+    service, version, revision, inventory = bounded_inventory_context(source)
+    service._source_metadata.return_value["inventory_scope"]["language_roles"] = ("not_applicable",)
+    changed = snapshot(
+        inventory.rows[0].model_copy(update={"language_role": "not_applicable"}),
+        source_checksum=revision.checksum,
+    )
+    if justification:
+        assert materialize_catalogue(service, version, revision, changed).status == "complete"
+    else:
+        with pytest.raises(ScopedCatalogueError, match="justification"):
+            materialize_catalogue(service, version, revision, changed)
+        service.session.flush.assert_not_called()
+
+
+def test_global_reviewed_justification_cannot_override_actual_row_contradiction() -> None:
+    service, version, revision, inventory = bounded_inventory_context()
+    service._source_metadata.return_value["inventory_scope"]["language_roles"] += (
+        "not_applicable",
+    )
+    service._source_metadata.return_value["not_applicable_justifications"] = {
+        "language_role": "Review metadata cannot rewrite the original first-language row"
+    }
+    changed = snapshot(
+        inventory.rows[0].model_copy(update={"language_role": "not_applicable"}),
+        source_checksum=revision.checksum,
+    )
+    with pytest.raises(ScopedCatalogueError, match="contradicts language_role"):
+        materialize_catalogue(service, version, revision, changed)
+
+
+@pytest.mark.parametrize("dimension", ["pack_code", "version_code"])
+def test_source_row_pack_version_cannot_be_rebound_by_global_scope(dimension: str) -> None:
+    service, version, revision, inventory = bounded_inventory_context()
+    if dimension == "pack_code":
+        version.curriculum_pack.code = "other"
+        service._source_metadata.return_value["inventory_scope"]["pack_code"] = "other"
+    else:
+        version.version_code = "other"
+        service._source_metadata.return_value["inventory_scope"]["version_codes"] += ("other",)
+    with pytest.raises(ScopedCatalogueError, match="source row contradicts pack/version"):
+        materialize_catalogue(service, version, revision, inventory)
+    service.session.flush.assert_not_called()
+
+
+@pytest.mark.parametrize("mime", ["text/html", "application/pdf", "text/plain"])
+def test_unsupported_row_association_formats_remain_blocked(mime: str) -> None:
+    from app.curriculum_intelligence.scoped_catalogue import validate_catalogue_row_evidence
+
+    service, version, revision, inventory = bounded_inventory_context()
+    revision.content_type = mime
+    with pytest.raises(ScopedCatalogueError, match="row-context adapter"):
+        validate_catalogue_row_evidence(service, revision, inventory.rows[0], version=version)
+
+
+@pytest.mark.parametrize("reason", [None, "This school resource has no course-group subdivision"])
+def test_not_applicable_course_group_requires_explicit_original_justification(
+    reason: str | None,
+) -> None:
+    source: dict[str, Any] = {
+        "applicability": {"status": "explicit_groups", "groups": ["not_applicable"]}
+    }
+    if reason:
+        source["not_applicable_justifications"] = {"course_group": reason}
+    service, version, revision, inventory = bounded_inventory_context(source)
+    service._source_metadata.return_value["inventory_scope"]["course_groups"] = ("not_applicable",)
+    item = inventory.rows[0].model_copy(
+        update={
+            "applicability": CourseApplicability(
+                status="explicit_groups",
+                groups=("not_applicable",),
+                source_locator="JSON pointer /inventory/0/applicability",
+            )
+        }
+    )
+    candidate = snapshot(item, source_checksum=revision.checksum)
+    if reason:
+        assert materialize_catalogue(service, version, revision, candidate).status == "complete"
+    else:
+        with pytest.raises(ScopedCatalogueError, match="inapplicability justification"):
+            materialize_catalogue(service, version, revision, candidate)
