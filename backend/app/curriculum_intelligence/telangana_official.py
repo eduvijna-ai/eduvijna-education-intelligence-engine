@@ -24,6 +24,16 @@ from app.models.source import SourceRevision
 from app.schemas.curriculum_intelligence import CurriculumNodeSpec
 
 
+def _usable_source(
+    service: CurriculumIntelligenceService, revision: SourceRevision | None
+) -> bool:
+    return bool(
+        revision is not None
+        and service.has_source_content(revision)
+        and not service.is_registry_only(revision)
+    )
+
+
 def load_verification_slice(root: Path) -> dict[str, Any]:
     payload = json.loads((root / "day5-verification-slice.json").read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -159,32 +169,36 @@ def official_telangana_demonstration(
     bs_revision = revisions.get("scert-bs-english-syllabus")
     ia_plan = revisions.get("tgbie-maths-ia-annual-plan-2025-26")
     iia_plan = revisions.get("tgbie-maths-iia-annual-plan-2026-27")
-    anchor_revision = scert_revision or bs_revision or ia_plan or iia_plan
-    if anchor_revision is None:
-        raise ValueError("No official Telangana source revisions available")
+    scert_seed = scert_revision if _usable_source(service, scert_revision) else None
+    if scert_seed is None and _usable_source(service, bs_revision):
+        scert_seed = bs_revision
 
-    scert_pack = service.ensure_pack(
-        framework=None,
-        code="ts-scert",
-        name="SCERT Telangana",
-        authority="SCERT Telangana",
-        country="India",
-        revision=scert_revision or bs_revision or anchor_revision,
-        source_locator="Official SCERT syllabus PDFs",
-    )
-    scert_pack.active = False
-    scert_seed = scert_revision or bs_revision or anchor_revision
-    scert_version = service.ensure_version(
-        pack=scert_pack,
-        version_code="2025-26-syllabus",
-        academic_year="2025-26",
-        revision=scert_seed,
-        active=False,
-        source_locator="SCERT VIII science syllabus PDFs",
-        metadata_json={"scope_enforced": True, "official_demonstration": True},
-    )
+    scert_pack = None
+    scert_version = None
+    if scert_seed is not None:
+        scert_pack = service.ensure_pack(
+            framework=None,
+            code="ts-scert",
+            name="SCERT Telangana",
+            authority="SCERT Telangana",
+            country="India",
+            revision=scert_seed,
+            source_locator="Official SCERT syllabus PDFs",
+        )
+        scert_pack.active = False
+        scert_version = service.ensure_version(
+            pack=scert_pack,
+            version_code="2025-26-syllabus",
+            academic_year="2025-26",
+            revision=scert_seed,
+            active=False,
+            source_locator="SCERT VIII science syllabus PDFs",
+            metadata_json={"scope_enforced": True, "official_demonstration": True},
+        )
+    else:
+        unresolved.append("scert-pack:no_usable_official_source_bytes")
 
-    if scert_revision and service.has_source_content(scert_revision):
+    if scert_version and scert_pack and scert_revision and _usable_source(service, scert_revision):
         try:
             parsed_ps = parse_scert_syllabus_pdf(
                 service.source_service.storage.read(scert_revision.storage_path or "")
@@ -232,7 +246,7 @@ def official_telangana_demonstration(
         except (TelanganaSyllabusParseError, KeyError, ValueError) as exc:
             unresolved.append(f"scert-viii-physical-science-english:{exc}")
 
-    if bs_revision and service.has_source_content(bs_revision):
+    if scert_version and bs_revision and _usable_source(service, bs_revision):
         try:
             parsed_bs = parse_scert_syllabus_pdf(
                 service.source_service.storage.read(bs_revision.storage_path or "")
@@ -262,19 +276,26 @@ def official_telangana_demonstration(
         except (TelanganaSyllabusParseError, KeyError, ValueError) as exc:
             unresolved.append(f"scert-viii-biological-science-english:{exc}")
 
-    tgbie_seed = ia_plan or iia_plan or anchor_revision
-    tgbie_pack = service.ensure_pack(
-        framework=None,
-        code="tgbie",
-        name="Telangana Board of Intermediate Education",
-        authority="TGBIE",
-        country="India",
-        revision=tgbie_seed,
-        source_locator="Official TGBIE annual academic plans",
-    )
-    tgbie_pack.active = False
+    tgbie_seed = ia_plan if _usable_source(service, ia_plan) else None
+    if tgbie_seed is None and _usable_source(service, iia_plan):
+        tgbie_seed = iia_plan
 
-    if ia_plan and service.has_source_content(ia_plan):
+    tgbie_pack = None
+    if tgbie_seed is not None:
+        tgbie_pack = service.ensure_pack(
+            framework=None,
+            code="tgbie",
+            name="Telangana Board of Intermediate Education",
+            authority="TGBIE",
+            country="India",
+            revision=tgbie_seed,
+            source_locator="Official TGBIE annual academic plans",
+        )
+        tgbie_pack.active = False
+    else:
+        unresolved.append("tgbie-pack:no_usable_official_source_bytes")
+
+    if tgbie_pack and ia_plan and _usable_source(service, ia_plan):
         try:
             parsed_ia = parse_tgbie_annual_plan_pdf(
                 service.source_service.storage.read(ia_plan.storage_path or "")
@@ -357,7 +378,7 @@ def official_telangana_demonstration(
         except (TelanganaSyllabusParseError, KeyError, ValueError) as exc:
             unresolved.append(f"intermediate-first-year:{exc}")
 
-    if iia_plan and service.has_source_content(iia_plan):
+    if tgbie_pack and iia_plan and _usable_source(service, iia_plan):
         try:
             parsed_iia = parse_tgbie_annual_plan_pdf(
                 service.source_service.storage.read(iia_plan.storage_path or "")
@@ -415,26 +436,28 @@ def official_telangana_demonstration(
         except (TelanganaSyllabusParseError, KeyError, ValueError) as exc:
             unresolved.append(f"intermediate-second-year:{exc}")
 
+    queries: dict[str, Any] = {}
+    if scert_pack is not None:
+        queries["scert_ps_path"] = query_scoped_paths(
+            service,
+            pack_code="ts-scert",
+            version_code="2025-26-syllabus",
+            grade="VIII",
+            medium="English",
+            subject="Physical Science",
+        )
+    if tgbie_pack is not None:
+        queries["intermediate_first_year"] = query_scoped_paths(
+            service,
+            pack_code="tgbie",
+            version_code="2025-26",
+            grade="First Year",
+            medium="English",
+            subject="Mathematics IA",
+        )
     return {
         "materialized_slices": materialized,
         "catalogue_inventories": catalogue_inventories,
         "unresolved_materialization": unresolved,
-        "queries": {
-            "scert_ps_path": query_scoped_paths(
-                service,
-                pack_code="ts-scert",
-                version_code="2025-26-syllabus",
-                grade="VIII",
-                medium="English",
-                subject="Physical Science",
-            ),
-            "intermediate_first_year": query_scoped_paths(
-                service,
-                pack_code="tgbie",
-                version_code="2025-26",
-                grade="First Year",
-                medium="English",
-                subject="Mathematics IA",
-            ),
-        },
+        "queries": queries,
     }

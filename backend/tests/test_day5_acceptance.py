@@ -7,10 +7,9 @@ from pathlib import Path
 import pytest
 
 from app.curriculum_intelligence.scoped_acceptance import evaluate_day5_acceptance
+from app.repo_paths import ci_workflow_file, curricula_content_dir, repository_root
 
-SCOPE = json.loads(
-    (Path(__file__).resolve().parents[2] / "content/curricula/day5_scope.json").read_text()
-)
+SCOPE = json.loads((curricula_content_dir() / "day5_scope.json").read_text(encoding="utf-8"))
 
 
 def test_empty_or_synthetic_report_cannot_pass() -> None:
@@ -56,8 +55,8 @@ def test_unfrozen_source_scope_never_passes_from_self_claimed_flags() -> None:
 
 
 def test_ci_artifacts_are_metadata_only_and_source_documents_untracked() -> None:
-    root = Path(__file__).resolve().parents[2]
-    workflow = (root / ".github/workflows/ci.yml").read_text()
+    root = repository_root(start=Path(__file__))
+    workflow = ci_workflow_file(start=Path(__file__)).read_text(encoding="utf-8")
     assert "path: backend/evidence/day5-source-report.json" in workflow
     assert "path: backend/data" not in workflow
     assert "path: backend/evidence/" not in workflow.replace(
