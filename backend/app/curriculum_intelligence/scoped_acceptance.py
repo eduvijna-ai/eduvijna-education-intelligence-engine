@@ -97,8 +97,14 @@ def _verify_slice(
         "grade",
         "medium",
         "subject",
+        "course_family",
+        "course_group",
+        "subject_language",
+        "language_role",
+        "book_part",
+        "bilingual",
     )
-    if not all(required.get(field) for field in fields):
+    if not all(required.get(field) and required[field] != "unknown" for field in fields):
         return False
     frozen_revision = required.get("source_revision")
     if not frozen_revision and not (
@@ -161,7 +167,17 @@ def _verify_slice(
             validate_entity_scope(service, version, revision, entity.metadata_json)
             if any(
                 entity.metadata_json.get("identity", {}).get(field) != required[field]
-                for field in ("grade", "medium", "subject")
+                for field in (
+                    "grade",
+                    "medium",
+                    "subject",
+                    "course_family",
+                    "course_group",
+                    "subject_language",
+                    "language_role",
+                    "book_part",
+                    "bilingual",
+                )
             ):
                 return False
         return True
@@ -214,16 +230,41 @@ def _verify_slice(
             parent_metadata=node.parent.metadata_json if node.parent else None,
         )
     identity = nodes[-1].metadata_json.get("identity", {})
-    return all(identity.get(field) == required[field] for field in ("grade", "medium", "subject"))
+    return all(
+        identity.get(field) == required[field]
+        for field in (
+            "grade",
+            "medium",
+            "subject",
+            "course_family",
+            "course_group",
+            "subject_language",
+            "language_role",
+            "book_part",
+            "bilingual",
+        )
+    )
 
 
-def _verify_catalogue(service: CurriculumIntelligenceService, item: dict[str, Any]) -> bool:
+def _verify_catalogue(
+    service: CurriculumIntelligenceService, item: dict[str, Any], expected: dict[str, Any]
+) -> bool:
     if item.get("inventory_kind") != "official_catalogue" or item.get("synthetic") is not False:
         return False
     version = service.session.get(CurriculumVersion, item.get("version_id"))
     if version is None or version.curriculum_pack.code != item.get("pack_code"):
         return False
     revision = _revision(service, item.get("source_revision_id"), inventory=True)
+    frozen_source = revision.metadata_json.get("source_snapshot", {})
+    if (
+        version.version_code != expected.get("academic_version")
+        or version.academic_year != expected.get("academic_year")
+        or expected.get("source_url") != frozen_source.get("url")
+        or expected.get("source_checksum") != revision.checksum
+        or expected.get("source_snapshot_checksum") != revision.source_snapshot_checksum
+        or (expected.get("source_revision") and expected["source_revision"] != revision.id)
+    ):
+        return False
     metadata = service._source_metadata(revision)
     if metadata.get("document_type") not in {
         "textbook_index",
@@ -240,6 +281,7 @@ def _verify_catalogue(service: CurriculumIntelligenceService, item: dict[str, An
         or version.version_code not in scope.version_codes
     ):
         return False
+    governing_scope: SourceCurriculumScope | None = None
     if scope.publication_status == "draft":
         # Draft metadata can be accounted for; it cannot govern the curriculum.
         if version.source_revision_id == revision.id:
@@ -266,7 +308,8 @@ def _verify_catalogue(service: CurriculumIntelligenceService, item: dict[str, An
         return False
     snapshot = CatalogueSnapshot.model_validate(record["snapshot"])
     if (
-        not snapshot.inventory_observations
+        expected.get("inventory_digest") != snapshot.inventory_digest
+        or not snapshot.inventory_observations
         or snapshot.source_checksum != revision.checksum
         or item.get("source_checksum") != revision.checksum
         or item.get("snapshot_id") != snapshot.identity
@@ -274,6 +317,31 @@ def _verify_catalogue(service: CurriculumIntelligenceService, item: dict[str, An
         not in service._source_metadata(revision).get("official_catalogue_review_digests", [])
     ):
         return False
+    if governing_scope is not None:
+        for row in snapshot.rows:
+            subject = metadata.get("inventory_subjects", {}).get(
+                row.official_label, row.official_label
+            )
+            if (
+                row.grade not in governing_scope.grades
+                or row.instructional_medium not in governing_scope.media
+                or subject not in governing_scope.subjects
+                or any(
+                    value not in allowed
+                    for value, allowed in (
+                        (row.course_family, governing_scope.course_families),
+                        (row.subject_language, governing_scope.subject_languages),
+                        (row.language_role, governing_scope.language_roles),
+                        (row.book_part, governing_scope.book_parts),
+                        (row.bilingual, governing_scope.bilingual_states),
+                    )
+                )
+                or row.applicability.status != "explicit_groups"
+                or any(
+                    group not in governing_scope.course_groups for group in row.applicability.groups
+                )
+            ):
+                return False
     coverage = persisted_catalogue_coverage(version, revision.id)
     return bool(
         coverage.status == "complete"
@@ -341,13 +409,64 @@ def evaluate_day5_acceptance(
         identities
     ) != len(set(identities)):
         failed.append("required_catalogue_inventories")
+    packs = scope.get("packs", [])
+    pack_keys = [(pack.get("code"), pack.get("academic_version")) for pack in packs]
+    frozen_inventories = []
+    if (
+        not packs
+        or {pack.get("code") for pack in packs} != {"ts-scert", "tgbie"}
+        or len(pack_keys) != len(set(pack_keys))
+    ):
+        failed.append("invalid_frozen_catalogue_scope")
+    for pack in packs:
+        if (
+            not pack.get("academic_version")
+            or not pack.get("academic_year")
+            or not pack.get("inventories")
+        ):
+            failed.append("invalid_frozen_catalogue_scope")
+        for inventory in pack.get("inventories", []):
+            expected = dict(inventory) | {
+                "pack_code": pack.get("code"),
+                "academic_version": pack.get("academic_version"),
+                "academic_year": pack.get("academic_year"),
+            }
+            if not all(
+                expected.get(field)
+                for field in (
+                    "source_url",
+                    "source_checksum",
+                    "source_snapshot_checksum",
+                    "inventory_digest",
+                )
+            ):
+                failed.append("invalid_frozen_catalogue_scope")
+            frozen_inventories.append(expected)
+    expected_keys = [
+        (item.get("pack_code"), item.get("academic_version"), item.get("source_url"))
+        for item in frozen_inventories
+    ]
+    if len(expected_keys) != len(set(expected_keys)) or len(official) != len(frozen_inventories):
+        failed.append("invalid_frozen_catalogue_scope")
+    matched: set[int] = set()
     for item in official:
-        try:
-            verified = service is not None and _verify_catalogue(service, item)
-        except (ValueError, LookupError, TypeError, KeyError, OSError):
-            verified = False
+        verified = False
+        if service is not None:
+            for index, expected in enumerate(frozen_inventories):
+                if expected.get("pack_code") != item.get("pack_code"):
+                    continue
+                try:
+                    if _verify_catalogue(service, item, expected):
+                        if index not in matched:
+                            matched.add(index)
+                            verified = True
+                        break
+                except (ValueError, LookupError, TypeError, KeyError, OSError):
+                    pass
         if not verified:
             failed.append(str(item.get("pack_code")) + "_catalogue")
+    if len(matched) != len(frozen_inventories):
+        failed.append("missing_required_catalogue_inventory")
     # Frozen pack boundaries cannot disappear behind a smaller complete snapshot.
     for pack in scope.get("packs", []):
         expected_grades = set(pack.get("grades", pack.get("years", [])))
@@ -357,7 +476,7 @@ def evaluate_day5_acceptance(
                 if inventory.get("pack_code") != pack.get("code"):
                     continue
                 version = service.session.get(CurriculumVersion, inventory.get("version_id"))
-                if version is None:
+                if version is None or version.version_code != pack.get("academic_version"):
                     continue
                 record = version.metadata_json.get(STORAGE_KEY, {}).get(
                     inventory.get("source_revision_id"), {}

@@ -14,7 +14,6 @@ from app.curriculum_intelligence.scoped_curriculum import query_scoped_paths
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.curriculum_intelligence.source_domains import require_domain
 from app.models.curriculum import CurriculumNode, EducationFramework
-from app.models.source import SourceRevision
 from app.schemas.framework_structure import FrameworkNodeSpec
 from tests.test_day5_scoped_curriculum import concept, scoped  # noqa: F401
 from tests.test_day5_scoped_curriculum import service as service
@@ -77,9 +76,22 @@ def test_standards_cannot_create_framework_ancestors(seeded, level: str) -> None
     session, result = seeded
     framework = session.get(EducationFramework, result["framework"]["id"])
     assert framework is not None
-    revision = session.get(SourceRevision, framework.source_revision_id)
-    assert revision is not None
-    _change_domain(session, revision, "academic_standards")
+    from app.schemas.curriculum_intelligence import OfficialSourceManifestEntry
+
+    revision = CurriculumIntelligenceService(session).ensure_manifest_sources(
+        [
+            OfficialSourceManifestEntry(
+                key="synthetic-standard-root-proof",
+                source_type="official_authority",
+                title="Synthetic registry-only standard",
+                authority="Synthetic authority",
+                url="https://synthetic.example.invalid/standard-root-proof",
+                document_type="academic_standards",
+                metadata_json={"synthetic": True},
+            )
+        ],
+        actor_id="synthetic-test",
+    )["synthetic-standard-root-proof"]
     with pytest.raises(FrameworkStructureError, match="only add competencies"):
         FrameworkStructureService(session).upsert_nodes(
             framework=framework,

@@ -135,7 +135,9 @@ def official_source_demonstration(
             )
         ],
     )["ncert-grade9-linear-equations-draft"]
-    structure_service = FrameworkStructureService(service.session)
+    structure_service = FrameworkStructureService(
+        service.session, source_service=service.source_service
+    )
     framework_specs = []
     parent_code = None
     for level, code, title, official_code in (

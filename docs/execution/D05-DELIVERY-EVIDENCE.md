@@ -105,3 +105,14 @@ The official DIKSHA Telangana page https://diksha.gov.in/telangana/ exposes Clas
 The review-repair tree at local commit `537faf08227723dd0b740836ae9058f3958a6c4f` passed 502 backend tests, Ruff, mypy across 73 application files, all four deterministic verifiers, frontend typecheck/build, Alembic fresh/round-trip/drift checks and PostgreSQL DDL compilation for 46 tables. This is local evidence, not GitHub CI or live PostgreSQL.
 
 A subsequent safeguard allows a fully reviewed draft catalogue to count only with distinct, final governing syllabus/version evidence for the same pack/version/year; the inventory retains draft status. Its 35 focused acceptance/report tests pass. Final candidate regression and external CI/review results are reported separately. Publication and independent review are not implied by this document.
+
+## Independent review of 8b07d27: additional implementation repairs
+
+Review 5412590700 identified four further gaps. The successor candidate addresses them with new regressions:
+
+- 4182600843: both expected catalogue packs require independently frozen academic version/year and exact inventory source/digest bindings. Missing/null pack definitions or arbitrary-version inventories cannot pass.
+- 4182600852: the complete frozen applicability identity is persisted on detailed paths and included in deterministic branch IDs. Exact group lookup works; omitted, unknown or wrong groups do not become universal matches.
+- 4182600861: a final governing syllabus must cover every draft inventory row's grade, medium, subject and asserted course/language/part/bilingual dimensions. A Class VIII-only source cannot authorize an I–X catalogue.
+- 4182600869: standards competency nodes require non-registry content, original-byte integrity, approved immutable metadata and official wording/code at the verified locator. Active metadata-only revisions cannot create these records.
+
+These are implementation changes awaiting independent re-review, not a declaration that Codex has closed the findings. The required official-source gate remains unchanged.

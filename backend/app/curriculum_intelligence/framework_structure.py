@@ -7,11 +7,14 @@ version instead of overwriting historical structure. Reads retain historical row
 
 from __future__ import annotations
 
+import io
 import json
+import re
 from collections.abc import Iterable
 from typing import Any
 from uuid import UUID, uuid5
 
+from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -35,6 +38,7 @@ from app.schemas.framework_structure import (
     LearningOutcomeCompetencyInput,
     LearningOutcomeCompetencyResult,
 )
+from app.source_intelligence.service import SourceIntelligenceService
 
 _NAMESPACE = UUID("94593223-c334-4acb-b880-0ace97ed4567")
 _PARENT_LEVEL: dict[str, str | None] = {
@@ -54,8 +58,11 @@ def _identity(*parts: str) -> str:
 
 
 class FrameworkStructureService:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self, session: Session, *, source_service: SourceIntelligenceService | None = None
+    ) -> None:
         self.session = session
+        self.source_service = source_service or SourceIntelligenceService(session)
 
     def _active_revision(
         self, revision_id: str, purpose: str = "framework_structure"
@@ -76,6 +83,55 @@ class FrameworkStructureService:
         except ValueError as exc:
             raise FrameworkStructureError(str(exc)) from exc
         return revision
+
+    def _standard_content(self, revision: SourceRevision, specs: list[FrameworkNodeSpec]) -> None:
+        """An active registry entry is not evidence for a standards competency."""
+        if CurriculumIntelligenceService.is_registry_only(
+            revision
+        ) or not CurriculumIntelligenceService.has_source_content(revision):
+            raise FrameworkStructureError("Academic standards require original source content")
+        try:
+            content, _, valid = self.source_service._content_integrity(revision)
+            snapshot = revision.metadata_json.get("source_snapshot", {})
+            if (
+                not valid
+                or self.source_service._snapshot_checksum(snapshot)
+                != revision.source_snapshot_checksum
+                or not revision.approval_fingerprint
+                or self.source_service._approval_fingerprint(revision)
+                != revision.approval_fingerprint
+            ):
+                raise FrameworkStructureError("Academic standards source integrity mismatch")
+            pages = (
+                [page.extract_text() or "" for page in PdfReader(io.BytesIO(content)).pages]
+                if revision.content_type == "application/pdf"
+                else None
+            )
+            for spec in specs:
+                wording = spec.official_text or spec.official_code
+                if not wording:
+                    raise FrameworkStructureError("Standards node requires official text or code")
+                if pages is not None:
+                    match = re.search(r"\bpage\s*(\d+)\b", spec.source_locator, re.I)
+                    if match is None or not 1 <= int(match.group(1)) <= len(pages):
+                        raise FrameworkStructureError(
+                            "Standards locator must identify an actual PDF page"
+                        )
+                    located_text = pages[int(match.group(1)) - 1]
+                else:
+                    located_text = revision.extracted_text or ""
+                    if spec.source_locator not in located_text:
+                        raise FrameworkStructureError(
+                            "Standards locator is absent from source text"
+                        )
+                if wording not in located_text:
+                    raise FrameworkStructureError("Standards wording is absent at exact locator")
+        except FrameworkStructureError:
+            raise
+        except Exception as exc:
+            raise FrameworkStructureError(
+                "Standards source content unavailable or invalid"
+            ) from exc
 
     def _framework(self, framework_id: str) -> EducationFramework:
         framework = self.session.get(EducationFramework, framework_id)
@@ -115,6 +171,15 @@ class FrameworkStructureService:
         revision = self._active_revision(revision.id)
         framework = self._framework(framework.id)
         specs_list = list(specs)
+        if (
+            specs_list
+            and revision.approval_fingerprint
+            and self.source_service._snapshot_checksum(
+                revision.metadata_json.get("source_snapshot", {})
+            )
+            != revision.source_snapshot_checksum
+        ):
+            raise FrameworkStructureError("Immutable source metadata checksum mismatch")
         if len({spec.code for spec in specs_list}) != len(specs_list):
             raise FrameworkStructureError("duplicate framework node codes in bundle")
         existing = {
@@ -146,6 +211,8 @@ class FrameworkStructureService:
                     raise FrameworkStructureError(
                         "Competency parent lacks governing framework evidence"
                     )
+            if specs_list:
+                self._standard_content(revision, specs_list)
         resolved = dict(existing)
         result: dict[str, FrameworkStructureNode] = {}
         pending = {spec.code: spec for spec in specs_list}

@@ -17,6 +17,7 @@ from app.curriculum_intelligence.scoped_acceptance import (
 )
 from app.curriculum_intelligence.scoped_catalogue import (
     CatalogueSnapshot,
+    CourseApplicability,
     InventoryObservation,
     ScopedCatalogueRow,
     materialize_catalogue,
@@ -31,6 +32,38 @@ from app.schemas.curriculum_intelligence import CurriculumNodeSpec
 from app.schemas.source_intelligence import SourceRegistrationInput
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
+
+EXTRAS = {
+    "course_family": "General",
+    "course_group": "MPC",
+    "subject_language": "English",
+    "language_role": "not_applicable",
+    "book_part": "whole",
+    "bilingual": "no",
+}
+
+
+def freeze_inventory(service, scope, item):
+    version = service.session.get(CurriculumVersion, item["version_id"])
+    revision = service.session.get(SourceRevision, item["source_revision_id"])
+    snapshot = CatalogueSnapshot.model_validate(
+        version.metadata_json["scoped_catalogue_snapshots"][revision.id]["snapshot"]
+    )
+    pack = {
+        "code": item["pack_code"],
+        "academic_version": version.version_code,
+        "academic_year": version.academic_year,
+        "grades": sorted({row.grade for row in snapshot.rows}),
+        "inventories": [
+            {
+                "source_url": revision.metadata_json["source_snapshot"]["url"],
+                "source_checksum": revision.checksum,
+                "source_snapshot_checksum": revision.source_snapshot_checksum,
+                "inventory_digest": snapshot.inventory_digest,
+            }
+        ],
+    }
+    scope["packs"] = [p for p in scope.get("packs", []) if p["code"] != pack["code"]] + [pack]
 
 
 @pytest.fixture
@@ -47,10 +80,21 @@ def persisted(tmp_path: Path):
         report: dict[str, Any] = {"materialized_slices": [], "catalogue_inventories": []}
         scope: dict[str, Any] = {"required_detailed_slices": []}
         content = json.dumps(
-            {"text": "VIII English Science Unit Force Topic Concept section 1"}
+            {
+                "text": (
+                    "I II III IV V VI VII VIII IX X First Year Second Year "
+                    "English Science Unit Force Topic Concept section 1"
+                )
+            }
         ).encode()
         checksum = hashlib.sha256(content).hexdigest()
         for pack_code in ("ts-scert", "tgbie"):
+            grades = (
+                ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"]
+                if pack_code == "ts-scert"
+                else ["First Year", "Second Year"]
+            )
+            grade = "VIII" if pack_code == "ts-scert" else "First Year"
             row = ScopedCatalogueRow(
                 pack_id="pending",
                 version_id="pending",
@@ -58,22 +102,37 @@ def persisted(tmp_path: Path):
                 source_checksum=checksum,
                 source_locator="section 1",
                 official_label="Science",
-                grade="VIII",
+                grade=grade,
                 academic_year="2025-26",
                 instructional_medium="English",
                 resource_kind="syllabus_document",
+                course_family="General",
+                subject_language="English",
+                language_role="not_applicable",
+                book_part="whole",
+                bilingual="no",
+                applicability=CourseApplicability(
+                    status="explicit_groups", groups=("MPC",), source_locator="section 1"
+                ),
             )
             draft_snapshot = CatalogueSnapshot(
                 source_revision_id="pending",
                 source_checksum=checksum,
-                rows=(row,),
+                rows=tuple(
+                    row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                    for g in grades
+                ),
                 inventory_observations=(
                     InventoryObservation(
-                        source_locator=row.source_locator,
+                        source_locator=catalogue_row.source_locator,
                         status="resolved",
                         reason="reviewed inventory entry",
-                        row_identity=row.identity,
-                    ),
+                        row_identity=catalogue_row.identity,
+                    )
+                    for catalogue_row in (
+                        row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                        for g in grades
+                    )
                 ),
                 inventory_status="complete",
                 extraction_method="reviewed offline test",
@@ -93,13 +152,19 @@ def persisted(tmp_path: Path):
                         "synthetic": False,
                         "document_type": "curriculum_index",
                         "official_catalogue_review_digests": [draft_snapshot.inventory_digest],
-                        "verified_locators": ["section 1"],
+                        "verified_locators": ["section 1", *(f"section 1 > {g}" for g in grades)],
                         "curriculum_scope": {
                             "pack_code": pack_code,
                             "version_codes": ["2025-26"],
-                            "grades": ["VIII"],
+                            "grades": grades,
                             "media": ["English"],
                             "subjects": ["Science"],
+                            "course_families": ["General"],
+                            "course_groups": ["MPC"],
+                            "subject_languages": ["English"],
+                            "language_roles": ["not_applicable"],
+                            "book_parts": ["whole"],
+                            "bilingual_states": ["no"],
                             "publication_status": "final",
                             "applicability_status": "verified",
                             "applicability_locator": "section 1",
@@ -142,10 +207,10 @@ def persisted(tmp_path: Path):
             parent = None
             for node_type, title in zip(
                 ("grade_year", "medium", "subject", "unit", "chapter", "topic", "concept"),
-                ("VIII", "English", "Science", "Unit", "Force", "Topic", "Concept"),
+                (grade, "English", "Science", "Unit", "Force", "Topic", "Concept"),
                 strict=True,
             ):
-                identity = {"grade": "VIII"}
+                identity = {"grade": grade, **EXTRAS}
                 if node_type != "grade_year":
                     identity["medium"] = "English"
                 if node_type not in {"grade_year", "medium"}:
@@ -173,9 +238,10 @@ def persisted(tmp_path: Path):
                     "source_checksum": revision.checksum,
                     "source_locator": "section 1",
                     "pack_code": pack_code,
-                    "grade": "VIII",
+                    "grade": grade,
                     "medium": "English",
                     "subject": "Science",
+                    **EXTRAS,
                 }
             )
             report["materialized_slices"].append(
@@ -199,14 +265,21 @@ def persisted(tmp_path: Path):
             snapshot = CatalogueSnapshot(
                 source_revision_id=revision.id,
                 source_checksum=revision.checksum,
-                rows=(row,),
+                rows=tuple(
+                    row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                    for g in grades
+                ),
                 inventory_observations=(
                     InventoryObservation(
-                        source_locator=row.source_locator,
+                        source_locator=catalogue_row.source_locator,
                         status="resolved",
                         reason="reviewed inventory entry",
-                        row_identity=row.identity,
-                    ),
+                        row_identity=catalogue_row.identity,
+                    )
+                    for catalogue_row in (
+                        row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                        for g in grades
+                    )
                 ),
                 inventory_status="complete",
                 extraction_method="reviewed offline test",
@@ -224,6 +297,7 @@ def persisted(tmp_path: Path):
                     "coverage": coverage.model_dump(mode="json"),
                 }
             )
+            freeze_inventory(service, scope, report["catalogue_inventories"][-1])
         session.commit()
         session.expunge_all()
         yield service, report, scope
@@ -343,13 +417,15 @@ def test_stable_reviewed_binding_replays_in_fresh_database(persisted, tmp_path):
 
 def test_frozen_catalogue_grade_boundary_cannot_be_shrunk(persisted):
     service, report, scope = persisted
-    scope["packs"] = [{"code": "ts-scert", "grades": ["VIII", "IX"]}]
+    scope["packs"][0]["grades"] = ["VIII", "XI"]
     result = evaluate_day5_acceptance(report, scope, service=service)
     assert not result["passed"]
     assert "ts-scert_catalogue_scope" in result["incomplete_components"]
 
 
-def draft_inventory(service, report, *, binding_year="2025-26"):
+def draft_inventory(
+    service, report, *, binding_year="2025-26", row_overrides=None, governing_grades=None
+):
     """Approve a distinct draft inventory without changing its final governing source."""
     inventory = report["catalogue_inventories"][0]
     version = service.session.get(CurriculumVersion, inventory["version_id"])
@@ -357,10 +433,80 @@ def draft_inventory(service, report, *, binding_year="2025-26"):
     original = CatalogueSnapshot.model_validate(
         version.metadata_json["scoped_catalogue_snapshots"][governing.id]["snapshot"]
     )
+    if row_overrides:
+        changed_rows = tuple(
+            row.model_copy(update=row_overrides) if index == 0 else row
+            for index, row in enumerate(original.rows)
+        )
+        original = CatalogueSnapshot(
+            source_revision_id=original.source_revision_id,
+            source_checksum=original.source_checksum,
+            rows=changed_rows,
+            inventory_status="complete",
+            extraction_method=original.extraction_method,
+            inventory_observations=tuple(
+                InventoryObservation(
+                    source_locator=row.source_locator,
+                    status="resolved",
+                    reason="reviewed inventory entry",
+                    row_identity=row.identity,
+                )
+                for row in changed_rows
+            ),
+        )
     metadata = copy.deepcopy(service._source_metadata(governing))
     metadata["inventory_scope"] = metadata.pop("curriculum_scope")
+    metadata["official_catalogue_review_digests"] = [original.inventory_digest]
     metadata["inventory_scope"]["publication_status"] = "draft"
+    if row_overrides:
+        for field, allowed in {
+            "grade": "grades",
+            "instructional_medium": "media",
+            "official_label": "subjects",
+            "course_family": "course_families",
+            "subject_language": "subject_languages",
+            "language_role": "language_roles",
+            "book_part": "book_parts",
+            "bilingual": "bilingual_states",
+        }.items():
+            if field in row_overrides and row_overrides[field] != "unknown":
+                metadata["inventory_scope"][allowed] = [
+                    *metadata["inventory_scope"].get(allowed, []),
+                    row_overrides[field],
+                ]
     metadata["document_type"] = "textbook_index"
+    if governing_grades is not None:
+        governing_metadata = copy.deepcopy(service._source_metadata(governing))
+        governing_metadata["curriculum_scope"]["grades"] = governing_grades
+        narrow_source = service.source_service.register_source(
+            SourceRegistrationInput(
+                source_type=SourceType.OFFICIAL_SYLLABUS,
+                title="Offline narrow governing source",
+                url="https://example.invalid/narrow-governing.json",
+                authority="Offline authority",
+                country="India",
+                board_or_exam="ts-scert",
+                academic_year="2025-26",
+                copyright_classification="test_response",
+                trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+                metadata_json=governing_metadata,
+            ),
+            actor_id="test",
+        )
+        narrower = service.source_service.ingest_upload(
+            narrow_source.id,
+            method=SourceIngestionMethod.JSON,
+            filename="narrow.json",
+            content=service.source_service.storage.read(governing.storage_path),
+            actor_id="test",
+        )
+        service.source_service.extract_revision(narrower.id, actor_id="test")
+        service.source_service.create_diff(narrower.id, actor_id="test")
+        assert service.source_service.validate_revision(narrower.id, actor_id="test").valid
+        service.source_service.approve_revision(narrower.id, actor_id="test")
+        service.source_service.activate_revision(narrower.id, actor_id="test")
+        governing = narrower
+        version.source_revision_id = governing.id
     metadata["governing_source"] = {
         "source_url": governing.metadata_json["source_snapshot"]["url"],
         "source_checksum": governing.checksum,
@@ -427,6 +573,7 @@ def draft_inventory(service, report, *, binding_year="2025-26"):
 def test_draft_catalogue_is_accounted_without_promoting_publication(persisted):
     service, report, scope = persisted
     version, revision = draft_inventory(service, report)
+    freeze_inventory(service, scope, report["catalogue_inventories"][0])
     result = evaluate_day5_acceptance(report, scope, service=service)
     assert result["passed"], result
     assert service._source_metadata(revision)["inventory_scope"]["publication_status"] == "draft"
@@ -440,8 +587,100 @@ def test_draft_catalogue_requires_distinct_final_same_year_governing_evidence(pe
     version, revision = draft_inventory(
         service, report, binding_year="2026-27" if attack == "wrong_year" else "2025-26"
     )
+    freeze_inventory(service, scope, report["catalogue_inventories"][0])
     if attack == "draft_alone":
         version.source_revision_id = revision.id
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert not result["passed"]
+    assert "ts-scert_catalogue" in result["incomplete_components"]
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "absent",
+        "null_version",
+        "wrong_version",
+        "wrong_year",
+        "missing_binding",
+        "wrong_url",
+        "wrong_checksum",
+        "wrong_snapshot",
+        "wrong_digest",
+        "duplicate",
+        "unexpected",
+    ],
+)
+def test_catalogue_requires_independently_frozen_scope(persisted, attack):
+    service, report, scope = persisted
+    pack = scope["packs"][0]
+    expected = pack["inventories"][0]
+    if attack == "absent":
+        scope.pop("packs")
+    elif attack == "null_version":
+        pack["academic_version"] = None
+    elif attack == "wrong_version":
+        pack["academic_version"] = "2026-27"
+    elif attack == "wrong_year":
+        pack["academic_year"] = "2026-27"
+    elif attack == "missing_binding":
+        pack["inventories"] = []
+    elif attack.startswith("wrong_"):
+        key = {
+            "wrong_url": "source_url",
+            "wrong_checksum": "source_checksum",
+            "wrong_snapshot": "source_snapshot_checksum",
+            "wrong_digest": "inventory_digest",
+        }[attack]
+        expected[key] = "forged"
+    elif attack == "duplicate":
+        pack["inventories"].append(copy.deepcopy(expected))
+    elif attack == "unexpected":
+        scope["packs"].pop()
+    assert not evaluate_day5_acceptance(report, scope, service=service)["passed"]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("grade", "XI"),
+        ("instructional_medium", "Telugu"),
+        ("official_label", "Mathematics"),
+        ("course_family", "Vocational"),
+        ("subject_language", "Telugu"),
+        ("language_role", "first"),
+        ("book_part", "Part 2"),
+        ("bilingual", "yes"),
+        (
+            "applicability",
+            CourseApplicability(
+                status="explicit_groups", groups=("MEC",), source_locator="section 1"
+            ),
+        ),
+    ],
+)
+def test_draft_inventory_cannot_expand_governing_dimensions(persisted, field, value):
+    service, report, scope = persisted
+    draft_inventory(service, report, row_overrides={field: value})
+    freeze_inventory(service, scope, report["catalogue_inventories"][0])
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert not result["passed"]
+    assert "ts-scert_catalogue" in result["incomplete_components"]
+
+
+@pytest.mark.parametrize("field", list(EXTRAS))
+def test_detailed_path_requires_each_frozen_extra_dimension(persisted, field):
+    service, report, scope = persisted
+    scope["required_detailed_slices"][0][field] = "different"
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert not result["passed"]
+    assert "ts-scert" in result["incomplete_components"]
+
+
+def test_class_viii_governing_source_cannot_authorize_i_to_x_draft_inventory(persisted):
+    service, report, scope = persisted
+    draft_inventory(service, report, governing_grades=["VIII"])
+    freeze_inventory(service, scope, report["catalogue_inventories"][0])
     result = evaluate_day5_acceptance(report, scope, service=service)
     assert not result["passed"]
     assert "ts-scert_catalogue" in result["incomplete_components"]

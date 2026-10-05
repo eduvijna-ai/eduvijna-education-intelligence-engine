@@ -15,6 +15,23 @@ from app.curriculum_intelligence.telangana_syllabus import (
     TelanganaSyllabusParseError,
 )
 
+DIMENSIONS = {
+    "course_family": "General",
+    "course_group": "Group A",
+    "subject_language": "not_applicable",
+    "language_role": "not_applicable",
+    "book_part": "Part 1",
+    "bilingual": "no",
+}
+SCOPE_DIMENSIONS = {
+    "course_families": ["General"],
+    "course_groups": ["Group A", "Group B"],
+    "subject_languages": ["not_applicable"],
+    "language_roles": ["not_applicable"],
+    "book_parts": ["Part 1"],
+    "bilingual_states": ["no"],
+}
+
 
 def test_exact_chapter_selection_no_prefix_guess() -> None:
     chapter = ParsedChapter("1", "Force and pressure", "page 1", ())
@@ -43,10 +60,11 @@ def test_subject_codes_disjoint_and_derived_labels_explicit() -> None:
             medium="English",
             subject=subject,
             chapter=chapter,
+            applicability=DIMENSIONS,
         )  # type: ignore[arg-type]
     left, right = specs[:7], specs[7:]
     assert {s.code for s in left[2:]}.isdisjoint(s.code for s in right[2:])
-    assert left[0].metadata_json["identity"] == {"grade": "VIII"}
+    assert left[0].metadata_json["identity"] == {"grade": "VIII", **DIMENSIONS}
     for spec in left:
         if spec.node_type in {"unit", "concept", "grade_year", "medium", "subject"}:
             assert spec.official_text is None
@@ -116,6 +134,7 @@ def test_reviewed_preflight_accepts_exact_frozen_source_and_rejects_changes(
         },
     )
     scope = SimpleNamespace(
+        **SCOPE_DIMENSIONS,
         pack_code="ts-scert",
         version_codes=("reviewed-2025",),
         grades=("VIII",),
@@ -130,6 +149,7 @@ def test_reviewed_preflight_accepts_exact_frozen_source_and_rejects_changes(
         source_service=SimpleNamespace(storage=SimpleNamespace(read=lambda _: b"pdf")),
     )
     frozen = {
+        **DIMENSIONS,
         "key": "synthetic-check",
         "chapter": "1. Force",
         "academic_version": "reviewed-2025",
@@ -169,6 +189,15 @@ def test_reviewed_preflight_accepts_exact_frozen_source_and_rejects_changes(
         changed = {**frozen, field: wrong}
         with pytest.raises(TelanganaSyllabusParseError):
             adapter._reviewed_chapter(service, revision, changed)
+    for field in DIMENSIONS:
+        missing = {key: value for key, value in frozen.items() if key != field}
+        with pytest.raises(TelanganaSyllabusParseError, match="Incomplete frozen"):
+            adapter._reviewed_chapter(service, revision, missing)
+        for invalid in ("unknown", "not_sourced", "not_applicable"):
+            if invalid == DIMENSIONS[field]:
+                continue
+            with pytest.raises(TelanganaSyllabusParseError, match="outside reviewed"):
+                adapter._reviewed_chapter(service, revision, {**frozen, field: invalid})
     metadata["document_type"] = "annual_plan"
     with pytest.raises(TelanganaSyllabusParseError, match="Governing syllabus"):
         adapter._reviewed_chapter(service, revision, frozen)
@@ -255,6 +284,7 @@ def test_fresh_database_reviewed_contract_materializes_and_failed_slice_rolls_ba
                         "review section",
                     ],
                     "curriculum_scope": {
+                        **SCOPE_DIMENSIONS,
                         "pack_code": "ts-scert",
                         "version_codes": ["reviewed-test"],
                         "grades": ["VIII"],
@@ -281,6 +311,7 @@ def test_fresh_database_reviewed_contract_materializes_and_failed_slice_rolls_ba
         sources.approve_revision(revision.id, actor_id="synthetic-test")
         revision = sources.activate_revision(revision.id, actor_id="synthetic-test")
         frozen = {
+            **DIMENSIONS,
             "source_manifest_key": "test-governing",
             "pack_name": "Synthetic SCERT adapter test",
             "pack_code": "ts-scert",
@@ -333,4 +364,49 @@ def test_fresh_database_reviewed_contract_materializes_and_failed_slice_rolls_ba
         )
         assert repeated["materialized_slices"] == report["materialized_slices"]
         assert session.scalar(select(func.count()).select_from(CurriculumNode)) == 7
+        # A second explicitly sourced group receives disjoint nodes, not a rebind.
+        contract.write_text(
+            json.dumps(
+                {
+                    "slices": {
+                        "group-b": {**frozen, "course_group": "Group B"},
+                    }
+                }
+            )
+        )
+        second_group = official_telangana_demonstration(
+            service,
+            {"test-governing": revision},
+            content_root=tmp_path,
+        )
+        assert len(second_group["materialized_slices"]) == 1
+        assert session.scalar(select(func.count()).select_from(CurriculumNode)) == 14
+        session.commit()
+        session.expunge_all()
+        from app.curriculum_intelligence.scoped_curriculum import query_scoped_paths
+
+        base = {
+            "pack_code": "ts-scert",
+            "version_code": "reviewed-test",
+            "grade": "VIII",
+            "medium": "English",
+            "subject": "Physical Science",
+        }
+        matched = query_scoped_paths(service, **base, **DIMENSIONS)
+        assert matched["status"] == "matched"
+        assert len(matched["paths"]) == 1
+        missing = query_scoped_paths(service, **base)
+        assert missing["status"] == "ambiguous"
+        assert not missing["paths"]
+        assert "course_group" in missing["unresolved_dimensions"]
+        wrong = query_scoped_paths(service, **base, **{**DIMENSIONS, "course_group": "Group Z"})
+        assert wrong["status"] == "no_match"
+        leaf = session.get(CurriculumNode, matched["paths"][0]["node_ids"][-1])
+        assert leaf is not None
+        for dimension, value in DIMENSIONS.items():
+            assert leaf.metadata_json["identity"][dimension] == value
+            assert all(
+                node.metadata_json["identity"][dimension] == value
+                for node in service.hierarchy_path(leaf.id)
+            )
     engine.dispose()

@@ -22,6 +22,15 @@ from app.models.curriculum import CurriculumPack, CurriculumVersion
 from app.models.source import SourceRevision
 from app.schemas.curriculum_intelligence import CurriculumNodeSpec
 
+_APPLICABILITY_DIMENSIONS = {
+    "course_family": "course_families",
+    "course_group": "course_groups",
+    "subject_language": "subject_languages",
+    "language_role": "language_roles",
+    "book_part": "book_parts",
+    "bilingual": "bilingual_states",
+}
+
 
 def _usable_source(service: CurriculumIntelligenceService, revision: SourceRevision | None) -> bool:
     return bool(
@@ -65,10 +74,16 @@ def _materialize_chapter_path(
     medium: str,
     subject: str,
     chapter: ParsedChapter,
+    applicability: dict[str, str],
 ) -> dict[str, Any]:
     # Each immutable source-bound hierarchy owns its ancestors too: sharing a
     # grade node across documents would overwrite its exact-source locator.
-    subject_key = hashlib.sha256(subject.encode("utf-8")).hexdigest()[:16]
+    if set(applicability) != set(_APPLICABILITY_DIMENSIONS) or any(
+        not value or value == "unknown" for value in applicability.values()
+    ):
+        raise TelanganaSyllabusParseError("All reviewed applicability dimensions are required")
+    identity_key = json.dumps({"subject": subject, **applicability}, sort_keys=True)
+    subject_key = hashlib.sha256(identity_key.encode("utf-8")).hexdigest()[:16]
     root = f"{grade.lower().replace(' ', '-')}-{medium.lower()}-{subject_key}"
     if not chapter.topics or not chapter.topic_locators:
         raise TelanganaSyllabusParseError(
@@ -129,7 +144,7 @@ def _materialize_chapter_path(
                 chapter.topic_locators[0] if node_type in {"topic", "concept"} else chapter.locator
             ),
             metadata_json={
-                "identity": identity,
+                "identity": {**identity, **applicability},
                 "label_status": ("official" if node_type in {"chapter", "topic"} else "derived"),
             },
         )
@@ -174,6 +189,7 @@ def materialize_reviewed_slice(
         medium=frozen["medium"],
         subject=frozen["subject"],
         chapter=chapter,
+        applicability={key: frozen[key] for key in _APPLICABILITY_DIMENSIONS},
     )
     return {
         "key": frozen["key"],
@@ -201,7 +217,7 @@ def _reviewed_chapter(
         "medium",
         "subject",
     )
-    if not all(frozen.get(field) for field in fields):
+    if not all(frozen.get(field) for field in (*fields, *_APPLICABILITY_DIMENSIONS)):
         raise TelanganaSyllabusParseError("Incomplete frozen source contract")
     snapshot = revision.metadata_json.get("source_snapshot", {})
     if source_domain(snapshot) != "syllabus":
@@ -224,6 +240,12 @@ def _reviewed_chapter(
         or frozen["subject"] not in scope.subjects
     ):
         raise TelanganaSyllabusParseError("Frozen identity is outside reviewed source scope")
+    for dimension, scope_field in _APPLICABILITY_DIMENSIONS.items():
+        value = frozen[dimension]
+        if value == "unknown" or value not in getattr(scope, scope_field):
+            raise TelanganaSyllabusParseError(
+                f"Frozen {dimension} is outside reviewed source scope"
+            )
     if frozen.get("source_revision"):
         if revision.id != frozen["source_revision"]:
             raise TelanganaSyllabusParseError("Frozen revision mismatch")
