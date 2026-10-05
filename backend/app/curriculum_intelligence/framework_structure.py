@@ -15,11 +15,12 @@ from uuid import UUID, uuid5
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.scoped_curriculum import ScopeError, validate_entity_scope
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.curriculum_intelligence.source_domains import require_domain, source_domain
 from app.curriculum_intelligence.standards_evidence import (
     StandardsEvidenceError,
-    contains_complete_identifier,
+    require_endpoint_mentions,
     require_source_wording,
     require_standards_evidence,
 )
@@ -316,7 +317,10 @@ class FrameworkStructureService:
             or not revision.extracted_text
         ):
             raise FrameworkStructureError("direct links require retrieved source content")
-        framework_id = self._version_framework(str(payload.curriculum_version_id))
+        version = self.session.get(CurriculumVersion, str(payload.curriculum_version_id))
+        if version is None:
+            raise LookupError("curriculum version not found")
+        framework_id = self._version_framework(version.id)
         outcome = self.session.get(LearningOutcome, str(payload.learning_outcome_id))
         if outcome is None:
             raise LookupError("learning outcome not found")
@@ -351,6 +355,59 @@ class FrameworkStructureService:
             outcome_revision = self._active_revision(outcome.source_revision_id, "outcome")
             node_revision = self._active_revision(node.source_revision_id, "framework_structure")
             competency_revision = self._active_revision(competency.source_revision_id, "competency")
+            if version.metadata_json.get("scope_enforced"):
+                dimensions = (
+                    "grade",
+                    "medium",
+                    "subject",
+                    "course_family",
+                    "course_group",
+                    "subject_language",
+                    "language_role",
+                    "book_part",
+                    "bilingual",
+                )
+                endpoint_identities = []
+                curriculum_service = CurriculumIntelligenceService(
+                    self.session,
+                    source_service=self.source_service,
+                )
+                for endpoint, own_revision in (
+                    (outcome, outcome_revision),
+                    (competency, competency_revision),
+                ):
+                    identity = endpoint.metadata_json.get("identity")
+                    if not isinstance(identity, dict) or any(
+                        not isinstance(identity.get(field), str)
+                        or not identity[field].strip()
+                        or identity[field] == "unknown"
+                        for field in dimensions
+                    ):
+                        raise FrameworkStructureError(
+                            "Scoped direct endpoints require all nine identity dimensions"
+                        )
+                    endpoint_identities.append({field: identity[field] for field in dimensions})
+                    try:
+                        validate_entity_scope(
+                            curriculum_service,
+                            version,
+                            own_revision,
+                            endpoint.metadata_json,
+                            node_type="relationship_endpoint",
+                        )
+                        validate_entity_scope(
+                            curriculum_service,
+                            version,
+                            revision,
+                            endpoint.metadata_json,
+                            node_type="relationship_endpoint",
+                        )
+                    except (ScopeError, StandardsEvidenceError) as exc:
+                        raise FrameworkStructureError(str(exc)) from exc
+                if endpoint_identities[0] != endpoint_identities[1]:
+                    raise FrameworkStructureError(
+                        "Scoped direct endpoint identities are incompatible"
+                    )
             competency_code = competency.metadata_json.get("official_code")
             if not (
                 competency_code
@@ -388,21 +445,15 @@ class FrameworkStructureService:
                 )
             except StandardsEvidenceError as exc:
                 raise FrameworkStructureError(str(exc)) from exc
-            quote = payload.evidence_text or ""
-            if (
-                outcome.text not in quote
-                or (
-                    node.official_code
-                    and not contains_complete_identifier(quote, node.official_code)
+            try:
+                require_endpoint_mentions(
+                    payload.evidence_text or "",
+                    left_text=outcome.text,
+                    right_codes=(node.official_code,) if node.official_code else (),
+                    right_text=node.official_text if not node.official_code else None,
                 )
-                or (
-                    not node.official_code
-                    and (not node.official_text or node.official_text not in quote)
-                )
-            ):
-                raise FrameworkStructureError(
-                    "Direct quote must identify both the outcome and competency"
-                )
+            except StandardsEvidenceError as exc:
+                raise FrameworkStructureError(str(exc)) from exc
         values: dict[str, Any] = {
             "curriculum_version_id": str(payload.curriculum_version_id),
             "learning_outcome_id": outcome.id,

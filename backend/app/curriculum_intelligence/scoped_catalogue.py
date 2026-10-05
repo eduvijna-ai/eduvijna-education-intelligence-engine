@@ -156,8 +156,9 @@ class ScopedCatalogueRow(_Contract):
     @field_validator("aliases")
     @classmethod
     def valid_aliases(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        for value in values:
-            checked_text(value)
+        normalized = [normalize_label(value) for value in values]
+        if UNKNOWN in normalized or len(normalized) != len(set(normalized)):
+            raise ValueError("Unknown or duplicate normalized catalogue aliases require review")
         return values
 
     @property
@@ -481,6 +482,11 @@ def validate_catalogue_row_evidence(
             raise ScopedCatalogueError(f"Catalogue source row contradicts {field}")
     if observed.get("resource_url") != row.resource_url:
         raise ScopedCatalogueError("Catalogue source row contradicts resource_url")
+    aliases = observed.get("aliases", [])
+    if not isinstance(aliases, list) or any(not isinstance(alias, str) for alias in aliases):
+        raise ScopedCatalogueError("Catalogue source aliases must be an explicit string list")
+    if aliases != list(row.aliases):
+        raise ScopedCatalogueError("Catalogue source row contradicts aliases")
     applicability_locator = row.source_locator + "/applicability"
     if row.applicability.source_locator != applicability_locator:
         raise ScopedCatalogueError("Catalogue group locator must belong to the same source row")

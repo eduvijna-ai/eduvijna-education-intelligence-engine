@@ -1340,11 +1340,18 @@ def test_code_only_existing_ancestor_and_acceptance_recheck_claim(persisted, cod
             service.upsert_nodes(version=version, revision=revision, specs=[spec])
 
 
-def pair_revision(service, version, name, media, content, declarations=()):
+def pair_revision(
+    service, version, name, media, content, declarations=(), *, alignments=(), scope_overrides=None
+):
     original = service.session.get(SourceRevision, version.source_revision_id)
     metadata = copy.deepcopy(service._source_metadata(original))
-    metadata.update(document_type="syllabus", correspondences=list(declarations))
+    metadata.update(
+        document_type="syllabus",
+        correspondences=list(declarations),
+        direct_alignments=list(alignments),
+    )
     metadata["curriculum_scope"]["media"] = media
+    metadata["curriculum_scope"].update(scope_overrides or {})
     metadata["curriculum_scope"]["applicability_locator"] = "JSON pointer /text"
     source = service.source_service.register_source(
         SourceRegistrationInput(
@@ -1389,13 +1396,13 @@ def paired(persisted):
         version,
         "telugu",
         ["Telugu"],
-        {"text": "VIII Telugu Science Unit తెలుగు బలం తెలుగు విషయం Concept"},
+        {"text": "VIII Telugu Science Unit తెలుగు బలం తెలుగు విషయం తెలుగు భావన"},
     )
     specs = []
     parent = None
     for kind, title in zip(
         ("grade_year", "medium", "subject", "unit", "chapter", "topic", "concept"),
-        ("VIII", "Telugu", "Science", "Unit", "తెలుగు బలం", "తెలుగు విషయం", "Concept"),
+        ("VIII", "Telugu", "Science", "Unit", "తెలుగు బలం", "తెలుగు విషయం", "తెలుగు భావన"),
         strict=True,
     ):
         code = "telugu-" + kind
@@ -1439,7 +1446,7 @@ def paired(persisted):
         "left_code": left_node.code,
         "right_code": "telugu-concept",
         "locator": "JSON pointer /link",
-        "evidence_text": "The English Force chapter corresponds to the Telugu బలం chapter.",
+        "evidence_text": "The English node concept corresponds to the Telugu node telugu-concept.",
     }
     evidence = pair_revision(
         service,
@@ -1606,3 +1613,258 @@ def test_correspondence_frozen_source_bindings_replay_without_database_ids(paire
         assert not evaluate_day5_acceptance(report, frozen, service=replay_service)["passed"]
     finally:
         replay.close()
+
+
+RELATION_QUOTES = {
+    "codes": "concept corresponds to telugu-concept.",
+    "wording": "Concept corresponds to తెలుగు భావన.",
+    "unrelated": "The annual report is ready.",
+    "left_only": "concept has been reviewed.",
+    "right_only": "telugu-concept has been reviewed.",
+    "left_prefix": "concept-extra corresponds to telugu-concept.",
+    "right_prefix": "concept corresponds to telugu-concept-extra.",
+    "wording_prefix": "Conceptual corresponds to తెలుగు భావనాపరమైనది.",
+    "cross_section": "concept corresponds to telugu-concept.",
+}
+
+
+@pytest.mark.parametrize("claim", list(RELATION_QUOTES))
+def test_correspondence_quote_identifies_both_endpoints_even_for_persisted_records(paired, claim):
+    from app.curriculum_intelligence.scoped_curriculum import link_correspondence
+
+    service, report, scope, version = paired
+    observed = report["materialized_slices"][-1]
+    required = scope["required_detailed_slices"][-1]
+    original = version.metadata_json["cross_medium_correspondences"][observed["relationship_id"]]
+    quote = RELATION_QUOTES[claim]
+    declaration = {
+        "left_code": original["left_code"],
+        "right_code": original["right_code"],
+        "locator": "JSON pointer /link",
+        "evidence_text": quote,
+    }
+    content = {
+        "text": "Reviewed VIII Science applicability.",
+        "link": declaration,
+        "outside": "concept corresponds to telugu-concept.",
+    }
+    if claim == "cross_section":
+        content["link"] = {**declaration, "evidence_text": "The annual report is ready."}
+    revision = pair_revision(
+        service, version, "claim-" + claim, ["English", "Telugu"], content, [declaration]
+    )
+    kwargs = {
+        "left_node_id": original["left_id"],
+        "right_node_id": original["right_id"],
+        "revision": revision,
+        "locator": declaration["locator"],
+        "evidence_text": quote,
+    }
+    positive = claim in {"codes", "wording"}
+    before = copy.deepcopy(version.metadata_json["cross_medium_correspondences"])
+    if positive:
+        relationship_id = link_correspondence(service, version, **kwargs)
+    else:
+        with pytest.raises(ValueError):
+            link_correspondence(service, version, **kwargs)
+        assert version.metadata_json["cross_medium_correspondences"] == before
+        # Recreate the kind of historical/corrupt row that used to pass without endpoint proof.
+        record = {
+            **declaration,
+            "left_id": original["left_id"],
+            "right_id": original["right_id"],
+            "source_revision_id": revision.id,
+            "source_checksum": revision.checksum,
+        }
+        relationship_id = hashlib.sha256(
+            json.dumps(record, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        version.metadata_json = {
+            **version.metadata_json,
+            "cross_medium_correspondences": {**before, relationship_id: record},
+        }
+    observed["relationship_id"] = relationship_id
+    required["correspondence"].update(
+        **declaration, source_revision=revision.id, source_checksum=revision.checksum
+    )
+    service.session.flush()
+    service.session.expire_all()
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert result["passed"] is positive, result
+    if not positive:
+        assert required["key"] in result["incomplete_components"]
+
+
+SCOPE_DIMENSIONS = {
+    "grade": ("grades", "IX"),
+    "medium": ("media", "Telugu"),
+    "subject": ("subjects", "Mathematics"),
+    "course_family": ("course_families", "Vocational"),
+    "course_group": ("course_groups", "MEC"),
+    "subject_language": ("subject_languages", "Telugu"),
+    "language_role": ("language_roles", "first"),
+    "book_part": ("book_parts", "Part 2"),
+    "bilingual": ("bilingual_states", "yes"),
+}
+ALIGNMENT_QUOTES = {
+    "codes": "concept addresses OUT-A1.",
+    "wording": "Concept addresses Distinct source-backed outcome statement.",
+    "unrelated": "The annual report is ready.",
+    "node_only": "concept has been reviewed.",
+    "target_only": "OUT-A1 has been reviewed.",
+    "node_prefix": "concept-extra addresses OUT-A1.",
+    "target_prefix": "concept addresses OUT-A10.",
+    "cross_section": "concept addresses OUT-A1.",
+}
+
+
+def direct_alignment_case(
+    persisted, claim="codes", *, target_dimension=None, cover_target=True, target_kind="outcome"
+):
+    from app.schemas.curriculum_intelligence import (
+        CompetencySpec,
+        CurriculumAlignmentInput,
+        LearningOutcomeSpec,
+    )
+
+    service, report, _ = persisted
+    node = service.session.get(
+        CurriculumNode, report["materialized_slices"][0]["path"]["node_ids"][-1]
+    )
+    version = node.curriculum_version
+    node_identity = dict(node.metadata_json["identity"])
+    target_identity = dict(node_identity)
+    if target_dimension:
+        target_identity[target_dimension] = SCOPE_DIMENSIONS[target_dimension][1]
+    target_scope = {
+        allowed: list(dict.fromkeys([node_identity[field], target_identity[field]]))
+        for field, (allowed, _) in SCOPE_DIMENSIONS.items()
+    }
+    target_source = pair_revision(
+        service,
+        version,
+        "alignment-target",
+        target_scope["media"],
+        {"text": "OUT-A1 Distinct source-backed outcome statement."},
+        scope_overrides=target_scope,
+    )
+    if target_kind == "outcome":
+        target = service.upsert_learning_outcomes(
+            version=version,
+            revision=target_source,
+            specs=[
+                LearningOutcomeSpec(
+                    code="alignment-target",
+                    text="Distinct source-backed outcome statement.",
+                    source_locator="JSON pointer /text",
+                    metadata_json={"identity": target_identity, "official_code": "OUT-A1"},
+                )
+            ],
+        )["alignment-target"]
+    else:
+        target = service.upsert_competencies(
+            framework=None,
+            curriculum_version=version,
+            revision=target_source,
+            specs=[
+                CompetencySpec(
+                    code="alignment-target",
+                    name="Scoped target",
+                    official_text="Distinct source-backed outcome statement.",
+                    source_locator="JSON pointer /text",
+                    metadata_json={"identity": target_identity, "official_code": "OUT-A1"},
+                )
+            ],
+        )["alignment-target"]
+    words = ALIGNMENT_QUOTES[claim]
+    declaration = {
+        "node_code": node.code,
+        "target_id": target.id,
+        "relationship_type": "addresses",
+        "source_locator": "JSON pointer /link",
+        "evidence_text": words,
+    }
+    content = {
+        "text": "Reviewed mapping applicability.",
+        "link": declaration,
+        "outside": ALIGNMENT_QUOTES["codes"],
+    }
+    if claim == "cross_section":
+        content["link"] = {**declaration, "evidence_text": "The annual report is ready."}
+    mapping_scope = (
+        target_scope
+        if cover_target
+        else {allowed: [node_identity[field]] for field, (allowed, _) in SCOPE_DIMENSIONS.items()}
+    )
+    revision = pair_revision(
+        service,
+        version,
+        "direct-mapping",
+        mapping_scope["media"],
+        content,
+        alignments=[declaration],
+        scope_overrides=mapping_scope,
+    )
+    payload = CurriculumAlignmentInput(
+        curriculum_version_id=version.id,
+        curriculum_node_id=node.id,
+        **(
+            {"learning_outcome_id": target.id}
+            if target_kind == "outcome"
+            else {"competency_id": target.id}
+        ),
+        source_revision_id=revision.id,
+        status="direct",
+        relationship_type="addresses",
+        source_locator=declaration["source_locator"],
+        evidence_text=words,
+    )
+    return service, target, payload
+
+
+@pytest.mark.parametrize("claim", list(ALIGNMENT_QUOTES))
+@pytest.mark.parametrize("target_kind", ["outcome", "competency"])
+def test_scoped_direct_alignment_quote_must_identify_both_endpoints(persisted, claim, target_kind):
+    from sqlalchemy import select
+
+    from app.models.curriculum_intelligence import CurriculumAlignment
+
+    service, _, payload = direct_alignment_case(persisted, claim, target_kind=target_kind)
+    before = list(service.session.scalars(select(CurriculumAlignment.id)))
+    if claim in {"codes", "wording"}:
+        assert service.align(payload).evidence_text == ALIGNMENT_QUOTES[claim]
+    else:
+        with pytest.raises(ValueError):
+            service.align(payload)
+        assert list(service.session.scalars(select(CurriculumAlignment.id))) == before
+
+
+@pytest.mark.parametrize("dimension", list(SCOPE_DIMENSIONS))
+@pytest.mark.parametrize("cover_target", [False, True])
+@pytest.mark.parametrize("target_kind", ["outcome", "competency"])
+def test_direct_mapping_covers_target_scope_and_complete_endpoint_compatibility(
+    persisted, dimension, cover_target, target_kind
+):
+    service, _, payload = direct_alignment_case(
+        persisted, target_dimension=dimension, cover_target=cover_target, target_kind=target_kind
+    )
+    with pytest.raises(ValueError):
+        service.align(payload)
+
+
+@pytest.mark.parametrize("dimension", list(SCOPE_DIMENSIONS))
+@pytest.mark.parametrize("missing", [True, False])
+@pytest.mark.parametrize("target_kind", ["outcome", "competency"])
+def test_direct_mapping_rejects_incomplete_target_identity(
+    persisted, dimension, missing, target_kind
+):
+    service, target, payload = direct_alignment_case(persisted, target_kind=target_kind)
+    metadata = copy.deepcopy(target.metadata_json)
+    if missing:
+        metadata["identity"].pop(dimension)
+    else:
+        metadata["identity"][dimension] = "unknown"
+    target.metadata_json = metadata
+    service.session.flush()
+    with pytest.raises(ValueError):
+        service.align(payload)

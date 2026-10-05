@@ -375,7 +375,7 @@ def test_direct_assertions_require_review_and_source_evidence(changes: dict[str,
 
 
 def _direct_context(
-    db: Session, tmp_path: Path
+    db: Session, tmp_path: Path, *, scope: dict[str, Any] | None = None
 ) -> tuple[Context, FrameworkStructureService, dict[str, FrameworkStructureNode]]:
     import json
 
@@ -395,7 +395,11 @@ def _direct_context(
             country="Test",
             copyright_classification="synthetic_fixture",
             trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
-            metadata_json={"synthetic": True, "document_type": "education_framework"},
+            metadata_json={
+                "synthetic": True,
+                "document_type": "education_framework",
+                **({"curriculum_scope": scope} if scope is not None else {}),
+            },
         ),
         actor_id="test",
     )
@@ -722,3 +726,159 @@ def test_direct_mapping_can_reference_independently_sourced_outcome_and_standard
         )
         == 3
     )
+
+
+_SCOPED_IDENTITY = {
+    "grade": "IX",
+    "medium": "English",
+    "subject": "Mathematics",
+    "course_family": "General",
+    "course_group": "MPC",
+    "subject_language": "English",
+    "language_role": "not_applicable",
+    "book_part": "whole",
+    "bilingual": "no",
+}
+_SCOPE_FIELDS = {
+    "grade": "grades",
+    "medium": "media",
+    "subject": "subjects",
+    "course_family": "course_families",
+    "course_group": "course_groups",
+    "subject_language": "subject_languages",
+    "language_role": "language_roles",
+    "book_part": "book_parts",
+    "bilingual": "bilingual_states",
+}
+
+
+def _review_scope() -> dict[str, Any]:
+    return {
+        "pack_code": "synthetic-pack-one",
+        "version_codes": ["2026-27"],
+        "publication_status": "draft",
+        "applicability_status": "verified",
+        "applicability_locator": "JSON pointer /mapping",
+        **{_SCOPE_FIELDS[key]: [value] for key, value in _SCOPED_IDENTITY.items()},
+    }
+
+
+def _scoped_mapping_context(
+    db: Session, tmp_path: Path, own_scope: dict[str, Any] | None = None
+) -> Any:
+    context, service, nodes = _direct_context(db, tmp_path, scope=own_scope or _review_scope())
+    context.version.metadata_json = {"scope_enforced": True}
+    context.outcome.metadata_json = {"identity": dict(_SCOPED_IDENTITY)}
+    context.competency.metadata_json = {
+        **context.competency.metadata_json,
+        "identity": dict(_SCOPED_IDENTITY),
+    }
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    return context, service, nodes, payload
+
+
+def _separate_scoped_mapping(
+    service: FrameworkStructureService, scope: dict[str, Any], *, name: str = "mapping"
+) -> SourceRevision:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+
+    sources = service.source_service
+    source = sources.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_AUTHORITY,
+            title="Synthetic scoped mapping",
+            url=f"https://synthetic.invalid/scoped-{name}.json",
+            authority="Synthetic",
+            country="Test",
+            copyright_classification="synthetic_fixture",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json={
+                "synthetic": True,
+                "document_type": "learning_standards",
+                "curriculum_scope": scope,
+            },
+        ),
+        actor_id="test",
+    )
+    revision = sources.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="mapping.json",
+        content=json.dumps(
+            {"mapping": "Synthetic learning outcome maps to Synthetic competency C3.2."}
+        ).encode(),
+        actor_id="test",
+    )
+    sources.extract_revision(revision.id, actor_id="test")
+    sources.create_diff(revision.id, actor_id="test")
+    assert sources.validate_revision(revision.id, actor_id="test").valid
+    sources.approve_revision(revision.id, actor_id="test")
+    return sources.activate_revision(revision.id, actor_id="test")
+
+
+def test_scoped_direct_link_validates_both_endpoints_and_separate_mapping_scope(
+    db: Session, tmp_path: Path
+) -> None:
+    context, service, nodes, payload = _scoped_mapping_context(db, tmp_path)
+    own_outcome = _separate_scoped_mapping(service, _review_scope(), name="outcome")
+    context.outcome.source_revision_id = own_outcome.id
+    db.flush()
+    mapping = _separate_scoped_mapping(service, _review_scope())
+    payload = payload.model_copy(update={"source_revision_id": UUID(mapping.id)})
+    link = service.link_learning_outcome(payload)
+    assert link.source_revision_id == mapping.id != context.outcome.source_revision_id
+    assert len({mapping.id, own_outcome.id, context.competency.source_revision_id}) == 3
+    assert service.link_learning_outcome(payload).id == link.id
+
+
+@pytest.mark.parametrize("endpoint", ["outcome", "competency"])
+@pytest.mark.parametrize("dimension", list(_SCOPED_IDENTITY))
+def test_scoped_direct_link_rejects_missing_endpoint_dimension(
+    db: Session, tmp_path: Path, endpoint: str, dimension: str
+) -> None:
+    context, service, nodes, payload = _scoped_mapping_context(db, tmp_path)
+    entity = getattr(context, endpoint)
+    entity.metadata_json = {
+        **entity.metadata_json,
+        "identity": {key: value for key, value in _SCOPED_IDENTITY.items() if key != dimension},
+    }
+    db.flush()
+    with pytest.raises(FrameworkStructureError, match="nine identity"):
+        service.link_learning_outcome(payload)
+
+
+@pytest.mark.parametrize("dimension", list(_SCOPED_IDENTITY))
+@pytest.mark.parametrize("fault", ["mapping_scope", "own_scope", "incompatible_endpoints"])
+def test_scoped_direct_link_rejects_cross_scope_or_incompatible_endpoints(
+    db: Session, tmp_path: Path, dimension: str, fault: str
+) -> None:
+    scope = _review_scope()
+    if fault == "own_scope":
+        scope[_SCOPE_FIELDS[dimension]] = ["other"]
+    elif fault == "incompatible_endpoints":
+        scope[_SCOPE_FIELDS[dimension]].append("other")
+    context, service, nodes, payload = _scoped_mapping_context(db, tmp_path, scope)
+    if fault == "mapping_scope":
+        scope[_SCOPE_FIELDS[dimension]] = ["other"]
+        mapping = _separate_scoped_mapping(service, scope)
+        payload = payload.model_copy(update={"source_revision_id": UUID(mapping.id)})
+    elif fault == "incompatible_endpoints":
+        context.competency.metadata_json = {
+            **context.competency.metadata_json,
+            "identity": {**_SCOPED_IDENTITY, dimension: "other"},
+        }
+        db.flush()
+    with pytest.raises(FrameworkStructureError):
+        service.link_learning_outcome(payload)
+    assert db.scalar(select(func.count()).select_from(LearningOutcomeCompetencyLink)) == 0

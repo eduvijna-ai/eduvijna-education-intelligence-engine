@@ -294,7 +294,7 @@ def test_unicode_metadata_survives_real_database_roundtrip() -> None:
         session.add_all([pack, version])
         session.flush()
         service.session = session
-        original = row(official_label="తెలుగు اردو हिन्दी", aliases=("Telugu", "TELUGU"))
+        original = row(official_label="తెలుగు اردو हिन्दी", aliases=("Telugu", "Urdu"))
         materialize_catalogue(service, version, revision, snapshot(original))
         session.commit()
         session.expire_all()
@@ -749,3 +749,75 @@ def test_not_applicable_course_group_requires_explicit_original_justification(
     else:
         with pytest.raises(ScopedCatalogueError, match="inapplicability justification"):
             materialize_catalogue(service, version, revision, candidate)
+
+
+def test_explicit_original_row_aliases_materialize_and_query_with_exact_scope() -> None:
+    aliases = ["Historical Telugu label", "తెలుగు పుస్తకం"]
+    service, version, revision, inventory = bounded_inventory_context({"aliases": aliases})
+    item = inventory.rows[0].model_copy(update={"aliases": tuple(aliases)})
+    candidate = snapshot(item, source_checksum=revision.checksum)
+    assert materialize_catalogue(service, version, revision, candidate).status == "complete"
+    assert query_catalogue((item,), full_query(label=aliases[0])).status == "matched"
+    assert query_catalogue((item,), full_query(label=aliases[1])).status == "matched"
+
+
+@pytest.mark.parametrize(
+    "source_aliases,claimed_aliases",
+    [
+        (None, ("Historical Math IA",)),
+        ([], ("Telugu translation",)),
+        (["Original alternate title"], ()),
+        (["Original alternate title"], ("Original alternate title", "Extra historical label")),
+        (["Original alternate title"], ("Unrelated Urdu book",)),
+        (["Original alternate title"], ("original alternate title",)),
+    ],
+)
+def test_missing_extra_or_changed_aliases_rejected_before_persistence(
+    source_aliases: list[str] | None, claimed_aliases: tuple[str, ...]
+) -> None:
+    source = {} if source_aliases is None else {"aliases": source_aliases}
+    service, version, revision, inventory = bounded_inventory_context(source)
+    item = inventory.rows[0].model_copy(update={"aliases": claimed_aliases})
+    with pytest.raises(ScopedCatalogueError, match="contradicts aliases"):
+        materialize_catalogue(
+            service, version, revision, snapshot(item, source_checksum=revision.checksum)
+        )
+    assert version.metadata_json == {"scope_enforced": True}
+    service.session.flush.assert_not_called()
+
+
+def test_other_source_rows_alias_cannot_be_claimed_for_first_row() -> None:
+    service, version, revision, inventory = bounded_inventory_context()
+    source = json.loads(revision.extracted_text)
+    source["inventory"][1]["aliases"] = ["Other-row historical name"]
+    content = json.dumps(source, ensure_ascii=False).encode()
+    checksum = hashlib.sha256(content).hexdigest()
+    revision.checksum = revision.extracted_checksum = checksum
+    revision.extracted_text = content.decode()
+    revision.byte_size = len(content)
+    service.source_service.storage.read.return_value = content
+    service.source_service._content_integrity.return_value = (content, None, True)
+    item = inventory.rows[0].model_copy(
+        update={"source_checksum": checksum, "aliases": ("Other-row historical name",)}
+    )
+    with pytest.raises(ScopedCatalogueError, match="contradicts aliases"):
+        materialize_catalogue(service, version, revision, snapshot(item, source_checksum=checksum))
+    service.session.flush.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "aliases", [("unknown",), ("UNKNOWN",), ("",), ("Café", "Cafe\u0301"), ("Telugu", "TELUGU")]
+)
+def test_unknown_empty_and_canonical_duplicate_aliases_fail_review(
+    aliases: tuple[str, ...],
+) -> None:
+    with pytest.raises(ValueError):
+        row(aliases=aliases)
+
+
+def test_unicode_normalized_alias_collision_between_rows_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Alias collision"):
+        snapshot(
+            row(official_label="First", aliases=("Café",)),
+            row(official_label="Second", aliases=("Cafe\u0301",)),
+        )

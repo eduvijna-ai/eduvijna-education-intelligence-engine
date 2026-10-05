@@ -92,7 +92,7 @@ def _identifier_character(char: str) -> bool:
     return unicodedata.category(char)[0] in {"L", "M", "N"} or char in "_\u200c\u200d"
 
 
-def contains_complete_identifier(text: str, identifier: str) -> bool:
+def _identifier_spans(text: str, identifier: str) -> list[tuple[int, int]]:
     """Match source codes, not prefixes/suffixes or components of longer codes.
 
     Unicode letters, marks and joiners count as identifier characters. A dot,
@@ -100,7 +100,8 @@ def contains_complete_identifier(text: str, identifier: str) -> bool:
     ordinary surrounding punctuation such as '(C-1).' is not part of the code.
     """
     if not identifier or not identifier.strip():
-        return False
+        return []
+    spans = []
     for match in re.finditer(re.escape(identifier), text):
         start, end = match.span()
         before = text[start - 1] if start else ""
@@ -113,8 +114,46 @@ def contains_complete_identifier(text: str, identifier: str) -> bool:
             continue
         if end + 1 < len(text) and after in ".-/:" and _identifier_character(text[end + 1]):
             continue
-        return True
-    return False
+        spans.append((start, end))
+    return spans
+
+
+def contains_complete_identifier(text: str, identifier: str) -> bool:
+    return bool(_identifier_spans(text, identifier))
+
+
+def require_endpoint_mentions(
+    text: str,
+    *,
+    left_codes: tuple[str, ...] = (),
+    left_text: str | None = None,
+    right_codes: tuple[str, ...] = (),
+    right_text: str | None = None,
+) -> None:
+    """Require distinct source mentions for both endpoints inside the proven quote.
+
+    Callers supply identifiers and original wording already verified against each
+    endpoint source. Derived labels and metadata assertions are not source proof.
+    A single shared word or one code nested inside another cannot prove two ends.
+    """
+
+    def mentions(codes: tuple[str, ...], wording: str | None) -> list[tuple[int, int, str]]:
+        spans = [
+            (start, end, code)
+            for code in codes
+            if code
+            for start, end in _identifier_spans(text, code)
+        ]
+        if wording and wording.strip():
+            spans.extend((*span, wording) for span in _identifier_spans(text, wording))
+        return spans
+
+    left = mentions(left_codes, left_text)
+    right = mentions(right_codes, right_text)
+    if not any(a[2] != b[2] and (a[1] <= b[0] or b[1] <= a[0]) for a in left for b in right):
+        raise StandardsEvidenceError(
+            "Bounded relationship quote must identify both endpoints distinctly"
+        )
 
 
 # Retain the standards writer's public API while sharing the same byte/locator

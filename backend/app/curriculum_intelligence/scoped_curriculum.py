@@ -16,6 +16,7 @@ from app.curriculum_intelligence.scoped_catalogue import checked_text, normalize
 from app.curriculum_intelligence.source_domains import source_domain
 from app.curriculum_intelligence.standards_evidence import (
     StandardsEvidenceError,
+    require_endpoint_mentions,
     require_source_wording,
     source_text_at_locator,
 )
@@ -252,8 +253,19 @@ def validate_correspondence_record(
         )
         service._validate_scoped_ancestors(version, node, node.metadata_json["identity"])
     left_scope, right_scope = left.metadata_json["identity"], right.metadata_json["identity"]
-    if any(left_scope[field] != right_scope[field] for field in ("grade", "subject")):
-        raise ScopeError("Cross-medium correspondence cannot change grade or subject")
+    if any(
+        left_scope[field] != right_scope[field]
+        for field in (
+            "grade",
+            "subject",
+            "course_family",
+            "course_group",
+            "language_role",
+            "book_part",
+            "bilingual",
+        )
+    ):
+        raise ScopeError("Cross-medium correspondence cannot change academic context")
     if left_scope["medium"] == right_scope["medium"] or left.node_type != right.node_type:
         raise ScopeError("Correspondence must link same-level content in different media")
     declaration = {
@@ -267,6 +279,13 @@ def validate_correspondence_record(
             revision,
             locator=record["locator"],
             official_text=record["evidence_text"],
+        )
+        require_endpoint_mentions(
+            record["evidence_text"],
+            left_codes=(left.code, left.metadata_json.get("official_code", "")),
+            left_text=left.official_text,
+            right_codes=(right.code, right.metadata_json.get("official_code", "")),
+            right_text=right.official_text,
         )
     except StandardsEvidenceError as exc:
         raise ScopeError(str(exc)) from exc

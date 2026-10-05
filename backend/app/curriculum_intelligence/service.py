@@ -1096,7 +1096,59 @@ class CurriculumIntelligenceService:
                     "outcome" if target_kind == "learning_outcome" else "competency",
                 )
                 validate_entity_scope(self, version, target_revision, target.metadata_json)
+                # A mapping publication must cover both endpoints, independently
+                # of the sources that established their original wording.
+                validate_entity_scope(self, version, revision, target.metadata_json)
+                node_identity = node.metadata_json.get("identity", {})
+                target_identity = target.metadata_json.get("identity", {})
+                for dimension in (
+                    "grade",
+                    "medium",
+                    "subject",
+                    "course_family",
+                    "course_group",
+                    "subject_language",
+                    "language_role",
+                    "book_part",
+                    "bilingual",
+                ):
+                    left_value = node_identity.get(dimension)
+                    right_value = target_identity.get(dimension)
+                    if any(
+                        not isinstance(value, str)
+                        or not value.strip()
+                        or value.strip().lower() == "unknown"
+                        for value in (left_value, right_value)
+                    ):
+                        raise CurriculumIntelligenceError(
+                            f"Direct alignment requires complete endpoint {dimension} identity"
+                        )
+                    if left_value != right_value:
+                        raise CurriculumIntelligenceError(
+                            f"Direct alignment crosses endpoint {dimension} scope"
+                        )
                 try:
+                    from app.curriculum_intelligence.standards_evidence import (
+                        require_endpoint_mentions,
+                    )
+
+                    require_endpoint_mentions(
+                        payload.evidence_text or "",
+                        left_codes=tuple(
+                            code
+                            for code in (node.code, node.metadata_json.get("official_code"))
+                            if isinstance(code, str) and code.strip()
+                        ),
+                        left_text=node.official_text,
+                        right_codes=tuple(
+                            code
+                            for code in (target.metadata_json.get("official_code"),)
+                            if isinstance(code, str) and code.strip()
+                        ),
+                        right_text=target.text
+                        if isinstance(target, LearningOutcome)
+                        else target.official_text,
+                    )
                     require_source_wording(
                         self.source_service,
                         target_revision,

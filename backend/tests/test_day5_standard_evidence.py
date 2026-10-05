@@ -182,3 +182,36 @@ def test_generic_framework_writer_checks_actual_standards(evidence_service, faul
     evidence_service.session.flush()
     with pytest.raises(CurriculumIntelligenceError):
         evidence_service.upsert_competencies(framework=framework, revision=revision, specs=[spec])
+
+
+@pytest.mark.parametrize(
+    "quote,left_codes,left_text,right_codes,right_text,valid",
+    [
+        ("A-1 maps to B-2", ("A-1",), None, ("B-2",), None, True),
+        ("A-10 maps to B-2", ("A-1",), None, ("B-2",), None, False),
+        ("A-1 maps to B-20", ("A-1",), None, ("B-2",), None, False),
+        ("Unrelated sentence", ("A-1",), None, ("B-2",), None, False),
+        ("A-1 is discussed", ("A-1",), None, ("B-2",), None, False),
+        ("తెలుగు భావన corresponds to English concept", (), "తెలుగు భావన", (), "English concept", True),
+        ("shared wording", (), "shared wording", (), "shared wording", False),
+        ("A-1", ("A-1",), None, (), "A-1", False),
+        ("A-1 and A-1", ("A-1",), None, (), "A-1", False),
+        ("ABC", (), "AB", (), "BC", False),
+    ],
+)
+def test_relationship_requires_distinct_bounded_endpoint_mentions(
+    quote, left_codes, left_text, right_codes, right_text, valid
+):
+    from app.curriculum_intelligence.standards_evidence import (
+        StandardsEvidenceError,
+        require_endpoint_mentions,
+    )
+
+    args = dict(
+        left_codes=left_codes, left_text=left_text, right_codes=right_codes, right_text=right_text
+    )
+    if valid:
+        require_endpoint_mentions(quote, **args)
+    else:
+        with pytest.raises(StandardsEvidenceError, match="both endpoints distinctly"):
+            require_endpoint_mentions(quote, **args)

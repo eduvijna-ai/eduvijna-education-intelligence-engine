@@ -586,7 +586,7 @@ def test_reviewed_cross_medium_correspondence_is_exact_idempotent_and_persistent
         "left_code": left.code,
         "right_code": right.code,
         "locator": "JSON pointer /text",
-        "evidence_text": "source evidence",
+        "evidence_text": f"{left.code} corresponds to {right.code}",
     }
     revision = approved_revision(
         service,
@@ -594,6 +594,7 @@ def test_reviewed_cross_medium_correspondence_is_exact_idempotent_and_persistent
         grades=("First Year", "Second Year"),
         media=("English", "Telugu"),
         declarations=[declaration],
+        content={"text": declaration["evidence_text"]},
         non_applicable_dimensions=True,
     )
     kwargs: dict[str, Any] = {
@@ -850,7 +851,11 @@ def test_scoped_direct_alignment_uses_bounded_source_and_own_target_proof(servic
         select(LearningOutcome).where(LearningOutcome.curriculum_version_id == version.id)
     )
     assert outcome is not None
-    words = f"{node.code} directly addresses {outcome.code}"
+    outcome.metadata_json = {
+        **outcome.metadata_json,
+        "identity": dict(node.metadata_json["identity"]),
+    }
+    words = f"{node.code} directly addresses {outcome.text}"
     locator = "JSON pointer /sections/" + ("A" if fault == "wrong-section" else "B")
     declaration = {
         "node_code": node.code,
