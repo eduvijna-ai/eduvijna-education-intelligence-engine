@@ -896,3 +896,63 @@ def test_private_storage_sanitizes_and_blocks_path_escape(tmp_path: Path) -> Non
 
     with pytest.raises(SourceStorageError):
         storage.read("../outside.txt")
+
+
+def test_real_fetch_retries_validated_public_addresses() -> None:
+    calls: list[str] = []
+
+    class _Response:
+        status = 200
+
+        def __init__(self) -> None:
+            self._sent = False
+
+        def getheader(self, name: str, default: str | None = None) -> str | None:
+            headers = {
+                "content-type": "text/plain",
+                "content-length": "2",
+            }
+            return headers.get(name.lower(), default)
+
+        def read(self, _: int = -1) -> bytes:
+            if self._sent:
+                return b""
+            self._sent = True
+            return b"ok"
+
+    class _Connection:
+        def __init__(self, pinned_ip: str) -> None:
+            self.pinned_ip = pinned_ip
+
+        def request(self, *_: object, **__: object) -> None:
+            if self.pinned_ip == "93.184.216.34":
+                raise OSError("synthetic first-address failure")
+
+        def getresponse(self) -> _Response:
+            return _Response()
+
+        def close(self) -> None:
+            return None
+
+    def factory(
+        _: str,
+        __: str,
+        ___: int,
+        ____: float,
+        pinned_ip: str,
+    ) -> _Connection:
+        calls.append(pinned_ip)
+        return _Connection(pinned_ip)
+
+    fetcher = SourceUrlFetcher(
+        timeout_seconds=1,
+        max_bytes=4096,
+        max_redirects=1,
+        resolver=lambda _: ["93.184.216.34", "93.184.216.35"],
+        connection_factory=factory,
+    )
+    fetched = fetcher.fetch("https://official.example/source.txt")
+
+    assert fetched.content == b"ok"
+    assert fetched.content_type == "text/plain"
+    assert calls == ["93.184.216.34", "93.184.216.35"]
