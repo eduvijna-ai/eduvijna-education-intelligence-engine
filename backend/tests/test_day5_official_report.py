@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.curriculum_intelligence.scoped_curriculum import ScopeError
-from app.day5_official_report import build_official_report
+from app.day5_official_report import _catalogue_gaps, build_official_report
 from app.db.base import Base
 from app.repo_paths import curricula_content_dir
 
@@ -81,3 +81,22 @@ def test_scope_file_resolves_in_curricula_content_dir() -> None:
     scope_path = curricula_content_dir() / "day5_scope.json"
     payload = json.loads(scope_path.read_text(encoding="utf-8"))
     assert payload["approved_tasks"]
+
+
+def test_detailed_slice_cannot_satisfy_full_catalogue_gate() -> None:
+    report = {
+        "catalogue_inventories": [
+            {
+                "pack_code": "ts-scert",
+                "inventory_kind": "detailed_slice",
+                "coverage": {"status": "complete"},
+            },
+            {
+                "pack_code": "tgbie",
+                "inventory_kind": "detailed_slice",
+                "coverage": {"status": "complete"},
+            },
+        ]
+    }
+    gaps = _catalogue_gaps(report)
+    assert {item["pack_code"] for item in gaps} == {"ts-scert", "tgbie"}
