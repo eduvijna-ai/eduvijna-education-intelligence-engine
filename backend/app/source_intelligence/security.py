@@ -235,7 +235,6 @@ class SourceUrlFetcher:
                 current,
                 resolver=self.resolver,
             )
-            pinned_ip = addresses[0]
             parsed = urlsplit(current)
             request_target = urlunsplit(
                 (
@@ -250,69 +249,85 @@ class SourceUrlFetcher:
             if (scheme, port) not in {("http", 80), ("https", 443)}:
                 host_header = f"{hostname}:{port}"
 
-            if self.connection_factory is not None:
-                connection = self.connection_factory(
-                    scheme,
-                    hostname,
-                    port,
-                    self.timeout_seconds,
-                    pinned_ip,
-                )
-            else:
-                connection = pinned_connection_factory(
-                    scheme,
-                    hostname,
-                    port,
-                    self.timeout_seconds,
-                    pinned_ip=pinned_ip,
-                )
-
-            try:
-                connection.request(
-                    "GET",
-                    request_target,
-                    headers={
-                        "Host": host_header,
-                        "User-Agent": "Eduvijna-Source-Intelligence/1.0",
-                        "Accept": "*/*",
-                        "Connection": "close",
-                    },
-                )
-                response = connection.getresponse()
-                if response.status in {301, 302, 303, 307, 308}:
-                    if redirect_count >= self.max_redirects:
-                        raise SourceFetchError("source URL exceeded redirect limit")
-                    location = response.getheader("location")
-                    if not location:
-                        raise SourceFetchError(
-                            "source redirect did not include Location"
+            last_connection_error: Exception | None = None
+            redirected = False
+            for pinned_ip in addresses:
+                connection: http.client.HTTPConnection | None = None
+                try:
+                    if self.connection_factory is not None:
+                        connection = self.connection_factory(
+                            scheme,
+                            hostname,
+                            port,
+                            self.timeout_seconds,
+                            pinned_ip,
                         )
-                    current = urljoin(current, location)
-                    continue
-                if response.status >= 400:
-                    raise SourceFetchError(
-                        f"source URL returned HTTP {response.status}"
+                    else:
+                        connection = pinned_connection_factory(
+                            scheme,
+                            hostname,
+                            port,
+                            self.timeout_seconds,
+                            pinned_ip=pinned_ip,
+                        )
+
+                    connection.request(
+                        "GET",
+                        request_target,
+                        headers={
+                            "Host": host_header,
+                            "User-Agent": "Eduvijna-Source-Intelligence/1.0",
+                            "Accept": "*/*",
+                            "Connection": "close",
+                        },
                     )
-                content = self._read_bounded_http_response(response)
-                content_type = (
-                    response.getheader(
-                        "content-type",
-                        "application/octet-stream",
+                    response = connection.getresponse()
+                    if response.status in {301, 302, 303, 307, 308}:
+                        if redirect_count >= self.max_redirects:
+                            raise SourceFetchError("source URL exceeded redirect limit")
+                        location = response.getheader("location")
+                        if not location:
+                            raise SourceFetchError(
+                                "source redirect did not include Location"
+                            )
+                        current = urljoin(current, location)
+                        redirected = True
+                        break
+                    if response.status >= 400:
+                        raise SourceFetchError(
+                            f"source URL returned HTTP {response.status}"
+                        )
+                    content = self._read_bounded_http_response(response)
+                    content_type = (
+                        response.getheader(
+                            "content-type",
+                            "application/octet-stream",
+                        )
+                        .split(";", 1)[0]
+                        .strip()
+                        .lower()
                     )
-                    .split(";", 1)[0]
-                    .strip()
-                    .lower()
-                )
-                return FetchedSource(
-                    content=content,
-                    final_url=current,
-                    content_type=content_type,
-                    filename=self._filename_for_url(current),
-                )
-            except (OSError, http.client.HTTPException) as exc:
-                raise SourceFetchError("source URL retrieval failed") from exc
-            finally:
-                connection.close()
+                    return FetchedSource(
+                        content=content,
+                        final_url=current,
+                        content_type=content_type,
+                        filename=self._filename_for_url(current),
+                    )
+                except SourceFetchError:
+                    raise
+                except (OSError, http.client.HTTPException) as exc:
+                    last_connection_error = exc
+                finally:
+                    if connection is not None:
+                        connection.close()
+
+            if redirected:
+                continue
+            if last_connection_error is not None:
+                raise SourceFetchError(
+                    "source URL retrieval failed across resolved public addresses"
+                ) from last_connection_error
+            raise SourceFetchError("source URL retrieval failed")
 
         raise SourceFetchError("source URL retrieval did not complete")
 
