@@ -196,7 +196,15 @@ def _language_role(header: str) -> str:
     normalized = header.casefold()
     if normalized == "first language":
         return "first"
-    if normalized in {"maths", "physical science", "biological science", "social", "social studies", "environmental education"}:
+    non_language_subjects = {
+        "maths",
+        "physical science",
+        "biological science",
+        "social",
+        "social studies",
+        "environmental education",
+    }
+    if normalized in non_language_subjects:
         return "not_applicable"
     return "unknown"
 
