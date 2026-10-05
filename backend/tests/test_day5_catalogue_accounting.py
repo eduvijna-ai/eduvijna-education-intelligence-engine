@@ -252,6 +252,7 @@ def test_scoped_catalogue_rechecks_inventory_source_before_write(tamper: str) ->
         id="version",
         curriculum_pack_id="pack",
         version_code="version",
+        academic_year="2025-26",
         curriculum_pack=SimpleNamespace(code="pack"),
         status="draft",
         metadata_json={"scope_enforced": True},

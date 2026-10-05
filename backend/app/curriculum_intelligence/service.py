@@ -20,7 +20,8 @@ from app.curriculum_intelligence.scoped_curriculum import (
 from app.curriculum_intelligence.source_domains import require_domain, source_domain
 from app.curriculum_intelligence.standards_evidence import (
     StandardsEvidenceError,
-    require_standards_evidence,
+    require_source_wording,
+    source_text_at_locator,
 )
 from app.models.curriculum import (
     Competency,
@@ -586,6 +587,26 @@ class CurriculumIntelligenceService:
                 raise CurriculumIntelligenceError(
                     "Scoped ancestor conflicts with requested identity"
                 )
+            try:
+                source_text_at_locator(
+                    self.source_service, revision, locator=ancestor.source_locator
+                )
+            except StandardsEvidenceError as exc:
+                raise CurriculumIntelligenceError(str(exc)) from exc
+            if (
+                ancestor.official_text is not None
+                or ancestor.metadata_json.get("official_code") is not None
+            ):
+                try:
+                    require_source_wording(
+                        self.source_service,
+                        revision,
+                        locator=ancestor.source_locator,
+                        official_text=ancestor.official_text,
+                        official_code=ancestor.metadata_json.get("official_code"),
+                    )
+                except StandardsEvidenceError as exc:
+                    raise CurriculumIntelligenceError(str(exc)) from exc
             previous = ancestor
 
     def _upsert_nodes(
@@ -645,14 +666,28 @@ class CurriculumIntelligenceService:
 
                 if version.metadata_json.get("scope_enforced"):
                     checked_text(spec.title)
-                    if not spec.source_locator:
-                        raise CurriculumIntelligenceError("Source-backed nodes require locator")
+                    try:
+                        source_text_at_locator(
+                            self.source_service, revision, locator=spec.source_locator
+                        )
+                    except StandardsEvidenceError as exc:
+                        raise CurriculumIntelligenceError(str(exc)) from exc
                     if spec.official_text is not None:
                         checked_text(spec.official_text)
-                        if spec.official_text not in (revision.extracted_text or ""):
-                            raise CurriculumIntelligenceError(
-                                "Official text not found in exact source"
+                    if (
+                        spec.official_text is not None
+                        or spec.metadata_json.get("official_code") is not None
+                    ):
+                        try:
+                            require_source_wording(
+                                self.source_service,
+                                revision,
+                                locator=spec.source_locator,
+                                official_text=spec.official_text,
+                                official_code=spec.metadata_json.get("official_code"),
                             )
+                        except StandardsEvidenceError as exc:
+                            raise CurriculumIntelligenceError(str(exc)) from exc
                 validate_entity_scope(
                     self,
                     version,
@@ -724,11 +759,28 @@ class CurriculumIntelligenceService:
         specs: Iterable[CompetencySpec],
         revision: SourceRevision,
     ) -> dict[str, Competency]:
+        with self.session.begin_nested():
+            return self._upsert_competencies(
+                framework=framework,
+                curriculum_version=curriculum_version,
+                specs=specs,
+                revision=revision,
+            )
+
+    def _upsert_competencies(
+        self,
+        *,
+        framework: EducationFramework | None,
+        curriculum_version: CurriculumVersion | None = None,
+        specs: Iterable[CompetencySpec],
+        revision: SourceRevision,
+    ) -> dict[str, Competency]:
         self._require_curriculum_revision(revision, "competency")
         # Validate approved metadata before trusting its semantic domain. Otherwise
         # a corrupted snapshot could masquerade as an untyped legacy source.
-        if revision.approval_fingerprint and (
-            self.source_service._snapshot_checksum(
+        if (
+            not revision.approval_fingerprint
+            or self.source_service._snapshot_checksum(
                 revision.metadata_json.get("source_snapshot", {})
             )
             != revision.source_snapshot_checksum
@@ -743,10 +795,13 @@ class CurriculumIntelligenceService:
             else (curriculum_version.id if curriculum_version is not None else "")
         )
         specs_list = list(specs)
-        standard_framework = (
-            framework is not None
-            and source_domain(revision.metadata_json.get("source_snapshot", {}))
-            == "academic_standard"
+        domain = source_domain(revision.metadata_json.get("source_snapshot", {}))
+        standard_source = domain == "academic_standard"
+        standard_framework = framework is not None and standard_source
+        bounded_source = (
+            domain in {"academic_standard", "learning_outcome"}
+            or curriculum_version is not None
+            or (domain is not None and self._source_metadata(revision).get("synthetic") is not True)
         )
         if (
             framework is not None
@@ -756,10 +811,10 @@ class CurriculumIntelligenceService:
             raise CurriculumIntelligenceError(
                 "Competency framework is not evidenced by its curriculum"
             )
-        if standard_framework:
+        if bounded_source:
             for spec in specs_list:
                 try:
-                    require_standards_evidence(
+                    require_source_wording(
                         self.source_service,
                         revision,
                         locator=spec.source_locator,
@@ -803,14 +858,16 @@ class CurriculumIntelligenceService:
                 )
             if curriculum_version is not None:
                 checked_text(spec.name)
-                if not spec.source_locator:
-                    raise CurriculumIntelligenceError("Scoped standard requires source locator")
-                if spec.official_text is not None:
-                    checked_text(spec.official_text)
-                    if spec.official_text not in (revision.extracted_text or ""):
-                        raise CurriculumIntelligenceError(
-                            "Standard wording not found in exact source"
-                        )
+                try:
+                    require_source_wording(
+                        self.source_service,
+                        revision,
+                        locator=spec.source_locator,
+                        official_text=spec.official_text,
+                        official_code=spec.metadata_json.get("official_code"),
+                    )
+                except StandardsEvidenceError as exc:
+                    raise CurriculumIntelligenceError(str(exc)) from exc
             if competency is None:
                 competency = Competency(
                     id=stable_uuid("competency", namespace, spec.code),
@@ -850,16 +907,49 @@ class CurriculumIntelligenceService:
         specs: Iterable[LearningOutcomeSpec],
         revision: SourceRevision,
     ) -> dict[str, LearningOutcome]:
+        with self.session.begin_nested():
+            return self._upsert_learning_outcomes(version=version, specs=specs, revision=revision)
+
+    def _upsert_learning_outcomes(
+        self,
+        *,
+        version: CurriculumVersion,
+        specs: Iterable[LearningOutcomeSpec],
+        revision: SourceRevision,
+    ) -> dict[str, LearningOutcome]:
         self._require_curriculum_revision(revision, "outcome")
+        if (
+            not revision.approval_fingerprint
+            or self.source_service._snapshot_checksum(
+                revision.metadata_json.get("source_snapshot", {})
+            )
+            != revision.source_snapshot_checksum
+            or self.source_service._approval_fingerprint(revision) != revision.approval_fingerprint
+        ):
+            raise CurriculumIntelligenceError("Outcome source approval integrity mismatch")
         result: dict[str, LearningOutcome] = {}
         for spec in specs:
             validate_entity_scope(self, version, revision, spec.metadata_json)
-            if version.metadata_json.get("scope_enforced"):
+            domain = source_domain(revision.metadata_json.get("source_snapshot", {}))
+            if (
+                version.metadata_json.get("scope_enforced")
+                or domain in {"learning_outcome", "academic_standard"}
+                or (
+                    domain is not None
+                    and self._source_metadata(revision).get("synthetic") is not True
+                )
+            ):
                 checked_text(spec.text)
-                if not spec.source_locator or spec.text not in (revision.extracted_text or ""):
-                    raise CurriculumIntelligenceError(
-                        "Outcome text/locator not established by source"
+                try:
+                    require_source_wording(
+                        self.source_service,
+                        revision,
+                        locator=spec.source_locator,
+                        official_text=spec.text,
+                        official_code=spec.metadata_json.get("official_code"),
                     )
+                except StandardsEvidenceError as exc:
+                    raise CurriculumIntelligenceError(str(exc)) from exc
             outcome = self.session.scalar(
                 select(LearningOutcome).where(
                     LearningOutcome.curriculum_version_id == version.id,

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.curriculum_intelligence.scoped_catalogue import checked_text, normalize_label
 from app.curriculum_intelligence.source_domains import source_domain
+from app.curriculum_intelligence.standards_evidence import source_text_at_locator
 from app.models.enums import SourceRevisionStatus
 
 if TYPE_CHECKING:
@@ -93,7 +94,12 @@ def exact_scope(
         raise ScopeError("Scoped evidence must declare a known document domain")
     if "curriculum_scope" not in metadata:
         raise ScopeError("Source curriculum scope is missing; review required")
-    return SourceCurriculumScope.model_validate(metadata["curriculum_scope"])
+    scope = SourceCurriculumScope.model_validate(metadata["curriculum_scope"])
+    if scope.applicability_locator is not None:
+        source_text_at_locator(
+            service.source_service, revision, locator=scope.applicability_locator
+        )
+    return scope
 
 
 def validate_version_scope(

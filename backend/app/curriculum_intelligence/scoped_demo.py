@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.curriculum_intelligence.scoped_catalogue import (
     CatalogueSnapshot,
+    CourseApplicability,
     ScopedCatalogueRow,
     materialize_catalogue,
 )
@@ -69,9 +70,10 @@ def synthetic_revision(
                         "subject_languages": ["not_applicable"],
                         "language_roles": ["not_applicable"],
                         "book_parts": ["not_applicable"],
-                        "bilingual_states": ["not_applicable"],
+                        "bilingual_states": ["not_applicable", "no"],
                         "publication_status": "draft",
                         "applicability_status": "unverified",
+                        "applicability_locator": "JSON pointer /subjects",
                     },
                 },
             ),
@@ -86,7 +88,7 @@ def synthetic_revision(
                 "fixture": True,
                 "domain": domain,
                 "text": (
-                    "తెలుగు اردو हिन्दी synthetic evidence తెలుగు اردو outcome "
+                    "English science తెలుగు اردو हिन्दी synthetic evidence తెలుగు اردو outcome "
                     "తెలుగు ప్రమాణం Unit Chapter Topic Concept"
                 ),
                 "grades": grades,
@@ -165,7 +167,7 @@ def seed_scoped_pack(
                         code=parent,
                         title=grade,
                         metadata_json={"identity": dict(identity)},
-                        source_locator="synthetic JSON",
+                        source_locator="JSON pointer /text",
                     )
                 ],
             )
@@ -188,7 +190,7 @@ def seed_scoped_pack(
                         title=label,
                         parent_code=parent,
                         official_text="తెలుగు" if medium == "Telugu" else label,
-                        source_locator="synthetic JSON",
+                        source_locator="JSON pointer /text",
                         metadata_json={"identity": dict(identity)},
                     )
                 )
@@ -201,12 +203,23 @@ def seed_scoped_pack(
                     version_id=version.id,
                     source_revision_id=revision.id,
                     source_checksum=revision.checksum,
-                    source_locator="synthetic JSON row",
+                    source_locator="JSON pointer /subjects",
                     official_label="తెలుగు" if medium == "Telugu" else "Science",
                     grade=grade,
                     academic_year="2025-26",
                     instructional_medium=medium,
                     resource_kind="syllabus_document",
+                    subject="science",
+                    course_family="not_applicable",
+                    subject_language="not_applicable",
+                    language_role="not_applicable",
+                    book_part="not_applicable",
+                    bilingual="no",
+                    applicability=CourseApplicability(
+                        status="explicit_groups",
+                        groups=("not_applicable",),
+                        source_locator="JSON pointer /subjects",
+                    ),
                 )
             )
     coverage = materialize_catalogue(
@@ -235,7 +248,7 @@ def seed_scoped_pack(
             LearningOutcomeSpec(
                 code="synthetic-lo",
                 text="తెలుగు اردو outcome",
-                source_locator="synthetic JSON",
+                source_locator="JSON pointer /text",
                 metadata_json=binding_metadata,
             )
         ],
@@ -250,7 +263,7 @@ def seed_scoped_pack(
                 code=competency_code,
                 name="Synthetic academic standard",
                 official_text="తెలుగు ప్రమాణం",
-                source_locator="synthetic JSON",
+                source_locator="JSON pointer /text",
                 metadata_json=binding_metadata,
             )
         ],

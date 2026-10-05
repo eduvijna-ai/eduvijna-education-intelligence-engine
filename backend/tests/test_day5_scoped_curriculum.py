@@ -73,7 +73,7 @@ def grade(
         node_type="grade_year",
         code=code,
         title=title,
-        source_locator="fixture section 1",
+        source_locator="JSON pointer /text",
         metadata_json={
             "identity": {
                 "grade": identity,
@@ -168,7 +168,7 @@ def approved_revision(
                     ),
                     "publication_status": publication,
                     "applicability_status": applicability,
-                    "applicability_locator": "fixture section 1"
+                    "applicability_locator": "JSON pointer /text"
                     if applicability == "verified"
                     else None,
                 },
@@ -255,7 +255,7 @@ def test_new_nodes_reject_source_from_wrong_exact_scope(
         title="Synthetic unit",
         parent_code="first-year-english-subject",
         metadata_json=identity(),
-        source_locator="fixture section 1",
+        source_locator="JSON pointer /text",
     )
     with pytest.raises(ValueError, match="scope|pack|version"):
         service.upsert_nodes(version=version, revision=revision, specs=[spec])
@@ -309,7 +309,7 @@ def test_parent_scope_cannot_cross_year_or_medium(
                     code="cross-parent",
                     title="Synthetic",
                     parent_code="first-year-english-subject",
-                    source_locator="fixture",
+                    source_locator="JSON pointer /text",
                     metadata_json=metadata,
                 )
             ],
@@ -409,7 +409,7 @@ def test_unicode_replacement_character_cannot_be_written(
                         code="corrupt",
                         text="తెలు\ufffdగు",
                         metadata_json=identity(),
-                        source_locator="fixture",
+                        source_locator="JSON pointer /text",
                     )
                 ],
             )
@@ -429,7 +429,7 @@ def test_unicode_replacement_character_cannot_be_written(
                         code="corrupt",
                         name="తెలు\ufffdగు",
                         metadata_json=identity(),
-                        source_locator="fixture",
+                        source_locator="JSON pointer /text",
                     )
                 ],
             )
@@ -474,7 +474,7 @@ def test_foreign_learning_outcome_source_and_target_cannot_autoalign(
                     code="foreign",
                     text="Synthetic outcome",
                     metadata_json=identity(),
-                    source_locator="fixture",
+                    source_locator="JSON pointer /text",
                 )
             ],
         )
@@ -504,7 +504,7 @@ def test_foreign_learning_outcome_source_and_target_cannot_autoalign(
                 relationship_type="addresses",
                 status="partial",
                 inferred=True,
-                source_locator="fixture",
+                source_locator="JSON pointer /text",
             )
         )
 
@@ -673,7 +673,7 @@ def test_same_revision_cannot_rewrite_outcome_or_standard(
                     LearningOutcomeSpec(
                         code="synthetic-lo",
                         text="changed official outcome",
-                        source_locator="synthetic JSON",
+                        source_locator="JSON pointer /text",
                         metadata_json=identity(),
                     )
                 ],
@@ -688,7 +688,7 @@ def test_same_revision_cannot_rewrite_outcome_or_standard(
                         code=version.curriculum_pack.code + "-standard",
                         name="Changed standard",
                         official_text="తెలుగు ప్రమాణం",
-                        source_locator="synthetic JSON",
+                        source_locator="JSON pointer /text",
                         metadata_json=identity(),
                     )
                 ],
@@ -703,7 +703,7 @@ def test_invalid_hierarchy_cannot_write(service: CurriculumIntelligenceService, 
         code="unwritable",
         title="Unit",
         parent_code="absent-subject",
-        source_locator="synthetic JSON",
+        source_locator="JSON pointer /text",
         metadata_json=identity(),
     )
     specs = [spec]
@@ -725,7 +725,7 @@ def test_invalid_hierarchy_cannot_write(service: CurriculumIntelligenceService, 
                 code="unwritable",
                 title="English",
                 parent_code="only-foreign-parent",
-                source_locator="synthetic JSON",
+                source_locator="JSON pointer /text",
                 metadata_json={"identity": {"grade": "First Year", "medium": "English"}},
             )
         ]

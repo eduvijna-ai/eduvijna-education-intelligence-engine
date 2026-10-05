@@ -20,11 +20,20 @@ from app.curriculum_intelligence.standards_locators import (
 from app.models.curriculum import Competency
 from app.schemas.curriculum_intelligence import CompetencySpec, OfficialSourceManifestEntry
 from app.source_intelligence.security import FetchedSource, SourceUrlFetcher
+from tests.test_day4_official_evidence import _pdf
 from tests.test_day4_official_evidence import evidence_service as evidence_service
 from tests.test_day5_standard_evidence import context
 
 
 def source_case(kind: str) -> tuple[bytes, str, str, str, str]:
+    if kind == "pdf":
+        return (
+            _pdf(["Section A C-A First standard", "Section B C-B Second standard"]),
+            "application/pdf",
+            "standards.pdf",
+            "PDF page 1",
+            "PDF page 2",
+        )
     if kind == "text":
         return (
             b"Section A\nC-A First standard\nSection B\nC-B Second standard",
@@ -203,3 +212,72 @@ def test_csv_column_cannot_borrow_from_other_column():
 def test_invalid_text_bounds_rejected(locator):
     with pytest.raises(StandardsLocatorError):
         resolve_standard_locator(b"C-A\nC-B", "text/plain", locator)
+
+
+@pytest.mark.parametrize("kind", ["pdf", "text", "html", "json", "csv", "docx"])
+@pytest.mark.parametrize("entrypoint", ["generic", "incoming-node", "attached-record"])
+def test_standard_code_component_cannot_masquerade_as_complete_code(
+    evidence_service, kind, entrypoint
+):
+    framework, revision, node_spec, _, locator = actual_context(evidence_service, kind)
+    spec = CompetencySpec(
+        code=f"code-boundary-{kind}",
+        name="Second standard",
+        official_text="Second standard",
+        source_locator=locator,
+        metadata_json={"official_code": "C" if entrypoint == "generic" else "C-B"},
+    )
+    if entrypoint == "generic":
+        with pytest.raises(CurriculumIntelligenceError, match="complete identifier"):
+            evidence_service.upsert_competencies(
+                framework=framework, revision=revision, specs=[spec]
+            )
+        return
+    competency = evidence_service.upsert_competencies(
+        framework=framework, revision=revision, specs=[spec]
+    )[spec.code]
+    competency.metadata_json = {"official_code": "C"}
+    evidence_service.session.flush()
+    incoming = node_spec.model_copy(
+        update={
+            "code": f"code-boundary-node-{kind}",
+            "official_code": "C" if entrypoint == "incoming-node" else None,
+            "official_text": "Second standard",
+            "competency_id": competency.id,
+            "source_locator": locator,
+        }
+    )
+    structure = FrameworkStructureService(
+        evidence_service.session, source_service=evidence_service.source_service
+    )
+    with pytest.raises(FrameworkStructureError, match="complete identifier"):
+        structure.upsert_nodes(framework=framework, revision=revision, specs=[incoming])
+
+
+@pytest.mark.parametrize(
+    "text,code,expected",
+    [
+        ("C-10", "C-1", False),
+        ("C-1", "C-1", True),
+        ("(C-1).", "C-1", True),
+        ("C-1.0", "C-1", False),
+        ("C-1-A", "C-1", False),
+        ("C-1/2", "C-1", False),
+        ("C-1:sub", "C-1", False),
+        ("XC-1", "C-1", False),
+        ("X.C-1", "C-1", False),
+        ("X-C-1", "C-1", False),
+        ("C-1_suffix", "C-1", False),
+        ("C-1 and C-10", "C-1", True),
+        ("క-10", "క-1", False),
+        ("క-1", "క-1", True),
+        ("कि", "क", False),
+        ("C-1\u200dextra", "C-1", False),
+        ("", "", False),
+        ("text", " ", False),
+    ],
+)
+def test_official_identifier_boundaries(text, code, expected):
+    from app.curriculum_intelligence.standards_evidence import contains_complete_identifier
+
+    assert contains_complete_identifier(text, code) is expected

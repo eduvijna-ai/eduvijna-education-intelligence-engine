@@ -79,12 +79,27 @@ def persisted(tmp_path: Path):
         )
         report: dict[str, Any] = {"materialized_slices": [], "catalogue_inventories": []}
         scope: dict[str, Any] = {"required_detailed_slices": []}
+        source_grades = [
+            "I",
+            "II",
+            "III",
+            "IV",
+            "V",
+            "VI",
+            "VII",
+            "VIII",
+            "IX",
+            "X",
+            "First Year",
+            "Second Year",
+        ]
         content = json.dumps(
             {
                 "text": (
                     "I II III IV V VI VII VIII IX X First Year Second Year "
                     "English Science Unit Force Topic Concept section 1"
-                )
+                ),
+                "grades": source_grades,
             }
         ).encode()
         checksum = hashlib.sha256(content).hexdigest()
@@ -100,8 +115,9 @@ def persisted(tmp_path: Path):
                 version_id="pending",
                 source_revision_id="pending",
                 source_checksum=checksum,
-                source_locator="section 1",
+                source_locator="JSON pointer /text",
                 official_label="Science",
+                subject="Science",
                 grade=grade,
                 academic_year="2025-26",
                 instructional_medium="English",
@@ -112,14 +128,19 @@ def persisted(tmp_path: Path):
                 book_part="whole",
                 bilingual="no",
                 applicability=CourseApplicability(
-                    status="explicit_groups", groups=("MPC",), source_locator="section 1"
+                    status="explicit_groups", groups=("MPC",), source_locator="JSON pointer /text"
                 ),
             )
             draft_snapshot = CatalogueSnapshot(
                 source_revision_id="pending",
                 source_checksum=checksum,
                 rows=tuple(
-                    row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                    row.model_copy(
+                        update={
+                            "grade": g,
+                            "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
+                        }
+                    )
                     for g in grades
                 ),
                 inventory_observations=(
@@ -130,7 +151,12 @@ def persisted(tmp_path: Path):
                         row_identity=catalogue_row.identity,
                     )
                     for catalogue_row in (
-                        row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                        row.model_copy(
+                            update={
+                                "grade": g,
+                                "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
+                            }
+                        )
                         for g in grades
                     )
                 ),
@@ -152,7 +178,10 @@ def persisted(tmp_path: Path):
                         "synthetic": False,
                         "document_type": "curriculum_index",
                         "official_catalogue_review_digests": [draft_snapshot.inventory_digest],
-                        "verified_locators": ["section 1", *(f"section 1 > {g}" for g in grades)],
+                        "verified_locators": [
+                            "JSON pointer /text",
+                            *(f"JSON pointer /grades/{source_grades.index(g)}" for g in grades),
+                        ],
                         "curriculum_scope": {
                             "pack_code": pack_code,
                             "version_codes": ["2025-26"],
@@ -167,7 +196,7 @@ def persisted(tmp_path: Path):
                             "bilingual_states": ["no"],
                             "publication_status": "final",
                             "applicability_status": "verified",
-                            "applicability_locator": "section 1",
+                            "applicability_locator": "JSON pointer /text",
                         },
                     },
                 ),
@@ -192,7 +221,7 @@ def persisted(tmp_path: Path):
                 authority="Offline authority",
                 country="India",
                 revision=revision,
-                source_locator="section 1",
+                source_locator="JSON pointer /text",
             )
             version = service.ensure_version(
                 pack=pack,
@@ -200,7 +229,7 @@ def persisted(tmp_path: Path):
                 academic_year="2025-26",
                 revision=revision,
                 active=False,
-                source_locator="section 1",
+                source_locator="JSON pointer /text",
                 metadata_json={"scope_enforced": True},
             )
             specs = []
@@ -218,7 +247,7 @@ def persisted(tmp_path: Path):
                         title=title,
                         parent_code=parent,
                         official_text=title,
-                        source_locator="section 1",
+                        source_locator="JSON pointer /text",
                         metadata_json={"identity": identity},
                     )
                 )
@@ -232,7 +261,7 @@ def persisted(tmp_path: Path):
                     "academic_version": "2025-26",
                     "source_revision": revision.id,
                     "source_checksum": revision.checksum,
-                    "source_locator": "section 1",
+                    "source_locator": "JSON pointer /text",
                     "pack_code": pack_code,
                     "grade": grade,
                     "medium": "English",
@@ -262,7 +291,12 @@ def persisted(tmp_path: Path):
                 source_revision_id=revision.id,
                 source_checksum=revision.checksum,
                 rows=tuple(
-                    row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                    row.model_copy(
+                        update={
+                            "grade": g,
+                            "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
+                        }
+                    )
                     for g in grades
                 ),
                 inventory_observations=(
@@ -273,7 +307,12 @@ def persisted(tmp_path: Path):
                         row_identity=catalogue_row.identity,
                     )
                     for catalogue_row in (
-                        row.model_copy(update={"grade": g, "source_locator": f"section 1 > {g}"})
+                        row.model_copy(
+                            update={
+                                "grade": g,
+                                "source_locator": f"JSON pointer /grades/{source_grades.index(g)}",
+                            }
+                        )
                         for g in grades
                     )
                 ),
@@ -458,7 +497,7 @@ def draft_inventory(
         for field, allowed in {
             "grade": "grades",
             "instructional_medium": "media",
-            "official_label": "subjects",
+            "subject": "subjects",
             "course_family": "course_families",
             "subject_language": "subject_languages",
             "language_role": "language_roles",
@@ -470,6 +509,11 @@ def draft_inventory(
                     *metadata["inventory_scope"].get(allowed, []),
                     row_overrides[field],
                 ]
+    if row_overrides and "applicability" in row_overrides:
+        metadata["inventory_scope"]["course_groups"] = [
+            *metadata["inventory_scope"].get("course_groups", []),
+            *row_overrides["applicability"].groups,
+        ]
     metadata["document_type"] = "textbook_index"
     if governing_grades is not None:
         governing_metadata = copy.deepcopy(service._source_metadata(governing))
@@ -641,7 +685,7 @@ def test_catalogue_requires_independently_frozen_scope(persisted, attack):
     [
         ("grade", "XI"),
         ("instructional_medium", "Telugu"),
-        ("official_label", "Mathematics"),
+        ("subject", "Mathematics"),
         ("course_family", "Vocational"),
         ("subject_language", "Telugu"),
         ("language_role", "first"),
@@ -650,7 +694,7 @@ def test_catalogue_requires_independently_frozen_scope(persisted, attack):
         (
             "applicability",
             CourseApplicability(
-                status="explicit_groups", groups=("MEC",), source_locator="section 1"
+                status="explicit_groups", groups=("MEC",), source_locator="JSON pointer /text"
             ),
         ),
     ],
@@ -856,3 +900,419 @@ def test_writer_cannot_extend_valid_parent_with_corrupt_older_ancestor(
     )
     # Verification constrains new writes, not the read-only historical traversal API.
     assert len(service.curriculum_path(concept.id).node_ids) == 7
+
+
+def section_revision(
+    service, version, domain, *, synthetic=False, applicability_locator="JSON pointer /sections/A"
+):
+    governing = service.session.get(SourceRevision, version.source_revision_id)
+    metadata = copy.deepcopy(service._source_metadata(governing))
+    metadata.update(
+        document_type=domain,
+        synthetic=synthetic,
+        verified_locators=["JSON pointer /sections/A", "JSON pointer /sections/B"],
+    )
+    metadata["curriculum_scope"]["applicability_locator"] = applicability_locator
+    metadata["verified_locators"].append(applicability_locator)
+    source = service.source_service.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_SYLLABUS,
+            title="Offline bounded statements",
+            url=f"https://example.invalid/sections-{domain}.json",
+            authority="Offline authority",
+            country="India",
+            board_or_exam=version.curriculum_pack.code,
+            academic_year=version.academic_year,
+            copyright_classification="test_response",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json=metadata,
+        ),
+        actor_id="test",
+    )
+    revision = service.source_service.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="sections.json",
+        actor_id="test",
+        content=json.dumps(
+            {
+                "sections": {
+                    "A": {"code": "OUT-A1", "text": "Statement within section A."},
+                    "B": {"code": "OUT-B1", "text": "Statement within section B."},
+                }
+            }
+        ).encode(),
+    )
+    service.source_service.extract_revision(revision.id, actor_id="test")
+    service.source_service.create_diff(revision.id, actor_id="test")
+    assert service.source_service.validate_revision(revision.id, actor_id="test").valid
+    service.source_service.approve_revision(revision.id, actor_id="test")
+    service.source_service.activate_revision(revision.id, actor_id="test")
+    return revision
+
+
+def write_statement(
+    service,
+    version,
+    revision,
+    kind,
+    *,
+    text="Statement within section A.",
+    code="OUT-A1",
+    locator="JSON pointer /sections/A",
+):
+    from app.schemas.curriculum_intelligence import CompetencySpec, LearningOutcomeSpec
+
+    metadata = {
+        "identity": {"grade": "VIII", "medium": "English", "subject": "Science", **EXTRAS},
+        "official_code": code,
+    }
+    if kind == "outcome":
+        return service.upsert_learning_outcomes(
+            version=version,
+            revision=revision,
+            specs=[
+                LearningOutcomeSpec(
+                    code="bounded-outcome",
+                    text=text,
+                    source_locator=locator,
+                    metadata_json=metadata,
+                )
+            ],
+        )["bounded-outcome"]
+    return service.upsert_competencies(
+        framework=None,
+        curriculum_version=version,
+        revision=revision,
+        specs=[
+            CompetencySpec(
+                code="bounded-standard",
+                name="Bounded standard",
+                official_text=text,
+                source_locator=locator,
+                metadata_json=metadata,
+            )
+        ],
+    )["bounded-standard"]
+
+
+@pytest.mark.parametrize("kind", ["outcome", "standard"])
+@pytest.mark.parametrize("scoped", [True, False])
+@pytest.mark.parametrize("synthetic", [True, False])
+@pytest.mark.parametrize(
+    "attack", ["wrong_section", "wrong_code", "code_prefix", "missing_locator"]
+)
+def test_statement_writers_require_bounded_wording_for_all_argument_modes(
+    persisted, kind, scoped, synthetic, attack
+):
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    version.metadata_json = {**version.metadata_json, "scope_enforced": scoped}
+    domain = "learning_outcomes" if kind == "outcome" else "academic_standard"
+    revision = section_revision(service, version, domain, synthetic=synthetic)
+    kwargs = {}
+    if attack == "wrong_section":
+        kwargs["text"] = "Statement within section B."
+    elif attack == "wrong_code":
+        kwargs["code"] = "OUT-B1"
+    elif attack == "code_prefix":
+        kwargs["code"] = "OUT-A"
+    else:
+        kwargs["locator"] = ""
+    with pytest.raises(ValueError):
+        write_statement(service, version, revision, kind, **kwargs)
+
+
+@pytest.mark.parametrize("kind", ["outcome", "standard"])
+@pytest.mark.parametrize("attack", [None, "wrong_section", "wrong_code", "code_prefix"])
+def test_persisted_statement_acceptance_rechecks_exact_bounded_evidence(persisted, kind, attack):
+    from app.curriculum_intelligence.scoped_acceptance import _verify_slice
+
+    service, report, scope = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(
+        service, version, "learning_outcomes" if kind == "outcome" else "academic_standard"
+    )
+    entity = write_statement(service, version, revision, kind)
+    if attack == "wrong_section":
+        if kind == "outcome":
+            entity.text = "Statement within section B."
+        else:
+            entity.official_text = "Statement within section B."
+    elif attack:
+        entity.metadata_json = {
+            **entity.metadata_json,
+            "official_code": "OUT-B1" if attack == "wrong_code" else "OUT-A",
+        }
+    service.session.flush()
+    service.session.expire_all()
+    expected = {
+        **scope["required_detailed_slices"][0],
+        "key": "scert-learning-outcomes" if kind == "outcome" else "scert-academic-standards",
+        "source_revision": revision.id,
+        "source_checksum": revision.checksum,
+        "source_locator": "JSON pointer /sections/A",
+    }
+    observation = {
+        "synthetic": False,
+        "source_revision_id": revision.id,
+        "source_checksum": revision.checksum,
+        "academic_version": version.version_code,
+        "persisted_entity_ids": [entity.id],
+    }
+    if attack:
+        with pytest.raises(ValueError):
+            _verify_slice(service, expected, observation)
+    else:
+        assert _verify_slice(service, expected, observation)
+
+
+def section_path_specs():
+    specs = []
+    parent = None
+    for kind in ("grade_year", "medium", "subject", "unit", "chapter", "topic", "concept"):
+        specs.append(
+            CurriculumNodeSpec(
+                node_type=kind,
+                code="bounded-" + kind,
+                parent_code=parent,
+                title="Selected " + kind,
+                official_text="Statement within section A."
+                if kind in {"chapter", "topic"}
+                else None,
+                source_locator="JSON pointer /sections/A",
+                metadata_json={
+                    "identity": {
+                        "grade": "VIII",
+                        "medium": "English",
+                        "subject": "Science",
+                        **EXTRAS,
+                    },
+                    "label_status": "official" if kind in {"chapter", "topic"} else "derived",
+                },
+            )
+        )
+        parent = "bounded-" + kind
+    return specs
+
+
+@pytest.mark.parametrize("level", range(7))
+def test_scoped_node_writer_binds_every_claimed_quote_to_locator(persisted, level):
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(service, version, "syllabus")
+    specs = section_path_specs()
+    specs[level] = specs[level].model_copy(update={"official_text": "Statement within section B."})
+    with pytest.raises(ValueError, match="absent at exact locator"):
+        service.upsert_nodes(version=version, revision=revision, specs=specs)
+
+
+@pytest.mark.parametrize(
+    "attack", [None, "chapter_absent", "topic_absent", "concept_unlabelled", *range(7)]
+)
+def test_detailed_acceptance_rechecks_bounded_node_quotes_and_derived_labels(persisted, attack):
+    from app.curriculum_intelligence.scoped_acceptance import _verify_slice
+
+    service, report, scope = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(service, version, "syllabus")
+    specs = section_path_specs()
+    nodes = service.upsert_nodes(version=version, revision=revision, specs=specs)
+    if isinstance(attack, int):
+        nodes[specs[attack].code].official_text = "Statement within section B."
+    elif attack in {"chapter_absent", "topic_absent"}:
+        nodes["bounded-" + attack.split("_")[0]].official_text = None
+    elif attack == "concept_unlabelled":
+        node = nodes["bounded-concept"]
+        node.metadata_json = {"identity": node.metadata_json["identity"]}
+    service.session.flush()
+    expected = {
+        **scope["required_detailed_slices"][0],
+        "chapter": "Selected chapter",
+        "source_revision": revision.id,
+        "source_checksum": revision.checksum,
+        "source_locator": "JSON pointer /sections/A",
+    }
+    observation = {
+        "source_revision_id": revision.id,
+        "source_checksum": revision.checksum,
+        "academic_version": version.version_code,
+        "synthetic": False,
+        "path": service.curriculum_path(nodes["bounded-concept"].id).model_dump(mode="json"),
+    }
+    if isinstance(attack, int):
+        with pytest.raises(ValueError, match="absent at exact locator"):
+            _verify_slice(service, expected, observation)
+    else:
+        assert _verify_slice(service, expected, observation) is (attack is None)
+
+
+@pytest.mark.parametrize("kind", ["outcome", "standard"])
+def test_bounded_statement_failure_rolls_back_valid_batch_prefix(persisted, kind):
+    from sqlalchemy import select
+
+    from app.models.curriculum import Competency, LearningOutcome
+    from app.schemas.curriculum_intelligence import CompetencySpec, LearningOutcomeSpec
+
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(service, version, "syllabus")
+    metadata = {"identity": {"grade": "VIII", "medium": "English", "subject": "Science", **EXTRAS}}
+    with pytest.raises(ValueError, match="absent at exact locator"):
+        if kind == "outcome":
+            specs = [
+                LearningOutcomeSpec(
+                    code="prefix-" + label,
+                    text=f"Statement within section {label}.",
+                    source_locator="JSON pointer /sections/A",
+                    metadata_json=metadata,
+                )
+                for label in ("A", "B")
+            ]
+            service.upsert_learning_outcomes(version=version, revision=revision, specs=specs)
+        else:
+            specs = [
+                CompetencySpec(
+                    code="prefix-" + label,
+                    name="Standard " + label,
+                    official_text=f"Statement within section {label}.",
+                    source_locator="JSON pointer /sections/A",
+                    metadata_json=metadata,
+                )
+                for label in ("A", "B")
+            ]
+            service.upsert_competencies(
+                framework=None, curriculum_version=version, revision=revision, specs=specs
+            )
+    model = LearningOutcome if kind == "outcome" else Competency
+    assert not list(service.session.scalars(select(model).where(model.code.like("prefix-%"))))
+
+
+def test_approved_metadata_cannot_invent_applicability_location(persisted):
+    from app.curriculum_intelligence.scoped_curriculum import validate_version_scope
+
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(
+        service, version, "syllabus", applicability_locator="JSON pointer /invented"
+    )
+    with pytest.raises(ValueError, match="Source location unavailable"):
+        validate_version_scope(
+            service,
+            revision,
+            pack_code=version.curriculum_pack.code,
+            version_code=version.version_code,
+            active=True,
+        )
+    with pytest.raises(ValueError, match="Source location unavailable"):
+        service.upsert_nodes(version=version, revision=revision, specs=section_path_specs())
+
+
+def test_approved_locator_whitelist_does_not_substitute_for_actual_location(persisted):
+    from app.curriculum_intelligence.scoped_acceptance import _locator
+
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(
+        service, version, "syllabus", applicability_locator="JSON pointer /invented"
+    )
+    assert "JSON pointer /invented" in service._source_metadata(revision)["verified_locators"]
+    assert not _locator(service, revision, "JSON pointer /invented")
+    assert _locator(service, revision, "JSON pointer /sections/A")
+
+
+@pytest.mark.parametrize("remove_approval", [False, True])
+def test_unscoped_outcome_cannot_launder_source_domain_by_corrupting_snapshot(
+    persisted, remove_approval
+):
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    version.metadata_json = {**version.metadata_json, "scope_enforced": False}
+    revision = section_revision(service, version, "learning_outcomes")
+    metadata = copy.deepcopy(revision.metadata_json)
+    metadata["source_snapshot"]["metadata_json"].pop("document_type")
+    metadata["source_snapshot"]["metadata_json"]["synthetic"] = True
+    revision.metadata_json = metadata
+    if remove_approval:
+        revision.approval_fingerprint = None
+    with pytest.raises(ValueError, match="Outcome source approval integrity mismatch"):
+        write_statement(service, version, revision, "outcome", text="Statement within section B.")
+
+
+@pytest.mark.parametrize("code", ["OUT-A1", "OUT-B1", "OUT-A", ""])
+def test_code_only_scoped_node_claim_requires_actual_bounded_identifier(persisted, code):
+    service, report, _ = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(service, version, "syllabus")
+    specs = section_path_specs()
+    specs[-1] = specs[-1].model_copy(
+        update={"metadata_json": {**specs[-1].metadata_json, "official_code": code}}
+    )
+    if code == "OUT-A1":
+        assert (
+            service.upsert_nodes(version=version, revision=revision, specs=specs)[
+                "bounded-concept"
+            ].official_text
+            is None
+        )
+    else:
+        with pytest.raises(ValueError):
+            service.upsert_nodes(version=version, revision=revision, specs=specs)
+
+
+@pytest.mark.parametrize("code", ["OUT-A1", "OUT-B1", "OUT-A"])
+def test_code_only_existing_ancestor_and_acceptance_recheck_claim(persisted, code):
+    from app.curriculum_intelligence.scoped_acceptance import _verify_slice
+
+    service, report, scope = persisted
+    version = service.session.get(
+        CurriculumVersion, report["catalogue_inventories"][0]["version_id"]
+    )
+    revision = section_revision(service, version, "syllabus")
+    nodes = service.upsert_nodes(version=version, revision=revision, specs=section_path_specs())
+    root = nodes["bounded-grade_year"]
+    root.metadata_json = {**root.metadata_json, "official_code": code}
+    service.session.flush()
+    expected = {
+        **scope["required_detailed_slices"][0],
+        "chapter": "Selected chapter",
+        "source_revision": revision.id,
+        "source_checksum": revision.checksum,
+        "source_locator": "JSON pointer /sections/A",
+    }
+    observation = {
+        "source_revision_id": revision.id,
+        "source_checksum": revision.checksum,
+        "academic_version": version.version_code,
+        "synthetic": False,
+        "path": service.curriculum_path(nodes["bounded-concept"].id).model_dump(mode="json"),
+    }
+    spec = section_path_specs()[-1].model_copy(update={"code": "extra-concept"})
+    if code == "OUT-A1":
+        assert _verify_slice(service, expected, observation)
+        assert service.upsert_nodes(version=version, revision=revision, specs=[spec])[
+            "extra-concept"
+        ]
+    else:
+        with pytest.raises(ValueError):
+            _verify_slice(service, expected, observation)
+        with pytest.raises(ValueError):
+            service.upsert_nodes(version=version, revision=revision, specs=[spec])

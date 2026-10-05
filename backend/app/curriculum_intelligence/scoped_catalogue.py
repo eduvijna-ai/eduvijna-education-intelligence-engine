@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.models.enums import SourceRevisionStatus
 
 if TYPE_CHECKING:
+    from app.curriculum_intelligence.scoped_curriculum import SourceCurriculumScope
     from app.curriculum_intelligence.service import CurriculumIntelligenceService
     from app.models.curriculum import CurriculumVersion
     from app.models.source import SourceRevision
@@ -111,6 +112,7 @@ class ScopedCatalogueRow(_Contract):
     grade: str = UNKNOWN
     academic_year: str = UNKNOWN
     instructional_medium: str = UNKNOWN
+    subject: str = UNKNOWN
     subject_language: str = UNKNOWN
     language_role: Literal["unknown", "first", "second", "third", "not_applicable"] = "unknown"
     book_part: str = UNKNOWN
@@ -142,6 +144,7 @@ class ScopedCatalogueRow(_Contract):
         "grade",
         "academic_year",
         "instructional_medium",
+        "subject",
         "subject_language",
         "book_part",
         "course_family",
@@ -172,6 +175,7 @@ class ScopedCatalogueRow(_Contract):
                     "grade",
                     "academic_year",
                     "instructional_medium",
+                    "subject",
                     "subject_language",
                     "language_role",
                     "book_part",
@@ -286,6 +290,7 @@ class CatalogueQuery(_Contract):
     grade: str | None = None
     academic_year: str | None = None
     instructional_medium: str | None = None
+    subject: str | None = None
     subject_language: str | None = None
     language_role: str | None = None
     book_part: str | None = None
@@ -301,50 +306,62 @@ class CatalogueQueryResult(_Contract):
     unresolved_dimensions: tuple[str, ...] = ()
 
 
+CATALOGUE_QUERY_DIMENSIONS = (
+    "pack_id",
+    "version_id",
+    "grade",
+    "academic_year",
+    "instructional_medium",
+    "subject",
+    "subject_language",
+    "language_role",
+    "book_part",
+    "bilingual",
+    "course_family",
+    "course_group",
+    "resource_kind",
+)
+
+
 def query_catalogue(
     rows: Iterable[ScopedCatalogueRow], query: CatalogueQuery
 ) -> CatalogueQueryResult:
-    """Never pick an arbitrary medium/year/part or treat unknown as universal."""
+    """A singleton is not permission to supply any omitted scope dimension."""
     candidates: dict[str, ScopedCatalogueRow] = {}
     uncertain: set[str] = set()
+    originals: dict[str, ScopedCatalogueRow] = {}
     for row in rows:
+        prior = originals.setdefault(row.identity, row)
+        if prior != row:
+            raise ScopedCatalogueError("Conflicting rows share a normalized identity")
         if query.label and normalize_label(query.label) not in {
             normalize_label(value) for value in (row.official_label, *row.aliases)
         }:
             continue
         mismatch = False
-        missing = {
-            field
-            for field in ("pack_id", "version_id", "grade", "academic_year", "instructional_medium")
-            if normalize_label(str(getattr(row, field))) == UNKNOWN
-        }
-        for field, value in query.model_dump(exclude={"label", "course_group"}).items():
-            if value is None:
+        missing: set[str] = set()
+        for field in CATALOGUE_QUERY_DIMENSIONS:
+            value = getattr(query, field)
+            if value is None or not value.strip() or normalize_label(value) == UNKNOWN:
+                missing.add(field)
+                continue
+            if field == "course_group":
+                if row.applicability.status == "unknown":
+                    missing.add(field)
+                elif not row.applicability.allows(value):
+                    mismatch = True
                 continue
             observed = normalize_label(str(getattr(row, field)))
-            expected = normalize_label(value)
-            if UNKNOWN in {observed, expected}:
+            if observed == UNKNOWN:
                 missing.add(field)
-            elif observed != expected:
-                mismatch = True
-        if query.course_group:
-            if (
-                row.applicability.status == "unknown"
-                or normalize_label(query.course_group) == UNKNOWN
-            ):
-                missing.add("course_group")
-            elif not row.applicability.allows(query.course_group):
+            elif observed != normalize_label(value):
                 mismatch = True
         if mismatch:
             continue
         if missing:
             uncertain.update(missing)
         else:
-            prior = candidates.get(row.identity)
-            if prior is not None and prior != row:
-                raise ScopedCatalogueError("Conflicting rows share a normalized identity")
             candidates[row.identity] = row
-    # An unresolved candidate could change the result; don't silently discard it.
     if uncertain:
         return CatalogueQueryResult(
             status="unknown_scope", unresolved_dimensions=tuple(sorted(uncertain))
@@ -353,6 +370,54 @@ def query_catalogue(
     return CatalogueQueryResult(
         status="no_match" if not values else "matched" if len(values) == 1 else "ambiguous",
         rows=values,
+    )
+
+
+def validate_catalogue_row_scope(
+    version: CurriculumVersion, row: ScopedCatalogueRow, scope: SourceCurriculumScope
+) -> None:
+    """Shared write/read guard: every materialized claim needs approved exact scope.
+
+    Unknown scope belongs in unresolved inventory observations, not asserted rows.
+    A label is never inferred to be a subject, and groups never imply universal scope.
+    """
+    if (
+        row.pack_id != version.curriculum_pack_id
+        or row.version_id != version.id
+        or scope.pack_code != version.curriculum_pack.code
+        or version.version_code not in scope.version_codes
+    ):
+        raise ScopedCatalogueError("Catalogue evidence crosses pack/version scope")
+    if row.academic_year == UNKNOWN or row.academic_year != version.academic_year:
+        raise ScopedCatalogueError("Catalogue evidence crosses academic_year scope")
+    for field, allowed in (
+        ("grade", scope.grades),
+        ("instructional_medium", scope.media),
+        ("subject", scope.subjects),
+        ("course_family", scope.course_families),
+        ("subject_language", scope.subject_languages),
+        ("language_role", scope.language_roles),
+        ("book_part", scope.book_parts),
+        ("bilingual", scope.bilingual_states),
+    ):
+        value = getattr(row, field)
+        if value == UNKNOWN or value not in allowed:
+            raise ScopedCatalogueError(f"Catalogue evidence crosses {field} scope")
+    if row.applicability.status != "explicit_groups" or any(
+        group not in scope.course_groups for group in row.applicability.groups
+    ):
+        raise ScopedCatalogueError("Catalogue evidence crosses course_group scope")
+
+
+def validate_catalogue_row_locators(
+    service: CurriculumIntelligenceService, revision: SourceRevision, row: ScopedCatalogueRow
+) -> None:
+    """Prove both locators exist in original bytes, independently of scope semantics."""
+    from app.curriculum_intelligence.standards_evidence import source_text_at_locator
+
+    source_text_at_locator(service.source_service, revision, locator=row.source_locator)
+    source_text_at_locator(
+        service.source_service, revision, locator=row.applicability.source_locator
     )
 
 
@@ -439,16 +504,18 @@ def materialize_catalogue(
     if hashlib.sha256(content).hexdigest() != revision.checksum:
         raise ScopedCatalogueError("Stored source checksum mismatch")
     source_metadata = service._source_metadata(revision)
-    if (version.metadata_json or {}).get("scope_enforced"):
+    if (
+        (version.metadata_json or {}).get("scope_enforced")
+        or "inventory_scope" in source_metadata
+        or "curriculum_scope" in source_metadata
+    ):
         # Local import avoids the shared text-validation dependency cycle.
         from app.curriculum_intelligence.scoped_curriculum import (
             SourceCurriculumScope,
             exact_scope,
         )
 
-        if "curriculum_scope" in source_metadata:
-            scope = exact_scope(service, revision)
-        elif "inventory_scope" in source_metadata:
+        if "inventory_scope" in source_metadata:
             # Inventory scope binds catalogue identity but conveys no governing semantics.
             source_snapshot = revision.metadata_json.get("source_snapshot", {})
             if (
@@ -461,16 +528,18 @@ def materialize_catalogue(
             ):
                 raise ScopedCatalogueError("Catalogue source evidence changed after approval")
             scope = SourceCurriculumScope.model_validate(source_metadata["inventory_scope"])
+        elif "curriculum_scope" in source_metadata:
+            scope = exact_scope(service, revision)
         else:
             raise ScopedCatalogueError("Scoped catalogue requires reviewed source inventory scope")
-        if (
-            scope.pack_code != version.curriculum_pack.code
-            or version.version_code not in scope.version_codes
-        ):
-            raise ScopedCatalogueError("Catalogue evidence crosses pack/version scope")
         for row in snapshot.rows:
-            if row.grade not in scope.grades or row.instructional_medium not in scope.media:
-                raise ScopedCatalogueError("Catalogue evidence crosses grade/medium scope")
+            validate_catalogue_row_scope(version, row, scope)
+            validate_catalogue_row_locators(service, revision, row)
+        from app.curriculum_intelligence.standards_evidence import source_text_at_locator
+
+        source_text_at_locator(
+            service.source_service, revision, locator=scope.applicability_locator
+        )
     if (snapshot.source_revision_id, snapshot.source_checksum) != (revision.id, revision.checksum):
         raise ScopedCatalogueError("Snapshot does not match exact source revision")
     for row in snapshot.rows:

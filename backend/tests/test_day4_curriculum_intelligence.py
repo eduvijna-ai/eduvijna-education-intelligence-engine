@@ -20,7 +20,7 @@ from app.db.session import create_database_engine
 from app.models.curriculum import CurriculumNode, CurriculumVersion
 from app.models.curriculum_intelligence import AssessmentEvidence, CurriculumAlignment
 from app.models.enums import CurriculumNodeType, SourceIngestionMethod, SourceRevisionStatus
-from app.models.source import Source
+from app.models.source import Source, SourceRevision
 from app.schemas.curriculum_intelligence import (
     CurriculumAlignmentInput,
     CurriculumNodeSpec,
@@ -440,6 +440,11 @@ def test_dns_failure_is_an_explicit_blocked_source(db_session: Session) -> None:
 
 def test_registry_revision_cannot_back_direct_alignment(db_session: Session) -> None:
     result = seed_day4_verification(db_session)
+    service = CurriculumIntelligenceService(db_session)
+    # Synthetic statements now have honest fixture bytes; original registry
+    # sources still cannot prove a direct semantic alignment.
+    revision = db_session.get(SourceRevision, result["founder_path"][-1]["source_revision_id"])
+    assert revision is not None and service.is_registry_only(revision)
     with pytest.raises(CurriculumIntelligenceError, match="retrieved source content"):
         CurriculumIntelligenceService(db_session).align(
             CurriculumAlignmentInput(
@@ -448,7 +453,7 @@ def test_registry_revision_cannot_back_direct_alignment(db_session: Session) -> 
                 learning_outcome_id=result["learning_outcome"]["id"],
                 relationship_type="directly_addresses",
                 status="direct",
-                source_revision_id=result["learning_outcome"]["source_revision_id"],
+                source_revision_id=revision.id,
                 source_locator="fixture",
                 evidence_text="fixture",
             )

@@ -290,7 +290,7 @@ def test_fresh_database_reviewed_contract_materializes_and_failed_slice_rolls_ba
                     "verified_locators": [
                         chapter.locator,
                         chapter.topic_locators[0],
-                        "review section",
+                        "PDF page 1",
                     ],
                     "curriculum_scope": {
                         **SCOPE_DIMENSIONS,
@@ -301,7 +301,7 @@ def test_fresh_database_reviewed_contract_materializes_and_failed_slice_rolls_ba
                         "subjects": ["Physical Science"],
                         "publication_status": "final",
                         "applicability_status": "verified",
-                        "applicability_locator": "review section",
+                        "applicability_locator": "PDF page 1",
                     },
                 },
             ),

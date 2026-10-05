@@ -9,6 +9,8 @@ from app.curriculum_intelligence.scoped_catalogue import (
     STORAGE_KEY,
     CatalogueSnapshot,
     persisted_catalogue_coverage,
+    validate_catalogue_row_locators,
+    validate_catalogue_row_scope,
 )
 from app.curriculum_intelligence.scoped_curriculum import (
     SourceCurriculumScope,
@@ -17,6 +19,10 @@ from app.curriculum_intelligence.scoped_curriculum import (
 )
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.curriculum_intelligence.source_domains import source_domain
+from app.curriculum_intelligence.standards_evidence import (
+    require_source_wording,
+    source_text_at_locator,
+)
 from app.models.curriculum import Competency, CurriculumVersion, LearningOutcome
 from app.models.enums import SourceRevisionStatus
 from app.models.source import SourceRevision
@@ -66,22 +72,22 @@ def _revision(
             )
         )
         or scope.applicability_status != "verified"
-        or not _locator(revision, scope.applicability_locator)
+        or not _locator(service, revision, scope.applicability_locator)
     ):
         raise ValueError("Unverified official applicability")
     return revision
 
 
-def _locator(revision: SourceRevision, locator: Any) -> bool:
-    metadata = revision.metadata_json.get("source_snapshot", {}).get("metadata_json", {})
-    return bool(
-        isinstance(locator, str)
-        and locator.strip()
-        and (
-            locator in metadata.get("verified_locators", [])
-            or locator in (revision.extracted_text or "")
-        )
-    )
+def _locator(
+    service: CurriculumIntelligenceService, revision: SourceRevision, locator: Any
+) -> bool:
+    if not isinstance(locator, str) or not locator.strip():
+        return False
+    try:
+        source_text_at_locator(service.source_service, revision, locator=locator)
+    except (ValueError, OSError):
+        return False
+    return True
 
 
 def _verify_slice(
@@ -158,12 +164,17 @@ def _verify_slice(
                 or version.curriculum_pack.code != required["pack_code"]
                 or entity.source_revision_id != revision.id
                 or entity.source_locator != required["source_locator"]
-                or not _locator(revision, entity.source_locator)
                 or not wording
-                or wording not in (revision.extracted_text or "")
                 or not version.metadata_json.get("scope_enforced")
             ):
                 return False
+            require_source_wording(
+                service.source_service,
+                revision,
+                locator=entity.source_locator,
+                official_text=wording,
+                official_code=entity.metadata_json.get("official_code"),
+            )
             validate_entity_scope(service, version, revision, entity.metadata_json)
             if any(
                 entity.metadata_json.get("identity", {}).get(field) != required[field]
@@ -227,8 +238,7 @@ def _verify_slice(
         if (
             node.curriculum_version_id != version.id
             or node.source_revision_id != revision.id
-            or not _locator(revision, node.source_locator)
-            or (node.official_text and node.official_text not in (revision.extracted_text or ""))
+            or not _locator(service, revision, node.source_locator)
         ):
             return False
         if (
@@ -237,6 +247,22 @@ def _verify_slice(
             and (node.source_locator != required["topic_locator"])
         ):
             return False
+        if node.node_type in {"chapter", "topic"} and not node.official_text:
+            return False
+        if (
+            node.node_type == "concept"
+            and not node.official_text
+            and (node.metadata_json.get("label_status") != "derived")
+        ):
+            return False
+        if node.official_text is not None or node.metadata_json.get("official_code") is not None:
+            require_source_wording(
+                service.source_service,
+                revision,
+                locator=node.source_locator,
+                official_text=node.official_text,
+                official_code=node.metadata_json.get("official_code"),
+            )
         validate_entity_scope(
             service,
             version,
@@ -333,37 +359,17 @@ def _verify_catalogue(
         not in service._source_metadata(revision).get("official_catalogue_review_digests", [])
     ):
         return False
-    if governing_scope is not None:
-        for row in snapshot.rows:
-            subject = metadata.get("inventory_subjects", {}).get(
-                row.official_label, row.official_label
-            )
-            if (
-                row.grade not in governing_scope.grades
-                or row.instructional_medium not in governing_scope.media
-                or subject not in governing_scope.subjects
-                or any(
-                    value not in allowed
-                    for value, allowed in (
-                        (row.course_family, governing_scope.course_families),
-                        (row.subject_language, governing_scope.subject_languages),
-                        (row.language_role, governing_scope.language_roles),
-                        (row.book_part, governing_scope.book_parts),
-                        (row.bilingual, governing_scope.bilingual_states),
-                    )
-                )
-                or row.applicability.status != "explicit_groups"
-                or any(
-                    group not in governing_scope.course_groups for group in row.applicability.groups
-                )
-            ):
-                return False
+    for row in snapshot.rows:
+        validate_catalogue_row_scope(version, row, scope)
+        validate_catalogue_row_locators(service, revision, row)
+        if governing_scope is not None:
+            validate_catalogue_row_scope(version, row, governing_scope)
     coverage = persisted_catalogue_coverage(version, revision.id)
     return bool(
         coverage.status == "complete"
         and coverage.snapshot_row_count > 0
         and all(
-            _locator(revision, row.source_locator)
+            _locator(service, revision, row.source_locator)
             and row.grade in scope.grades
             and row.instructional_medium in scope.media
             and row.academic_year == version.academic_year

@@ -136,3 +136,17 @@ Review 5413668811 identified two additional P1 gaps:
 Supported non-PDF locator contracts are `text lines 1-2` (original UTF-8 line numbers), `HTML #unique-container-id` (visible text within a uniquely bounded element), `JSON pointer /section/item` (non-root RFC 6901 pointer), `CSV row 2 column 1` (one-based row and optional column), and `DOCX paragraph 2` (one-based original paragraph index, including empty paragraphs). Ambiguous free-form labels, unsupported formats and unresolved/duplicate/unbounded locations fail closed rather than searching the full document. PDF evidence retains exact page-range verification. These selectors identify evidence locations; they do not themselves establish governing academic applicability.
 
 Tests use authored synthetic content and exercise both successful exact-section attachment and cross-section rejection through both writers, including historical malformed attached records, duplicate HTML IDs, malformed boundaries, hidden scripts/attributes, JSON ambiguity, CSV column isolation and Unicode text. Required source gates remain unchanged; independent review is still required.
+
+## Independent review of bf7da85: shared persisted proof and catalogue scope
+
+Review 5414008287 identified four further gaps. The successor candidate applies the same bounded original-byte proof to persisted learning outcomes/standards and their generic writers; callers retain semantic-domain checks. Claimed source quotations on scoped hierarchy nodes are also bound to their actual locators. Normalized or derived labels are not silently treated as quotations.
+
+Catalogue lookup now requires complete explicit query scope rather than treating a singleton as a default. Catalogue persistence and independent acceptance both check every row dimension against the approved inventory scope, including subject and exact course groups, for final as well as draft inventories. Unknown dimensions remain unresolved rather than being inferred from a label.
+
+Official standard codes use complete Unicode-aware identifier matching: a code such as `C-1` cannot match `C-10`, `C-1.0`, a longer prefixed identifier or an Indic combining-character continuation. Ordinary surrounding punctuation remains valid. Regression coverage includes both generic creation and framework incoming/attached records across PDF, text, HTML, JSON, CSV and DOCX.
+
+These changes do not establish Telangana source applicability. The required live official-source gate and independent review remain necessary; no source documents are included in this public evidence.
+
+The same review pass removes metadata-only locator overrides: source applicability, catalogue rows and course-applicability locations must resolve against verified original bytes. Generic HTML positional selectors `table[1]/tr[2]/cell[3]/a[1]` retain original element coordinates before rowspan expansion; missing or ambiguous locations fail closed. A structurally verified location does not by itself infer group membership or academic applicability; those values must still match the independently approved exact source scope.
+
+The Day 4 deterministic demonstration's synthetic LO/competency placeholders now use separate authored JSON fixture revisions and truthful pointers, rather than claiming official wording from registry-only live-authority revisions. Original manifest retrieval and the actual official-source demonstration remain separate. This preserves the regression demonstration without adding a synthetic exception to explicit LO/standard or scope-enforced source-proof guards.
