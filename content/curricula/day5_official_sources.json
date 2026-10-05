@@ -3,7 +3,7 @@
     "key": "scert-syllabus-index",
     "source_type": "official_syllabus",
     "title": "scert syllabus index",
-    "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/Displaycontent.aspx?encry=Z+4YBPX+caUE5uiQSu6xdg%3D%3D",
+    "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=Z+4YBPX+caUE5uiQSu6xdg%3D%3D",
     "authority": "SCERT Telangana",
     "country": "India",
     "board_or_exam": "SCERT Telangana",
@@ -12,7 +12,7 @@
     "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
     "copyright_classification": "official_reference_private_runtime_only",
     "metadata_json": {
-      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "discovery_status": "official_current_syllabus_index; exact bytes required",
       "publication_status": "unverified",
       "bulk_publication_allowed": false
     }
