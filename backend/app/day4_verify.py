@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -19,6 +18,7 @@ from app.db.base import Base
 from app.db.session import session_factory
 from app.models.curriculum import CurriculumNode
 from app.models.source import Source
+from app.repo_paths import curricula_content_dir
 from app.schemas.curriculum_intelligence import (
     AssessmentEvidenceInput,
     CompetencySpec,
@@ -28,9 +28,9 @@ from app.schemas.curriculum_intelligence import (
 )
 from app.schemas.source_intelligence import SourceProvenanceLinkInput
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE_MANIFEST = REPO_ROOT / "content" / "curricula" / "day4_official_sources.json"
-VERIFY_SLICE = REPO_ROOT / "content" / "curricula" / "cbse-2026-27-verification-slice.json"
+CONTENT_ROOT = curricula_content_dir()
+SOURCE_MANIFEST = CONTENT_ROOT / "day4_official_sources.json"
+VERIFY_SLICE = CONTENT_ROOT / "cbse-2026-27-verification-slice.json"
 
 
 def _load_slice() -> dict[str, Any]:
