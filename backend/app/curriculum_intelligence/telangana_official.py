@@ -11,6 +11,7 @@ from app.curriculum_intelligence.scoped_curriculum import query_scoped_paths
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
 from app.curriculum_intelligence.telangana_catalogue import (
     pack_catalogue_report,
+    scert_textbook_catalogue_snapshot,
     syllabus_catalogue_snapshot,
 )
 from app.curriculum_intelligence.telangana_syllabus import (
@@ -169,6 +170,7 @@ def official_telangana_demonstration(
     bs_revision = revisions.get("scert-bs-english-syllabus")
     ia_plan = revisions.get("tgbie-maths-ia-annual-plan-2025-26")
     iia_plan = revisions.get("tgbie-maths-iia-annual-plan-2026-27")
+    scert_catalogue = revisions.get("scert-textbooks-catalogue-2025-26")
     scert_seed = scert_revision if _usable_source(service, scert_revision) else None
     if scert_seed is None and _usable_source(service, bs_revision):
         scert_seed = bs_revision
@@ -197,6 +199,44 @@ def official_telangana_demonstration(
         )
     else:
         unresolved.append("scert-pack:no_usable_official_source_bytes")
+
+    if (
+        scert_version
+        and scert_pack
+        and scert_catalogue
+        and _usable_source(service, scert_catalogue)
+    ):
+        try:
+            catalogue_bytes = service.source_service.storage.read(
+                scert_catalogue.storage_path or ""
+            )
+            snapshot = scert_textbook_catalogue_snapshot(
+                content=catalogue_bytes,
+                source_url=scert_catalogue.source.url or "",
+                pack_id=scert_pack.id,
+                version_id=scert_version.id,
+                revision=scert_catalogue,
+                academic_year="2025-26",
+            )
+            coverage = materialize_catalogue(
+                service,
+                scert_version,
+                scert_catalogue,
+                snapshot,
+            )
+            catalogue_inventories.append(
+                pack_catalogue_report(
+                    pack_code="ts-scert",
+                    version=scert_version,
+                    snapshot=snapshot,
+                    coverage=coverage.model_dump(),
+                    inventory_kind="official_catalogue",
+                )
+            )
+        except (KeyError, ValueError) as exc:
+            unresolved.append(f"scert-textbook-catalogue:{exc}")
+    elif scert_catalogue is not None:
+        unresolved.append("scert-textbook-catalogue:official_bytes_unavailable")
 
     if scert_version and scert_pack and scert_revision and _usable_source(service, scert_revision):
         try:
