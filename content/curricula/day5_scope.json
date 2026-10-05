@@ -86,7 +86,8 @@
       "source_revision": null,
       "academic_version": null,
       "status": "blocked",
-      "reason": "Exact official bytes, applicability and reviewed chapter/page selection required before materialization"
+      "reason": "Official Telugu syllabus candidate is registered; exact bytes and reviewed cross-medium chapter correspondence are required before materialization",
+      "source_manifest_key": "scert-ps-telugu-syllabus"
     },
     {
       "key": "intermediate-first-year-mathematics-english",
