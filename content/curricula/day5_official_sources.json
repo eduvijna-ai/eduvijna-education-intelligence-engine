@@ -336,5 +336,25 @@
         ]
       }
     }
+  },
+  {
+    "key": "scert-learning-outcomes-posters-telugu",
+    "source_type": "official_authority",
+    "title": "SCERT Telangana Class Wise Expected Learning Outcomes posters - Telugu Medium",
+    "url": "https://scert.telangana.gov.in/pdf/publication/learningoutcomes/publicationlearningoutcomeslo-all-posterss-tm.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "learning_outcomes",
+    "version_applicability": "official learning-outcomes publication; exact class/subject/version applicability requires document review",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official SCERT learning-outcomes PDF discovered; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "medium_candidate": "Telugu",
+      "applicability_status": "unverified"
+    }
   }
 ]
