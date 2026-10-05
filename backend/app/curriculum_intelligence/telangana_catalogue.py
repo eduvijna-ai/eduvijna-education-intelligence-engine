@@ -78,9 +78,11 @@ def pack_catalogue_report(
     version: CurriculumVersion,
     snapshot: CatalogueSnapshot,
     coverage: dict[str, Any],
+    inventory_kind: str = "detailed_slice",
 ) -> dict[str, Any]:
     return {
         "pack_code": pack_code,
+        "inventory_kind": checked_text(inventory_kind),
         "version_id": version.id,
         "source_completeness_verified": True,
         "synthetic": False,
