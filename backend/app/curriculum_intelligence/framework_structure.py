@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
-from app.curriculum_intelligence.source_domains import require_domain
+from app.curriculum_intelligence.source_domains import require_domain, source_domain
 from app.models.curriculum import (
     Competency,
     CurriculumPack,
@@ -125,6 +125,27 @@ class FrameworkStructureService:
                 )
             )
         }
+        if source_domain(revision.metadata_json.get("source_snapshot", {})) == "academic_standard":
+            for spec in specs_list:
+                if (
+                    spec.level != "competency"
+                    or not spec.parent_code
+                    or spec.parent_code not in existing
+                ):
+                    raise FrameworkStructureError(
+                        "academic standards may only add competencies "
+                        "beneath existing framework goals"
+                    )
+                evidenced_parent = existing[spec.parent_code]
+                parent_revision = self.session.get(
+                    SourceRevision, evidenced_parent.source_revision_id
+                )
+                if parent_revision is None or source_domain(
+                    parent_revision.metadata_json.get("source_snapshot", {})
+                ) not in {"framework", "syllabus"}:
+                    raise FrameworkStructureError(
+                        "Competency parent lacks governing framework evidence"
+                    )
         resolved = dict(existing)
         result: dict[str, FrameworkStructureNode] = {}
         pending = {spec.code: spec for spec in specs_list}

@@ -93,6 +93,7 @@ def approved_revision(
     media: tuple[str, ...] = ("English",),
     subjects: tuple[str, ...] = ("science",),
     declarations: list[dict[str, str]] | None = None,
+    non_applicable_dimensions: bool = False,
 ) -> SourceRevision:
     """Review immutable scope as registered; never fabricate SourceRevision objects."""
     source = service.source_service.register_source(
@@ -116,6 +117,21 @@ def approved_revision(
                     "grades": grades,
                     "media": media,
                     "subjects": subjects,
+                    **(
+                        {
+                            key: ["not_applicable"]
+                            for key in (
+                                "course_families",
+                                "course_groups",
+                                "subject_languages",
+                                "language_roles",
+                                "book_parts",
+                                "bilingual_states",
+                            )
+                        }
+                        if non_applicable_dimensions
+                        else {}
+                    ),
                     "publication_status": publication,
                     "applicability_status": applicability,
                     "applicability_locator": "fixture section 1"
@@ -539,6 +555,7 @@ def test_reviewed_cross_medium_correspondence_is_exact_idempotent_and_persistent
         grades=("First Year", "Second Year"),
         media=("English", "Telugu"),
         declarations=[declaration],
+        non_applicable_dimensions=True,
     )
     kwargs: dict[str, Any] = {
         "left_node_id": left.id,

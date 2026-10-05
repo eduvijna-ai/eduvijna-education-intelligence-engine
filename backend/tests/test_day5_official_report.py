@@ -100,3 +100,34 @@ def test_detailed_slice_cannot_satisfy_full_catalogue_gate() -> None:
     }
     gaps = _catalogue_gaps(report)
     assert {item["pack_code"] for item in gaps} == {"ts-scert", "tgbie"}
+
+
+def test_denied_sources_are_metadata_only_and_per_entry_failure_preserves_success(
+    report_session: Session, tmp_path: Path
+) -> None:
+    from app.curriculum_intelligence.service import load_source_manifest
+
+    entries = load_source_manifest(curricula_content_dir() / "day5_official_sources.json")
+    denied = entries[0].model_copy(update={"metadata_json": {"automated_fetch_blocked": True}})
+    calls = []
+
+    def register(selected, **kwargs):
+        calls.append((selected[0].key, kwargs["fetch_content"]))
+        if len(calls) == 2:
+            raise ValueError("isolated registration failure")
+        return {}
+
+    with (
+        patch(
+            "app.day5_official_report.load_source_manifest",
+            return_value=[denied, entries[1], entries[2]],
+        ),
+        patch(
+            "app.day5_official_report.CurriculumIntelligenceService.ensure_manifest_sources",
+            side_effect=register,
+        ),
+    ):
+        report = build_official_report(report_session, storage_root=tmp_path / "storage")
+    assert calls == [(denied.key, False), (entries[1].key, True), (entries[2].key, True)]
+    assert any(item.get("source_key") == entries[1].key for item in report["fetch_blockers"])
+    assert not report["acceptance"]["passed"]

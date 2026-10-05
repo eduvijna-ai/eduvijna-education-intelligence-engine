@@ -33,13 +33,30 @@ class SourceCurriculumScope(BaseModel):
     grades: tuple[str, ...] = ()
     media: tuple[str, ...] = ()
     subjects: tuple[str, ...] = ()
+    course_families: tuple[str, ...] = ()
+    course_groups: tuple[str, ...] = ()
+    subject_languages: tuple[str, ...] = ()
+    language_roles: tuple[str, ...] = ()
+    book_parts: tuple[str, ...] = ()
+    bilingual_states: tuple[str, ...] = ()
     publication_status: Literal["draft", "final", "unknown"] = "unknown"
     applicability_status: Literal["verified", "unverified"] = "unverified"
     applicability_locator: str | None = None
 
     @model_validator(mode="after")
     def check_scope(self) -> SourceCurriculumScope:
-        for values in (self.version_codes, self.grades, self.media, self.subjects):
+        for values in (
+            self.version_codes,
+            self.grades,
+            self.media,
+            self.subjects,
+            self.course_families,
+            self.course_groups,
+            self.subject_languages,
+            self.language_roles,
+            self.book_parts,
+            self.bilingual_states,
+        ):
             keys = [normalize_label(value) for value in values]
             if len(keys) != len(set(keys)) or "unknown" in keys:
                 raise ValueError("duplicate or unknown claimed source scope")
@@ -133,8 +150,29 @@ def validate_entity_scope(
             raise ScopeError(f"Source does not establish exact {key} scope")
         if value and value != "unknown" and value not in allowed:
             raise ScopeError(f"Source has incompatible {key} scope")
+    for key, allowed in (
+        ("course_family", scope.course_families),
+        ("course_group", scope.course_groups),
+        ("subject_language", scope.subject_languages),
+        ("language_role", scope.language_roles),
+        ("book_part", scope.book_parts),
+        ("bilingual", scope.bilingual_states),
+    ):
+        value = identity.get(key)
+        if value not in (None, "unknown") and value not in allowed:
+            raise ScopeError(f"Source does not establish exact {key} applicability")
     parent = (parent_metadata or {}).get("identity", {})
-    for key in ("grade", "medium", "subject", "course_family", "subject_language", "language_role"):
+    for key in (
+        "grade",
+        "medium",
+        "subject",
+        "course_family",
+        "course_group",
+        "subject_language",
+        "language_role",
+        "book_part",
+        "bilingual",
+    ):
         if key in parent and identity.get(key) != parent[key]:
             raise ScopeError(f"Hierarchy crosses parent {key} scope")
 
@@ -226,6 +264,12 @@ def query_scoped_paths(
     medium: str | None,
     subject: str | None,
     include_historical: bool = False,
+    course_family: str | None = None,
+    course_group: str | None = None,
+    subject_language: str | None = None,
+    language_role: str | None = None,
+    book_part: str | None = None,
+    bilingual: str | None = None,
 ) -> dict[str, Any]:
     """All dimensions required; historical/current aliases never substitute years."""
     from sqlalchemy import select
@@ -253,6 +297,16 @@ def query_scoped_paths(
     if version.status == "superseded" and not include_historical:
         return {"status": "historical_only", "paths": []}
     paths = []
+    unresolved: set[str] = set()
+    alternatives: set[tuple[str, ...]] = set()
+    dimensions = {
+        "course_family": course_family,
+        "course_group": course_group,
+        "subject_language": subject_language,
+        "language_role": language_role,
+        "book_part": book_part,
+        "bilingual": bilingual,
+    }
     for node in service.session.scalars(
         select(CurriculumNode).where(
             CurriculumNode.curriculum_version_id == version.id,
@@ -264,7 +318,30 @@ def query_scoped_paths(
             identity.get(k) == v
             for k, v in (("grade", grade), ("medium", medium), ("subject", subject))
         ):
-            paths.append(service.curriculum_path(node.id).model_dump(mode="json"))
+            mismatch = False
+            missing: set[str] = set()
+            for dimension, expected in dimensions.items():
+                actual = identity.get(dimension, "unknown")
+                if expected == "unknown" or actual in (None, "unknown"):
+                    missing.add(dimension)
+                elif expected is None:
+                    if actual != "not_applicable":
+                        missing.add(dimension)
+                elif normalize_label(str(actual)) != normalize_label(expected):
+                    mismatch = True
+            if mismatch:
+                continue
+            alternatives.add(tuple(str(identity.get(key, "unknown")) for key in dimensions))
+            if missing:
+                unresolved.update(missing)
+            else:
+                paths.append(service.curriculum_path(node.id).model_dump(mode="json"))
+    if unresolved:
+        return {
+            "status": "ambiguous" if len(alternatives) > 1 else "unknown_scope",
+            "paths": [],
+            "unresolved_dimensions": sorted(unresolved),
+        }
     return {
         "status": "matched" if paths else "no_match",
         "paths": paths,

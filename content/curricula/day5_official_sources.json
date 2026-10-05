@@ -33,7 +33,7 @@
       "discovery_status": "official_index_discovered; exact_bytes_pending",
       "publication_status": "unverified",
       "bulk_publication_allowed": false,
-      "curriculum_scope": {
+      "candidate_scope_unverified": {
         "pack_code": "ts-scert",
         "version_codes": [
           "2025-26-syllabus"
@@ -68,7 +68,7 @@
       "discovery_status": "official_index_discovered; exact_bytes_pending",
       "publication_status": "unverified",
       "bulk_publication_allowed": false,
-      "curriculum_scope": {
+      "candidate_scope_unverified": {
         "pack_code": "ts-scert",
         "version_codes": [
           "2025-26-syllabus"
@@ -156,7 +156,7 @@
     "metadata_json": {
       "publication_status": "unverified",
       "bulk_publication_allowed": false,
-      "curriculum_scope": {
+      "candidate_scope_unverified": {
         "pack_code": "tgbie",
         "version_codes": [
           "2025-26"
@@ -172,7 +172,9 @@
         ],
         "publication_status": "unknown",
         "applicability_status": "unverified"
-      }
+      },
+      "automated_fetch_blocked": true,
+      "automated_fetch_blocked_reason": "Prior F5 HTTP 403 denial; require official manual upload rather than alternative automated retry"
     }
   },
   {
@@ -190,7 +192,7 @@
     "metadata_json": {
       "publication_status": "unverified",
       "bulk_publication_allowed": false,
-      "curriculum_scope": {
+      "candidate_scope_unverified": {
         "pack_code": "tgbie",
         "version_codes": [
           "2026-27"
@@ -206,7 +208,9 @@
         ],
         "publication_status": "unknown",
         "applicability_status": "unverified"
-      }
+      },
+      "automated_fetch_blocked": true,
+      "automated_fetch_blocked_reason": "Prior F5 HTTP 403 denial; require official manual upload rather than alternative automated retry"
     }
   },
   {
@@ -223,7 +227,7 @@
     "copyright_classification": "official_reference_private_runtime_only",
     "metadata_json": {
       "discovery_status": "official_current_catalogue_discovered; exact bytes required for acceptance",
-      "publication_status": "official_catalogue",
+      "publication_status": "draft",
       "bulk_publication_allowed": false,
       "inventory_scope": {
         "pack_code": "ts-scert",
@@ -258,7 +262,7 @@
       "discovery_status": "listed by official SCERT syllabus index; exact bytes required",
       "publication_status": "unverified",
       "bulk_publication_allowed": false,
-      "curriculum_scope": {
+      "candidate_scope_unverified": {
         "pack_code": "ts-scert",
         "version_codes": [
           "2025-26-syllabus"
@@ -293,7 +297,7 @@
       "discovery_status": "listed by official SCERT syllabus index; exact bytes required",
       "publication_status": "unverified",
       "bulk_publication_allowed": false,
-      "curriculum_scope": {
+      "candidate_scope_unverified": {
         "pack_code": "ts-scert",
         "version_codes": [
           "2025-26-syllabus"
@@ -334,7 +338,9 @@
           "First Year",
           "Second Year"
         ]
-      }
+      },
+      "automated_fetch_blocked": true,
+      "automated_fetch_blocked_reason": "Prior F5 HTTP 403 denial; require official manual upload rather than alternative automated retry"
     }
   },
   {

@@ -161,10 +161,33 @@ def official_source_demonstration(
             )
         )
         parent_code = code
+    # Standards establish competency leaves, never a framework's roots.
+    # The scaffold is explicitly a derived organization under the governing NCF;
+    # no NCERT draft CG code is presented as an NCF goal identifier.
+    scaffold = [
+        spec.model_copy(
+            update={
+                "official_code": None,
+                "source_locator": (
+                    f"NCFSE PDF page {checks['framework']['page']}; derived scaffold labels"
+                ),
+                "publication_status": "final",
+                "inferred": True,
+            }
+        )
+        for spec in framework_specs[:-1]
+    ]
     structure = structure_service.upsert_nodes(
         framework=framework,
-        revision=revisions[ncert_key],
-        specs=framework_specs,
+        revision=revisions[ncf_key],
+        specs=scaffold,
+    )
+    structure.update(
+        structure_service.upsert_nodes(
+            framework=framework,
+            revision=revisions[ncert_key],
+            specs=framework_specs[-1:],
+        )
     )
     competency_node = structure["secondary-mathematics-cg3-c32"]
     structure_service.link_learning_outcome(

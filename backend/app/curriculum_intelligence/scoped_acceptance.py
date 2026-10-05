@@ -1,8 +1,294 @@
-"""Fail-closed Day 5 aggregate gate; synthetic and catalogue-only evidence cannot pass."""
+"""Fail-closed Day 5 gate: reports describe evidence, never authorize it."""
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
+
+from app.curriculum_intelligence.scoped_catalogue import (
+    STORAGE_KEY,
+    CatalogueSnapshot,
+    persisted_catalogue_coverage,
+)
+from app.curriculum_intelligence.scoped_curriculum import (
+    SourceCurriculumScope,
+    exact_scope,
+    validate_entity_scope,
+)
+from app.curriculum_intelligence.service import CurriculumIntelligenceService
+from app.curriculum_intelligence.source_domains import source_domain
+from app.models.curriculum import Competency, CurriculumVersion, LearningOutcome
+from app.models.enums import SourceRevisionStatus
+from app.models.source import SourceRevision
+
+
+def _revision(
+    service: CurriculumIntelligenceService, revision_id: str | None, *, inventory: bool = False
+) -> SourceRevision:
+    if not revision_id:
+        raise ValueError("Missing revision identity")
+    revision = service.session.get(SourceRevision, revision_id)
+    if revision is None:
+        raise ValueError("Missing persisted revision")
+    metadata = service._source_metadata(revision)
+    if inventory and "inventory_scope" in metadata:
+        if not service.has_source_content(revision) or not revision.storage_path:
+            raise ValueError("Missing source bytes")
+        content = service.source_service.storage.read(revision.storage_path)
+        snapshot = revision.metadata_json.get("source_snapshot", {})
+        if (
+            revision.status != SourceRevisionStatus.ACTIVE.value
+            or len(content) != revision.byte_size
+            or hashlib.sha256(content).hexdigest() != revision.checksum
+            or service.source_service._snapshot_checksum(snapshot)
+            != revision.source_snapshot_checksum
+            or not revision.approval_fingerprint
+            or service.source_service._approval_fingerprint(revision)
+            != revision.approval_fingerprint
+        ):
+            raise ValueError("Unverified inventory bytes or source review")
+        scope = SourceCurriculumScope.model_validate(metadata["inventory_scope"])
+    else:
+        scope = exact_scope(service, revision)
+    if (
+        metadata.get("synthetic", False) is not False
+        or revision.metadata_json.get("source_snapshot", {}).get("copyright_classification")
+        == "synthetic_fixture"
+        or service.is_registry_only(revision)
+        or (
+            scope.publication_status != "final"
+            and not (
+                inventory
+                and "inventory_scope" in metadata
+                and scope.publication_status == "draft"
+                and metadata.get("document_type")
+                in {"textbook_index", "publication_index", "syllabus_index", "curriculum_index"}
+            )
+        )
+        or scope.applicability_status != "verified"
+        or not _locator(revision, scope.applicability_locator)
+    ):
+        raise ValueError("Unverified official applicability")
+    return revision
+
+
+def _locator(revision: SourceRevision, locator: Any) -> bool:
+    metadata = revision.metadata_json.get("source_snapshot", {}).get("metadata_json", {})
+    return bool(
+        isinstance(locator, str)
+        and locator.strip()
+        and (
+            locator in metadata.get("verified_locators", [])
+            or locator in (revision.extracted_text or "")
+        )
+    )
+
+
+def _verify_slice(
+    service: CurriculumIntelligenceService, required: dict[str, Any], item: dict[str, Any]
+) -> bool:
+    # All expected values come from the frozen scope, never observed report fields.
+    fields = (
+        "chapter",
+        "academic_version",
+        "source_checksum",
+        "source_locator",
+        "pack_code",
+        "grade",
+        "medium",
+        "subject",
+    )
+    if not all(required.get(field) for field in fields):
+        return False
+    frozen_revision = required.get("source_revision")
+    if not frozen_revision and not (
+        required.get("source_url") and required.get("source_snapshot_checksum")
+    ):
+        return False
+    revision = _revision(service, item.get("source_revision_id"))
+    if frozen_revision and revision.id != frozen_revision:
+        return False
+    if required.get("source_url") and (
+        revision.metadata_json.get("source_snapshot", {}).get("url") != required["source_url"]
+    ):
+        return False
+    if required.get("source_snapshot_checksum") and (
+        revision.source_snapshot_checksum != required["source_snapshot_checksum"]
+    ):
+        return False
+    entity_domain = {
+        "scert-learning-outcomes": "learning_outcome",
+        "scert-academic-standards": "academic_standard",
+    }.get(str(required.get("key")))
+    if (
+        revision.checksum != required["source_checksum"]
+        or item.get("source_revision_id") != revision.id
+        or item.get("source_checksum") != revision.checksum
+        or item.get("academic_version") != required["academic_version"]
+        or item.get("synthetic") is not False
+        or source_domain(revision.metadata_json["source_snapshot"]) != (entity_domain or "syllabus")
+    ):
+        return False
+    if entity_domain:
+        ids = item.get("persisted_entity_ids", [])
+        if not ids or len(ids) != len(set(ids)):
+            return False
+        for entity_id in ids:
+            entity: Any = service.session.get(
+                LearningOutcome if entity_domain == "learning_outcome" else Competency, entity_id
+            )
+            if entity is None:
+                return False
+            version_id = (
+                entity.curriculum_version_id
+                if entity_domain == "learning_outcome"
+                else entity.metadata_json.get("curriculum_version_id")
+            )
+            version = service.session.get(CurriculumVersion, version_id)
+            wording = entity.text if entity_domain == "learning_outcome" else entity.official_text
+            if (
+                version is None
+                or version.version_code != required["academic_version"]
+                or version.curriculum_pack.code != required["pack_code"]
+                or entity.source_revision_id != revision.id
+                or entity.source_locator != required["source_locator"]
+                or not _locator(revision, entity.source_locator)
+                or not wording
+                or wording not in (revision.extracted_text or "")
+                or not version.metadata_json.get("scope_enforced")
+            ):
+                return False
+            validate_entity_scope(service, version, revision, entity.metadata_json)
+            if any(
+                entity.metadata_json.get("identity", {}).get(field) != required[field]
+                for field in ("grade", "medium", "subject")
+            ):
+                return False
+        return True
+    ids = item.get("path", {}).get("node_ids", [])
+    if len(ids) != 7 or len(set(ids)) != 7:
+        return False
+    nodes = service.hierarchy_path(ids[-1])
+    if [node.id for node in nodes] != ids or [node.node_type for node in nodes] != [
+        "grade_year",
+        "medium",
+        "subject",
+        "unit",
+        "chapter",
+        "topic",
+        "concept",
+    ]:
+        return False
+    version = nodes[-1].curriculum_version
+    if (
+        version.version_code != required["academic_version"]
+        or version.curriculum_pack.code != required["pack_code"]
+        or not version.metadata_json.get("scope_enforced")
+        or nodes[4].title != required["chapter"]
+        or nodes[4].source_locator != required["source_locator"]
+    ):
+        return False
+    path_locators = required.get("path_locators", {})
+    for node in nodes:
+        if path_locators and node.source_locator != path_locators.get(node.node_type):
+            return False
+        if (
+            node.curriculum_version_id != version.id
+            or node.source_revision_id != revision.id
+            or not _locator(revision, node.source_locator)
+            or (node.official_text and node.official_text not in (revision.extracted_text or ""))
+        ):
+            return False
+        if (
+            node.node_type in {"topic", "concept"}
+            and required.get("topic_locator")
+            and (node.source_locator != required["topic_locator"])
+        ):
+            return False
+        validate_entity_scope(
+            service,
+            version,
+            revision,
+            node.metadata_json,
+            node_type=node.node_type,
+            parent_metadata=node.parent.metadata_json if node.parent else None,
+        )
+    identity = nodes[-1].metadata_json.get("identity", {})
+    return all(identity.get(field) == required[field] for field in ("grade", "medium", "subject"))
+
+
+def _verify_catalogue(service: CurriculumIntelligenceService, item: dict[str, Any]) -> bool:
+    if item.get("inventory_kind") != "official_catalogue" or item.get("synthetic") is not False:
+        return False
+    version = service.session.get(CurriculumVersion, item.get("version_id"))
+    if version is None or version.curriculum_pack.code != item.get("pack_code"):
+        return False
+    revision = _revision(service, item.get("source_revision_id"), inventory=True)
+    metadata = service._source_metadata(revision)
+    if metadata.get("document_type") not in {
+        "textbook_index",
+        "publication_index",
+        "syllabus_index",
+        "curriculum_index",
+    }:
+        return False
+    scope = SourceCurriculumScope.model_validate(
+        metadata.get("inventory_scope", metadata.get("curriculum_scope"))
+    )
+    if (
+        scope.pack_code != version.curriculum_pack.code
+        or version.version_code not in scope.version_codes
+    ):
+        return False
+    if scope.publication_status == "draft":
+        # Draft metadata can be accounted for; it cannot govern the curriculum.
+        if version.source_revision_id == revision.id:
+            return False
+        governing = _revision(service, version.source_revision_id)
+        governing_scope = exact_scope(service, governing)
+        frozen = metadata.get("governing_source", {})
+        governing_snapshot = governing.metadata_json.get("source_snapshot", {})
+        if (
+            source_domain(governing_snapshot) != "syllabus"
+            or governing_scope.pack_code != version.curriculum_pack.code
+            or version.version_code not in governing_scope.version_codes
+            or governing_snapshot.get("academic_year") != version.academic_year
+            or frozen.get("source_url") != governing_snapshot.get("url")
+            or not frozen.get("source_url")
+            or frozen.get("source_checksum") != governing.checksum
+            or frozen.get("source_snapshot_checksum") != governing.source_snapshot_checksum
+            or frozen.get("academic_year") != version.academic_year
+            or frozen.get("version_code") != version.version_code
+        ):
+            return False
+    record = version.metadata_json.get(STORAGE_KEY, {}).get(revision.id)
+    if not record:
+        return False
+    snapshot = CatalogueSnapshot.model_validate(record["snapshot"])
+    if (
+        not snapshot.inventory_observations
+        or snapshot.source_checksum != revision.checksum
+        or item.get("source_checksum") != revision.checksum
+        or item.get("snapshot_id") != snapshot.identity
+        or snapshot.inventory_digest
+        not in service._source_metadata(revision).get("official_catalogue_review_digests", [])
+    ):
+        return False
+    coverage = persisted_catalogue_coverage(version, revision.id)
+    return bool(
+        coverage.status == "complete"
+        and coverage.snapshot_row_count > 0
+        and all(
+            _locator(revision, row.source_locator)
+            and row.grade in scope.grades
+            and row.instructional_medium in scope.media
+            and row.academic_year == version.academic_year
+            for row in snapshot.rows
+        )
+        and item.get("coverage", {}).get("snapshot_row_count") == coverage.snapshot_row_count
+        and item.get("coverage", {}).get("materialized_metadata_count")
+        == coverage.materialized_metadata_count
+    )
 
 
 def evaluate_day5_acceptance(
@@ -10,74 +296,92 @@ def evaluate_day5_acceptance(
     scope: dict[str, Any],
     *,
     verification_slice: dict[str, Any] | None = None,
+    service: CurriculumIntelligenceService | None = None,
 ) -> dict[str, Any]:
     requirements = scope.get("required_detailed_slices", [])
     evidence = report.get("materialized_slices", [])
     keys = [item.get("key") for item in requirements]
-    observations = {item.get("key"): item for item in evidence}
-    blocked_keys = set(
-        verification_slice.get("blocked_slice_keys", []) if verification_slice else []
+    observed_keys = [item.get("key") for item in evidence]
+    failed: list[str] = []
+    valid_shape = bool(
+        keys
+        and all(keys)
+        and len(keys) == len(set(keys))
+        and len(observed_keys) == len(set(observed_keys))
+        and set(observed_keys) == set(keys)
     )
-    slice_map = verification_slice.get("slices", {}) if verification_slice else {}
-    failed = []
-    if not requirements or len(keys) != len(set(keys)) or len(observations) != len(evidence):
+    if not valid_shape:
         failed.append("invalid_required_scope_or_duplicate_evidence")
+    if service is None:
+        failed.append("persisted_evidence_service_required")
+    observations = {item.get("key"): item for item in evidence}
+    blocked = set((verification_slice or {}).get("blocked_slice_keys", []))
+    verified_count = 0
     for required in requirements:
         key = required.get("key")
-        if required.get("status") == "blocked" or key in blocked_keys:
-            continue
-        slice_meta = slice_map.get(key, {})
-        item = observations.get(key, {})
-        chapter = required.get("chapter") or slice_meta.get("chapter")
-        academic_version = required.get("academic_version") or item.get("academic_version")
-        expected_revision = required.get("source_revision") or item.get("source_revision_id")
-        frozen = bool(chapter and academic_version and expected_revision)
-        path = item.get("path", {})
-        verified = (
-            frozen
-            and item.get("verified_from_persisted_entities") is True
-            and item.get("synthetic") is False
-            and item.get("source_revision_id") == expected_revision
-            and item.get("exact_bytes_verified") is True
-            and item.get("source_domain_verified") is True
-            and item.get("locator_verified") is True
-            and item.get("status") == "verified"
-        )
-        if key not in {"scert-learning-outcomes", "scert-academic-standards"}:
-            node_ids = path.get("node_ids", [])
-            verified = verified and len(node_ids) == len(set(node_ids)) == 7
+        verified = False
+        if (
+            service is not None
+            and valid_shape
+            and required.get("status") != "blocked"
+            and key not in blocked
+        ):
+            try:
+                verified = _verify_slice(service, required, observations.get(key, {}))
+            except (ValueError, LookupError, TypeError, KeyError, OSError):
+                verified = False
+        if verified:
+            verified_count += 1
         else:
-            verified = verified and bool(item.get("persisted_entity_ids"))
-        if not verified:
             failed.append(str(key))
     inventories = report.get("catalogue_inventories", [])
-    if {item.get("pack_code") for item in inventories} != {"ts-scert", "tgbie"}:
+    official = [item for item in inventories if item.get("inventory_kind") == "official_catalogue"]
+    identities = [(item.get("version_id"), item.get("source_revision_id")) for item in inventories]
+    if {item.get("pack_code") for item in official} != {"ts-scert", "tgbie"} or len(
+        identities
+    ) != len(set(identities)):
         failed.append("required_catalogue_inventories")
-    for item in inventories:
-        counts = item.get("coverage", {})
-        if not (
-            item.get("source_completeness_verified") is True
-            and item.get("synthetic") is False
-            and counts.get("status") == "complete"
-            and counts.get("snapshot_row_count", 0) > 0
-            and counts.get("snapshot_row_count") == counts.get("materialized_metadata_count")
-            and not any(
-                counts.get(field)
-                for field in ("missing_ids", "unexpected_ids", "duplicate_ids", "conflicting_ids")
-            )
-        ):
+    for item in official:
+        try:
+            verified = service is not None and _verify_catalogue(service, item)
+        except (ValueError, LookupError, TypeError, KeyError, OSError):
+            verified = False
+        if not verified:
             failed.append(str(item.get("pack_code")) + "_catalogue")
-    if report.get("blocked_sources"):
-        failed.append("required_official_sources_blocked")
+    # Frozen pack boundaries cannot disappear behind a smaller complete snapshot.
+    for pack in scope.get("packs", []):
+        expected_grades = set(pack.get("grades", pack.get("years", [])))
+        observed_grades: set[str] = set()
+        if service is not None:
+            for inventory in official:
+                if inventory.get("pack_code") != pack.get("code"):
+                    continue
+                version = service.session.get(CurriculumVersion, inventory.get("version_id"))
+                if version is None:
+                    continue
+                record = version.metadata_json.get(STORAGE_KEY, {}).get(
+                    inventory.get("source_revision_id"), {}
+                )
+                observed_grades.update(
+                    row.get("grade") for row in record.get("rows", []) if row.get("grade")
+                )
+        if not expected_grades or not expected_grades <= observed_grades:
+            failed.append(str(pack.get("code")) + "_catalogue_scope")
+    for field in (
+        "blocked_sources",
+        "fetch_blockers",
+        "materialization_blockers",
+        "unresolved_applicability",
+        "catalogue_gaps",
+        "unresolved_materialization",
+    ):
+        if report.get(field) or scope.get(field):
+            failed.append(
+                "required_official_sources_blocked" if field == "blocked_sources" else field
+            )
     return {
         "passed": not failed,
-        "incomplete_components": failed,
-        "verified_detailed_slice_count": sum(
-            1
-            for required in requirements
-            if required.get("key") not in failed
-            and required.get("status") != "blocked"
-            and required.get("key") not in blocked_keys
-        ),
+        "incomplete_components": list(dict.fromkeys(failed)),
+        "verified_detailed_slice_count": verified_count,
         "scope": "Reviewed bounded Day 5 scope; not all curriculum content",
     }

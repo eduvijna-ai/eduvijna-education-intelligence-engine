@@ -191,6 +191,23 @@ class ScopedCatalogueRow(_Contract):
         return _digest([self.source_revision_id, self.scope_key, self.normalized_label])
 
 
+class InventoryObservation(_Contract):
+    """One observed resource occurrence, including unavailable and duplicate items."""
+
+    source_locator: str
+    status: Literal["resolved", "duplicate", "unresolved", "blocked"]
+    reason: str
+    row_identity: str | None = None
+
+    @model_validator(mode="after")
+    def valid_observation(self) -> InventoryObservation:
+        checked_text(self.source_locator)
+        checked_text(self.reason)
+        if (self.status in {"resolved", "duplicate"}) != bool(self.row_identity):
+            raise ValueError("Only resolved/duplicate observations reference catalogue rows")
+        return self
+
+
 class CatalogueSnapshot(_Contract):
     source_revision_id: str
     source_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -198,6 +215,7 @@ class CatalogueSnapshot(_Contract):
     # This is an extractor's declaration, never inferred from successful parsing.
     inventory_status: Literal["partial", "complete"] = "partial"
     extraction_method: str
+    inventory_observations: tuple[InventoryObservation, ...] = ()
 
     @model_validator(mode="after")
     def coherent_inventory(self) -> CatalogueSnapshot:
@@ -218,7 +236,43 @@ class CatalogueSnapshot(_Contract):
                 previous = seen.setdefault(key, row.identity)
                 if previous != row.identity:
                     raise ValueError("Alias collision within catalogue scope")
+        if self.inventory_observations:
+            locators: set[str] = set()
+            resolved: list[str] = []
+            for item in self.inventory_observations:
+                if item.source_locator in locators:
+                    raise ValueError("Duplicate inventory observation locator")
+                locators.add(item.source_locator)
+                if item.row_identity is not None and item.row_identity not in ids:
+                    raise ValueError("Inventory observation references missing row")
+                if item.status == "resolved":
+                    assert item.row_identity is not None
+                    resolved.append(item.row_identity)
+                if self.inventory_status == "complete" and item.status in {"unresolved", "blocked"}:
+                    raise ValueError("Complete inventory cannot contain unresolved/blocked items")
+            if len(resolved) != len(set(resolved)) or set(resolved) != ids:
+                raise ValueError("Inventory observations must resolve each unique row exactly once")
         return self
+
+    @property
+    def inventory_digest(self) -> str:
+        """Source-only extraction identity, available before DB-generated IDs exist."""
+        return _digest(
+            {
+                "source_checksum": self.source_checksum,
+                "extraction_method": self.extraction_method,
+                "observations": [
+                    item.model_dump(exclude={"row_identity"}, mode="json")
+                    for item in self.inventory_observations
+                ],
+                "rows": [
+                    row.model_dump(
+                        exclude={"pack_id", "version_id", "source_revision_id"}, mode="json"
+                    )
+                    for row in self.rows
+                ],
+            }
+        )
 
     @property
     def identity(self) -> str:
@@ -306,6 +360,11 @@ class CatalogueCoverage(_Contract):
     status: Literal["complete", "partial", "failed"]
     snapshot_row_count: int
     materialized_metadata_count: int
+    inventory_observation_count: int = 0
+    resolved_observation_count: int = 0
+    duplicate_observation_count: int = 0
+    unresolved_observation_count: int = 0
+    blocked_observation_count: int = 0
     missing_ids: tuple[str, ...] = ()
     unexpected_ids: tuple[str, ...] = ()
     duplicate_ids: tuple[str, ...] = ()
@@ -340,6 +399,15 @@ def reconcile_coverage(
         else "partial",
         snapshot_row_count=len(expected),
         materialized_metadata_count=len(observed),
+        inventory_observation_count=len(snapshot.inventory_observations) if snapshot else 0,
+        **{
+            f"{status}_observation_count": sum(
+                item.status == status for item in snapshot.inventory_observations
+            )
+            if snapshot
+            else 0
+            for status in ("resolved", "duplicate", "unresolved", "blocked")
+        },
         missing_ids=tuple(sorted(missing)),
         unexpected_ids=tuple(sorted(extra)),
         duplicate_ids=tuple(sorted(duplicates)),
@@ -358,6 +426,10 @@ def materialize_catalogue(
     No CurriculumNode or syllabus link is created, even for a syllabus index.
     Semantic completeness remains the responsibility of the inventory extractor.
     """
+    if version.status == "superseded":
+        raise ScopedCatalogueError("Historical catalogue versions are read-only")
+    # model_copy/model_construct can bypass validation; never persist unchecked models.
+    snapshot = CatalogueSnapshot.model_validate(snapshot.model_dump(mode="json"))
     if revision.status != SourceRevisionStatus.ACTIVE.value:
         raise ScopedCatalogueError("Catalogue requires active source revision")
     if not service.has_source_content(revision) or not revision.storage_path:
@@ -366,6 +438,39 @@ def materialize_catalogue(
     content = service.source_service.storage.read(revision.storage_path)
     if hashlib.sha256(content).hexdigest() != revision.checksum:
         raise ScopedCatalogueError("Stored source checksum mismatch")
+    source_metadata = service._source_metadata(revision)
+    if (version.metadata_json or {}).get("scope_enforced"):
+        # Local import avoids the shared text-validation dependency cycle.
+        from app.curriculum_intelligence.scoped_curriculum import (
+            SourceCurriculumScope,
+            exact_scope,
+        )
+
+        if "curriculum_scope" in source_metadata:
+            scope = exact_scope(service, revision)
+        elif "inventory_scope" in source_metadata:
+            # Inventory scope binds catalogue identity but conveys no governing semantics.
+            source_snapshot = revision.metadata_json.get("source_snapshot", {})
+            if (
+                len(content) != revision.byte_size
+                or service.source_service._snapshot_checksum(source_snapshot)
+                != revision.source_snapshot_checksum
+                or not revision.approval_fingerprint
+                or revision.approval_fingerprint
+                != service.source_service._approval_fingerprint(revision)
+            ):
+                raise ScopedCatalogueError("Catalogue source evidence changed after approval")
+            scope = SourceCurriculumScope.model_validate(source_metadata["inventory_scope"])
+        else:
+            raise ScopedCatalogueError("Scoped catalogue requires reviewed source inventory scope")
+        if (
+            scope.pack_code != version.curriculum_pack.code
+            or version.version_code not in scope.version_codes
+        ):
+            raise ScopedCatalogueError("Catalogue evidence crosses pack/version scope")
+        for row in snapshot.rows:
+            if row.grade not in scope.grades or row.instructional_medium not in scope.media:
+                raise ScopedCatalogueError("Catalogue evidence crosses grade/medium scope")
     if (snapshot.source_revision_id, snapshot.source_checksum) != (revision.id, revision.checksum):
         raise ScopedCatalogueError("Snapshot does not match exact source revision")
     for row in snapshot.rows:

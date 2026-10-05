@@ -64,6 +64,12 @@ def synthetic_revision(
                         "grades": grades,
                         "media": media,
                         "subjects": subjects,
+                        "course_families": ["not_applicable"],
+                        "course_groups": ["not_applicable"],
+                        "subject_languages": ["not_applicable"],
+                        "language_roles": ["not_applicable"],
+                        "book_parts": ["not_applicable"],
+                        "bilingual_states": ["not_applicable"],
                         "publication_status": "draft",
                         "applicability_status": "unverified",
                     },
@@ -147,7 +153,21 @@ def seed_scoped_pack(
         )
         for medium in ("English", "Telugu"):
             parent = root
-            identity: dict[str, str] = {"grade": grade, "medium": medium}
+            identity: dict[str, str] = {
+                "grade": grade,
+                "medium": medium,
+                **dict.fromkeys(
+                    (
+                        "course_family",
+                        "course_group",
+                        "subject_language",
+                        "language_role",
+                        "book_part",
+                        "bilingual",
+                    ),
+                    "not_applicable",
+                ),
+            }
             specs = []
             for kind, label in (
                 ("medium", medium),

@@ -186,11 +186,23 @@ class CurriculumIntelligenceService:
 
         resolved: dict[str, SourceRevision] = {}
         for entry in entries:
-            source = self.session.scalar(
+            # A physical PDF can provide independently reviewed semantic
+            # sections. URL alone cannot collapse handbook/outcome/standard
+            # domains or different frozen academic scopes into one identity.
+            candidates = self.session.scalars(
                 select(Source).where(
                     Source.url == entry.url,
                     Source.source_type == entry.source_type.value,
                 )
+            )
+            source = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.metadata_json.get("manifest_key") == entry.key
+                    and candidate.metadata_json.get("document_type") == entry.document_type
+                ),
+                None,
             )
             if source is None:
                 source = self.source_service.register_source(
@@ -853,6 +865,33 @@ class CurriculumIntelligenceService:
             revision.id,
         )
         alignment = self.session.get(CurriculumAlignment, alignment_id)
+        if version.metadata_json.get("scope_enforced"):
+            if payload.status == "direct":
+                declaration = {
+                    "node_code": node.code,
+                    "target_id": target_id,
+                    "relationship_type": payload.relationship_type,
+                    "source_locator": payload.source_locator,
+                    "evidence_text": payload.evidence_text,
+                }
+                if declaration not in self._source_metadata(revision).get(
+                    "direct_alignments", []
+                ) or (payload.evidence_text or "") not in (revision.extracted_text or ""):
+                    raise CurriculumIntelligenceError(
+                        "Direct alignment requires reviewed source assertion"
+                    )
+            if alignment is not None:
+                assert_immutable(
+                    alignment,
+                    {
+                        "status": payload.status,
+                        "confidence": payload.confidence,
+                        "inferred": payload.inferred,
+                        "source_locator": payload.source_locator,
+                        "evidence_text": payload.evidence_text,
+                        "metadata_json": payload.metadata_json,
+                    },
+                )
         if alignment is None:
             alignment = CurriculumAlignment(
                 id=alignment_id,

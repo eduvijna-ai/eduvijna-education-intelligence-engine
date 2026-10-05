@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 
 from sqlalchemy.orm import Session
 
-from app.curriculum_intelligence.scoped_acceptance import evaluate_day5_acceptance
+from app.curriculum_intelligence.scoped_acceptance import _revision, evaluate_day5_acceptance
 from app.curriculum_intelligence.scoped_catalogue import ScopedCatalogueError
 from app.curriculum_intelligence.scoped_curriculum import ScopeError
 from app.curriculum_intelligence.service import (
@@ -70,27 +70,6 @@ def _empty_demonstration() -> dict[str, Any]:
     }
 
 
-def _merge_scope_with_evidence(
-    scope: dict[str, Any],
-    verification_slice: dict[str, Any],
-    materialized: list[dict[str, Any]],
-) -> dict[str, Any]:
-    merged: dict[str, Any] = json.loads(json.dumps(scope))
-    observations = {item["key"]: item for item in materialized}
-    for required in merged.get("required_detailed_slices", []):
-        key = required.get("key")
-        if key in verification_slice.get("blocked_slice_keys", []):
-            continue
-        meta = verification_slice.get("slices", {}).get(key, {})
-        if meta.get("chapter"):
-            required["chapter"] = meta["chapter"]
-        item = observations.get(key)
-        if item:
-            required["source_revision"] = item.get("source_revision_id")
-            required["academic_version"] = item.get("academic_version")
-    return merged
-
-
 def _slice_task_map(scope: dict[str, Any]) -> dict[str, list[str]]:
     mapping: dict[str, list[str]] = {}
     for item in scope.get("required_detailed_slices", []):
@@ -147,23 +126,41 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
 
     fetch_blockers: list[dict[str, Any]] = []
     revisions: dict[str, Any] = {}
-    try:
-        revisions = service.ensure_manifest_sources(
-            entries,
-            actor_id="day5-official-verifier",
-            fetch_content=True,
-            fallback_on_fetch_error=True,
-            request_id="day5-official-evidence",
-        )
-    except Exception as exc:
-        fetch_blockers.append(
-            {
-                "stage": "manifest_registration",
-                "error_type": type(exc).__name__,
-                "reason": str(exc)[:500],
-                "affected_tasks": ["D5-03", "D5-04", "D5-05"],
-            }
-        )
+    for entry in entries:
+        automated_fetch_blocked = entry.metadata_json.get("automated_fetch_blocked") is True
+        if automated_fetch_blocked:
+            fetch_blockers.append(
+                {
+                    "stage": "official_retrieval",
+                    "source_key": entry.key,
+                    "url": entry.url,
+                    "reason": "Automated retrieval denied; manual official upload required",
+                    "affected_tasks": ["D5-03", "D5-05"],
+                }
+            )
+        try:
+            revisions.update(
+                service.ensure_manifest_sources(
+                    [entry],
+                    actor_id="day5-official-verifier",
+                    fetch_content=not automated_fetch_blocked,
+                    fallback_on_fetch_error=True,
+                    request_id="day5-official-evidence",
+                )
+            )
+        except Exception as exc:
+            if not session.is_active:
+                session.rollback()
+            fetch_blockers.append(
+                {
+                    "stage": "manifest_registration",
+                    "source_key": entry.key,
+                    "url": entry.url,
+                    "error_type": type(exc).__name__,
+                    "reason": str(exc)[:500],
+                    "affected_tasks": ["D5-03", "D5-04", "D5-05"],
+                }
+            )
 
     sources: list[dict[str, Any]] = []
     unresolved_applicability: list[dict[str, Any]] = []
@@ -176,6 +173,13 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             if revision is not None and revision.source is not None
             else {}
         )
+        applicability_verified = False
+        if verified and revision is not None:
+            try:
+                _revision(service, revision.id, inventory=True)
+                applicability_verified = True
+            except (ValueError, OSError):
+                pass
         ingestion_error = source_metadata.get("ingestion_error")
         item: dict[str, Any] = {
             "key": entry.key,
@@ -187,16 +191,21 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             "byte_size": revision.byte_size if revision else None,
             "registry_only": registry_only,
             "publication_status": entry.metadata_json.get("publication_status"),
-            "academic_applicability_verified": False,
+            "academic_applicability_verified": applicability_verified,
             "reason": None
             if verified
             else str(ingestion_error or "Official content unavailable; metadata is not evidence"),
             "ingestion_error": ingestion_error,
         }
-        if verified and revision and revision.content_type in {
-            "text/html",
-            "application/xhtml+xml",
-        }:
+        if (
+            verified
+            and revision
+            and revision.content_type
+            in {
+                "text/html",
+                "application/xhtml+xml",
+            }
+        ):
             data = service.source_service.storage.read(revision.storage_path or "")
             parser = _Links(entry.url)
             parser.feed(data.decode("utf-8", errors="strict"))
@@ -260,6 +269,7 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         "unresolved_applicability": unresolved_applicability,
         "materialization_blockers": materialization_blockers,
         "materialized_slices": demonstration.get("materialized_slices", []),
+        "extracted_slices": demonstration.get("extracted_slices", []),
         "catalogue_inventories": demonstration.get("catalogue_inventories", []),
         "catalogue_gaps": [],
         "unresolved_materialization": demonstration.get("unresolved_materialization", []),
@@ -273,15 +283,11 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         "task_slice_map": _slice_task_map(scope),
     }
     report["catalogue_gaps"] = _catalogue_gaps(report)
-    merged_scope = _merge_scope_with_evidence(
-        scope,
-        verification_slice,
-        report["materialized_slices"],
-    )
     report["acceptance"] = evaluate_day5_acceptance(
         report,
-        merged_scope,
+        scope,
         verification_slice=verification_slice,
+        service=service,
     )
     report["official_source_backed_acceptance"] = report["acceptance"]["passed"]
     if report["official_source_backed_acceptance"]:
