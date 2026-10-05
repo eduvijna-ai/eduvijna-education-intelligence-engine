@@ -35,10 +35,18 @@
       "bulk_publication_allowed": false,
       "curriculum_scope": {
         "pack_code": "ts-scert",
-        "version_codes": ["2025-26-syllabus"],
-        "grades": ["VIII"],
-        "media": ["English"],
-        "subjects": ["Physical Science"],
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Physical Science"
+        ],
         "publication_status": "unknown",
         "applicability_status": "unverified"
       }
@@ -62,10 +70,18 @@
       "bulk_publication_allowed": false,
       "curriculum_scope": {
         "pack_code": "ts-scert",
-        "version_codes": ["2025-26-syllabus"],
-        "grades": ["VIII"],
-        "media": ["English"],
-        "subjects": ["Biological Science"],
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Biological Science"
+        ],
         "publication_status": "unknown",
         "applicability_status": "unverified"
       }
@@ -142,10 +158,18 @@
       "bulk_publication_allowed": false,
       "curriculum_scope": {
         "pack_code": "tgbie",
-        "version_codes": ["2025-26"],
-        "grades": ["First Year"],
-        "media": ["English"],
-        "subjects": ["Mathematics IA"],
+        "version_codes": [
+          "2025-26"
+        ],
+        "grades": [
+          "First Year"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Mathematics IA"
+        ],
         "publication_status": "unknown",
         "applicability_status": "unverified"
       }
@@ -168,10 +192,121 @@
       "bulk_publication_allowed": false,
       "curriculum_scope": {
         "pack_code": "tgbie",
-        "version_codes": ["2026-27"],
-        "grades": ["Second Year"],
-        "media": ["English"],
-        "subjects": ["Mathematics IIA"],
+        "version_codes": [
+          "2026-27"
+        ],
+        "grades": [
+          "Second Year"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Mathematics IIA"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "scert-textbooks-catalogue-2025-26",
+    "source_type": "official_authority",
+    "title": "SCERT Telangana Text Books I to X 2025-26 catalogue",
+    "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": "2025-26",
+    "document_type": "textbook_index",
+    "version_applicability": "2025-26 textbook catalogue; does not by itself establish syllabus applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_current_catalogue_discovered; exact bytes required for acceptance",
+      "publication_status": "official_catalogue",
+      "bulk_publication_allowed": false,
+      "inventory_scope": {
+        "pack_code": "ts-scert",
+        "grades": [
+          "I",
+          "II",
+          "III",
+          "IV",
+          "V",
+          "VI",
+          "VII",
+          "VIII",
+          "IX",
+          "X"
+        ]
+      }
+    }
+  },
+  {
+    "key": "scert-ps-telugu-syllabus",
+    "source_type": "official_syllabus",
+    "title": "SCERT Telangana Physical Science Telugu Medium syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_TM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; exact edition/applicability review required",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "listed by official SCERT syllabus index; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "curriculum_scope": {
+        "pack_code": "ts-scert",
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "Telugu"
+        ],
+        "subjects": [
+          "Physical Science"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "scert-bs-telugu-syllabus",
+    "source_type": "official_syllabus",
+    "title": "SCERT Telangana Biological Science Telugu Medium syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_TM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; exact edition/applicability review required",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "listed by official SCERT syllabus index; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "curriculum_scope": {
+        "pack_code": "ts-scert",
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "Telugu"
+        ],
+        "subjects": [
+          "Biological Science"
+        ],
         "publication_status": "unknown",
         "applicability_status": "unverified"
       }
