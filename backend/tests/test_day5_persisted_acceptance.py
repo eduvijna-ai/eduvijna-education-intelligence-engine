@@ -110,7 +110,7 @@ def persisted(tmp_path: Path):
             {
                 "text": (
                     "I II III IV V VI VII VIII IX X First Year Second Year "
-                    "English Science Unit Force Topic Concept section 1"
+                    "English Science Unit Force Topic Concept SRC-L1 section 1"
                 ),
                 "grades": source_grades,
                 "catalogue": [
@@ -267,7 +267,10 @@ def persisted(tmp_path: Path):
                         parent_code=parent,
                         official_text=title,
                         source_locator="JSON pointer /text",
-                        metadata_json={"identity": identity},
+                        metadata_json={
+                            "identity": identity,
+                            **({"official_code": "SRC-L1"} if node_type == "concept" else {}),
+                        },
                     )
                 )
                 parent = node_type
@@ -882,7 +885,7 @@ def test_writer_cannot_extend_valid_parent_with_corrupt_older_ancestor(
     item = report["materialized_slices"][0]
     nodes = service.hierarchy_path(item["path"]["node_ids"][-1])
     ancestor, parent, concept = nodes[ancestor_level], nodes[-2], nodes[-1]
-    good_identity = copy.deepcopy(concept.metadata_json)
+    good_identity = {"identity": copy.deepcopy(concept.metadata_json["identity"])}
     metadata = copy.deepcopy(ancestor.metadata_json)
     if attack == "omit":
         metadata["identity"].pop(field)
@@ -1385,24 +1388,84 @@ def pair_revision(
 
 @pytest.fixture
 def paired(persisted):
+    return _paired_case(persisted)
+
+
+def _paired_case(persisted, shared=False):
     from app.curriculum_intelligence.scoped_curriculum import link_correspondence
 
     service, report, scope = persisted
     left_observed = copy.deepcopy(report["materialized_slices"][0])
     left_expected = copy.deepcopy(scope["required_detailed_slices"][0])
     version = service.session.get(CurriculumVersion, left_observed["path"]["curriculum_version_id"])
+    if shared:
+        left_revision = pair_revision(
+            service,
+            version,
+            "shared-left",
+            ["English"],
+            {
+                "text": "VIII English Science Unit Force Topic",
+                "concept": {"code": "SRC-L1", "text": "Shared"},
+            },
+        )
+        left_specs = []
+        parent = None
+        for kind, title in zip(
+            ("grade_year", "medium", "subject", "unit", "chapter", "topic", "concept"),
+            ("VIII", "English", "Science", "Unit", "Force", "Topic", "Shared"),
+            strict=True,
+        ):
+            code = "shared-left-" + kind
+            left_specs.append(
+                CurriculumNodeSpec(
+                    node_type=kind,
+                    code=code,
+                    title=title,
+                    parent_code=parent,
+                    official_text=title,
+                    source_locator="JSON pointer /concept"
+                    if kind == "concept"
+                    else "JSON pointer /text",
+                    metadata_json={
+                        "identity": {
+                            "grade": "VIII",
+                            "medium": "English",
+                            "subject": "Science",
+                            **EXTRAS,
+                        },
+                        **({"official_code": "SRC-L1"} if kind == "concept" else {}),
+                    },
+                )
+            )
+            parent = code
+        left_nodes = service.upsert_nodes(version=version, revision=left_revision, specs=left_specs)
+        left_observed = {
+            **left_observed,
+            "source_revision_id": left_revision.id,
+            "source_checksum": left_revision.checksum,
+            "path": service.curriculum_path(left_nodes["shared-left-concept"].id).model_dump(
+                mode="json"
+            ),
+        }
+        left_expected = {
+            **left_expected,
+            "source_revision": left_revision.id,
+            "source_checksum": left_revision.checksum,
+        }
+    concept_wording = "Shared" if shared else "తెలుగు భావన"
     revision = pair_revision(
         service,
         version,
         "telugu",
         ["Telugu"],
-        {"text": "VIII Telugu Science Unit తెలుగు బలం తెలుగు విషయం తెలుగు భావన"},
+        {"text": f"VIII Telugu Science Unit తెలుగు బలం తెలుగు విషయం {concept_wording} SRC-R1"},
     )
     specs = []
     parent = None
     for kind, title in zip(
         ("grade_year", "medium", "subject", "unit", "chapter", "topic", "concept"),
-        ("VIII", "Telugu", "Science", "Unit", "తెలుగు బలం", "తెలుగు విషయం", "తెలుగు భావన"),
+        ("VIII", "Telugu", "Science", "Unit", "తెలుగు బలం", "తెలుగు విషయం", concept_wording),
         strict=True,
     ):
         code = "telugu-" + kind
@@ -1420,7 +1483,8 @@ def paired(persisted):
                         "medium": "Telugu",
                         "subject": "Science",
                         **EXTRAS,
-                    }
+                    },
+                    **({"official_code": "SRC-R1"} if kind == "concept" else {}),
                 },
             )
         )
@@ -1446,7 +1510,7 @@ def paired(persisted):
         "left_code": left_node.code,
         "right_code": "telugu-concept",
         "locator": "JSON pointer /link",
-        "evidence_text": "The English node concept corresponds to the Telugu node telugu-concept.",
+        "evidence_text": "The English node SRC-L1 corresponds to the Telugu node SRC-R1.",
     }
     evidence = pair_revision(
         service,
@@ -1616,15 +1680,16 @@ def test_correspondence_frozen_source_bindings_replay_without_database_ids(paire
 
 
 RELATION_QUOTES = {
-    "codes": "concept corresponds to telugu-concept.",
+    "codes": "SRC-L1 corresponds to SRC-R1.",
     "wording": "Concept corresponds to తెలుగు భావన.",
+    "internal_codes": "concept corresponds to telugu-concept.",
     "unrelated": "The annual report is ready.",
-    "left_only": "concept has been reviewed.",
-    "right_only": "telugu-concept has been reviewed.",
-    "left_prefix": "concept-extra corresponds to telugu-concept.",
-    "right_prefix": "concept corresponds to telugu-concept-extra.",
+    "left_only": "SRC-L1 has been reviewed.",
+    "right_only": "SRC-R1 has been reviewed.",
+    "left_prefix": "SRC-L10 corresponds to SRC-R1.",
+    "right_prefix": "SRC-L1 corresponds to SRC-R10.",
     "wording_prefix": "Conceptual corresponds to తెలుగు భావనాపరమైనది.",
-    "cross_section": "concept corresponds to telugu-concept.",
+    "cross_section": "SRC-L1 corresponds to SRC-R1.",
 }
 
 
@@ -1646,7 +1711,7 @@ def test_correspondence_quote_identifies_both_endpoints_even_for_persisted_recor
     content = {
         "text": "Reviewed VIII Science applicability.",
         "link": declaration,
-        "outside": "concept corresponds to telugu-concept.",
+        "outside": RELATION_QUOTES["codes"],
     }
     if claim == "cross_section":
         content["link"] = {**declaration, "evidence_text": "The annual report is ready."}
@@ -1707,19 +1772,29 @@ SCOPE_DIMENSIONS = {
     "bilingual": ("bilingual_states", "yes"),
 }
 ALIGNMENT_QUOTES = {
-    "codes": "concept addresses OUT-A1.",
+    "codes": "SRC-L1 addresses OUT-A1.",
     "wording": "Concept addresses Distinct source-backed outcome statement.",
+    "internal_code": "concept addresses OUT-A1.",
+    "shared_left_code": "SRC-L1 addresses Shared.",
+    "shared_right_code": "Shared addresses OUT-A1.",
+    "shared_only": "Shared addresses Shared.",
     "unrelated": "The annual report is ready.",
-    "node_only": "concept has been reviewed.",
+    "node_only": "SRC-L1 has been reviewed.",
     "target_only": "OUT-A1 has been reviewed.",
-    "node_prefix": "concept-extra addresses OUT-A1.",
-    "target_prefix": "concept addresses OUT-A10.",
-    "cross_section": "concept addresses OUT-A1.",
+    "node_prefix": "SRC-L10 addresses OUT-A1.",
+    "target_prefix": "SRC-L1 addresses OUT-A10.",
+    "cross_section": "SRC-L1 addresses OUT-A1.",
 }
 
 
 def direct_alignment_case(
-    persisted, claim="codes", *, target_dimension=None, cover_target=True, target_kind="outcome"
+    persisted,
+    claim="codes",
+    *,
+    target_dimension=None,
+    cover_target=True,
+    target_kind="outcome",
+    target_text="Distinct source-backed outcome statement.",
 ):
     from app.schemas.curriculum_intelligence import (
         CompetencySpec,
@@ -1745,7 +1820,7 @@ def direct_alignment_case(
         version,
         "alignment-target",
         target_scope["media"],
-        {"text": "OUT-A1 Distinct source-backed outcome statement."},
+        {"text": "OUT-A1 " + target_text},
         scope_overrides=target_scope,
     )
     if target_kind == "outcome":
@@ -1755,7 +1830,7 @@ def direct_alignment_case(
             specs=[
                 LearningOutcomeSpec(
                     code="alignment-target",
-                    text="Distinct source-backed outcome statement.",
+                    text=target_text,
                     source_locator="JSON pointer /text",
                     metadata_json={"identity": target_identity, "official_code": "OUT-A1"},
                 )
@@ -1770,7 +1845,7 @@ def direct_alignment_case(
                 CompetencySpec(
                     code="alignment-target",
                     name="Scoped target",
-                    official_text="Distinct source-backed outcome statement.",
+                    official_text=target_text,
                     source_locator="JSON pointer /text",
                     metadata_json={"identity": target_identity, "official_code": "OUT-A1"},
                 )
@@ -1822,7 +1897,9 @@ def direct_alignment_case(
     return service, target, payload
 
 
-@pytest.mark.parametrize("claim", list(ALIGNMENT_QUOTES))
+@pytest.mark.parametrize(
+    "claim", [claim for claim in ALIGNMENT_QUOTES if not claim.startswith("shared_")]
+)
 @pytest.mark.parametrize("target_kind", ["outcome", "competency"])
 def test_scoped_direct_alignment_quote_must_identify_both_endpoints(persisted, claim, target_kind):
     from sqlalchemy import select
@@ -1868,3 +1945,94 @@ def test_direct_mapping_rejects_incomplete_target_identity(
     service.session.flush()
     with pytest.raises(ValueError):
         service.align(payload)
+
+
+SHARED_RELATION_QUOTES = {
+    "codes": "SRC-L1 corresponds to SRC-R1.",
+    "left_code": "SRC-L1 corresponds to Shared.",
+    "right_code": "Shared corresponds to SRC-R1.",
+    "shared_only": "Shared corresponds to Shared.",
+    "internal_only": "shared-left-concept corresponds to telugu-concept.",
+}
+
+
+@pytest.mark.parametrize("claim", list(SHARED_RELATION_QUOTES))
+def test_shared_wording_requires_independent_proven_identity_for_each_correspondence_endpoint(
+    persisted, claim
+):
+    from app.curriculum_intelligence.scoped_curriculum import link_correspondence
+
+    service, report, scope, version = _paired_case(persisted, shared=True)
+    observation = report["materialized_slices"][-1]
+    required = scope["required_detailed_slices"][-1]
+    old = version.metadata_json["cross_medium_correspondences"][observation["relationship_id"]]
+    words = SHARED_RELATION_QUOTES[claim]
+    declaration = {
+        "left_code": old["left_code"],
+        "right_code": old["right_code"],
+        "locator": "JSON pointer /link",
+        "evidence_text": words,
+    }
+    revision = pair_revision(
+        service,
+        version,
+        "shared-claim-" + claim,
+        ["English", "Telugu"],
+        {"text": "Reviewed same-version correspondence.", "link": declaration},
+        [declaration],
+    )
+    kwargs = {
+        "left_node_id": old["left_id"],
+        "right_node_id": old["right_id"],
+        "revision": revision,
+        "locator": declaration["locator"],
+        "evidence_text": words,
+    }
+    if claim == "codes":
+        key = link_correspondence(service, version, **kwargs)
+    else:
+        with pytest.raises(ValueError):
+            link_correspondence(service, version, **kwargs)
+        record = {
+            **declaration,
+            "left_id": old["left_id"],
+            "right_id": old["right_id"],
+            "source_revision_id": revision.id,
+            "source_checksum": revision.checksum,
+        }
+        key = hashlib.sha256(
+            json.dumps(record, sort_keys=True, ensure_ascii=False).encode()
+        ).hexdigest()
+        version.metadata_json = {
+            **version.metadata_json,
+            "cross_medium_correspondences": {
+                **version.metadata_json["cross_medium_correspondences"],
+                key: record,
+            },
+        }
+    required["correspondence"].update(
+        **declaration, source_revision=revision.id, source_checksum=revision.checksum
+    )
+    observation["relationship_id"] = key
+    service.session.flush()
+    service.session.expire_all()
+    result = evaluate_day5_acceptance(report, scope, service=service)
+    assert result["passed"] is (claim == "codes"), result
+
+
+@pytest.mark.parametrize("claim", ["codes", "shared_left_code", "shared_right_code", "shared_only"])
+@pytest.mark.parametrize("target_kind", ["outcome", "competency"])
+def test_shared_wording_plus_one_code_cannot_authorize_scoped_direct_mapping(
+    persisted, claim, target_kind
+):
+    service, report, scope, _ = _paired_case(persisted, shared=True)
+    # Select the legitimately ingested Shared node, not a tampered original endpoint.
+    report["materialized_slices"][0] = copy.deepcopy(report["materialized_slices"][-1]["left"])
+    service, _, payload = direct_alignment_case(
+        (service, report, scope), claim, target_kind=target_kind, target_text="Shared"
+    )
+    if claim == "codes":
+        assert service.align(payload).status == "direct"
+    else:
+        with pytest.raises(ValueError):
+            service.align(payload)

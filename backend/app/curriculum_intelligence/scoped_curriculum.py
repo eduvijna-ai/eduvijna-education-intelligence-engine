@@ -282,9 +282,9 @@ def validate_correspondence_record(
         )
         require_endpoint_mentions(
             record["evidence_text"],
-            left_codes=(left.code, left.metadata_json.get("official_code", "")),
+            left_codes=(left.metadata_json.get("official_code", ""),),
             left_text=left.official_text,
-            right_codes=(right.code, right.metadata_json.get("official_code", "")),
+            right_codes=(right.metadata_json.get("official_code", ""),),
             right_text=right.official_text,
         )
     except StandardsEvidenceError as exc:

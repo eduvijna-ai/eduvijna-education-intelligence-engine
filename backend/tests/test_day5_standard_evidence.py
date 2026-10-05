@@ -197,6 +197,13 @@ def test_generic_framework_writer_checks_actual_standards(evidence_service, faul
         ("A-1", ("A-1",), None, (), "A-1", False),
         ("A-1 and A-1", ("A-1",), None, (), "A-1", False),
         ("ABC", (), "AB", (), "BC", False),
+        ("L-1 Shared", ("L-1",), "Shared", ("R-1",), "Shared", False),
+        ("R-1 Shared", ("L-1",), "Shared", ("R-1",), "Shared", False),
+        ("L-1 R-1 Shared", ("L-1",), "Shared", ("R-1",), "Shared", True),
+        ("L-1 SHARED", ("L-1",), "Shared", ("R-1",), "SHARED", False),
+        ("L-1 Shared wording", ("L-1",), "Shared\nwording", ("R-1",), "Shared wording", False),
+        ("L-1 café", ("L-1",), "cafe\u0301", ("R-1",), "café", False),
+        ("L-1 R-1", ("L-1",), "R-1", ("R-1",), "L-1", False),
     ],
 )
 def test_relationship_requires_distinct_bounded_endpoint_mentions(

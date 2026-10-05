@@ -137,14 +137,23 @@ def require_endpoint_mentions(
     A single shared word or one code nested inside another cannot prove two ends.
     """
 
+    def representation(value: str) -> str:
+        # This comparison only excludes ambiguous identities; original source
+        # bytes and literal mention matching are never normalized or rewritten.
+        return " ".join(unicodedata.normalize("NFC", value).split()).casefold()
+
+    left_names = {representation(value) for value in (*left_codes, left_text) if value}
+    right_names = {representation(value) for value in (*right_codes, right_text) if value}
+    shared = left_names & right_names
+
     def mentions(codes: tuple[str, ...], wording: str | None) -> list[tuple[int, int, str]]:
         spans = [
             (start, end, code)
             for code in codes
-            if code
+            if code and representation(code) not in shared
             for start, end in _identifier_spans(text, code)
         ]
-        if wording and wording.strip():
+        if wording and wording.strip() and representation(wording) not in shared:
             spans.extend((*span, wording) for span in _identifier_spans(text, wording))
         return spans
 

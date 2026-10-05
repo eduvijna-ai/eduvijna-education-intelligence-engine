@@ -428,6 +428,7 @@ class FrameworkStructureService:
                     outcome_revision,
                     locator=outcome.source_locator,
                     official_text=outcome.text,
+                    official_code=outcome.metadata_json.get("official_code"),
                 )
                 require_source_wording(
                     self.source_service,
@@ -449,8 +450,11 @@ class FrameworkStructureService:
                 require_endpoint_mentions(
                     payload.evidence_text or "",
                     left_text=outcome.text,
+                    left_codes=(outcome.metadata_json["official_code"],)
+                    if outcome.metadata_json.get("official_code")
+                    else (),
                     right_codes=(node.official_code,) if node.official_code else (),
-                    right_text=node.official_text if not node.official_code else None,
+                    right_text=node.official_text,
                 )
             except StandardsEvidenceError as exc:
                 raise FrameworkStructureError(str(exc)) from exc

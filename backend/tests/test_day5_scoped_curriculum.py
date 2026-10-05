@@ -586,7 +586,7 @@ def test_reviewed_cross_medium_correspondence_is_exact_idempotent_and_persistent
         "left_code": left.code,
         "right_code": right.code,
         "locator": "JSON pointer /text",
-        "evidence_text": f"{left.code} corresponds to {right.code}",
+        "evidence_text": f"{left.official_text} corresponds to {right.official_text}",
     }
     revision = approved_revision(
         service,
@@ -806,7 +806,7 @@ def test_correspondence_wording_is_bound_to_claimed_section(service, wrong):
     version, _ = scoped(service)
     left = concept(service, version, "first-year-english-concept")
     right = concept(service, version, "first-year-telugu-concept")
-    words = f"{left.code} corresponds to {right.code}"
+    words = f"{left.official_text} corresponds to {right.official_text}"
     locator = "JSON pointer /sections/" + ("A" if wrong else "B")
     declaration = {
         "left_code": left.code,
@@ -855,7 +855,7 @@ def test_scoped_direct_alignment_uses_bounded_source_and_own_target_proof(servic
         **outcome.metadata_json,
         "identity": dict(node.metadata_json["identity"]),
     }
-    words = f"{node.code} directly addresses {outcome.text}"
+    words = f"{node.official_text} directly addresses {outcome.text}"
     locator = "JSON pointer /sections/" + ("A" if fault == "wrong-section" else "B")
     declaration = {
         "node_code": node.code,

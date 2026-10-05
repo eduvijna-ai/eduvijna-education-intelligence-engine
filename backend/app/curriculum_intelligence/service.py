@@ -1136,7 +1136,7 @@ class CurriculumIntelligenceService:
                         payload.evidence_text or "",
                         left_codes=tuple(
                             code
-                            for code in (node.code, node.metadata_json.get("official_code"))
+                            for code in (node.metadata_json.get("official_code"),)
                             if isinstance(code, str) and code.strip()
                         ),
                         left_text=node.official_text,

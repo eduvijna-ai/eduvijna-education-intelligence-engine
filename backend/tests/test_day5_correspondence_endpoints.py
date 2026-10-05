@@ -76,8 +76,15 @@ def endpoints(
     right_wording: str = "తెలుగు మూల భావన",
     right_context: dict[str, str] | None = None,
     left_context: dict[str, str] | None = None,
+    official_codes: bool = True,
 ) -> tuple[CurriculumVersion, CurriculumNode, CurriculumNode]:
-    revision = source(service, {"left": left_wording, "right": right_wording})
+    revision = source(
+        service,
+        {
+            "left": f"OFF-L-1 {left_wording}" if official_codes else left_wording,
+            "right": f"OFF-R-1 {right_wording}" if official_codes else right_wording,
+        },
+    )
     pack = service.ensure_pack(
         framework=None,
         code="endpoint-proof",
@@ -125,7 +132,14 @@ def endpoints(
                     parent_code=parent,
                     official_text=wording if kind == "concept" else None,
                     source_locator=f"JSON pointer /{side}",
-                    metadata_json={"identity": dict(identity)},
+                    metadata_json={
+                        "identity": dict(identity),
+                        **(
+                            {"official_code": "OFF-L-1" if side == "left" else "OFF-R-1"}
+                            if kind == "concept" and official_codes
+                            else {}
+                        ),
+                    },
                 )
             )
             parent = node_code
@@ -165,7 +179,8 @@ def test_correspondence_identifies_both_endpoints_by_codes_or_original_wording(
 ) -> None:
     version, left, right = endpoints(service)
     evidence = (
-        f"{left.code} corresponds to {right.code}"
+        f"{left.metadata_json['official_code']} corresponds to "
+        f"{right.metadata_json['official_code']}"
         if mode == "codes"
         else (f"{left.official_text} corresponds to {right.official_text}")
     )
@@ -180,9 +195,9 @@ def test_correspondence_identifies_both_endpoints_by_codes_or_original_wording(
     "evidence",
     [
         "Unrelated officially published sentence",
-        "L-1 is a science concept",
-        "R-1 is a science concept",
-        "L-10 corresponds to R-10",
+        "OFF-L-1 is a science concept",
+        "OFF-R-1 is a science concept",
+        "OFF-L-10 corresponds to OFF-R-10",
         "Left original science concept has a corresponding unnamed chapter",
     ],
 )
@@ -240,7 +255,7 @@ def test_correspondence_rejects_endpoint_cross_context_even_when_both_globally_a
     version, left, right = endpoints(service, right_context={dimension: value})
     before = dict(version.metadata_json)
     with pytest.raises(ValueError, match="academic context"):
-        link(service, version, left, right, "L-1 corresponds to R-1")
+        link(service, version, left, right, "OFF-L-1 corresponds to OFF-R-1")
     assert version.metadata_json == before
 
 
@@ -252,5 +267,37 @@ def test_explicit_correspondence_allows_source_approved_subject_language_change(
         left_context={"subject_language": "English"},
         right_context={"subject_language": "Telugu"},
     )
-    key = link(service, version, left, right, "L-1 corresponds to R-1")
+    key = link(service, version, left, right, "OFF-L-1 corresponds to OFF-R-1")
+    assert version.metadata_json["cross_medium_correspondences"][key]["right_id"] == right.id
+
+
+@pytest.mark.parametrize("official_codes", [False, True])
+def test_internal_node_codes_never_identify_source_endpoints(
+    service: CurriculumIntelligenceService,
+    official_codes: bool,
+) -> None:
+    version, left, right = endpoints(service, official_codes=official_codes)
+    with pytest.raises(ValueError, match="both endpoints"):
+        link(service, version, left, right, "L-1 corresponds to R-1")
+    assert "cross_medium_correspondences" not in version.metadata_json
+
+
+@pytest.mark.parametrize("only_code", ["OFF-L-1", "OFF-R-1"])
+def test_shared_wording_plus_only_one_unique_official_code_cannot_prove_two_endpoints(
+    service: CurriculumIntelligenceService,
+    only_code: str,
+) -> None:
+    version, left, right = endpoints(service, "Shared original wording", "Shared original wording")
+    with pytest.raises(ValueError, match="both endpoints"):
+        link(service, version, left, right, f"{only_code} corresponds to Shared original wording")
+    assert "cross_medium_correspondences" not in version.metadata_json
+
+
+def test_both_own_source_official_codes_identify_endpoints_with_shared_wording(
+    service: CurriculumIntelligenceService,
+) -> None:
+    version, left, right = endpoints(service, "Shared original wording", "Shared original wording")
+    key = link(
+        service, version, left, right, "OFF-L-1 corresponds to OFF-R-1: Shared original wording"
+    )
     assert version.metadata_json["cross_medium_correspondences"][key]["right_id"] == right.id

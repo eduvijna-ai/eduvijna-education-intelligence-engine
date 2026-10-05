@@ -19,6 +19,7 @@ from app.models.source import SourceRevision
 from app.schemas.curriculum_intelligence import (
     CompetencySpec,
     CurriculumAlignmentInput,
+    CurriculumNodeSpec,
     LearningOutcomeSpec,
 )
 from app.schemas.source_intelligence import SourceRegistrationInput
@@ -100,7 +101,7 @@ def prepare(
     service: CurriculumIntelligenceService,
     *,
     kind: str,
-    quote: str = "node-code",
+    quote: str = "official-codes",
     changed_dimension: str | None = None,
     incomplete_dimension: str | None = None,
     mapping_covers_target: bool = True,
@@ -108,12 +109,42 @@ def prepare(
     version, _ = scoped(service)
     node = concept(service, version, "first-year-english-concept")
     node_identity = dict(node.metadata_json["identity"])
+    node_words = (
+        "Shared original wording" if quote.startswith("shared-") else "Original scientific concept"
+    )
+    node_official_code = "NODE-1"
+    node_revision = revision_for(
+        service,
+        version.curriculum_pack.code,
+        domain="syllabus",
+        text=f"{node_official_code}: {node_words}",
+        identities=[node_identity],
+    )
+    node = service.upsert_nodes(
+        version=version,
+        revision=node_revision,
+        specs=[
+            CurriculumNodeSpec(
+                node_type="concept",
+                code="internal-alignment-node",
+                title="Normalized display title",
+                parent_code="first-year-english-topic",
+                official_text=node_words,
+                source_locator="JSON pointer /text",
+                metadata_json={"identity": node_identity, "official_code": node_official_code},
+            )
+        ],
+    )["internal-alignment-node"]
     target_identity = dict(node_identity)
     if changed_dimension:
         target_identity[changed_dimension] = "different-context"
     if incomplete_dimension:
         target_identity.pop(incomplete_dimension)
-    target_words = "Explains the original scientific relationship"
+    target_words = (
+        node_words
+        if quote.startswith("shared-")
+        else "Explains the original scientific relationship"
+    )
     target_code = "OUT-1" if kind == "outcome" else "STD-1"
     target_revision = revision_for(
         service,
@@ -153,14 +184,19 @@ def prepare(
             ],
         )["normalized-target"]
     quotes = {
-        "node-code": f"{node.code} addresses {target_code}.",
+        "official-codes": f"{node_official_code} addresses {target_code}.",
+        "internal-node-code": f"{node.code} addresses {target_code}.",
+        "shared-both-codes": f"{node_words}: {node_official_code} addresses {target_code}.",
+        "shared-left-code": f"{node_words}: {node_official_code} addresses {target_words}.",
+        "shared-right-code": f"{node_words} addresses {target_code}: {target_words}.",
+        "shared-only": f"{node_words} addresses {target_words}.",
         "original-words": f"{node.official_text} addresses {target_words}.",
         "unrelated": "Unrelated administrative publication notice.",
-        "node-only": f"{node.code} describes a concept.",
+        "node-only": f"{node_official_code} describes a concept.",
         "target-only": f"{target_code} is published here.",
-        "node-prefix": f"{node.code}-extended addresses {target_code}.",
-        "target-prefix": f"{node.code} addresses {target_code}0.",
-        "normalized-target": f"{node.code} addresses normalized-target.",
+        "node-prefix": f"{node_official_code}-extended addresses {target_code}.",
+        "target-prefix": f"{node_official_code} addresses {target_code}0.",
+        "normalized-target": f"{node_official_code} addresses normalized-target.",
         "normalized-title": f"Invented display title addresses {target_code}.",
     }
     if quote == "normalized-title":
@@ -196,7 +232,7 @@ def prepare(
 
 
 @pytest.mark.parametrize("kind", ["outcome", "competency"])
-@pytest.mark.parametrize("quote", ["node-code", "original-words"])
+@pytest.mark.parametrize("quote", ["official-codes", "original-words", "shared-both-codes"])
 def test_direct_alignment_accepts_two_original_endpoints(
     service: CurriculumIntelligenceService, kind: str, quote: str
 ) -> None:
@@ -215,6 +251,10 @@ def test_direct_alignment_accepts_two_original_endpoints(
     "quote",
     [
         "unrelated",
+        "internal-node-code",
+        "shared-left-code",
+        "shared-right-code",
+        "shared-only",
         "node-only",
         "target-only",
         "node-prefix",
