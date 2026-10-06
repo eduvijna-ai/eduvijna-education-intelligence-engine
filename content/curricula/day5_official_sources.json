@@ -362,5 +362,42 @@
       "medium_candidate": "Telugu",
       "applicability_status": "unverified"
     }
+  },
+  {
+    "key": "telangana-state-directory-tgbie",
+    "source_type": "official_authority",
+    "title": "Telangana State Web Directory - Board of Intermediate Education",
+    "url": "https://www.telangana.gov.in/state-web-directory/",
+    "authority": "Government of Telangana",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": null,
+    "document_type": "authority_directory",
+    "version_applicability": "Authority/current official link evidence only; not syllabus applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "current_government_directory",
+      "official_board_link": "https://tgbie.cgg.gov.in",
+      "governing_curriculum_membership": false,
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "telangana-higher-education-tgbie",
+    "source_type": "official_authority",
+    "title": "Telangana Higher Education - Board of Intermediate Education",
+    "url": "https://www.telangana.gov.in/departments/higher-education/",
+    "authority": "Government of Telangana",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": null,
+    "document_type": "authority_directory",
+    "version_applicability": "Board identity/contact evidence only; not syllabus applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "current_government_department_page",
+      "governing_curriculum_membership": false,
+      "bulk_publication_allowed": false
+    }
   }
 ]
