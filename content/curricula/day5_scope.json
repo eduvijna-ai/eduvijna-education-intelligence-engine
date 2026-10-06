@@ -191,25 +191,55 @@
     }
   ],
   "owner_prose_discovery_hypotheses": {
-    "status": "unverified_owner_table_not_official_proof",
+    "status": "founder_provided_unverified_until_exact_official_source_binding",
     "official_homepage_candidate": "https://scert.telangana.gov.in/",
     "notes": "Owner-supplied grade/subject/medium table, VIII chapter list, AS1-AS6 and Intermediate IA/IB/IIA/IIB topic names are discovery hypotheses only. They do not establish academic year, revision, locator, governing authority or applicability until matched to exact original rows.",
     "grade_subject_medium_hints": [
       {
-        "grades": ["I", "II"],
-        "subjects": ["first language", "English", "mathematics"]
+        "grades": [
+          "I",
+          "II"
+        ],
+        "subjects": [
+          "first language",
+          "English",
+          "mathematics"
+        ]
       },
       {
-        "grades": ["III", "IV", "V"],
-        "subjects": ["first language", "English", "mathematics", "EVS"]
+        "grades": [
+          "III",
+          "IV",
+          "V"
+        ],
+        "subjects": [
+          "first language",
+          "English",
+          "mathematics",
+          "EVS"
+        ]
       },
       {
-        "grades": ["VI", "VII"],
-        "subjects": ["general science", "social studies"]
+        "grades": [
+          "VI",
+          "VII"
+        ],
+        "subjects": [
+          "general science",
+          "social studies"
+        ]
       },
       {
-        "grades": ["VIII", "IX", "X"],
-        "subjects": ["physical science", "biological science", "social studies"],
+        "grades": [
+          "VIII",
+          "IX",
+          "X"
+        ],
+        "subjects": [
+          "physical science",
+          "biological science",
+          "social studies"
+        ],
         "media_variants_claimed": [
           "Telugu",
           "English",
@@ -231,6 +261,85 @@
     "search_link_mislabels_excluded": [
       "bie.telangana.gov.in (Google search link, not a document URL)",
       "tsbie.cgg.gov.in (Google search link, not a document URL)"
+    ],
+    "academic_standards_hints": [
+      {
+        "code": "AS1",
+        "label": "Conceptual Understanding"
+      },
+      {
+        "code": "AS2",
+        "label": "Asking Questions and Making Hypotheses"
+      },
+      {
+        "code": "AS3",
+        "label": "Experimentation and Field Investigation"
+      },
+      {
+        "code": "AS4",
+        "label": "Information Skills and Projects"
+      },
+      {
+        "code": "AS5",
+        "label": "Communication through Drawing / Model Making"
+      },
+      {
+        "code": "AS6",
+        "label": "Appreciation, Aesthetic Sense, Values & Daily Life Application"
+      }
+    ],
+    "state_program_hints": [
+      {
+        "name": "FLN",
+        "scope_hint": "Classes I-V"
+      },
+      {
+        "name": "Unnathi",
+        "scope_hint": "Classes VI-VIII"
+      },
+      {
+        "name": "Lakshya",
+        "scope_hint": "Classes IX-X"
+      }
+    ],
+    "intermediate_group_hints": {
+      "general": {
+        "MPC": [
+          "Mathematics",
+          "Physics",
+          "Chemistry"
+        ],
+        "BiPC": [
+          "Botany",
+          "Zoology",
+          "Physics",
+          "Chemistry"
+        ],
+        "CEC": [
+          "Civics",
+          "Economics",
+          "Commerce"
+        ],
+        "MEC": [
+          "Mathematics",
+          "Economics",
+          "Commerce"
+        ],
+        "HEC": [
+          "History",
+          "Economics",
+          "Civics"
+        ]
+      },
+      "vocational_families": [
+        "Engineering & Technology",
+        "Commerce & Business",
+        "Paramedical & Agriculture"
+      ]
+    },
+    "historical_policy_hints": [
+      "COVID-19-era temporary syllabus reduction was reported by the Founder as 30% (70% core) during 2020-2022",
+      "Founder reports current restoration to full syllabus and national-entrance alignment; exact governing notice is still required before activation"
     ]
   },
   "claims_excluded": [
@@ -329,5 +438,45 @@
         "url": "https://diksha.gov.in/ts/get/dial/CTFAJA"
       }
     ]
+  },
+  "verified_external_discovery": {
+    "scert_current_catalogue": {
+      "status": "verified_official_web_discovery_not_runtime_bytes",
+      "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+      "academic_label": "TEXT BOOKS (I TO X) - 2025-26",
+      "class_viii_media_observed": [
+        "Telugu",
+        "English",
+        "Urdu",
+        "Hindi",
+        "Kannada",
+        "Marathi",
+        "Tamil"
+      ],
+      "class_viii_subjects_observed": [
+        "First Language",
+        "Other Media",
+        "English",
+        "Maths",
+        "Physical Science",
+        "Biological Science",
+        "Social"
+      ],
+      "notes": "Official SCERT web discovery confirms the catalogue/media matrix; live Day-5 acceptance still requires exact SourceRevision bytes and reviewed row associations."
+    },
+    "scert_physical_science_viii": {
+      "status": "verified_official_web_discovery_not_runtime_bytes",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
+      "grade": "VIII",
+      "observed_chapter_start": "1. Force",
+      "notes": "Official SCERT PDF is indexed and web-readable; runtime source lifecycle still cannot fetch from the hosted CI network."
+    },
+    "tgbie_authority_directory": {
+      "status": "verified_official_government_directory",
+      "url": "https://www.telangana.gov.in/state-web-directory/",
+      "board_name": "Board of Intermediate Education",
+      "official_link": "https://tgbie.cgg.gov.in",
+      "notes": "Authority/link evidence only; does not establish syllabus version, subject applicability, medium or course-group scope."
+    }
   }
 }
