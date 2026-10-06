@@ -223,11 +223,11 @@
     "board_or_exam": "SCERT Telangana",
     "academic_year": "2025-26",
     "document_type": "textbook_index",
-    "version_applicability": "2025-26 textbook catalogue; does not by itself establish syllabus applicability",
+    "version_applicability": "Official 2025-26 textbook catalogue; does not by itself establish governing syllabus applicability",
     "copyright_classification": "official_reference_private_runtime_only",
     "metadata_json": {
       "discovery_status": "official_current_catalogue_discovered; exact bytes required for acceptance",
-      "publication_status": "draft",
+      "publication_status": "official_current_catalogue",
       "bulk_publication_allowed": false,
       "inventory_scope": {
         "pack_code": "ts-scert",
