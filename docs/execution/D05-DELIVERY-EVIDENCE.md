@@ -197,7 +197,9 @@ Resumed PR14 at `28cc8510824efd25193f2a14641742b8f85715b3` (base `7f1f86fe9e24de
 | `tgbienew.cgg.gov.in` (manifest annual plans / index) | Automated fetch remains blocked per manifest `automated_fetch_blocked` (prior F5 403) |
 | `diksha.gov.in/telangana/` and Class VIII DIAL shells | HTTP 200 HTML only; no governing syllabus bytes or applicability verified |
 
-`python -m app.day5_verify --fetch-official` exited **1** with **0 / 13** manifest sources retrieving verifiable content (`registry_only` + `source URL retrieval failed across resolved public addresses` for SCERT entries). Acceptance incomplete components unchanged in kind: all nine required detailed slices, catalogue inventories/scopes, fetch blockers, applicability and materialization gaps.
+`python -m app.day5_verify --fetch-official` exited **1** at Cloud Agent resume SHA `28cc851` with **0 / 13** required-academic manifest entries retrieving verifiable content (`registry_only` + `source URL retrieval failed across resolved public addresses` for SCERT entries). That **0 / 13** denominator predates manifest entries `telangana-state-directory-tgbie` and `telangana-higher-education-tgbie` (added at `f040ae2`); it is **not** the post-`f040ae2` 15-entry accounting.
+
+After supplemental-authority gate separation (successor to `0288f0c`), exact-head `day5_verify --fetch-official` still exits **1** with `manifest_accounting`: **15 total = 13 required_academic + 2 supplemental_authority**; **0 / 13** required-academic bytes verified; **2 / 2** supplemental authority directories retrieved with checksum/provenance reported but **no** academic applicability gate; `unresolved_applicability` lists **13** required entries only (directories excluded). Acceptance incomplete components unchanged in kind: all nine required detailed slices, catalogue inventories/scopes, required fetch blockers, applicability and materialization gaps.
 
 **Owner prose table:** recorded in `content/curricula/day5_scope.json` as `owner_prose_discovery_hypotheses` (hypotheses only; not ingested as proof). SCERT network block documented in `blocked_sources`. No copyrighted bulk bytes committed; no HTML/PDF catalogue row-context adapter added (formats still unverified without originals).
 
@@ -241,3 +243,15 @@ These inputs are handled in two evidence classes:
 The public Git repository stores only these metadata/provenance notes, not source PDFs.
 Day-5 live acceptance remains fail-closed until required originals enter the exact
 SourceRevision lifecycle or become reachable from an official host.
+
+## Supplemental authority directory gate separation (post-`0288f0c`)
+
+Independent Codex reviews `5431166794` / `5431187625`: catalogue `publication_status` classification for the current HTML catalogue vs draft PDF index was already corrected at `a25df3b` (not revisited here).
+
+Remaining fix: `authority_directory` manifest entries are **supplemental authority evidence** classified by `document_type` + `source_domains.authority_reference`, not by `governing_curriculum_membership: false` alone. Syllabus/catalogue rows cannot relabel into supplemental status. Official report now:
+
+- applies academic inventory applicability only to `required_academic` entries;
+- routes directory retrieval/registration issues through `supplemental_retrieval`, not `fetch_blockers` / `blocked_sources` / `unresolved_applicability`;
+- publishes explicit `manifest_accounting` with separate required vs supplemental retrieved/registry counts.
+
+Required nine slices, catalogue inventories, and fail-closed academic acceptance are unchanged. Full Day 5 completion remains blocked without governing syllabus/catalogue/LO bytes.

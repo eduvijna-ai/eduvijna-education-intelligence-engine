@@ -10,6 +10,10 @@ from urllib.parse import urljoin
 
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.day5_manifest_evidence import (
+    is_supplemental_authority_evidence,
+    manifest_evidence_role,
+)
 from app.curriculum_intelligence.scoped_acceptance import _revision, evaluate_day5_acceptance
 from app.curriculum_intelligence.scoped_catalogue import ScopedCatalogueError
 from app.curriculum_intelligence.scoped_curriculum import ScopeError
@@ -125,19 +129,25 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
     entries = load_source_manifest(content_root / "day5_official_sources.json")
 
     fetch_blockers: list[dict[str, Any]] = []
+    supplemental_retrieval: list[dict[str, Any]] = []
     revisions: dict[str, Any] = {}
+    required_entries = [entry for entry in entries if not is_supplemental_authority_evidence(entry)]
+    supplemental_entries = [entry for entry in entries if is_supplemental_authority_evidence(entry)]
     for entry in entries:
+        supplemental = is_supplemental_authority_evidence(entry)
         automated_fetch_blocked = entry.metadata_json.get("automated_fetch_blocked") is True
         if automated_fetch_blocked:
-            fetch_blockers.append(
-                {
-                    "stage": "official_retrieval",
-                    "source_key": entry.key,
-                    "url": entry.url,
-                    "reason": "Automated retrieval denied; manual official upload required",
-                    "affected_tasks": ["D5-03", "D5-05"],
-                }
-            )
+            blocker = {
+                "stage": "official_retrieval",
+                "source_key": entry.key,
+                "url": entry.url,
+                "reason": "Automated retrieval denied; manual official upload required",
+                "affected_tasks": ["D5-03", "D5-05"],
+            }
+            if supplemental:
+                supplemental_retrieval.append(blocker)
+            else:
+                fetch_blockers.append(blocker)
         try:
             revisions.update(
                 service.ensure_manifest_sources(
@@ -151,20 +161,24 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         except Exception as exc:
             if not session.is_active:
                 session.rollback()
-            fetch_blockers.append(
-                {
-                    "stage": "manifest_registration",
-                    "source_key": entry.key,
-                    "url": entry.url,
-                    "error_type": type(exc).__name__,
-                    "reason": str(exc)[:500],
-                    "affected_tasks": ["D5-03", "D5-04", "D5-05"],
-                }
-            )
+            blocker = {
+                "stage": "manifest_registration",
+                "source_key": entry.key,
+                "url": entry.url,
+                "error_type": type(exc).__name__,
+                "reason": str(exc)[:500],
+                "affected_tasks": ["D5-03", "D5-04", "D5-05"],
+            }
+            if supplemental:
+                supplemental_retrieval.append(blocker)
+            else:
+                fetch_blockers.append(blocker)
 
     sources: list[dict[str, Any]] = []
     unresolved_applicability: list[dict[str, Any]] = []
     for entry in entries:
+        evidence_role = manifest_evidence_role(entry)
+        supplemental = evidence_role == "supplemental_authority"
         revision = revisions.get(entry.key) if revisions else None
         verified = bool(revision and service.has_source_content(revision))
         registry_only = bool(revision and service.is_registry_only(revision))
@@ -174,7 +188,9 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             else {}
         )
         applicability_verified = False
-        if verified and revision is not None:
+        if supplemental:
+            applicability_verified = False
+        elif verified and revision is not None:
             try:
                 _revision(service, revision.id, inventory=True)
                 applicability_verified = True
@@ -185,13 +201,15 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             "key": entry.key,
             "url": entry.url,
             "domain": entry.document_type,
+            "evidence_role": evidence_role,
             "source_revision_id": revision.id if revision else None,
             "checksum": revision.checksum if revision else None,
             "retrieved_content": verified,
             "byte_size": revision.byte_size if revision else None,
             "registry_only": registry_only,
             "publication_status": entry.metadata_json.get("publication_status"),
-            "academic_applicability_verified": applicability_verified,
+            "academic_applicability_required": not supplemental,
+            "academic_applicability_verified": applicability_verified if not supplemental else None,
             "reason": None
             if verified
             else str(ingestion_error or "Official content unavailable; metadata is not evidence"),
@@ -211,6 +229,8 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             parser.feed(data.decode("utf-8", errors="strict"))
             item["discovered_links"] = parser.links
         sources.append(item)
+        if supplemental:
+            continue
         if not item["academic_applicability_verified"]:
             unresolved_applicability.append(
                 {
@@ -248,7 +268,7 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         str(item.get("url")): dict(item) for item in scope.get("blocked_sources", [])
     }
     for source in sources:
-        if source["retrieved_content"]:
+        if source["retrieved_content"] or source.get("evidence_role") == "supplemental_authority":
             continue
         blocked_sources_map[source["url"]] = {
             "url": source["url"],
@@ -258,14 +278,44 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         }
     blocked_sources = list(blocked_sources_map.values())
 
+    required_sources = [
+        item for item in sources if item.get("evidence_role") == "required_academic"
+    ]
+    supplemental_sources = [
+        item for item in sources if item.get("evidence_role") == "supplemental_authority"
+    ]
+    manifest_accounting = {
+        "manifest_total": len(entries),
+        "required_academic_count": len(required_entries),
+        "supplemental_authority_count": len(supplemental_entries),
+        "required_academic_retrieved": sum(
+            1 for item in required_sources if item["retrieved_content"]
+        ),
+        "required_academic_registry_only": sum(
+            1 for item in required_sources if item["registry_only"]
+        ),
+        "supplemental_authority_retrieved": sum(
+            1 for item in supplemental_sources if item["retrieved_content"]
+        ),
+        "supplemental_authority_registry_only": sum(
+            1 for item in supplemental_sources if item["registry_only"]
+        ),
+        "denominator_note": (
+            "Academic acceptance gates use required_academic_count only; "
+            "supplemental authority directories never establish curriculum membership"
+        ),
+    }
+
     session.commit()
     report: dict[str, Any] = {
         "status": "blocked_or_review_required",
         "official_source_backed_acceptance": False,
         "sources": sources,
+        "manifest_accounting": manifest_accounting,
         "required_slices": scope["required_detailed_slices"],
         "blocked_sources": blocked_sources,
         "fetch_blockers": fetch_blockers,
+        "supplemental_retrieval": supplemental_retrieval,
         "unresolved_applicability": unresolved_applicability,
         "materialization_blockers": materialization_blockers,
         "materialized_slices": demonstration.get("materialized_slices", []),

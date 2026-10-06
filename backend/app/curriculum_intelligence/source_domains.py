@@ -31,6 +31,7 @@ DOCUMENT_DOMAINS = {
     "marking_scheme": "assessment",
     "model_paper": "assessment",
     "publication_index": "catalogue",
+    "authority_directory": "authority_reference",
 }
 _ALLOWED = {
     "membership": {"syllabus"},

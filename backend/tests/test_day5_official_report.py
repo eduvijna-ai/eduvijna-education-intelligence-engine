@@ -102,6 +102,31 @@ def test_detailed_slice_cannot_satisfy_full_catalogue_gate() -> None:
     assert {item["pack_code"] for item in gaps} == {"ts-scert", "tgbie"}
 
 
+def test_supplemental_authority_directories_excluded_from_academic_blockers(
+    report_session: Session, tmp_path: Path
+) -> None:
+    report = build_official_report(report_session, storage_root=tmp_path / "storage")
+    accounting = report["manifest_accounting"]
+    assert accounting["manifest_total"] == 15
+    assert accounting["required_academic_count"] == 13
+    assert accounting["supplemental_authority_count"] == 2
+    directory_keys = {"telangana-state-directory-tgbie", "telangana-higher-education-tgbie"}
+    for source in report["sources"]:
+        if source["key"] in directory_keys:
+            assert source["evidence_role"] == "supplemental_authority"
+            assert source["academic_applicability_required"] is False
+            assert source["academic_applicability_verified"] is None
+    assert not any(
+        item["source_key"] in directory_keys for item in report["unresolved_applicability"]
+    )
+    assert not any(
+        item.get("source_key") in directory_keys for item in report["fetch_blockers"]
+    )
+    assert not any(
+        item.get("source_key") in directory_keys for item in report["blocked_sources"]
+    )
+
+
 def test_denied_sources_are_metadata_only_and_per_entry_failure_preserves_success(
     report_session: Session, tmp_path: Path
 ) -> None:
