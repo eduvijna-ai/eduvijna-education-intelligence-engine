@@ -3,7 +3,7 @@
 Status: ACTIVE  
 Base: develop @ e64e361f53708d6d052bc19067a70d43cb3e34a6  
 Builder branch: feature/day4-ncf-ncert-cbse  
-Builder preference: Cursor Composer 2.5 Fast; zero-overage fallback is ChatGPT–GitHub connected implementation.  
+Builder preference: Cursor Composer 2.5 Fast *(historical Day 4 record)*; zero-overage fallback is ChatGPT–GitHub connected implementation. Current Cursor model: standard Composer 2.5 per `AGENTS.md` (Founder override 2026-10-05).  
 Reviewer: Codex  
 Founder gate: stop after Day-4 engineering is green; do not unlock Day 5.
 

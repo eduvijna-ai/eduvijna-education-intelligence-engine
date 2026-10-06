@@ -206,3 +206,5 @@ Resumed PR14 at `28cc8510824efd25193f2a14641742b8f85715b3` (base `7f1f86fe9e24de
 ## Governing Cursor model reconciliation (2026-10-06)
 
 Independent Codex review `5429018789` noted stale **Composer 2.5 Fast** wording in `AGENTS.md`, `.cursor/rules/eduvijna.mdc`, and `.eduvijna/execution-state.yml` while Day 5 implementation already ran under the Founder’s explicit **standard Composer 2.5** instruction (2026-10-05, reconfirmed 2026-10-06). A follow-up commit aligns those governing files with the dated override only. No change to founder gates, scope, source acceptance, budget caps, or application code. Full Day 5 official-source completion remains blocked.
+
+Codex discussion `4195955839` on head `2ebba0b` noted `README.md` still mandated Fast. A subsequent commit updates `README.md` to standard Composer 2.5 and annotates historical Day 1/Day 4 execution docs without rewriting their original Fast facts.

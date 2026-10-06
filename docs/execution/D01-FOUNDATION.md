@@ -16,7 +16,7 @@ Day 1 is complete only when every Definition-of-Done item is green and the Found
 
 All work must fit inside the existing subscription budget.
 
-- Cursor implementation model: **Composer 2.5 Fast**
+- Cursor implementation model: **Composer 2.5 Fast** *(historical Day 1 record; superseded for current work by Founder 2026-10-05 standard **Composer 2.5** requirement — see `AGENTS.md`)*
 - ChatGPT Pro: existing USD 100 plan only
 - Cursor Pro+: existing USD 60 plan only
 - No planned paid overage
