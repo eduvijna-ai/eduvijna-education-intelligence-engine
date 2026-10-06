@@ -208,3 +208,36 @@ Resumed PR14 at `28cc8510824efd25193f2a14641742b8f85715b3` (base `7f1f86fe9e24de
 Independent Codex review `5429018789` noted stale **Composer 2.5 Fast** wording in `AGENTS.md`, `.cursor/rules/eduvijna.mdc`, and `.eduvijna/execution-state.yml` while Day 5 implementation already ran under the Founder’s explicit **standard Composer 2.5** instruction (2026-10-05, reconfirmed 2026-10-06). A follow-up commit aligns those governing files with the dated override only. No change to founder gates, scope, source acceptance, budget caps, or application code. Full Day 5 official-source completion remains blocked.
 
 Codex discussion `4195955839` on head `2ebba0b` noted `README.md` still mandated Fast. A subsequent commit updates `README.md` to standard Composer 2.5 and annotates historical Day 1/Day 4 execution docs without rewriting their original Fast facts.
+
+
+## Founder source guidance received 2026-10-06
+
+The Founder supplied detailed SCERT VIII Physical/Biological Science chapter outlines,
+SCERT I-X subject/media bands, Telangana Academic Standards AS1-AS6, FLN/Unnathi/Lakshya
+program notes, Intermediate MPC/BiPC/CEC/MEC/HEC and vocational-group descriptions,
+Mathematics IA/IB/IIA/IIB topic outlines, and historical/current syllabus-policy context.
+
+These inputs are handled in two evidence classes:
+
+1. **Officially verified discovery**
+   - SCERT's official web catalogue identifies `TEXT BOOKS (I TO X) - 2025-26`.
+   - The official Class VIII catalogue exposes Telugu, English, Urdu, Hindi, Kannada,
+     Marathi and Tamil variants for applicable subjects.
+   - The official Physical Science syllabus PDF exposes Class VIII and begins with
+     `1. Force` and its detailed force/friction structure.
+   - Telangana's State Web Directory identifies the Board of Intermediate Education
+     and points to `https://tgbie.cgg.gov.in`.
+   These are discovery/authority facts only until the normal source lifecycle has exact
+   retrievable bytes, reviewed locators and applicable version evidence.
+
+2. **Founder-provided discovery hypotheses**
+   - AS1-AS6 labels/descriptions, FLN/Unnathi/Lakshya scope, Intermediate course-group
+     matrices, detailed IA/IB/IIA/IIB outlines, COVID-era reduction/restoration history,
+     and national-entrance/NEP alignment claims are retained as review leads.
+   - They do **not** establish active syllabus membership, academic applicability,
+     cross-medium correspondence, current subject identity, course-group applicability,
+     or official Telangana outcome/competency mappings by themselves.
+
+The public Git repository stores only these metadata/provenance notes, not source PDFs.
+Day-5 live acceptance remains fail-closed until required originals enter the exact
+SourceRevision lifecycle or become reachable from an official host.
