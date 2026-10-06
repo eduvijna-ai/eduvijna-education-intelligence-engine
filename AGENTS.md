@@ -18,7 +18,8 @@ The development-day gate is strict:
 
 - Primary autonomous implementation: the approved zero-overage connected implementation environment.
 - Cursor may be used only when it does not require usage-based/on-demand billing.
-- Required model for any Cursor implementation: **Composer 2.5 Fast**.
+- Required model for any Cursor implementation: **Composer 2.5** (standard; not Composer 2.5 Fast).
+- Dated override (2026-10-05 explicit Founder message, reconfirmed 2026-10-06): Day 5 Cursor implementation must use standard **Composer 2.5** only; do not substitute Composer 2.5 Fast.
 - Independent engineering review: Codex.
 - CI is the deterministic judge for tests, lint, type checks, builds, and migrations.
 
@@ -36,7 +37,7 @@ No planned usage-based overage is allowed.
 
 Cost rules:
 
-- Prefer Composer 2.5 Fast for Cursor implementation.
+- Prefer standard Composer 2.5 for Cursor implementation (not Composer 2.5 Fast unless a future explicit Founder message supersedes the 2026-10-05 override).
 - Do not enable Cursor Cloud Agent on-demand billing; use the zero-overage fallback when Cloud execution is blocked.
 - Use deterministic tools for formatting, lint, type checking and tests.
 - Keep prompts/task context scoped to the active day and relevant files.

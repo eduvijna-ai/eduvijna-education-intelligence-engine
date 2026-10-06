@@ -202,3 +202,7 @@ Resumed PR14 at `28cc8510824efd25193f2a14641742b8f85715b3` (base `7f1f86fe9e24de
 **Owner prose table:** recorded in `content/curricula/day5_scope.json` as `owner_prose_discovery_hypotheses` (hypotheses only; not ingested as proof). SCERT network block documented in `blocked_sources`. No copyrighted bulk bytes committed; no HTML/PDF catalogue row-context adapter added (formats still unverified without originals).
 
 **Local verification (PATH includes `backend/.venv/bin` for Alembic subprocess tests):** 1,504 pytest passed; Ruff; mypy (75 app files); `domain_verify`, `source_verify`, `day4_verify`, synthetic `day5_verify`; frontend typecheck/build; `test_postgres_compile` + Day 4 migration subprocess tests. Full-suite pytest without venv Alembic on PATH falsely fails migration subprocess tests — use venv `bin` on PATH locally. Docker Compose not run in this VM (same limitation as prior evidence notes). Day 6 remains LOCKED; `founder_approval` unchanged.
+
+## Governing Cursor model reconciliation (2026-10-06)
+
+Independent Codex review `5429018789` noted stale **Composer 2.5 Fast** wording in `AGENTS.md`, `.cursor/rules/eduvijna.mdc`, and `.eduvijna/execution-state.yml` while Day 5 implementation already ran under the Founder’s explicit **standard Composer 2.5** instruction (2026-10-05, reconfirmed 2026-10-06). A follow-up commit aligns those governing files with the dated override only. No change to founder gates, scope, source acceptance, budget caps, or application code. Full Day 5 official-source completion remains blocked.
