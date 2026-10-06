@@ -477,6 +477,18 @@
       "board_name": "Board of Intermediate Education",
       "official_link": "https://tgbie.cgg.gov.in",
       "notes": "Authority/link evidence only; does not establish syllabus version, subject applicability, medium or course-group scope."
+    },
+    "scert_biological_science_viii": {
+      "status": "verified_official_web_discovery_not_runtime_bytes",
+      "url": "https://www.scert.telangana.gov.in/PDF/publication/syllabus/BS_EM.pdf",
+      "grade": "VIII",
+      "observed_chapter_start": "1. What is Science ?",
+      "observed_following_topics": [
+        "2. Cell - The Basic Unit of Life",
+        "3. Microbial World -1",
+        "3. Microbial World - 2"
+      ],
+      "notes": "Official SCERT PDF content is web-indexed; runtime acceptance still requires exact SourceRevision bytes, locator review and academic applicability."
     }
   }
 }
