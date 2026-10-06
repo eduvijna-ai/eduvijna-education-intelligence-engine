@@ -167,8 +167,72 @@
         "D5-31"
       ],
       "manual_route": "Provide the original official PDFs privately for normal ingestion and scoped source review"
+    },
+    {
+      "url": "https://scert.telangana.gov.in/",
+      "reason": "Ordinary permitted egress resolves 164.100.75.8 but TCP/TLS to port 443 times out before HTTP response; www host behaves the same; no bypass or weakened TLS",
+      "affected_tasks": [
+        "D5-03",
+        "D5-05",
+        "D5-09",
+        "D5-12",
+        "D5-13",
+        "D5-16",
+        "D5-22",
+        "D5-30",
+        "D5-32"
+      ],
+      "manual_route": "Provide SCERT originals privately via normal ingestion, or restore reachable official hosting for listed manifest URLs",
+      "evidence_level": "network_reachability_failure_2026-10-06_cloud_agent",
+      "manifest_hosts_affected": [
+        "scert.telangana.gov.in",
+        "www.scert.telangana.gov.in"
+      ]
     }
   ],
+  "owner_prose_discovery_hypotheses": {
+    "status": "unverified_owner_table_not_official_proof",
+    "official_homepage_candidate": "https://scert.telangana.gov.in/",
+    "notes": "Owner-supplied grade/subject/medium table, VIII chapter list, AS1-AS6 and Intermediate IA/IB/IIA/IIB topic names are discovery hypotheses only. They do not establish academic year, revision, locator, governing authority or applicability until matched to exact original rows.",
+    "grade_subject_medium_hints": [
+      {
+        "grades": ["I", "II"],
+        "subjects": ["first language", "English", "mathematics"]
+      },
+      {
+        "grades": ["III", "IV", "V"],
+        "subjects": ["first language", "English", "mathematics", "EVS"]
+      },
+      {
+        "grades": ["VI", "VII"],
+        "subjects": ["general science", "social studies"]
+      },
+      {
+        "grades": ["VIII", "IX", "X"],
+        "subjects": ["physical science", "biological science", "social studies"],
+        "media_variants_claimed": [
+          "Telugu",
+          "English",
+          "Urdu",
+          "Hindi",
+          "bilingual",
+          "Tamil",
+          "Marathi",
+          "Kannada"
+        ]
+      }
+    ],
+    "intermediate_topic_hints": [
+      "Mathematics IA",
+      "Mathematics IB",
+      "Mathematics IIA",
+      "Mathematics IIB"
+    ],
+    "search_link_mislabels_excluded": [
+      "bie.telangana.gov.in (Google search link, not a document URL)",
+      "tsbie.cgg.gov.in (Google search link, not a document URL)"
+    ]
+  },
   "claims_excluded": [
     "2025-26 textbooks establish 2026-27 syllabus",
     "historical Mathematics IA is current",

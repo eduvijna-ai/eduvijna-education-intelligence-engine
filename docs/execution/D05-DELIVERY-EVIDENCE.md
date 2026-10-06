@@ -184,3 +184,21 @@ Review 5416292004 identified two remaining endpoint-proof gaps. Internal hierarc
 The shared relationship checker also excludes identity representations shared by both endpoints, including canonically equivalent Unicode, case or whitespace variants. This comparison only rejects ambiguity; original text and literal source matching remain unchanged. A shared label plus one endpoint's unique code cannot identify the other endpoint. Distinct source-proven official codes remain a valid way to link endpoints that share wording. Regression fixtures establish those codes in original authored source bytes before approval rather than laundering generated IDs into metadata.
 
 Successor validation after these two repairs: 1,504 backend tests passed. The full run exposed and corrected one fixture-only metadata equality assumption in 36 ancestry-corruption cases; the fixture now copies the nine-field identity without copying a concept's newly source-verified official code onto a different node. Production proof checks and rejection/rollback assertions were unchanged. Ruff, mypy, all four deterministic verifiers, frontend typecheck/build, SQLite migration round-trip/drift and PostgreSQL DDL compilation passed again. Exact successor CI and independent review remain required, and official Day 5 acceptance remains blocked.
+
+## Cloud Agent resume (2026-10-06, composer-2.5)
+
+Resumed PR14 at `28cc8510824efd25193f2a14641742b8f85715b3` (base `7f1f86fe9e24dee3a663f1e7702df0946c1138ba`). Launch and branch checkout succeeded; model `composer-2.5` per owner override (not Fast).
+
+**Official source reachability (ordinary permitted access, no bypass):**
+
+| Host / route | Result |
+|---|---|
+| `scert.telangana.gov.in` / `www.scert.telangana.gov.in` (manifest PDFs and indexes) | DNS `164.100.75.8`; TLS client hello sent; connection timed out (~25s) with no HTTP response |
+| `tgbienew.cgg.gov.in` (manifest annual plans / index) | Automated fetch remains blocked per manifest `automated_fetch_blocked` (prior F5 403) |
+| `diksha.gov.in/telangana/` and Class VIII DIAL shells | HTTP 200 HTML only; no governing syllabus bytes or applicability verified |
+
+`python -m app.day5_verify --fetch-official` exited **1** with **0 / 13** manifest sources retrieving verifiable content (`registry_only` + `source URL retrieval failed across resolved public addresses` for SCERT entries). Acceptance incomplete components unchanged in kind: all nine required detailed slices, catalogue inventories/scopes, fetch blockers, applicability and materialization gaps.
+
+**Owner prose table:** recorded in `content/curricula/day5_scope.json` as `owner_prose_discovery_hypotheses` (hypotheses only; not ingested as proof). SCERT network block documented in `blocked_sources`. No copyrighted bulk bytes committed; no HTML/PDF catalogue row-context adapter added (formats still unverified without originals).
+
+**Local verification (PATH includes `backend/.venv/bin` for Alembic subprocess tests):** 1,504 pytest passed; Ruff; mypy (75 app files); `domain_verify`, `source_verify`, `day4_verify`, synthetic `day5_verify`; frontend typecheck/build; `test_postgres_compile` + Day 4 migration subprocess tests. Full-suite pytest without venv Alembic on PATH falsely fails migration subprocess tests — use venv `bin` on PATH locally. Docker Compose not run in this VM (same limitation as prior evidence notes). Day 6 remains LOCKED; `founder_approval` unchanged.
