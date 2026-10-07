@@ -515,6 +515,25 @@ def evaluate_day5_acceptance(
     keys = [item.get("key") for item in requirements]
     observed_keys = [item.get("key") for item in evidence]
     failed: list[str] = []
+    accounting = report.get("manifest_accounting")
+    frozen_required = scope.get("frozen_required_academic_sources")
+    frozen_supplemental = scope.get("frozen_supplemental_authority_sources")
+    expected_required = len(frozen_required) if isinstance(frozen_required, list) else -1
+    expected_supplemental = (
+        len(frozen_supplemental) if isinstance(frozen_supplemental, list) else -1
+    )
+    if (
+        not isinstance(accounting, dict)
+        or expected_required <= 0
+        or expected_supplemental < 0
+        or accounting.get("required_academic_expected_count") != expected_required
+        or accounting.get("required_academic_count") != expected_required
+        or accounting.get("required_academic_present_count") != expected_required
+        or accounting.get("supplemental_authority_count") != expected_supplemental
+        or accounting.get("manifest_validated_distinct")
+        != expected_required + expected_supplemental
+    ):
+        failed.append("manifest_accounting")
     valid_shape = bool(
         keys
         and all(keys)
