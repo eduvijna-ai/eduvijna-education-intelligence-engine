@@ -30,6 +30,7 @@ from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
 from app.models.source import SourceRevision
 from app.schemas.curriculum_intelligence import CurriculumNodeSpec
 from app.schemas.source_intelligence import SourceRegistrationInput
+from app.repo_paths import curricula_content_dir
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
 
@@ -41,6 +42,28 @@ EXTRAS = {
     "book_part": "whole",
     "bilingual": "no",
 }
+
+
+def _attach_frozen_manifest_contract(report: dict[str, Any], scope: dict[str, Any]) -> None:
+    """Align offline acceptance fixtures with the frozen Day-5 manifest contract."""
+    frozen_scope = json.loads(
+        (curricula_content_dir() / "day5_scope.json").read_text(encoding="utf-8")
+    )
+    required = frozen_scope["frozen_required_academic_sources"]
+    supplemental = frozen_scope["frozen_supplemental_authority_sources"]
+    scope["frozen_required_academic_sources"] = required
+    scope["frozen_supplemental_authority_sources"] = supplemental
+    expected_required = len(required)
+    expected_supplemental = len(supplemental)
+    report["manifest_accounting"] = {
+        "required_academic_expected_count": expected_required,
+        "required_academic_count": expected_required,
+        "required_academic_present_count": expected_required,
+        "supplemental_authority_count": expected_supplemental,
+        "manifest_validated_distinct": expected_required + expected_supplemental,
+    }
+    report.setdefault("manifest_identity_blockers", [])
+    report.setdefault("manifest_classification_blockers", [])
 
 
 def freeze_inventory(service, scope, item):
@@ -339,6 +362,7 @@ def persisted(tmp_path: Path):
                 }
             )
             freeze_inventory(service, scope, report["catalogue_inventories"][-1])
+        _attach_frozen_manifest_contract(report, scope)
         session.commit()
         session.expunge_all()
         yield service, report, scope

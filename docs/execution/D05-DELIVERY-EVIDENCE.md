@@ -315,3 +315,7 @@ This policy is mirrored in `AGENTS.md`, `.cursor/rules/eduvijna.mdc` and `.eduvi
 - Repaired malformed `.github/workflows/ci.yml` (duplicate `frontend` / `compose-smoke` / `source-handoff` jobs and stray shell fragment after `source-handoff` `retention-days`).
 - Day 5 CI deferral now uses `python -m app.day5_official_ci_gate`: only a **valid structured** `day5-source-report.json` with empty manifest engineering blockers and Founder `D5-DS01` / `DEFERRED_BY_FOUNDER` in execution state may soften the **job** exit code; `acceptance.passed` remains **false** in the artifact (deferral is not verification).
 - Terminal host-dot URL canonicalization (Codex `r4205908320`) already present in `canonical_retrieval_url` with regression tests; no additional change.
+
+**CI attempt 1 (`621a24e`, run `37616448209`):** YAML/day5-evidence jobs green; `backend` pytest **8 failed** (`test_day5_persisted_acceptance` — `manifest_accounting` after frozen required manifest contract). **Corrective push:** attach frozen manifest contract in offline persisted fixture.
+
+**Circuit breaker:** one corrective push allowed; stop after second consecutive code/test CI failure.
