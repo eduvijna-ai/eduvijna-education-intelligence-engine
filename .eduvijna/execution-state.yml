@@ -32,7 +32,7 @@ ci_repair_policy:
     - failure_classification
     - root_cause_hypothesis
     - proposed_next_action
-current_day: 5
+current_day: 6
 
 days:
   1:
@@ -63,17 +63,21 @@ days:
     depends_on: 3
   5:
     name: Telangana Curricula
-    state: ACTIVE
-    founder_approval: false
+    state: COMPLETE
+    founder_approval: true
     activation_signal: "add below or attached tasks and start to Day5"
+    approval_signal: "Day 5 signoff approved. Day 5 engineering complete; authoritative Telangana source ingestion remains deferred to D5-DS01 / issue #16."
     approved_scope: D5-01..D5-34
     deferred_backlog: D5-DS01
     deferred_backlog_status: DEFERRED_BY_FOUNDER
+    deferred_issue: 16
+    merge_commit: "5d3927b5e582b2c5aa898b5e755bfbb194eca74b"
     depends_on: 4
   6:
     name: Education Intelligence Validators
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    activation_signal: "Proceed to merge Day 5 and activate Day 6."
     depends_on: 5
   7:
     name: Knowledge Intelligence and AnythingLLM
