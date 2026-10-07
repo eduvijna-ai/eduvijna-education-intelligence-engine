@@ -160,3 +160,12 @@ def test_malformed_frozen_supplemental_contract_fails_structurally() -> None:
     assert role == "required_academic"
     assert conflict is not None
     assert "missing required field" in conflict.reason
+
+
+def test_terminal_dot_hostnames_share_retrieval_identity() -> None:
+    first = _entry(key="one", url="https://Example.Invalid/source.pdf#one")
+    second = _entry(key="two", url="https://example.invalid./source.pdf#two")
+    validated, blockers = validate_manifest_identity([first, second])
+    assert len(validated) == 1
+    assert blockers
+    assert canonical_retrieval_url(first.url) == canonical_retrieval_url(second.url)
