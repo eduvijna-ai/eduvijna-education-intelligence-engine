@@ -8,6 +8,12 @@ from app.models.curriculum import (
     LearningOutcome,
 )
 from app.models.curriculum_intelligence import AssessmentEvidence, CurriculumAlignment
+from app.models.education_intelligence import (
+    EducationalQualityRulePack,
+    PolicyRegistryEntry,
+    TaxonomyRegistryEntry,
+    ValidationAuditRun,
+)
 from app.models.diagnostic import DiagnosticTaxonomyEntry
 from app.models.examination import ExamBlueprintRule, ExamPack, ExamSection, ExamVersion
 from app.models.framework_structure import FrameworkStructureNode, LearningOutcomeCompetencyLink
@@ -34,11 +40,13 @@ __all__ = [
     "CurriculumPack",
     "CurriculumVersion",
     "DiagnosticTaxonomyEntry",
+    "EducationalQualityRulePack",
     "EducationFramework",
     "ExamBlueprintRule",
     "ExamPack",
     "ExamSection",
     "ExamVersion",
+    "PolicyRegistryEntry",
     "FrameworkStructureNode",
     "Institution",
     "Learner",
@@ -54,7 +62,9 @@ __all__ = [
     "SourceDiff",
     "SourceRevision",
     "SystemSetting",
+    "TaxonomyRegistryEntry",
     "Teacher",
+    "ValidationAuditRun",
     "TestDefinition",
     "TestQuestion",
 ]
