@@ -7,49 +7,171 @@ from pathlib import Path
 
 from app.day5_official_ci_gate import resolve_ci_exit_code
 
+_REQUIRED_KEYS = ("required-a", "required-b")
+_SUPPLEMENTAL_KEYS = ("supplemental-a",)
+_SLICE_KEYS = ("slice-a", "slice-b")
 _DEFERRED_STATE = """\
 days:
   5:
     deferred_backlog: D5-DS01
     deferred_backlog_status: DEFERRED_BY_FOUNDER
 """
+_DEFERRED_UNRESOLVED = [
+    "scert-viii-physical-science-english:official_bytes_unavailable",
+    "scert-viii-biological-science-english:official_bytes_unavailable",
+    "scert-textbook-catalogue:governing_version_applicability_required",
+    (
+        "tgbie-pack:governing_syllabus_required;"
+        "annual_plans_are_supporting_calendar_evidence"
+    ),
+]
+_STATIC_COMPONENTS = {
+    "invalid_required_scope_or_duplicate_evidence",
+    "required_catalogue_inventories",
+    "invalid_frozen_catalogue_scope",
+    "ts-scert_catalogue_scope",
+    "tgbie_catalogue_scope",
+    "required_official_sources_blocked",
+    "fetch_blockers",
+    "unresolved_applicability",
+    "catalogue_gaps",
+    "unresolved_materialization",
+}
+
+
+def _deferred_scope() -> dict:
+    return {
+        "deferred_authoritative_source_backlog": {
+            "id": "D5-DS01",
+            "status": "DEFERRED_BY_FOUNDER",
+        },
+        "frozen_required_academic_sources": [
+            {"key": key} for key in _REQUIRED_KEYS
+        ],
+        "frozen_supplemental_authority_sources": [
+            {"key": key} for key in _SUPPLEMENTAL_KEYS
+        ],
+        "required_detailed_slices": [
+            {"key": key, "status": "blocked"} for key in _SLICE_KEYS
+        ],
+        "packs": [{"code": "ts-scert"}, {"code": "tgbie"}],
+    }
 
 
 def _sound_report() -> dict:
+    required_sources = [
+        {
+            "key": key,
+            "evidence_role": "required_academic",
+            "retrieved_content": False,
+            "registry_only": True,
+            "academic_applicability_required": True,
+            "academic_applicability_verified": False,
+        }
+        for key in _REQUIRED_KEYS
+    ]
+    supplemental_sources = [
+        {
+            "key": key,
+            "evidence_role": "supplemental_authority",
+            "retrieved_content": True,
+            "registry_only": False,
+            "academic_applicability_required": False,
+            "academic_applicability_verified": None,
+        }
+        for key in _SUPPLEMENTAL_KEYS
+    ]
+    components = sorted(set(_SLICE_KEYS) | _STATIC_COMPONENTS)
     return {
-        "acceptance": {"passed": False, "incomplete_components": ["unresolved_applicability"]},
+        "status": "blocked_or_review_required",
+        "official_source_backed_acceptance": False,
+        "acceptance": {
+            "passed": False,
+            "incomplete_components": components,
+        },
         "manifest_identity_blockers": [],
         "manifest_classification_blockers": [],
+        "materialization_blockers": [],
+        "supplemental_retrieval": [],
+        "materialized_slices": [],
+        "extracted_slices": [],
+        "catalogue_inventories": [],
+        "materialization_status": "attempted",
+        "queries": {},
         "manifest_accounting": {
-            "required_academic_expected_count": 13,
-            "required_academic_present_count": 13,
-            "required_academic_count": 13,
-            "supplemental_authority_count": 2,
-            "manifest_validated_distinct": 15,
+            "manifest_total": 3,
+            "manifest_validated_distinct": 3,
+            "required_academic_expected_count": 2,
+            "required_academic_present_count": 2,
+            "required_academic_count": 2,
+            "supplemental_authority_count": 1,
+            "required_academic_retrieved": 0,
+            "required_academic_registry_only": 2,
+            "supplemental_authority_retrieved": 1,
+            "supplemental_authority_registry_only": 0,
         },
-        "sources": [{"key": "example"}],
+        "sources": required_sources + supplemental_sources,
+        "fetch_blockers": [
+            {
+                "stage": "official_retrieval",
+                "source_key": _REQUIRED_KEYS[0],
+                "reason": "Automated retrieval denied; manual official upload required",
+            }
+        ],
+        "unresolved_applicability": [
+            {
+                "source_key": key,
+                "reason": (
+                    "No governing applicability notice verified from exact source bytes"
+                ),
+            }
+            for key in _REQUIRED_KEYS
+        ],
+        "catalogue_gaps": [
+            {
+                "pack_code": code,
+                "reason": "No complete official catalogue inventory materialized",
+            }
+            for code in ("ts-scert", "tgbie")
+        ],
+        "unresolved_materialization": list(_DEFERRED_UNRESOLVED),
         "public_artifact_contains": "metadata only",
     }
 
 
-def test_verifier_success_passes(tmp_path: Path) -> None:
+def _resolve(
+    tmp_path: Path,
+    payload: dict | None = None,
+    *,
+    verifier_exit: int = 1,
+    state_text: str = _DEFERRED_STATE,
+    scope: dict | None = None,
+) -> int:
     report = tmp_path / "report.json"
-    report.write_text(json.dumps(_sound_report()), encoding="utf-8")
+    report.write_text(json.dumps(payload or _sound_report()), encoding="utf-8")
     state = tmp_path / "state.yml"
-    state.write_text(_DEFERRED_STATE, encoding="utf-8")
-    assert (
-        resolve_ci_exit_code(0, report, execution_state_path=state) == 0
+    state.write_text(state_text, encoding="utf-8")
+    scope_path = tmp_path / "scope.json"
+    scope_path.write_text(json.dumps(scope or _deferred_scope()), encoding="utf-8")
+    return resolve_ci_exit_code(
+        verifier_exit,
+        report,
+        execution_state_path=state,
+        scope_path=scope_path,
     )
+
+
+def test_verified_success_requires_matching_report(tmp_path: Path) -> None:
+    payload = _sound_report()
+    payload["status"] = "official_source_backed"
+    payload["official_source_backed_acceptance"] = True
+    payload["acceptance"] = {"passed": True, "incomplete_components": []}
+    assert _resolve(tmp_path, payload, verifier_exit=0) == 0
+    assert _resolve(tmp_path, _sound_report(), verifier_exit=0) == 1
 
 
 def test_deferred_structured_fail_closed_softens_ci_only(tmp_path: Path) -> None:
-    report = tmp_path / "report.json"
-    report.write_text(json.dumps(_sound_report()), encoding="utf-8")
-    state = tmp_path / "state.yml"
-    state.write_text(_DEFERRED_STATE, encoding="utf-8")
-    assert (
-        resolve_ci_exit_code(1, report, execution_state_path=state) == 0
-    )
+    assert _resolve(tmp_path) == 0
 
 
 def test_crash_empty_report_fails_ci(tmp_path: Path) -> None:
@@ -57,7 +179,14 @@ def test_crash_empty_report_fails_ci(tmp_path: Path) -> None:
     report.write_text("", encoding="utf-8")
     state = tmp_path / "state.yml"
     state.write_text(_DEFERRED_STATE, encoding="utf-8")
-    assert resolve_ci_exit_code(1, report, execution_state_path=state) == 1
+    scope = tmp_path / "scope.json"
+    scope.write_text(json.dumps(_deferred_scope()), encoding="utf-8")
+    assert resolve_ci_exit_code(
+        1,
+        report,
+        execution_state_path=state,
+        scope_path=scope,
+    ) == 1
 
 
 def test_malformed_json_fails_ci(tmp_path: Path) -> None:
@@ -65,32 +194,71 @@ def test_malformed_json_fails_ci(tmp_path: Path) -> None:
     report.write_text("not json", encoding="utf-8")
     state = tmp_path / "state.yml"
     state.write_text(_DEFERRED_STATE, encoding="utf-8")
-    assert resolve_ci_exit_code(1, report, execution_state_path=state) == 1
+    scope = tmp_path / "scope.json"
+    scope.write_text(json.dumps(_deferred_scope()), encoding="utf-8")
+    assert resolve_ci_exit_code(
+        1,
+        report,
+        execution_state_path=state,
+        scope_path=scope,
+    ) == 1
 
 
 def test_identity_blockers_fail_ci_even_when_deferred(tmp_path: Path) -> None:
     payload = _sound_report()
     payload["manifest_identity_blockers"] = [{"key": "dup"}]
-    report = tmp_path / "report.json"
-    report.write_text(json.dumps(payload), encoding="utf-8")
-    state = tmp_path / "state.yml"
-    state.write_text(_DEFERRED_STATE, encoding="utf-8")
-    assert resolve_ci_exit_code(1, report, execution_state_path=state) == 1
+    assert _resolve(tmp_path, payload) == 1
 
 
 def test_without_founder_deferral_fails_ci(tmp_path: Path) -> None:
-    report = tmp_path / "report.json"
-    report.write_text(json.dumps(_sound_report()), encoding="utf-8")
-    state = tmp_path / "state.yml"
-    state.write_text("days:\n  5: {}\n", encoding="utf-8")
-    assert resolve_ci_exit_code(1, report, execution_state_path=state) == 1
+    assert _resolve(tmp_path, state_text="days:\n  5: {}\n") == 1
 
 
-def test_acceptance_true_never_softens(tmp_path: Path) -> None:
+def test_registration_error_cannot_be_deferred(tmp_path: Path) -> None:
     payload = _sound_report()
-    payload["acceptance"]["passed"] = True
-    report = tmp_path / "report.json"
-    report.write_text(json.dumps(payload), encoding="utf-8")
-    state = tmp_path / "state.yml"
-    state.write_text(_DEFERRED_STATE, encoding="utf-8")
-    assert resolve_ci_exit_code(1, report, execution_state_path=state) == 1
+    payload["fetch_blockers"].append(
+        {
+            "stage": "manifest_registration",
+            "source_key": _REQUIRED_KEYS[1],
+            "reason": "database failure",
+            "error_type": "RuntimeError",
+        }
+    )
+    assert _resolve(tmp_path, payload) == 1
+
+
+def test_materialization_error_cannot_be_deferred(tmp_path: Path) -> None:
+    payload = _sound_report()
+    payload["materialization_blockers"] = [
+        {"error_type": "AttributeError", "reason": "programming defect"}
+    ]
+    assert _resolve(tmp_path, payload) == 1
+
+
+def test_unexpected_acceptance_component_cannot_be_deferred(tmp_path: Path) -> None:
+    payload = _sound_report()
+    payload["acceptance"]["incomplete_components"].append(
+        "unexpected_engineering_failure"
+    )
+    assert _resolve(tmp_path, payload) == 1
+
+
+def test_partial_required_retrieval_requires_new_review(tmp_path: Path) -> None:
+    payload = _sound_report()
+    payload["manifest_accounting"]["required_academic_retrieved"] = 1
+    payload["manifest_accounting"]["required_academic_registry_only"] = 1
+    payload["sources"][0]["retrieved_content"] = True
+    payload["sources"][0]["registry_only"] = False
+    assert _resolve(tmp_path, payload) == 1
+
+
+def test_supplemental_retrieval_failure_cannot_be_deferred(tmp_path: Path) -> None:
+    payload = _sound_report()
+    payload["supplemental_retrieval"] = [{"reason": "network failure"}]
+    assert _resolve(tmp_path, payload) == 1
+
+
+def test_scope_contract_must_match_ds01(tmp_path: Path) -> None:
+    scope = _deferred_scope()
+    scope["deferred_authoritative_source_backlog"]["status"] = "OPEN"
+    assert _resolve(tmp_path, scope=scope) == 1
