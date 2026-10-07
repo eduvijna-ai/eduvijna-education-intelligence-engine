@@ -19,6 +19,19 @@ builder:
 reviewer:
   product: Codex
 source_of_truth: GitHub
+ci_repair_policy:
+  max_consecutive_failed_repair_iterations: 2
+  scope: same_active_workstream
+  on_limit: STOP_AND_ESCALATE
+  infrastructure_retry_exempt: true
+  deferred_external_evidence_gate_exempt: true
+  required_handoff:
+    - candidate_shas
+    - ci_run_ids
+    - failing_jobs
+    - failure_classification
+    - root_cause_hypothesis
+    - proposed_next_action
 current_day: 5
 
 days:
@@ -54,6 +67,8 @@ days:
     founder_approval: false
     activation_signal: "add below or attached tasks and start to Day5"
     approved_scope: D5-01..D5-34
+    deferred_backlog: D5-DS01
+    deferred_backlog_status: DEFERRED_BY_FOUNDER
     depends_on: 4
   6:
     name: Education Intelligence Validators
