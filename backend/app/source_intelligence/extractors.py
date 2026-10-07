@@ -25,6 +25,12 @@ class ExtractionResult:
 
 
 def normalize_text(value: str) -> str:
+    # PDF page markers and stray control bytes are not meaningful source text.
+    value = "".join(
+        char
+        for char in value.replace("\x0c", "\n")
+        if char in "\n\r\t" or (ord(char) >= 32 and ord(char) != 127)
+    )
     lines = [line.rstrip() for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     normalized: list[str] = []
     blank = False

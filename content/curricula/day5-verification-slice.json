@@ -1,0 +1,44 @@
+{
+  "slices": {
+    "scert-viii-physical-science-english": {
+      "source_manifest_key": "scert-ps-english-syllabus",
+      "chapter": "1. Force",
+      "grade": "VIII",
+      "medium": "English",
+      "subject": "Physical Science"
+    },
+    "scert-viii-biological-science-english": {
+      "source_manifest_key": "scert-bs-english-syllabus",
+      "chapter": "1. What is Science ?",
+      "grade": "VIII",
+      "medium": "English",
+      "subject": "Biological Science"
+    },
+    "intermediate-first-year-mathematics-english": {
+      "source_manifest_key": "tgbie-maths-ia-annual-plan-2025-26",
+      "chapter": "01. Functions:",
+      "grade": "First Year",
+      "medium": "English",
+      "subject": "Mathematics IA"
+    },
+    "intermediate-second-year-mathematics-english": {
+      "source_manifest_key": "tgbie-maths-iia-annual-plan-2026-27",
+      "chapter": "01. Complex Numbers",
+      "grade": "Second Year",
+      "medium": "English",
+      "subject": "Mathematics IIA"
+    },
+    "historical-first-year-mathematics-ia-uat": {
+      "source_manifest_key": "tgbie-maths-ia-annual-plan-2025-26",
+      "chapter": "01. Functions:",
+      "grade": "First Year",
+      "medium": "English",
+      "subject": "Mathematics IA"
+    }
+  },
+  "blocked_slice_keys": [
+    "scert-viii-science-telugu-correspondence",
+    "scert-learning-outcomes",
+    "scert-academic-standards"
+  ]
+}

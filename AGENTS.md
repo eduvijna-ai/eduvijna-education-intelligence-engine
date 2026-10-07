@@ -18,7 +18,8 @@ The development-day gate is strict:
 
 - Primary autonomous implementation: the approved zero-overage connected implementation environment.
 - Cursor may be used only when it does not require usage-based/on-demand billing.
-- Required model for any Cursor implementation: **Composer 2.5 Fast**.
+- Required model for any Cursor implementation: **Composer 2.5** (standard; not Composer 2.5 Fast).
+- Dated override (2026-10-05 explicit Founder message, reconfirmed 2026-10-06): Day 5 Cursor implementation must use standard **Composer 2.5** only; do not substitute Composer 2.5 Fast.
 - Independent engineering review: Codex.
 - CI is the deterministic judge for tests, lint, type checks, builds, and migrations.
 
@@ -36,7 +37,7 @@ No planned usage-based overage is allowed.
 
 Cost rules:
 
-- Prefer Composer 2.5 Fast for Cursor implementation.
+- Prefer standard Composer 2.5 for Cursor implementation (not Composer 2.5 Fast unless a future explicit Founder message supersedes the 2026-10-05 override).
 - Do not enable Cursor Cloud Agent on-demand billing; use the zero-overage fallback when Cloud execution is blocked.
 - Use deterministic tools for formatting, lint, type checking and tests.
 - Keep prompts/task context scoped to the active day and relevant files.
@@ -44,6 +45,20 @@ Cost rules:
 - Avoid unnecessary parallel agents.
 - Do not enable paid GitHub runners or Codespaces.
 - If an included quota blocks progress, stop and surface the blocker rather than enabling extra paid usage.
+
+
+## CI repair circuit breaker
+
+Autonomous repair loops are bounded.
+
+- A **repair iteration** is a code/document change intended to resolve the current failing CI/review set, followed by an authoritative CI run on that candidate.
+- If **two consecutive repair iterations fail for the same active workstream before a green candidate is reached**, stop the autonomous repair loop. Do not launch a third full repair/CI cycle automatically.
+- On stop, hand back: both candidate SHAs, CI run IDs, failing jobs/checks, whether the second failure is the same/new/flaky class, the likely root cause, and the smallest proposed next action.
+- The Chief Architect/Founder must then choose one of: resume with a revised plan, narrow scope, defer an external dependency, or abandon/revert the workstream.
+- Cheap targeted local/unit checks may be used between the two attempts; do not substitute repeated full CI runs for diagnosis.
+- A runner outage, cancellation, rate-limit/platform incident, or other independently evidenced infrastructure failure does **not** count as a repair failure; one infrastructure retry is allowed.
+- A previously approved **fail-closed external-evidence gate** (for example a formally deferred authoritative-source package) does not count as a repair failure when all engineering jobs are green and the red status is the expected recorded outcome.
+- Codex findings still require closure before Founder review; the circuit breaker stops blind iteration, not review accountability.
 
 ## Core architecture constraints
 

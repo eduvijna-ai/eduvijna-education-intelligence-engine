@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
@@ -18,7 +17,9 @@ from app.curriculum_intelligence.service import (
 from app.db.base import Base
 from app.db.session import session_factory
 from app.models.curriculum import CurriculumNode
-from app.models.source import Source
+from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+from app.models.source import Source, SourceRevision
+from app.repo_paths import curricula_content_dir
 from app.schemas.curriculum_intelligence import (
     AssessmentEvidenceInput,
     CompetencySpec,
@@ -26,11 +27,11 @@ from app.schemas.curriculum_intelligence import (
     CurriculumNodeSpec,
     LearningOutcomeSpec,
 )
-from app.schemas.source_intelligence import SourceProvenanceLinkInput
+from app.schemas.source_intelligence import SourceProvenanceLinkInput, SourceRegistrationInput
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE_MANIFEST = REPO_ROOT / "content" / "curricula" / "day4_official_sources.json"
-VERIFY_SLICE = REPO_ROOT / "content" / "curricula" / "cbse-2026-27-verification-slice.json"
+CONTENT_ROOT = curricula_content_dir()
+SOURCE_MANIFEST = CONTENT_ROOT / "day4_official_sources.json"
+VERIFY_SLICE = CONTENT_ROOT / "cbse-2026-27-verification-slice.json"
 
 
 def _load_slice() -> dict[str, Any]:
@@ -38,6 +39,50 @@ def _load_slice() -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Day-4 verification slice must be a JSON object")
     return payload
+
+
+def _statement_fixture_revision(
+    service: CurriculumIntelligenceService,
+    *,
+    code: str,
+    domain: str,
+    wording: str,
+    actor_id: str,
+) -> SourceRevision:
+    """Authored synthetic records have their own bytes, never an authority's revision."""
+    url = f"https://synthetic.example.invalid/day4/{domain}/{code}.json"
+    source = service.session.scalar(select(Source).where(Source.url == url))
+    if source is None:
+        source = service.source_service.register_source(
+            SourceRegistrationInput(
+                source_type=SourceType.COMPETITIVE_ANALYSIS,
+                title=f"Synthetic Day4 {domain} fixture",
+                url=url,
+                authority="Eduvijna synthetic verifier",
+                country="India",
+                copyright_classification="synthetic_fixture",
+                trust_tier=SourceTrustTier.ANALYTICAL,
+                metadata_json={"synthetic": True, "document_type": domain},
+            ),
+            actor_id=actor_id,
+        )
+    revision = service.source_service.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="statement.json",
+        content=json.dumps(
+            {"synthetic": True, "statement": {"code": code, "text": wording}}, ensure_ascii=False
+        ).encode(),
+        actor_id=actor_id,
+    )
+    if revision.status != "active":
+        service.source_service.extract_revision(revision.id, actor_id=actor_id)
+        service.source_service.create_diff(revision.id, actor_id=actor_id)
+        if not service.source_service.validate_revision(revision.id, actor_id=actor_id).valid:
+            raise ValueError("Synthetic statement fixture failed validation")
+        service.source_service.approve_revision(revision.id, actor_id=actor_id)
+        service.source_service.activate_revision(revision.id, actor_id=actor_id)
+    return revision
 
 
 def seed_day4_verification(
@@ -115,10 +160,23 @@ def seed_day4_verification(
         competency_spec = CompetencySpec.model_validate(
             {key: value for key, value in raw.items() if key != "source_key"}
         )
+        fixture_revision = _statement_fixture_revision(
+            service,
+            code=competency_spec.code,
+            domain="syllabus",
+            wording=competency_spec.official_text or competency_spec.name,
+            actor_id=actor_id,
+        )
+        competency_spec = competency_spec.model_copy(
+            update={
+                "source_locator": "JSON pointer /statement",
+                "metadata_json": {**competency_spec.metadata_json, "synthetic": True},
+            }
+        )
         competency_result = service.upsert_competencies(
             framework=framework,
             specs=[competency_spec],
-            revision=revisions[source_key],
+            revision=fixture_revision,
         )
         for competency in competency_result.values():
             competency.active = False
@@ -130,10 +188,27 @@ def seed_day4_verification(
         outcome_spec = LearningOutcomeSpec.model_validate(
             {key: value for key, value in raw.items() if key != "source_key"}
         )
+        fixture_revision = _statement_fixture_revision(
+            service,
+            code=outcome_spec.code,
+            domain="learning_outcomes",
+            wording=outcome_spec.text,
+            actor_id=actor_id,
+        )
+        outcome_spec = outcome_spec.model_copy(
+            update={
+                "source_locator": "JSON pointer /statement",
+                "metadata_json": {
+                    **outcome_spec.metadata_json,
+                    "synthetic": True,
+                    "wording_kind": "synthetic_learning_outcome_fixture",
+                },
+            }
+        )
         outcome_result = service.upsert_learning_outcomes(
             version=version,
             specs=[outcome_spec],
-            revision=revisions[source_key],
+            revision=fixture_revision,
         )
         for outcome in outcome_result.values():
             outcome.active = False

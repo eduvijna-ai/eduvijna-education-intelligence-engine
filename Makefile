@@ -55,3 +55,10 @@ day4-verify:
 
 day4-verify-official:
 	$(COMPOSE) run --rm backend python -m app.day4_verify --fetch-official
+
+.PHONY: day5-verify day5-verify-official
+day5-verify:
+	$(COMPOSE) run --rm backend python -m app.day5_verify
+
+day5-verify-official:
+	$(COMPOSE) run --rm backend python -m app.day5_verify --fetch-official

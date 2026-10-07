@@ -8,6 +8,9 @@
 *.sqlite3
 data/private/
 data/copyrighted/
+# Backend commands run with backend as their working directory.
+/backend/data/private/
+/backend/data/copyrighted/
 anythingllm-storage/
 
 __pycache__/

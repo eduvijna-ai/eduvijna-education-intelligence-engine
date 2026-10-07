@@ -11,7 +11,8 @@ COPY backend/app ./app
 COPY backend/tests ./tests
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./
-COPY content/curricula /content/curricula
+COPY content/curricula ./content/curricula
+COPY .github/workflows/ci.yml ./.github/workflows/ci.yml
 RUN pip install --no-cache-dir '.[dev]'
 RUN mkdir -p /app/data && chown -R eduvijna:eduvijna /app
 

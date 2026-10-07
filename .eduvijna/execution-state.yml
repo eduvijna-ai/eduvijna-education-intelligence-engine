@@ -7,13 +7,32 @@ budget:
   paid_overage_planned: false
 builder:
   preferred_product: Cursor
-  required_cursor_model: Composer 2.5 Fast
+  required_cursor_model: Composer 2.5
+  required_cursor_model_excluded: Composer 2.5 Fast
+  cursor_model_override:
+    effective_from: 2026-10-05
+    reconfirmed: 2026-10-06
+    authority: explicit_founder_message
+    instruction: Use standard Composer 2.5 only; not Composer 2.5 Fast
   cloud_agent_on_demand_billing: disabled
   zero_overage_fallback: ChatGPT-GitHub connected implementation
 reviewer:
   product: Codex
 source_of_truth: GitHub
-current_day: 4
+ci_repair_policy:
+  max_consecutive_failed_repair_iterations: 2
+  scope: same_active_workstream
+  on_limit: STOP_AND_ESCALATE
+  infrastructure_retry_exempt: true
+  deferred_external_evidence_gate_exempt: true
+  required_handoff:
+    - candidate_shas
+    - ci_run_ids
+    - failing_jobs
+    - failure_classification
+    - root_cause_hypothesis
+    - proposed_next_action
+current_day: 5
 
 days:
   1:
@@ -37,14 +56,19 @@ days:
     depends_on: 2
   4:
     name: NCF NCERT CBSE
-    state: ACTIVE
+    state: COMPLETE
     founder_approval: false
     activation_signal: "Founder authorized Day 4 start"
+    approval_signal: "Day 4 signoff. prepare day 5 tasks list"
     depends_on: 3
   5:
     name: Telangana Curricula
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    activation_signal: "add below or attached tasks and start to Day5"
+    approved_scope: D5-01..D5-34
+    deferred_backlog: D5-DS01
+    deferred_backlog_status: DEFERRED_BY_FOUNDER
     depends_on: 4
   6:
     name: Education Intelligence Validators

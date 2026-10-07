@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Any
 from uuid import UUID
 
@@ -11,6 +13,11 @@ from app.curriculum_intelligence.catalogue import CatalogueExtractionError, extr
 from app.curriculum_intelligence.evidence import EvidenceAnchor, check_evidence_anchors
 from app.curriculum_intelligence.framework_structure import FrameworkStructureService
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
+from app.curriculum_intelligence.standards_evidence import (
+    StandardsEvidenceError,
+    contains_complete_identifier,
+    source_text_at_locator,
+)
 from app.models.enums import CurriculumNodeType
 from app.models.source import SourceRevision
 from app.schemas.curriculum_intelligence import (
@@ -25,6 +32,106 @@ from app.schemas.framework_structure import FrameworkNodeSpec, LearningOutcomeCo
 OUTCOME_TEXT = (
     "Model and solve contextualised problems using a pair of linear equations and draw conclusions."
 )
+
+
+_OUTCOME_LOCATOR = "PDF page 56 > row 13 > outcome wording"
+
+
+def _exact_reviewed_outcome(
+    service: CurriculumIntelligenceService, revision: SourceRevision
+) -> str:
+    """Select one literal quote using the reviewed anchor on its fixed page.
+
+    Token comparison only locates the span; it never becomes persisted wording.
+    Original case, punctuation and layout inside that span remain untouched.
+    """
+    located = source_text_at_locator(
+        service.source_service,
+        revision,
+        locator=_OUTCOME_LOCATOR,
+    )
+    reviewed_words = re.findall(r"\w+", OUTCOME_TEXT.casefold())
+    tokens = list(re.finditer(r"\w+", located))
+    matches: list[tuple[int, int]] = []
+    width = len(reviewed_words)
+    for index in range(len(tokens) - width + 1):
+        window = tokens[index : index + width]
+        if [token.group().casefold() for token in window] == reviewed_words:
+            start, end = window[0].start(), window[-1].end()
+            # Include original terminal sentence punctuation when present,
+            # without absorbing following rows or their wording.
+            terminal = re.match(r"[ \t]*[.!?]", located[end:])
+            if terminal:
+                end += terminal.end()
+            matches.append((start, end))
+    if len(matches) != 1:
+        raise StandardsEvidenceError(
+            "Reviewed outcome quote is missing or ambiguous on PDF page 56"
+        )
+    start, end = matches[0]
+    return located[start:end]
+
+
+_MAPPING_LOCATOR = "PDF pages 56-57 > reviewed row 13 outcome/competency mapping"
+
+
+def _exact_reviewed_mapping(
+    service: CurriculumIntelligenceService, revision: SourceRevision, outcome_text: str
+) -> str:
+    """Preserve the original reviewed row span; ambiguous anchors need review.
+
+    Fixed pages and the pre-existing reviewed row association are mandatory.
+    Presence elsewhere in the document never repairs a missing mapping anchor.
+    """
+    located = source_text_at_locator(service.source_service, revision, locator=_MAPPING_LOCATOR)
+    starts = list(
+        re.finditer(r"\b13\.\s+Linear\s+Equations\s+in\s+Two\s+Variables\b", located, re.I)
+    )
+    ends = list(re.finditer(r"\b14\.\s+Mensuration\b", located, re.I))
+    if len(starts) != 1 or len(ends) != 1 or starts[0].end() >= ends[0].start():
+        raise StandardsEvidenceError(
+            "Reviewed row 13/14 structural boundaries missing or ambiguous on PDF pages 56-57"
+        )
+    located = located[starts[0].start() : ends[0].start()]
+    outcomes = list(re.finditer(re.escape(outcome_text), located))
+    identifiers: list[re.Match[str]] = []
+    for identifier in ("CG-3", "C-3.2"):
+        matches = [
+            match
+            for match in re.finditer(re.escape(identifier), located)
+            if contains_complete_identifier(
+                located[max(0, match.start() - 2) : match.end() + 2], identifier
+            )
+        ]
+        if len(matches) != 1:
+            raise StandardsEvidenceError(
+                "Reviewed mapping identifier is absent or ambiguous on PDF pages 56-57"
+            )
+        identifiers.extend(matches)
+    if len(outcomes) != 1:
+        raise StandardsEvidenceError("Reviewed outcome is absent or ambiguous in mapping range")
+    declarations = list(re.finditer(r"Relevant\s+CGs\s*:", located, re.I))
+    if len(declarations) != 1 or not all(
+        match.start() >= declarations[0].end() for match in identifiers
+    ):
+        raise StandardsEvidenceError("Reviewed row has no unique explicit competency association")
+    anchors = [outcomes[0], *identifiers]
+    return located[min(match.start() for match in anchors) : max(match.end() for match in anchors)]
+
+
+def _redact_public_evidence_quotes(value: Any) -> None:
+    """Keep original quotations in the private DB, not public verifier artifacts."""
+    if isinstance(value, dict):
+        quote = value.get("evidence_text")
+        if isinstance(quote, str):
+            value.pop("evidence_text")
+            value["evidence_text_sha256"] = hashlib.sha256(quote.encode("utf-8")).hexdigest()
+            value["evidence_text_length"] = len(quote)
+        for child in value.values():
+            _redact_public_evidence_quotes(child)
+    elif isinstance(value, list):
+        for child in value:
+            _redact_public_evidence_quotes(child)
 
 
 def official_source_demonstration(
@@ -68,6 +175,17 @@ def official_source_demonstration(
         return report
 
     checks = {check["key"]: check for check in report["checks"]}
+    checked_quote = "outcome"
+    try:
+        outcome_text = _exact_reviewed_outcome(service, revisions[ncert_key])
+        checked_quote = "outcome_competency_mapping"
+        mapping_text = _exact_reviewed_mapping(service, revisions[ncert_key], outcome_text)
+    except StandardsEvidenceError as exc:
+        checks[checked_quote].update(verified=False, reason=str(exc))
+        report["verified"] = False
+        report["minimum_path_verified"] = False
+        report["acceptance"] = evaluate_day4_acceptance(report)
+        return report
     framework = service.ensure_framework(
         code="ncfse-2023",
         name="National Curriculum Framework for School Education 2023",
@@ -121,9 +239,9 @@ def official_source_demonstration(
         specs=[
             LearningOutcomeSpec(
                 code="ncert-grade9-linear-equations-draft",
-                text=OUTCOME_TEXT,
+                text=outcome_text,
                 normalized_text="Model contexts with paired equations; interpret solutions.",
-                source_locator="PDF pages 56-57 > row 13 > outcome/competency mapping",
+                source_locator=_OUTCOME_LOCATOR,
                 metadata_json={
                     "publication_status": "draft",
                     "grade": "IX",
@@ -135,7 +253,9 @@ def official_source_demonstration(
             )
         ],
     )["ncert-grade9-linear-equations-draft"]
-    structure_service = FrameworkStructureService(service.session)
+    structure_service = FrameworkStructureService(
+        service.session, source_service=service.source_service
+    )
     framework_specs = []
     parent_code = None
     for level, code, title, official_code in (
@@ -161,10 +281,33 @@ def official_source_demonstration(
             )
         )
         parent_code = code
+    # Standards establish competency leaves, never a framework's roots.
+    # The scaffold is explicitly a derived organization under the governing NCF;
+    # no NCERT draft CG code is presented as an NCF goal identifier.
+    scaffold = [
+        spec.model_copy(
+            update={
+                "official_code": None,
+                "source_locator": (
+                    f"NCFSE PDF page {checks['framework']['page']}; derived scaffold labels"
+                ),
+                "publication_status": "final",
+                "inferred": True,
+            }
+        )
+        for spec in framework_specs[:-1]
+    ]
     structure = structure_service.upsert_nodes(
         framework=framework,
-        revision=revisions[ncert_key],
-        specs=framework_specs,
+        revision=revisions[ncf_key],
+        specs=scaffold,
+    )
+    structure.update(
+        structure_service.upsert_nodes(
+            framework=framework,
+            revision=revisions[ncert_key],
+            specs=framework_specs[-1:],
+        )
     )
     competency_node = structure["secondary-mathematics-cg3-c32"]
     structure_service.link_learning_outcome(
@@ -173,12 +316,12 @@ def official_source_demonstration(
             learning_outcome_id=UUID(outcome.id),
             competency_node_id=UUID(competency_node.id),
             source_revision_id=UUID(revisions[ncert_key].id),
-            source_locator="NCERT Grade9 draft PDF pages56-57 > row13",
+            source_locator=_MAPPING_LOCATOR,
             publication_status="draft",
             review_status="reviewed",
             status="direct",
             inferred=False,
-            evidence_text="The draft table explicitly associates this outcome with CG-3 / C-3.2.",
+            evidence_text=mapping_text,
         )
     )
     locator = f"PDF page {checks['cbse_syllabus']['page']} > Linear Equations in Two Variables"
@@ -388,4 +531,5 @@ def official_source_demonstration(
         if report["verified"]
         else "initial_scope_incomplete"
     )
+    _redact_public_evidence_quotes(report)
     return report

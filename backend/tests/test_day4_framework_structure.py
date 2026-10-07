@@ -374,26 +374,168 @@ def test_direct_assertions_require_review_and_source_evidence(changes: dict[str,
         LearningOutcomeCompetencyInput.model_validate(values)
 
 
+def _direct_context(
+    db: Session,
+    tmp_path: Path,
+    *,
+    scope: dict[str, Any] | None = None,
+    mapping_text: str = "Synthetic learning outcome maps to Synthetic competency C3.2.",
+) -> tuple[Context, FrameworkStructureService, dict[str, FrameworkStructureNode]]:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+    from app.source_intelligence.service import SourceIntelligenceService
+    from app.source_intelligence.storage import LocalSourceStorage
+
+    context = _context(db)
+    sources = SourceIntelligenceService(db, storage=LocalSourceStorage(tmp_path / "sources"))
+    source = sources.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_AUTHORITY,
+            title="Synthetic direct mapping fixture",
+            url="https://synthetic.invalid/framework.json",
+            authority="Synthetic",
+            country="Test",
+            copyright_classification="synthetic_fixture",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json={
+                "synthetic": True,
+                "document_type": "education_framework",
+                **({"curriculum_scope": scope} if scope is not None else {}),
+            },
+        ),
+        actor_id="test",
+    )
+    revision = sources.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="direct.json",
+        content=json.dumps(
+            {
+                "mapping": mapping_text,
+                "unrelated": "Another outcome maps to C9.9.",
+            }
+        ).encode(),
+        actor_id="test",
+    )
+    sources.extract_revision(revision.id, actor_id="test")
+    sources.create_diff(revision.id, actor_id="test")
+    assert sources.validate_revision(revision.id, actor_id="test").valid
+    sources.approve_revision(revision.id, actor_id="test")
+    context.revision = sources.activate_revision(revision.id, actor_id="test")
+    for entity in (context.framework, context.version, context.competency, context.outcome):
+        entity.source_revision_id = revision.id
+    context.outcome.source_locator = "JSON pointer /mapping"
+    context.competency.source_locator = "JSON pointer /mapping"
+    context.competency.official_text = "Synthetic competency C3.2"
+    context.competency.metadata_json = {"official_code": "C3.2"}
+    db.flush()
+    service = FrameworkStructureService(db, source_service=sources)
+    specs = [
+        spec.model_copy(
+            update={
+                "source_locator": "JSON pointer /mapping",
+                **(
+                    {"official_text": context.competency.official_text}
+                    if spec.level == "competency"
+                    else {}
+                ),
+            }
+        )
+        for spec in _specs(context)
+    ]
+    nodes = service.upsert_nodes(framework=context.framework, revision=revision, specs=specs)
+    return context, service, nodes
+
+
 def test_direct_link_retains_draft_status_and_registry_only_cannot_claim_direct(
     db: Session,
+    tmp_path: Path,
 ) -> None:
-    context = _context(db)
-    nodes = _tree(db, context)
+    context, service, nodes = _direct_context(db, tmp_path)
     payload = _link_input(
         context,
         nodes["C3.2"].id,
         status="direct",
         inferred=False,
-        evidence_text="Synthetic direct mapping from source",
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
     )
-    service = FrameworkStructureService(db)
     link = service.link_learning_outcome(payload)
     assert link.publication_status == "draft"
     assert link.status == "direct"
+    assert service.link_learning_outcome(payload).id == link.id
     context.revision.ingestion_method = "manual"
     db.flush()
     with pytest.raises(FrameworkStructureError, match="retrieved source content"):
         service.link_learning_outcome(payload)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "cross_section",
+        "fabricated_quote",
+        "different_outcome",
+        "tampered_bytes",
+        "outcome_revision",
+        "node_revision",
+        "competency_revision",
+        "wrong_node_locator",
+    ],
+)
+def test_direct_mapping_requires_bounded_original_quote_and_target_provenance(
+    db: Session,
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    context, service, nodes = _direct_context(db, tmp_path)
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    if failure == "cross_section":
+        payload = payload.model_copy(update={"source_locator": "JSON pointer /unrelated"})
+    elif failure == "fabricated_quote":
+        payload = payload.model_copy(update={"evidence_text": "Invented direct relationship"})
+    elif failure == "different_outcome":
+        payload = payload.model_copy(
+            update={
+                "evidence_text": "Another outcome maps to C9.9.",
+                "source_locator": "JSON pointer /unrelated",
+            }
+        )
+    elif failure == "tampered_bytes":
+        Path(service.source_service.storage.root / context.revision.storage_path).write_bytes(
+            b"tampered"
+        )
+    elif failure == "wrong_node_locator":
+        nodes["C3.2"].source_locator = "JSON pointer /unrelated"
+    else:
+        other = _context(db, "other")
+        target = {
+            "outcome_revision": context.outcome,
+            "node_revision": nodes["C3.2"],
+            "competency_revision": context.competency,
+        }[failure]
+        target.source_revision_id = other.revision.id
+    db.flush()
+    with pytest.raises(FrameworkStructureError):
+        service.link_learning_outcome(payload)
+    assert db.scalar(select(func.count()).select_from(LearningOutcomeCompetencyLink)) == 0
+
+
+def test_inferred_link_commentary_is_not_required_to_be_source_quotation(db: Session) -> None:
+    context = _context(db)
+    nodes = _tree(db, context)
+    payload = _link_input(context, nodes["C3.2"].id, evidence_text="Derived pedagogical commentary")
+    link = FrameworkStructureService(db).link_learning_outcome(payload)
+    assert link.inferred and link.status == "partial"
 
 
 @pytest.mark.parametrize(
@@ -520,3 +662,354 @@ def test_assessment_snapshots_cannot_create_framework_or_outcome_mappings(
     with pytest.raises(FrameworkStructureError, match="assessment sources"):
         service.link_learning_outcome(_link_input(context, nodes["C3.2"].id))
     assert db.scalar(select(func.count(LearningOutcomeCompetencyLink.id))) == 0
+
+
+def test_direct_mapping_can_reference_independently_sourced_outcome_and_standard(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+
+    context, service, nodes = _direct_context(db, tmp_path)
+    sources = service.source_service
+    revisions = {}
+    for name, document_type in (
+        ("outcome", "learning_outcomes"),
+        ("mapping", "learning_standards"),
+    ):
+        source = sources.register_source(
+            SourceRegistrationInput(
+                source_type=SourceType.OFFICIAL_AUTHORITY,
+                title=f"Synthetic {name}",
+                url=f"https://synthetic.invalid/{name}.json",
+                authority="Synthetic",
+                country="Test",
+                copyright_classification="synthetic_fixture",
+                trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+                metadata_json={"synthetic": True, "document_type": document_type},
+            ),
+            actor_id="test",
+        )
+        revision = sources.ingest_upload(
+            source.id,
+            method=SourceIngestionMethod.JSON,
+            filename=f"{name}.json",
+            content=json.dumps(
+                {"mapping": "Synthetic learning outcome maps to Synthetic competency C3.2."}
+            ).encode(),
+            actor_id="test",
+        )
+        sources.extract_revision(revision.id, actor_id="test")
+        sources.create_diff(revision.id, actor_id="test")
+        assert sources.validate_revision(revision.id, actor_id="test").valid
+        sources.approve_revision(revision.id, actor_id="test")
+        revisions[name] = sources.activate_revision(revision.id, actor_id="test")
+    context.outcome.source_revision_id = revisions["outcome"].id
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_revision_id=revisions["mapping"].id,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    link = service.link_learning_outcome(payload)
+    assert link.status == "direct"
+    assert (
+        len(
+            {
+                link.source_revision_id,
+                context.outcome.source_revision_id,
+                context.competency.source_revision_id,
+            }
+        )
+        == 3
+    )
+
+
+_SCOPED_IDENTITY = {
+    "grade": "IX",
+    "medium": "English",
+    "subject": "Mathematics",
+    "course_family": "General",
+    "course_group": "MPC",
+    "subject_language": "English",
+    "language_role": "not_applicable",
+    "book_part": "whole",
+    "bilingual": "no",
+}
+_SCOPE_FIELDS = {
+    "grade": "grades",
+    "medium": "media",
+    "subject": "subjects",
+    "course_family": "course_families",
+    "course_group": "course_groups",
+    "subject_language": "subject_languages",
+    "language_role": "language_roles",
+    "book_part": "book_parts",
+    "bilingual": "bilingual_states",
+}
+
+
+def _review_scope() -> dict[str, Any]:
+    return {
+        "pack_code": "synthetic-pack-one",
+        "version_codes": ["2026-27"],
+        "publication_status": "draft",
+        "applicability_status": "verified",
+        "applicability_locator": "JSON pointer /mapping",
+        **{_SCOPE_FIELDS[key]: [value] for key, value in _SCOPED_IDENTITY.items()},
+    }
+
+
+def _scoped_mapping_context(
+    db: Session, tmp_path: Path, own_scope: dict[str, Any] | None = None
+) -> Any:
+    context, service, nodes = _direct_context(db, tmp_path, scope=own_scope or _review_scope())
+    context.version.metadata_json = {"scope_enforced": True}
+    context.outcome.metadata_json = {"identity": dict(_SCOPED_IDENTITY)}
+    context.competency.metadata_json = {
+        **context.competency.metadata_json,
+        "identity": dict(_SCOPED_IDENTITY),
+    }
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    return context, service, nodes, payload
+
+
+def _separate_scoped_mapping(
+    service: FrameworkStructureService, scope: dict[str, Any], *, name: str = "mapping"
+) -> SourceRevision:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+
+    sources = service.source_service
+    source = sources.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_AUTHORITY,
+            title="Synthetic scoped mapping",
+            url=f"https://synthetic.invalid/scoped-{name}.json",
+            authority="Synthetic",
+            country="Test",
+            copyright_classification="synthetic_fixture",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json={
+                "synthetic": True,
+                "document_type": "learning_standards",
+                "curriculum_scope": scope,
+            },
+        ),
+        actor_id="test",
+    )
+    revision = sources.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="mapping.json",
+        content=json.dumps(
+            {"mapping": "Synthetic learning outcome maps to Synthetic competency C3.2."}
+        ).encode(),
+        actor_id="test",
+    )
+    sources.extract_revision(revision.id, actor_id="test")
+    sources.create_diff(revision.id, actor_id="test")
+    assert sources.validate_revision(revision.id, actor_id="test").valid
+    sources.approve_revision(revision.id, actor_id="test")
+    return sources.activate_revision(revision.id, actor_id="test")
+
+
+def test_scoped_direct_link_validates_both_endpoints_and_separate_mapping_scope(
+    db: Session, tmp_path: Path
+) -> None:
+    context, service, nodes, payload = _scoped_mapping_context(db, tmp_path)
+    own_outcome = _separate_scoped_mapping(service, _review_scope(), name="outcome")
+    context.outcome.source_revision_id = own_outcome.id
+    db.flush()
+    mapping = _separate_scoped_mapping(service, _review_scope())
+    payload = payload.model_copy(update={"source_revision_id": UUID(mapping.id)})
+    link = service.link_learning_outcome(payload)
+    assert link.source_revision_id == mapping.id != context.outcome.source_revision_id
+    assert len({mapping.id, own_outcome.id, context.competency.source_revision_id}) == 3
+    assert service.link_learning_outcome(payload).id == link.id
+
+
+@pytest.mark.parametrize("endpoint", ["outcome", "competency"])
+@pytest.mark.parametrize("dimension", list(_SCOPED_IDENTITY))
+def test_scoped_direct_link_rejects_missing_endpoint_dimension(
+    db: Session, tmp_path: Path, endpoint: str, dimension: str
+) -> None:
+    context, service, nodes, payload = _scoped_mapping_context(db, tmp_path)
+    entity = getattr(context, endpoint)
+    entity.metadata_json = {
+        **entity.metadata_json,
+        "identity": {key: value for key, value in _SCOPED_IDENTITY.items() if key != dimension},
+    }
+    db.flush()
+    with pytest.raises(FrameworkStructureError, match="nine identity"):
+        service.link_learning_outcome(payload)
+
+
+@pytest.mark.parametrize("dimension", list(_SCOPED_IDENTITY))
+@pytest.mark.parametrize("fault", ["mapping_scope", "own_scope", "incompatible_endpoints"])
+def test_scoped_direct_link_rejects_cross_scope_or_incompatible_endpoints(
+    db: Session, tmp_path: Path, dimension: str, fault: str
+) -> None:
+    scope = _review_scope()
+    if fault == "own_scope":
+        scope[_SCOPE_FIELDS[dimension]] = ["other"]
+    elif fault == "incompatible_endpoints":
+        scope[_SCOPE_FIELDS[dimension]].append("other")
+    context, service, nodes, payload = _scoped_mapping_context(db, tmp_path, scope)
+    if fault == "mapping_scope":
+        scope[_SCOPE_FIELDS[dimension]] = ["other"]
+        mapping = _separate_scoped_mapping(service, scope)
+        payload = payload.model_copy(update={"source_revision_id": UUID(mapping.id)})
+    elif fault == "incompatible_endpoints":
+        context.competency.metadata_json = {
+            **context.competency.metadata_json,
+            "identity": {**_SCOPED_IDENTITY, dimension: "other"},
+        }
+        db.flush()
+    with pytest.raises(FrameworkStructureError):
+        service.link_learning_outcome(payload)
+    assert db.scalar(select(func.count()).select_from(LearningOutcomeCompetencyLink)) == 0
+
+
+def test_direct_mapping_shared_wording_plus_only_competency_code_cannot_identify_outcome(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    context, service, nodes = _direct_context(db, tmp_path)
+    # Both endpoints' complete source-backed identities include this same text.
+    # The distinct competency code proves only that side, not which LO is meant.
+    context.competency.official_text = context.outcome.text
+    nodes["C3.2"].official_text = context.outcome.text
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    with pytest.raises(FrameworkStructureError):
+        service.link_learning_outcome(payload)
+    assert db.scalar(select(func.count()).select_from(LearningOutcomeCompetencyLink)) == 0
+
+
+def test_direct_mapping_distinct_original_wording_without_codes_remains_valid(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    context, service, nodes = _direct_context(db, tmp_path)
+    nodes["C3.2"].official_code = None
+    context.competency.metadata_json = {}
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text="Synthetic learning outcome maps to Synthetic competency C3.2.",
+    )
+    link = service.link_learning_outcome(payload)
+    assert link.status == "direct"
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+def test_direct_mapping_shared_wording_accepts_two_genuine_source_codes(
+    db: Session,
+    tmp_path: Path,
+    scoped: bool,
+) -> None:
+    quote = "L-1 Shared maps to C3.2 Shared."
+    context, service, nodes = _direct_context(
+        db, tmp_path, scope=_review_scope() if scoped else None, mapping_text=quote
+    )
+    context.outcome.text = "Shared"
+    context.outcome.metadata_json = {"official_code": "L-1"}
+    context.competency.official_text = "Shared"
+    nodes["C3.2"].official_text = "Shared"
+    if scoped:
+        context.version.metadata_json = {"scope_enforced": True}
+        for endpoint in (context.outcome, context.competency):
+            endpoint.metadata_json = {**endpoint.metadata_json, "identity": dict(_SCOPED_IDENTITY)}
+    db.flush()
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_locator="JSON pointer /mapping",
+        evidence_text=quote,
+    )
+    assert service.link_learning_outcome(payload).status == "direct"
+
+
+def test_direct_mapping_rejects_lo_code_present_only_in_mapping_source(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
+    from app.schemas.source_intelligence import SourceRegistrationInput
+
+    context, service, nodes = _direct_context(db, tmp_path)
+    # Forged metadata alone cannot turn an internal/absent identifier into official identity.
+    context.outcome.metadata_json = {"official_code": "L-1"}
+    quote = "L-1 Synthetic learning outcome maps to Synthetic competency C3.2."
+    sources = service.source_service
+    source = sources.register_source(
+        SourceRegistrationInput(
+            source_type=SourceType.OFFICIAL_AUTHORITY,
+            title="Synthetic separate mapping",
+            url="https://synthetic.invalid/mapping-lo-code.json",
+            authority="Synthetic",
+            country="Test",
+            copyright_classification="synthetic_fixture",
+            trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
+            metadata_json={"synthetic": True, "document_type": "learning_standards"},
+        ),
+        actor_id="test",
+    )
+    revision = sources.ingest_upload(
+        source.id,
+        method=SourceIngestionMethod.JSON,
+        filename="mapping.json",
+        content=json.dumps({"mapping": quote}).encode(),
+        actor_id="test",
+    )
+    sources.extract_revision(revision.id, actor_id="test")
+    sources.create_diff(revision.id, actor_id="test")
+    assert sources.validate_revision(revision.id, actor_id="test").valid
+    sources.approve_revision(revision.id, actor_id="test")
+    mapping = sources.activate_revision(revision.id, actor_id="test")
+    payload = _link_input(
+        context,
+        nodes["C3.2"].id,
+        status="direct",
+        inferred=False,
+        source_revision_id=mapping.id,
+        source_locator="JSON pointer /mapping",
+        evidence_text=quote,
+    )
+    db.flush()
+    with pytest.raises(FrameworkStructureError, match="Official code is absent"):
+        service.link_learning_outcome(payload)
+    assert db.scalar(select(func.count()).select_from(LearningOutcomeCompetencyLink)) == 0

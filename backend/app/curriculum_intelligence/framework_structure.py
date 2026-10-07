@@ -15,7 +15,15 @@ from uuid import UUID, uuid5
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.curriculum_intelligence.scoped_curriculum import ScopeError, validate_entity_scope
 from app.curriculum_intelligence.service import CurriculumIntelligenceService
+from app.curriculum_intelligence.source_domains import require_domain, source_domain
+from app.curriculum_intelligence.standards_evidence import (
+    StandardsEvidenceError,
+    require_endpoint_mentions,
+    require_source_wording,
+    require_standards_evidence,
+)
 from app.models.curriculum import (
     Competency,
     CurriculumPack,
@@ -34,6 +42,7 @@ from app.schemas.framework_structure import (
     LearningOutcomeCompetencyInput,
     LearningOutcomeCompetencyResult,
 )
+from app.source_intelligence.service import SourceIntelligenceService
 
 _NAMESPACE = UUID("94593223-c334-4acb-b880-0ace97ed4567")
 _PARENT_LEVEL: dict[str, str | None] = {
@@ -53,10 +62,15 @@ def _identity(*parts: str) -> str:
 
 
 class FrameworkStructureService:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self, session: Session, *, source_service: SourceIntelligenceService | None = None
+    ) -> None:
         self.session = session
+        self.source_service = source_service or SourceIntelligenceService(session)
 
-    def _active_revision(self, revision_id: str) -> SourceRevision:
+    def _active_revision(
+        self, revision_id: str, purpose: str = "framework_structure"
+    ) -> SourceRevision:
         revision = self.session.get(SourceRevision, revision_id, populate_existing=True)
         if revision is None:
             raise LookupError("framework evidence SourceRevision not found")
@@ -68,7 +82,24 @@ class FrameworkStructureService:
             raise FrameworkStructureError(
                 "assessment sources cannot establish framework structure or learning-outcome links"
             )
+        try:
+            require_domain(revision.metadata_json.get("source_snapshot", {}), purpose)
+        except ValueError as exc:
+            raise FrameworkStructureError(str(exc)) from exc
         return revision
+
+    def _standard_content(self, revision: SourceRevision, specs: list[FrameworkNodeSpec]) -> None:
+        for spec in specs:
+            try:
+                require_standards_evidence(
+                    self.source_service,
+                    revision,
+                    locator=spec.source_locator,
+                    official_text=spec.official_text,
+                    official_code=spec.official_code,
+                )
+            except StandardsEvidenceError as exc:
+                raise FrameworkStructureError(str(exc)) from exc
 
     def _framework(self, framework_id: str) -> EducationFramework:
         framework = self.session.get(EducationFramework, framework_id)
@@ -108,6 +139,15 @@ class FrameworkStructureService:
         revision = self._active_revision(revision.id)
         framework = self._framework(framework.id)
         specs_list = list(specs)
+        if (
+            specs_list
+            and revision.approval_fingerprint
+            and self.source_service._snapshot_checksum(
+                revision.metadata_json.get("source_snapshot", {})
+            )
+            != revision.source_snapshot_checksum
+        ):
+            raise FrameworkStructureError("Immutable source metadata checksum mismatch")
         if len({spec.code for spec in specs_list}) != len(specs_list):
             raise FrameworkStructureError("duplicate framework node codes in bundle")
         existing = {
@@ -118,6 +158,29 @@ class FrameworkStructureService:
                 )
             )
         }
+        if source_domain(revision.metadata_json.get("source_snapshot", {})) == "academic_standard":
+            for spec in specs_list:
+                if (
+                    spec.level != "competency"
+                    or not spec.parent_code
+                    or spec.parent_code not in existing
+                ):
+                    raise FrameworkStructureError(
+                        "academic standards may only add competencies "
+                        "beneath existing framework goals"
+                    )
+                evidenced_parent = existing[spec.parent_code]
+                parent_revision = self.session.get(
+                    SourceRevision, evidenced_parent.source_revision_id
+                )
+                if parent_revision is None or source_domain(
+                    parent_revision.metadata_json.get("source_snapshot", {})
+                ) not in {"framework", "syllabus"}:
+                    raise FrameworkStructureError(
+                        "Competency parent lacks governing framework evidence"
+                    )
+            if specs_list:
+                self._standard_content(revision, specs_list)
         resolved = dict(existing)
         result: dict[str, FrameworkStructureNode] = {}
         pending = {spec.code: spec for spec in specs_list}
@@ -151,6 +214,44 @@ class FrameworkStructureService:
                         raise LookupError("framework competency not found")
                     if competency.framework_id != framework.id:
                         raise FrameworkStructureError("cross-framework competency target")
+                    if competency.source_revision_id != revision.id:
+                        raise FrameworkStructureError(
+                            "Attached competency must retain the same exact source revision"
+                        )
+                    if (
+                        source_domain(revision.metadata_json.get("source_snapshot", {}))
+                        == "academic_standard"
+                    ):
+                        attached_code = competency.metadata_json.get("official_code")
+                        try:
+                            require_standards_evidence(
+                                self.source_service,
+                                revision,
+                                locator=competency.source_locator,
+                                official_text=competency.official_text,
+                                official_code=attached_code,
+                            )
+                        except StandardsEvidenceError as exc:
+                            raise FrameworkStructureError(str(exc)) from exc
+                        same_code = bool(attached_code and spec.official_code == attached_code)
+                        same_text = bool(
+                            competency.official_text
+                            and spec.official_text == competency.official_text
+                        )
+                        if (
+                            not (same_code or same_text)
+                            or (
+                                spec.official_code is not None
+                                and spec.official_code != attached_code
+                            )
+                            or (
+                                spec.official_text is not None
+                                and spec.official_text != competency.official_text
+                            )
+                        ):
+                            raise FrameworkStructureError(
+                                "Node and attached competency official identity differ"
+                            )
                     if (
                         competency_id in used_competencies
                         and used_competencies[competency_id] != code
@@ -208,7 +309,7 @@ class FrameworkStructureService:
         self, payload: LearningOutcomeCompetencyInput
     ) -> LearningOutcomeCompetencyLink:
         """Add reviewed or explicitly inferred evidence; never infer official mapping."""
-        revision = self._active_revision(str(payload.source_revision_id))
+        revision = self._active_revision(str(payload.source_revision_id), "alignment")
         if payload.status == "direct" and (
             revision.ingestion_method == "manual"
             or revision.extraction_status != "succeeded"
@@ -216,7 +317,10 @@ class FrameworkStructureService:
             or not revision.extracted_text
         ):
             raise FrameworkStructureError("direct links require retrieved source content")
-        framework_id = self._version_framework(str(payload.curriculum_version_id))
+        version = self.session.get(CurriculumVersion, str(payload.curriculum_version_id))
+        if version is None:
+            raise LookupError("curriculum version not found")
+        framework_id = self._version_framework(version.id)
         outcome = self.session.get(LearningOutcome, str(payload.learning_outcome_id))
         if outcome is None:
             raise LookupError("learning outcome not found")
@@ -238,6 +342,122 @@ class FrameworkStructureService:
             raise FrameworkStructureError(
                 "learning outcome cannot link to a cross-framework target"
             )
+        if payload.status == "direct":
+            # A mapping publication may legitimately reference separately sourced
+            # outcomes and standards. Revalidate each target's own exact evidence;
+            # only a node and its attached competency must share their source.
+            if node.source_revision_id != competency.source_revision_id:
+                raise FrameworkStructureError(
+                    "Node and attached competency evidence revisions differ"
+                )
+            if outcome.source_revision_id is None:
+                raise FrameworkStructureError("Direct mapping outcome has no source revision")
+            outcome_revision = self._active_revision(outcome.source_revision_id, "outcome")
+            node_revision = self._active_revision(node.source_revision_id, "framework_structure")
+            competency_revision = self._active_revision(competency.source_revision_id, "competency")
+            if version.metadata_json.get("scope_enforced"):
+                dimensions = (
+                    "grade",
+                    "medium",
+                    "subject",
+                    "course_family",
+                    "course_group",
+                    "subject_language",
+                    "language_role",
+                    "book_part",
+                    "bilingual",
+                )
+                endpoint_identities = []
+                curriculum_service = CurriculumIntelligenceService(
+                    self.session,
+                    source_service=self.source_service,
+                )
+                for endpoint, own_revision in (
+                    (outcome, outcome_revision),
+                    (competency, competency_revision),
+                ):
+                    identity = endpoint.metadata_json.get("identity")
+                    if not isinstance(identity, dict) or any(
+                        not isinstance(identity.get(field), str)
+                        or not identity[field].strip()
+                        or identity[field] == "unknown"
+                        for field in dimensions
+                    ):
+                        raise FrameworkStructureError(
+                            "Scoped direct endpoints require all nine identity dimensions"
+                        )
+                    endpoint_identities.append({field: identity[field] for field in dimensions})
+                    try:
+                        validate_entity_scope(
+                            curriculum_service,
+                            version,
+                            own_revision,
+                            endpoint.metadata_json,
+                            node_type="relationship_endpoint",
+                        )
+                        validate_entity_scope(
+                            curriculum_service,
+                            version,
+                            revision,
+                            endpoint.metadata_json,
+                            node_type="relationship_endpoint",
+                        )
+                    except (ScopeError, StandardsEvidenceError) as exc:
+                        raise FrameworkStructureError(str(exc)) from exc
+                if endpoint_identities[0] != endpoint_identities[1]:
+                    raise FrameworkStructureError(
+                        "Scoped direct endpoint identities are incompatible"
+                    )
+            competency_code = competency.metadata_json.get("official_code")
+            if not (
+                competency_code
+                and competency_code == node.official_code
+                or competency.official_text
+                and competency.official_text == node.official_text
+            ):
+                raise FrameworkStructureError("Direct mapping target official identities differ")
+            try:
+                require_source_wording(
+                    self.source_service,
+                    revision,
+                    locator=payload.source_locator,
+                    official_text=payload.evidence_text,
+                )
+                require_source_wording(
+                    self.source_service,
+                    outcome_revision,
+                    locator=outcome.source_locator,
+                    official_text=outcome.text,
+                    official_code=outcome.metadata_json.get("official_code"),
+                )
+                require_source_wording(
+                    self.source_service,
+                    node_revision,
+                    locator=node.source_locator,
+                    official_text=node.official_text,
+                    official_code=node.official_code,
+                )
+                require_source_wording(
+                    self.source_service,
+                    competency_revision,
+                    locator=competency.source_locator,
+                    official_text=competency.official_text,
+                    official_code=competency_code,
+                )
+            except StandardsEvidenceError as exc:
+                raise FrameworkStructureError(str(exc)) from exc
+            try:
+                require_endpoint_mentions(
+                    payload.evidence_text or "",
+                    left_text=outcome.text,
+                    left_codes=(outcome.metadata_json["official_code"],)
+                    if outcome.metadata_json.get("official_code")
+                    else (),
+                    right_codes=(node.official_code,) if node.official_code else (),
+                    right_text=node.official_text,
+                )
+            except StandardsEvidenceError as exc:
+                raise FrameworkStructureError(str(exc)) from exc
         values: dict[str, Any] = {
             "curriculum_version_id": str(payload.curriculum_version_id),
             "learning_outcome_id": outcome.id,

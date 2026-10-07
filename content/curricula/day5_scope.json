@@ -1,0 +1,600 @@
+{
+  "approved_tasks": [
+    "D5-01",
+    "D5-02",
+    "D5-03",
+    "D5-04",
+    "D5-05",
+    "D5-06",
+    "D5-07",
+    "D5-08",
+    "D5-09",
+    "D5-10",
+    "D5-11",
+    "D5-12",
+    "D5-13",
+    "D5-14",
+    "D5-15",
+    "D5-16",
+    "D5-17",
+    "D5-18",
+    "D5-19",
+    "D5-20",
+    "D5-21",
+    "D5-22",
+    "D5-23",
+    "D5-24",
+    "D5-25",
+    "D5-26",
+    "D5-27",
+    "D5-28",
+    "D5-29",
+    "D5-30",
+    "D5-31",
+    "D5-32",
+    "D5-33",
+    "D5-34"
+  ],
+  "base_commit": "7f1f86fe9e24dee3a663f1e7702df0946c1138ba",
+  "frozen_supplemental_authority_sources": [
+    {
+      "key": "telangana-state-directory-tgbie",
+      "url": "https://www.telangana.gov.in/state-web-directory/",
+      "source_type": "official_authority",
+      "document_type": "authority_directory"
+    },
+    {
+      "key": "telangana-higher-education-tgbie",
+      "url": "https://www.telangana.gov.in/departments/higher-education/",
+      "source_type": "official_authority",
+      "document_type": "authority_directory"
+    }
+  ],
+  "scope_status": "blocked_pending_reviewed_exact_sources",
+  "packs": [
+    {
+      "code": "ts-scert",
+      "grades": [
+        "I",
+        "II",
+        "III",
+        "IV",
+        "V",
+        "VI",
+        "VII",
+        "VIII",
+        "IX",
+        "X"
+      ],
+      "academic_version": null
+    },
+    {
+      "code": "tgbie",
+      "years": [
+        "First Year",
+        "Second Year"
+      ],
+      "academic_version": null
+    }
+  ],
+  "required_detailed_slices": [
+    {
+      "key": "scert-viii-physical-science-english",
+      "chapter": "1. Force",
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "source_manifest_key": "scert-ps-english-syllabus",
+      "reason": "Required official source bytes, exact version/applicability, instructional medium and source-scoped locator must be reviewed before this slice can pass"
+    },
+    {
+      "key": "scert-viii-biological-science-english",
+      "chapter": "1. What is Science ?",
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "source_manifest_key": "scert-bs-english-syllabus",
+      "reason": "Required official source bytes, exact version/applicability, instructional medium and source-scoped locator must be reviewed before this slice can pass"
+    },
+    {
+      "key": "scert-viii-science-telugu-correspondence",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Required official source bytes, exact version/applicability, instructional medium and source-scoped locator must be reviewed before this slice can pass",
+      "source_manifest_key": "scert-ps-telugu-syllabus"
+    },
+    {
+      "key": "intermediate-first-year-mathematics-english",
+      "chapter": "01. Functions:",
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Annual plan is supporting calendar evidence; governing syllabus, applicability, course/group and medium sources are still required",
+      "supporting_source_manifest_key": "tgbie-maths-ia-annual-plan-2025-26"
+    },
+    {
+      "key": "intermediate-second-year-mathematics-english",
+      "chapter": "01. Complex Numbers",
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Annual plan is supporting calendar evidence; governing syllabus, applicability, course/group and medium sources are still required",
+      "supporting_source_manifest_key": "tgbie-maths-iia-annual-plan-2026-27"
+    },
+    {
+      "key": "intermediate-first-year-mathematics-telugu",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Required official source bytes, exact version/applicability, instructional medium and source-scoped locator must be reviewed before this slice can pass"
+    },
+    {
+      "key": "historical-first-year-mathematics-ia-uat",
+      "chapter": "01. Functions:",
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Annual plan is supporting calendar evidence; governing syllabus, applicability, course/group and medium sources are still required",
+      "supporting_source_manifest_key": "tgbie-maths-ia-annual-plan-2025-26"
+    },
+    {
+      "key": "scert-learning-outcomes",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Required official source bytes, exact version/applicability, instructional medium and source-scoped locator must be reviewed before this slice can pass"
+    },
+    {
+      "key": "scert-academic-standards",
+      "chapter": null,
+      "source_revision": null,
+      "academic_version": null,
+      "status": "blocked",
+      "reason": "Required official source bytes, exact version/applicability, instructional medium and source-scoped locator must be reviewed before this slice can pass"
+    }
+  ],
+  "blocked_sources": [
+    {
+      "url": "https://tgbie.cgg.gov.in",
+      "reason": "Official portal returned F5 HTTP 403; no alternate automated bypass",
+      "affected_tasks": [
+        "D5-02",
+        "D5-10",
+        "D5-11",
+        "D5-14",
+        "D5-31"
+      ],
+      "manual_route": "Authorized official source upload through the normal private ingestion lifecycle; verify issuing authority/version/applicability before use"
+    },
+    {
+      "url": "https://tgbienew.cgg.gov.in/home.do",
+      "reason": "New user-supplied official portal index readable in web discovery, but normal cloud browser returned F5 HTTP 403; no document bytes verified and no bypass retry",
+      "affected_tasks": [
+        "D5-02",
+        "D5-10",
+        "D5-11",
+        "D5-14",
+        "D5-31"
+      ],
+      "manual_route": "Provide the original official PDFs privately for normal ingestion and scoped source review"
+    },
+    {
+      "url": "https://scert.telangana.gov.in/",
+      "reason": "Ordinary permitted egress resolves 164.100.75.8 but TCP/TLS to port 443 times out before HTTP response; www host behaves the same; no bypass or weakened TLS",
+      "affected_tasks": [
+        "D5-03",
+        "D5-05",
+        "D5-09",
+        "D5-12",
+        "D5-13",
+        "D5-16",
+        "D5-22",
+        "D5-30",
+        "D5-32"
+      ],
+      "manual_route": "Provide SCERT originals privately via normal ingestion, or restore reachable official hosting for listed manifest URLs",
+      "evidence_level": "network_reachability_failure_2026-10-06_cloud_agent",
+      "manifest_hosts_affected": [
+        "scert.telangana.gov.in",
+        "www.scert.telangana.gov.in"
+      ]
+    }
+  ],
+  "owner_prose_discovery_hypotheses": {
+    "status": "founder_provided_unverified_until_exact_official_source_binding",
+    "official_homepage_candidate": "https://scert.telangana.gov.in/",
+    "notes": "Owner-supplied grade/subject/medium table, VIII chapter list, AS1-AS6 and Intermediate IA/IB/IIA/IIB topic names are discovery hypotheses only. They do not establish academic year, revision, locator, governing authority or applicability until matched to exact original rows.",
+    "grade_subject_medium_hints": [
+      {
+        "grades": [
+          "I",
+          "II"
+        ],
+        "subjects": [
+          "first language",
+          "English",
+          "mathematics"
+        ]
+      },
+      {
+        "grades": [
+          "III",
+          "IV",
+          "V"
+        ],
+        "subjects": [
+          "first language",
+          "English",
+          "mathematics",
+          "EVS"
+        ]
+      },
+      {
+        "grades": [
+          "VI",
+          "VII"
+        ],
+        "subjects": [
+          "general science",
+          "social studies"
+        ]
+      },
+      {
+        "grades": [
+          "VIII",
+          "IX",
+          "X"
+        ],
+        "subjects": [
+          "physical science",
+          "biological science",
+          "social studies"
+        ],
+        "media_variants_claimed": [
+          "Telugu",
+          "English",
+          "Urdu",
+          "Hindi",
+          "bilingual",
+          "Tamil",
+          "Marathi",
+          "Kannada"
+        ]
+      }
+    ],
+    "intermediate_topic_hints": [
+      "Mathematics IA",
+      "Mathematics IB",
+      "Mathematics IIA",
+      "Mathematics IIB"
+    ],
+    "search_link_mislabels_excluded": [
+      "bie.telangana.gov.in (Google search link, not a document URL)",
+      "tsbie.cgg.gov.in (Google search link, not a document URL)"
+    ],
+    "academic_standards_hints": [
+      {
+        "code": "AS1",
+        "label": "Conceptual Understanding"
+      },
+      {
+        "code": "AS2",
+        "label": "Asking Questions and Making Hypotheses"
+      },
+      {
+        "code": "AS3",
+        "label": "Experimentation and Field Investigation"
+      },
+      {
+        "code": "AS4",
+        "label": "Information Skills and Projects"
+      },
+      {
+        "code": "AS5",
+        "label": "Communication through Drawing / Model Making"
+      },
+      {
+        "code": "AS6",
+        "label": "Appreciation, Aesthetic Sense, Values & Daily Life Application"
+      }
+    ],
+    "state_program_hints": [
+      {
+        "name": "FLN",
+        "scope_hint": "Classes I-V"
+      },
+      {
+        "name": "Unnathi",
+        "scope_hint": "Classes VI-VIII"
+      },
+      {
+        "name": "Lakshya",
+        "scope_hint": "Classes IX-X"
+      }
+    ],
+    "intermediate_group_hints": {
+      "general": {
+        "MPC": [
+          "Mathematics",
+          "Physics",
+          "Chemistry"
+        ],
+        "BiPC": [
+          "Botany",
+          "Zoology",
+          "Physics",
+          "Chemistry"
+        ],
+        "CEC": [
+          "Civics",
+          "Economics",
+          "Commerce"
+        ],
+        "MEC": [
+          "Mathematics",
+          "Economics",
+          "Commerce"
+        ],
+        "HEC": [
+          "History",
+          "Economics",
+          "Civics"
+        ]
+      },
+      "vocational_families": [
+        "Engineering & Technology",
+        "Commerce & Business",
+        "Paramedical & Agriculture"
+      ]
+    },
+    "historical_policy_hints": [
+      "COVID-19-era temporary syllabus reduction was reported by the Founder as 30% (70% core) during 2020-2022",
+      "Founder reports current restoration to full syllabus and national-entrance alignment; exact governing notice is still required before activation"
+    ]
+  },
+  "claims_excluded": [
+    "2025-26 textbooks establish 2026-27 syllabus",
+    "historical Mathematics IA is current",
+    "catalogue means full hierarchy",
+    "textbook or assessment establishes membership",
+    "NCERT outcomes automatically Telangana outcomes"
+  ],
+  "intermediate_discovery": {
+    "index_url": "https://tgbienew.cgg.gov.in/home.do",
+    "evidence_level": "index discovery only; not fetched syllabus bytes",
+    "separate_versions": [
+      {
+        "academic_year": "2025-26",
+        "first_year": [
+          "Mathematics IA",
+          "Mathematics IB"
+        ],
+        "second_year": [
+          "Mathematics IIA",
+          "Mathematics IIB"
+        ]
+      },
+      {
+        "academic_year": "2026-27",
+        "first_year_syllabus_index_labels": [
+          "Mathematics IA",
+          "Mathematics IB"
+        ],
+        "annual_plan_index_labels": [
+          "IA",
+          "IB",
+          "IIA",
+          "IIB"
+        ]
+      }
+    ],
+    "unverified_dimensions": [
+      "instructional_medium",
+      "exact_chapters",
+      "academic_applicability",
+      "General_Vocational_scope",
+      "MPC_MEC_groups"
+    ],
+    "document_candidates": [
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/MATHEMATICS_IA_SYLLABUS.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/MATHEMATICS_IB_SYLLABUS.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Annual_Plan_Mahts-1A.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIA.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIB.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      },
+      {
+        "url": "https://tgbienew.cgg.gov.in//scannedPhotos/Circulars/Validation_Rules_N_FAQs_%282026%29.pdf",
+        "status": "discovery_only; automated retrieval blocked"
+      }
+    ]
+  },
+  "supplemental_discovery": {
+    "index_url": "https://diksha.gov.in/telangana/",
+    "status": "discovery_only; no verified source bytes or academic applicability",
+    "governing_membership": false,
+    "entries": [
+      {
+        "subject": "Biological Science",
+        "medium": "English",
+        "url": "https://diksha.gov.in/ts/get/dial/5KAF1Q"
+      },
+      {
+        "subject": "Biological Science",
+        "medium": "Telugu",
+        "url": "https://diksha.gov.in/ts/get/dial/25TPNH"
+      },
+      {
+        "subject": "Physical Science",
+        "medium": "Telugu",
+        "url": "https://diksha.gov.in/ts/get/dial/9DYK72"
+      },
+      {
+        "subject": "Physical Science",
+        "medium": "English",
+        "url": "https://diksha.gov.in/ts/get/dial/CTFAJA"
+      }
+    ]
+  },
+  "verified_external_discovery": {
+    "scert_current_catalogue": {
+      "status": "verified_official_web_discovery_not_runtime_bytes",
+      "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+      "academic_label": "TEXT BOOKS (I TO X) - 2025-26",
+      "class_viii_media_observed": [
+        "Telugu",
+        "English",
+        "Urdu",
+        "Hindi",
+        "Kannada",
+        "Marathi",
+        "Tamil"
+      ],
+      "class_viii_subjects_observed": [
+        "First Language",
+        "Other Media",
+        "English",
+        "Maths",
+        "Physical Science",
+        "Biological Science",
+        "Social"
+      ],
+      "notes": "Official SCERT web discovery confirms the catalogue/media matrix; live Day-5 acceptance still requires exact SourceRevision bytes and reviewed row associations."
+    },
+    "scert_physical_science_viii": {
+      "status": "verified_official_web_discovery_not_runtime_bytes",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
+      "grade": "VIII",
+      "observed_chapter_start": "1. Force",
+      "notes": "Official SCERT PDF is indexed and web-readable; runtime source lifecycle still cannot fetch from the hosted CI network."
+    },
+    "tgbie_authority_directory": {
+      "status": "verified_official_government_directory",
+      "url": "https://www.telangana.gov.in/state-web-directory/",
+      "board_name": "Board of Intermediate Education",
+      "official_link": "https://tgbie.cgg.gov.in",
+      "notes": "Authority/link evidence only; does not establish syllabus version, subject applicability, medium or course-group scope."
+    },
+    "scert_biological_science_viii": {
+      "status": "verified_official_web_discovery_not_runtime_bytes",
+      "url": "https://www.scert.telangana.gov.in/PDF/publication/syllabus/BS_EM.pdf",
+      "grade": "VIII",
+      "observed_chapter_start": "1. What is Science ?",
+      "observed_following_topics": [
+        "2. Cell - The Basic Unit of Life",
+        "3. Microbial World -1",
+        "3. Microbial World - 2"
+      ],
+      "notes": "Official SCERT PDF content is web-indexed; runtime acceptance still requires exact SourceRevision bytes, locator review and academic applicability."
+    }
+  },
+  "frozen_required_academic_sources": [
+    {
+      "key": "scert-syllabus-index",
+      "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=Z+4YBPX+caUE5uiQSu6xdg%3D%3D",
+      "source_type": "official_syllabus",
+      "document_type": "syllabus_index"
+    },
+    {
+      "key": "scert-ps-english-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "scert-bs-english-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_EM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "scert-textbooks-2025-26-draft",
+      "url": "https://scert.telangana.gov.in/DisplayImage.aspx?encry=Ytc1G1ftx++8OiL2XRvtdg%3D%3D",
+      "source_type": "official_authority",
+      "document_type": "textbook_index"
+    },
+    {
+      "key": "scert-learning-outcomes-index",
+      "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=SJZ%2FfnzG7N12MF87SAyR3A%3D%3D",
+      "source_type": "official_authority",
+      "document_type": "learning_outcome_index"
+    },
+    {
+      "key": "scert-physical-science-handbook-x",
+      "url": "https://www.scert.telangana.gov.in/PDF/publication/moduls/Phy_HB_X_EM.pdf",
+      "source_type": "official_authority",
+      "document_type": "teacher_handbook"
+    },
+    {
+      "key": "tgbie-maths-ia-annual-plan-2025-26",
+      "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Annual_Plan_Mahts-1A.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "annual_plan"
+    },
+    {
+      "key": "tgbie-maths-iia-annual-plan-2026-27",
+      "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIA.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "annual_plan"
+    },
+    {
+      "key": "scert-textbooks-catalogue-2025-26",
+      "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+      "source_type": "official_authority",
+      "document_type": "textbook_index"
+    },
+    {
+      "key": "scert-ps-telugu-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_TM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "scert-bs-telugu-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_TM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "tgbie-official-index",
+      "url": "https://tgbienew.cgg.gov.in/home.do",
+      "source_type": "official_authority",
+      "document_type": "publication_index"
+    },
+    {
+      "key": "scert-learning-outcomes-posters-telugu",
+      "url": "https://scert.telangana.gov.in/pdf/publication/learningoutcomes/publicationlearningoutcomeslo-all-posterss-tm.pdf",
+      "source_type": "official_authority",
+      "document_type": "learning_outcomes"
+    }
+  ],
+  "deferred_authoritative_source_backlog": {
+    "id": "D5-DS01",
+    "status": "DEFERRED_BY_FOUNDER",
+    "closure_policy": "Day 5 engineering may close with this backlog deferred; production claims of officially verified Telangana curriculum data remain prohibited until D5-DS01 passes the unchanged live-source gate.",
+    "evidence_packages": [
+      "SCERT VIII Physical/Biological Science English and corresponding Telugu governing syllabi plus applicability notice",
+      "Complete selected SCERT I-X official inventory snapshot with media/language/part information",
+      "Telangana Learning Outcomes / Academic Standards originals with class/subject/medium applicability",
+      "Official Intermediate First/Second Year General/Vocational catalogue and course/group applicability evidence",
+      "Historical Math IA plus applicable current First/Second Year mathematics syllabi/version notices, including corresponding Telugu material where required"
+    ]
+  }
+}

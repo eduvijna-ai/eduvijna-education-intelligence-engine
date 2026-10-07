@@ -1,0 +1,403 @@
+[
+  {
+    "key": "scert-syllabus-index",
+    "source_type": "official_syllabus",
+    "title": "scert syllabus index",
+    "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=Z+4YBPX+caUE5uiQSu6xdg%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "syllabus_index",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_current_syllabus_index; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-ps-english-syllabus",
+    "source_type": "official_syllabus",
+    "title": "scert ps english syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "candidate_scope_unverified": {
+        "pack_code": "ts-scert",
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Physical Science"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "scert-bs-english-syllabus",
+    "source_type": "official_syllabus",
+    "title": "scert bs english syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_EM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "candidate_scope_unverified": {
+        "pack_code": "ts-scert",
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Biological Science"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "scert-textbooks-2025-26-draft",
+    "source_type": "official_authority",
+    "title": "scert textbooks 2025 26 draft",
+    "url": "https://scert.telangana.gov.in/DisplayImage.aspx?encry=Ytc1G1ftx++8OiL2XRvtdg%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": "2025-26",
+    "document_type": "textbook_index",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "draft",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-learning-outcomes-index",
+    "source_type": "official_authority",
+    "title": "scert learning outcomes index",
+    "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=SJZ%2FfnzG7N12MF87SAyR3A%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "learning_outcome_index",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "scert-physical-science-handbook-x",
+    "source_type": "official_authority",
+    "title": "scert physical science handbook x",
+    "url": "https://www.scert.telangana.gov.in/PDF/publication/moduls/Phy_HB_X_EM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "teacher_handbook",
+    "version_applicability": "unverified; publication or catalogue alone does not establish academic applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_index_discovered; exact_bytes_pending",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "tgbie-maths-ia-annual-plan-2025-26",
+    "source_type": "official_syllabus",
+    "title": "tgbie mathematics ia annual plan 2025-26",
+    "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Annual_Plan_Mahts-1A.pdf",
+    "authority": "Telangana Board of Intermediate Education",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": "2025-26",
+    "document_type": "annual_plan",
+    "version_applicability": "unverified; annual plan does not alone establish current subject renaming",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "candidate_scope_unverified": {
+        "pack_code": "tgbie",
+        "version_codes": [
+          "2025-26"
+        ],
+        "grades": [
+          "First Year"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Mathematics IA"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      },
+      "automated_fetch_blocked": true,
+      "automated_fetch_blocked_reason": "Prior F5 HTTP 403 denial; require official manual upload rather than alternative automated retry"
+    }
+  },
+  {
+    "key": "tgbie-maths-iia-annual-plan-2026-27",
+    "source_type": "official_syllabus",
+    "title": "tgbie mathematics iia annual plan 2026-27",
+    "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIA.pdf",
+    "authority": "Telangana Board of Intermediate Education",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": "2026-27",
+    "document_type": "annual_plan",
+    "version_applicability": "unverified; annual plan does not alone establish current subject renaming",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "candidate_scope_unverified": {
+        "pack_code": "tgbie",
+        "version_codes": [
+          "2026-27"
+        ],
+        "grades": [
+          "Second Year"
+        ],
+        "media": [
+          "English"
+        ],
+        "subjects": [
+          "Mathematics IIA"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      },
+      "automated_fetch_blocked": true,
+      "automated_fetch_blocked_reason": "Prior F5 HTTP 403 denial; require official manual upload rather than alternative automated retry"
+    }
+  },
+  {
+    "key": "scert-textbooks-catalogue-2025-26",
+    "source_type": "official_authority",
+    "title": "SCERT Telangana Text Books I to X 2025-26 catalogue",
+    "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": "2025-26",
+    "document_type": "textbook_index",
+    "version_applicability": "Official 2025-26 textbook catalogue; does not by itself establish governing syllabus applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official_current_catalogue_discovered; exact bytes required for acceptance",
+      "publication_status": "official_current_catalogue",
+      "bulk_publication_allowed": false,
+      "inventory_scope": {
+        "pack_code": "ts-scert",
+        "grades": [
+          "I",
+          "II",
+          "III",
+          "IV",
+          "V",
+          "VI",
+          "VII",
+          "VIII",
+          "IX",
+          "X"
+        ]
+      }
+    }
+  },
+  {
+    "key": "scert-ps-telugu-syllabus",
+    "source_type": "official_syllabus",
+    "title": "SCERT Telangana Physical Science Telugu Medium syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_TM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; exact edition/applicability review required",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "listed by official SCERT syllabus index; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "candidate_scope_unverified": {
+        "pack_code": "ts-scert",
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "Telugu"
+        ],
+        "subjects": [
+          "Physical Science"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "scert-bs-telugu-syllabus",
+    "source_type": "official_syllabus",
+    "title": "SCERT Telangana Biological Science Telugu Medium syllabus",
+    "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_TM.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "subject_syllabus",
+    "version_applicability": "unverified; exact edition/applicability review required",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "listed by official SCERT syllabus index; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "candidate_scope_unverified": {
+        "pack_code": "ts-scert",
+        "version_codes": [
+          "2025-26-syllabus"
+        ],
+        "grades": [
+          "VIII"
+        ],
+        "media": [
+          "Telugu"
+        ],
+        "subjects": [
+          "Biological Science"
+        ],
+        "publication_status": "unknown",
+        "applicability_status": "unverified"
+      }
+    }
+  },
+  {
+    "key": "tgbie-official-index",
+    "source_type": "official_authority",
+    "title": "Telangana Board of Intermediate Education official publication index",
+    "url": "https://tgbienew.cgg.gov.in/home.do",
+    "authority": "Telangana Board of Intermediate Education",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": null,
+    "document_type": "publication_index",
+    "version_applicability": "index only; subject/year applicability requires exact linked documents",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official board portal; automated retrieval may be blocked by F5",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "inventory_scope": {
+        "pack_code": "tgbie",
+        "years": [
+          "First Year",
+          "Second Year"
+        ]
+      },
+      "automated_fetch_blocked": true,
+      "automated_fetch_blocked_reason": "Prior F5 HTTP 403 denial; require official manual upload rather than alternative automated retry"
+    }
+  },
+  {
+    "key": "scert-learning-outcomes-posters-telugu",
+    "source_type": "official_authority",
+    "title": "SCERT Telangana Class Wise Expected Learning Outcomes posters - Telugu Medium",
+    "url": "https://scert.telangana.gov.in/pdf/publication/learningoutcomes/publicationlearningoutcomeslo-all-posterss-tm.pdf",
+    "authority": "SCERT Telangana",
+    "country": "India",
+    "board_or_exam": "SCERT Telangana",
+    "academic_year": null,
+    "document_type": "learning_outcomes",
+    "version_applicability": "official learning-outcomes publication; exact class/subject/version applicability requires document review",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "discovery_status": "official SCERT learning-outcomes PDF discovered; exact bytes required",
+      "publication_status": "unverified",
+      "bulk_publication_allowed": false,
+      "medium_candidate": "Telugu",
+      "applicability_status": "unverified"
+    }
+  },
+  {
+    "key": "telangana-state-directory-tgbie",
+    "source_type": "official_authority",
+    "title": "Telangana State Web Directory - Board of Intermediate Education",
+    "url": "https://www.telangana.gov.in/state-web-directory/",
+    "authority": "Government of Telangana",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": null,
+    "document_type": "authority_directory",
+    "version_applicability": "Authority/current official link evidence only; not syllabus applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "current_government_directory",
+      "official_board_link": "https://tgbie.cgg.gov.in",
+      "governing_curriculum_membership": false,
+      "bulk_publication_allowed": false
+    }
+  },
+  {
+    "key": "telangana-higher-education-tgbie",
+    "source_type": "official_authority",
+    "title": "Telangana Higher Education - Board of Intermediate Education",
+    "url": "https://www.telangana.gov.in/departments/higher-education/",
+    "authority": "Government of Telangana",
+    "country": "India",
+    "board_or_exam": "TGBIE",
+    "academic_year": null,
+    "document_type": "authority_directory",
+    "version_applicability": "Board identity/contact evidence only; not syllabus applicability",
+    "copyright_classification": "official_reference_private_runtime_only",
+    "metadata_json": {
+      "publication_status": "current_government_department_page",
+      "governing_curriculum_membership": false,
+      "bulk_publication_allowed": false
+    }
+  }
+]
