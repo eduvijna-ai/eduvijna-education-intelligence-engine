@@ -28,9 +28,9 @@ from app.db.session import create_database_engine
 from app.models.curriculum import CurriculumNode, CurriculumVersion
 from app.models.enums import SourceIngestionMethod, SourceTrustTier, SourceType
 from app.models.source import SourceRevision
+from app.repo_paths import curricula_content_dir
 from app.schemas.curriculum_intelligence import CurriculumNodeSpec
 from app.schemas.source_intelligence import SourceRegistrationInput
-from app.repo_paths import curricula_content_dir
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
 
