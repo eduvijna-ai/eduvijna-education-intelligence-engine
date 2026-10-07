@@ -191,3 +191,44 @@ def test_denied_sources_are_metadata_only_and_per_entry_failure_preserves_succes
     assert calls == [(denied.key, False), (entries[1].key, True), (entries[2].key, True)]
     assert any(item.get("source_key") == entries[1].key for item in report["fetch_blockers"])
     assert not report["acceptance"]["passed"]
+
+
+def test_missing_required_manifest_row_keeps_frozen_denominator(
+    report_session: Session, tmp_path: Path
+) -> None:
+    from app.curriculum_intelligence.service import load_source_manifest
+
+    entries = load_source_manifest(curricula_content_dir() / "day5_official_sources.json")
+    removed = entries[0]
+    with patch(
+        "app.day5_official_report.load_source_manifest",
+        return_value=entries[1:],
+    ):
+        report = build_official_report(report_session, storage_root=tmp_path / "storage")
+    accounting = report["manifest_accounting"]
+    assert accounting["required_academic_count"] == 13
+    assert accounting["required_academic_present_count"] == 12
+    assert any(
+        item.get("source_key") == removed.key
+        for item in report["manifest_identity_blockers"]
+    )
+    assert "manifest_accounting" in report["acceptance"]["incomplete_components"]
+
+
+def test_malformed_frozen_scope_record_becomes_structured_blocker(
+    report_session: Session, tmp_path: Path
+) -> None:
+    scope_path = curricula_content_dir() / "day5_scope.json"
+    scope = json.loads(scope_path.read_text(encoding="utf-8"))
+    scope["frozen_supplemental_authority_sources"] = [{"key": "broken"}]
+    real_loads = json.loads
+
+    def loads(value: str, *args, **kwargs):
+        if value == scope_path.read_text(encoding="utf-8"):
+            return scope
+        return real_loads(value, *args, **kwargs)
+
+    with patch("app.day5_official_report.json.loads", side_effect=loads):
+        report = build_official_report(report_session, storage_root=tmp_path / "storage")
+    assert report["manifest_classification_blockers"] or report["manifest_identity_blockers"]
+    assert not report["acceptance"]["passed"]
