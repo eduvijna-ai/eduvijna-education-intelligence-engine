@@ -89,7 +89,12 @@ def _load_deferred_scope(scope_path: Path) -> DeferredScopeContract | None:
     supplemental = scope.get("frozen_supplemental_authority_sources")
     slices = scope.get("required_detailed_slices")
     packs = scope.get("packs")
-    if not all(isinstance(value, list) for value in (required, supplemental, slices, packs)):
+    if (
+        not isinstance(required, list)
+        or not isinstance(supplemental, list)
+        or not isinstance(slices, list)
+        or not isinstance(packs, list)
+    ):
         return None
 
     def keys(records: list[Any]) -> frozenset[str] | None:
