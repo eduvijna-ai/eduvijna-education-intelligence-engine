@@ -44,7 +44,7 @@ def canonical_retrieval_url(url: str) -> str:
     """
     parsed = urlsplit(url)
     scheme = parsed.scheme.lower()
-    hostname = (parsed.hostname or "").lower()
+    hostname = (parsed.hostname or "").rstrip(".").lower()
     if not scheme or not hostname:
         raise ValueError("manifest URL must be an absolute URL")
     host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
