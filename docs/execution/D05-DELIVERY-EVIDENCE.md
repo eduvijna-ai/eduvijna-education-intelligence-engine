@@ -273,3 +273,39 @@ Codex review `5436816938` / findings `4202349949`, `4202349958`, `4202349955`:
 - **Supersedes:** earlier USD **10** additional Day 5 Cursor allocation message.
 - **Model:** standard **Composer 2.5** only (not Fast). No billing-setting changes, no new subscriptions, no duplicate runs.
 - **Spend telemetry:** this agent environment does not expose live dollar usage; the Founder must confirm remaining combined budget in Cursor billing. Work stops before exceeding the Engine USD 250 conservative allocation when usage cannot be verified.
+
+
+## Day 5 closure mode and deferred source handoff (2026-10-07)
+
+Founder authorized Day 5 to proceed with the five authoritative evidence packages deferred, while retaining the existing strict live-source gate for future completion.
+
+Deferred contract: `docs/execution/D05-DS01-TELANGANA-AUTHORITATIVE-SOURCES.md`  
+GitHub backlog: **#16 — D5-DS01: Telangana authoritative source completion**
+
+The deferred set is exactly:
+
+1. SCERT VIII Physical/Biological Science English + corresponding Telugu governing syllabi and applicability notice.
+2. Complete selected SCERT I–X official inventory snapshot with media/language/part information.
+3. Telangana Learning Outcomes / Academic Standards originals with class/subject/medium applicability.
+4. Official Intermediate First/Second Year General/Vocational catalogue and course/group applicability evidence.
+5. Historical Math IA plus applicable current First/Second Year mathematics syllabi/version notices, including corresponding Telugu material where required.
+
+This changes the Day-5 **closure mode**, not the truth of the live acceptance result. The authoritative-source verifier remains fail-closed and must not be made green by synthetic fixtures, discovery metadata, Founder prose, authority directories, annual plans or model papers.
+
+After non-source Codex findings are closed and exact-head engineering CI is green, Day 5 may be presented for Founder signoff as:
+
+> **Engineering complete — authoritative Telangana source ingestion deferred to D5-DS01.**
+
+Production claims that Telangana curriculum data is fully official-source verified remain prohibited until #16 is completed.
+
+## CI repair circuit breaker (Founder-approved 2026-10-07)
+
+The repository now uses a **two-strike repair circuit breaker**:
+
+- two consecutive failed repair iterations for the same active workstream => stop the autonomous full-CI repair loop;
+- no third full repair/CI attempt without Chief Architect/Founder review;
+- handoff must include both SHAs, CI run IDs, failing checks, failure classification, root-cause hypothesis and smallest next action;
+- independently evidenced runner/platform failures allow one retry and do not count;
+- an already approved fail-closed external-evidence gate such as D5-DS01 does not count as a code-repair failure when engineering jobs are otherwise green.
+
+This policy is mirrored in `AGENTS.md`, `.cursor/rules/eduvijna.mdc` and `.eduvijna/execution-state.yml`.
