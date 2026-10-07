@@ -36,6 +36,20 @@
     "D5-34"
   ],
   "base_commit": "7f1f86fe9e24dee3a663f1e7702df0946c1138ba",
+  "frozen_supplemental_authority_sources": [
+    {
+      "key": "telangana-state-directory-tgbie",
+      "url": "https://www.telangana.gov.in/state-web-directory/",
+      "source_type": "official_authority",
+      "document_type": "authority_directory"
+    },
+    {
+      "key": "telangana-higher-education-tgbie",
+      "url": "https://www.telangana.gov.in/departments/higher-education/",
+      "source_type": "official_authority",
+      "document_type": "authority_directory"
+    }
+  ],
   "scope_status": "blocked_pending_reviewed_exact_sources",
   "packs": [
     {

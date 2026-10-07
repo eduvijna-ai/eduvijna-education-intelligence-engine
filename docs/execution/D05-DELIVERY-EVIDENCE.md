@@ -255,3 +255,11 @@ Remaining fix: `authority_directory` manifest entries are **supplemental authori
 - publishes explicit `manifest_accounting` with separate required vs supplemental retrieved/registry counts.
 
 Required nine slices, catalogue inventories, and fail-closed academic acceptance are unchanged. Full Day 5 completion remains blocked without governing syllabus/catalogue/LO bytes.
+
+## Frozen supplemental authority binding (post-`6490482`)
+
+Codex review `5436816938` / findings `4202349949`, `4202349958`, `4202349955`:
+
+- Supplemental status is bound to `frozen_supplemental_authority_sources` in `day5_scope.json` (exact key, URL, `source_type`, `document_type`). Relabelled syllabus/catalogue rows stay `required_academic` and cannot bypass retrieval, applicability, or membership gates.
+- Duplicate manifest keys or conflicting URL identities are rejected before ingestion; accounting uses the validated distinct set (`manifest_validated_distinct`).
+- Classification conflicts emit `manifest_classification_blockers` / `manifest_identity_blockers` in the structured report (no traceback escape from `day5_verify --fetch-official`).

@@ -11,8 +11,8 @@ from urllib.parse import urljoin
 from sqlalchemy.orm import Session
 
 from app.curriculum_intelligence.day5_manifest_evidence import (
-    is_supplemental_authority_evidence,
-    manifest_evidence_role,
+    classify_manifest_entry,
+    validate_manifest_identity,
 )
 from app.curriculum_intelligence.scoped_acceptance import _revision, evaluate_day5_acceptance
 from app.curriculum_intelligence.scoped_catalogue import ScopedCatalogueError
@@ -126,15 +126,35 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
     )
     scope = json.loads((content_root / "day5_scope.json").read_text(encoding="utf-8"))
     verification_slice = load_verification_slice(content_root)
-    entries = load_source_manifest(content_root / "day5_official_sources.json")
+    entries_raw = load_source_manifest(content_root / "day5_official_sources.json")
+    entries, manifest_identity_blockers = validate_manifest_identity(entries_raw)
+    manifest_classification_blockers: list[dict[str, Any]] = []
+    entry_roles: dict[str, str] = {}
+    for entry in entries:
+        role, conflict = classify_manifest_entry(entry, scope)
+        entry_roles[entry.key] = role
+        if conflict is not None:
+            manifest_classification_blockers.append(
+                {
+                    "stage": "manifest_classification",
+                    "source_key": conflict.source_key,
+                    "url": conflict.url,
+                    "reason": conflict.reason,
+                    "affected_tasks": ["D5-03", "D5-05"],
+                }
+            )
 
     fetch_blockers: list[dict[str, Any]] = []
     supplemental_retrieval: list[dict[str, Any]] = []
     revisions: dict[str, Any] = {}
-    required_entries = [entry for entry in entries if not is_supplemental_authority_evidence(entry)]
-    supplemental_entries = [entry for entry in entries if is_supplemental_authority_evidence(entry)]
+    required_entries = [
+        entry for entry in entries if entry_roles.get(entry.key) == "required_academic"
+    ]
+    supplemental_entries = [
+        entry for entry in entries if entry_roles.get(entry.key) == "supplemental_authority"
+    ]
     for entry in entries:
-        supplemental = is_supplemental_authority_evidence(entry)
+        supplemental = entry_roles.get(entry.key) == "supplemental_authority"
         automated_fetch_blocked = entry.metadata_json.get("automated_fetch_blocked") is True
         if automated_fetch_blocked:
             blocker = {
@@ -177,7 +197,7 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
     sources: list[dict[str, Any]] = []
     unresolved_applicability: list[dict[str, Any]] = []
     for entry in entries:
-        evidence_role = manifest_evidence_role(entry)
+        evidence_role = entry_roles[entry.key]
         supplemental = evidence_role == "supplemental_authority"
         revision = revisions.get(entry.key) if revisions else None
         verified = bool(revision and service.has_source_content(revision))
@@ -285,7 +305,8 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         item for item in sources if item.get("evidence_role") == "supplemental_authority"
     ]
     manifest_accounting = {
-        "manifest_total": len(entries),
+        "manifest_total": len(entries_raw),
+        "manifest_validated_distinct": len(entries),
         "required_academic_count": len(required_entries),
         "supplemental_authority_count": len(supplemental_entries),
         "required_academic_retrieved": sum(
@@ -315,6 +336,8 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
         "required_slices": scope["required_detailed_slices"],
         "blocked_sources": blocked_sources,
         "fetch_blockers": fetch_blockers,
+        "manifest_identity_blockers": manifest_identity_blockers,
+        "manifest_classification_blockers": manifest_classification_blockers,
         "supplemental_retrieval": supplemental_retrieval,
         "unresolved_applicability": unresolved_applicability,
         "materialization_blockers": materialization_blockers,

@@ -102,6 +102,41 @@ def test_detailed_slice_cannot_satisfy_full_catalogue_gate() -> None:
     assert {item["pack_code"] for item in gaps} == {"ts-scert", "tgbie"}
 
 
+def test_classification_conflict_produces_structured_report_not_traceback(
+    report_session: Session, tmp_path: Path,
+) -> None:
+    from app.curriculum_intelligence.service import load_source_manifest
+
+    entries = load_source_manifest(curricula_content_dir() / "day5_official_sources.json")
+    directory = next(
+        entry for entry in entries if entry.key == "telangana-state-directory-tgbie"
+    )
+    bad = directory.model_copy(update={"url": "https://example.invalid/wrong-url"})
+    others = [entry for entry in entries if entry.key != directory.key]
+    with patch("app.day5_official_report.load_source_manifest", return_value=[bad, *others]):
+        report = build_official_report(report_session, storage_root=tmp_path / "storage")
+    assert report["manifest_classification_blockers"]
+    assert not report["acceptance"]["passed"]
+
+
+def test_duplicate_manifest_identity_is_structured_blocker(
+    report_session: Session, tmp_path: Path,
+) -> None:
+    from app.curriculum_intelligence.service import load_source_manifest
+
+    entries = load_source_manifest(curricula_content_dir() / "day5_official_sources.json")
+    duplicate = entries[1].model_copy()
+    with patch(
+        "app.day5_official_report.load_source_manifest",
+        return_value=[entries[0], entries[1], duplicate, *entries[2:]],
+    ):
+        report = build_official_report(report_session, storage_root=tmp_path / "storage")
+    assert report["manifest_identity_blockers"]
+    assert report["manifest_accounting"]["manifest_validated_distinct"] < report[
+        "manifest_accounting"
+    ]["manifest_total"]
+
+
 def test_supplemental_authority_directories_excluded_from_academic_blockers(
     report_session: Session, tmp_path: Path
 ) -> None:

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from app.curriculum_intelligence.day5_manifest_evidence import manifest_evidence_role
+from app.curriculum_intelligence.day5_manifest_evidence import (
+    classify_manifest_entry,
+    manifest_evidence_role,
+    validate_manifest_identity,
+)
 from app.curriculum_intelligence.source_domains import require_domain, source_domain
 from app.models.enums import SourceType
+from app.repo_paths import curricula_content_dir
 from app.schemas.curriculum_intelligence import OfficialSourceManifestEntry
+
+SCOPE = json.loads((curricula_content_dir() / "day5_scope.json").read_text(encoding="utf-8"))
 
 
 def _entry(**overrides: object) -> OfficialSourceManifestEntry:
@@ -22,19 +31,48 @@ def _entry(**overrides: object) -> OfficialSourceManifestEntry:
     return OfficialSourceManifestEntry.model_validate(base)
 
 
-def test_authority_directory_is_supplemental_only() -> None:
+def test_frozen_supplemental_directories_match_scope_contract() -> None:
     entry = _entry(
-        key="dir",
+        key="telangana-state-directory-tgbie",
+        url="https://www.telangana.gov.in/state-web-directory/",
+        document_type="authority_directory",
+    )
+    assert manifest_evidence_role(entry, SCOPE) == "supplemental_authority"
+
+
+def test_relabelled_syllabus_stays_required_academic() -> None:
+    entry = _entry(
+        key="scert-ps-english-syllabus",
+        url="https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
         document_type="authority_directory",
         metadata_json={"governing_curriculum_membership": False},
     )
-    assert manifest_evidence_role(entry) == "supplemental_authority"
-    snapshot = {
-        "metadata_json": {"document_type": "authority_directory"},
-    }
-    assert source_domain(snapshot) == "authority_reference"
-    with pytest.raises(ValueError, match="cannot establish membership"):
-        require_domain(snapshot, "membership")
+    role, conflict = classify_manifest_entry(entry, SCOPE)
+    assert role == "required_academic"
+    assert conflict is not None
+
+
+def test_relabelled_catalogue_stays_required_academic() -> None:
+    entry = _entry(
+        key="scert-textbooks-catalogue-2025-26",
+        url="https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+        document_type="authority_directory",
+    )
+    role, conflict = classify_manifest_entry(entry, SCOPE)
+    assert role == "required_academic"
+    assert conflict is not None
+
+
+def test_frozen_supplemental_url_substitution_is_classification_conflict() -> None:
+    entry = _entry(
+        key="telangana-state-directory-tgbie",
+        url="https://example.invalid/substituted",
+        document_type="authority_directory",
+    )
+    role, conflict = classify_manifest_entry(entry, SCOPE)
+    assert role == "required_academic"
+    assert conflict is not None
+    assert "frozen supplemental" in conflict.reason
 
 
 def test_syllabus_cannot_bypass_via_governing_curriculum_membership_false() -> None:
@@ -42,22 +80,39 @@ def test_syllabus_cannot_bypass_via_governing_curriculum_membership_false() -> N
         metadata_json={"governing_curriculum_membership": False},
         document_type="subject_syllabus",
     )
-    assert manifest_evidence_role(entry) == "required_academic"
-
-
-def test_catalogue_index_remains_required_academic() -> None:
-    entry = _entry(
-        document_type="textbook_index",
-        metadata_json={"governing_curriculum_membership": False, "publication_status": "draft"},
-    )
-    assert manifest_evidence_role(entry) == "required_academic"
+    assert manifest_evidence_role(entry, SCOPE) == "required_academic"
 
 
 def test_conflicting_authority_directory_domain_fails_closed() -> None:
     entry = _entry(
-        key="fraud",
+        key="telangana-higher-education-tgbie",
+        url="https://www.telangana.gov.in/departments/higher-education/",
         document_type="authority_directory",
         metadata_json={"source_domain": "syllabus"},
     )
-    with pytest.raises(ValueError, match="conflicting"):
-        manifest_evidence_role(entry)
+    role, conflict = classify_manifest_entry(entry, SCOPE)
+    assert role == "required_academic"
+    assert conflict is not None
+
+
+def test_duplicate_manifest_key_rejected_before_ingestion() -> None:
+    first = _entry(key="dup", url="https://example.invalid/one")
+    second = _entry(key="dup", url="https://example.invalid/two")
+    validated, blockers = validate_manifest_identity([first, second])
+    assert len(validated) == 1
+    assert blockers and blockers[0]["reason"] == "Duplicate manifest source key"
+
+
+def test_duplicate_manifest_url_with_different_keys_rejected() -> None:
+    first = _entry(key="one", url="https://example.invalid/same")
+    second = _entry(key="two", url="https://example.invalid/same")
+    validated, blockers = validate_manifest_identity([first, second])
+    assert len(validated) == 1
+    assert "URL already bound" in blockers[0]["reason"]
+
+
+def test_authority_reference_domain_cannot_establish_membership() -> None:
+    snapshot = {"metadata_json": {"document_type": "authority_directory"}}
+    assert source_domain(snapshot) == "authority_reference"
+    with pytest.raises(ValueError, match="cannot establish membership"):
+        require_domain(snapshot, "membership")

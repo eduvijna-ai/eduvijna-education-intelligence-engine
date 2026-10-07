@@ -646,6 +646,8 @@ def evaluate_day5_acceptance(
     for field in (
         "blocked_sources",
         "fetch_blockers",
+        "manifest_identity_blockers",
+        "manifest_classification_blockers",
         "materialization_blockers",
         "unresolved_applicability",
         "catalogue_gaps",
