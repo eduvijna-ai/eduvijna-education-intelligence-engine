@@ -263,3 +263,13 @@ Codex review `5436816938` / findings `4202349949`, `4202349958`, `4202349955`:
 - Supplemental status is bound to `frozen_supplemental_authority_sources` in `day5_scope.json` (exact key, URL, `source_type`, `document_type`). Relabelled syllabus/catalogue rows stay `required_academic` and cannot bypass retrieval, applicability, or membership gates.
 - Duplicate manifest keys or conflicting URL identities are rejected before ingestion; accounting uses the validated distinct set (`manifest_validated_distinct`).
 - Classification conflicts emit `manifest_classification_blockers` / `manifest_identity_blockers` in the structured report (no traceback escape from `day5_verify --fetch-official`).
+
+**Exact-head verification (`b6ab5ace00ff8a4acb863ab02e73c1d828c5dad3`):** local `day5_verify --fetch-official` exit **1**; `manifest_accounting` 15 total / 13 required + 2 supplemental; **0/13** required-academic bytes verified; **2/2** supplemental directories retrieved; `manifest_identity_blockers` **0**; `manifest_classification_blockers` **0**; `unresolved_applicability` **13** (required only). Backend regression **1518** pytest passed; Ruff/mypy on changed modules green. Day 5 official acceptance remains fail-closed.
+
+## Owner budget authority (handoff `6032586899`, 2026-10-07)
+
+- **Combined ceiling:** USD **500** cumulative across Engine Day 5 and AIEOS I01 (not USD 500 each), including prior spend.
+- **Engine Day 5 conservative allocation:** USD **250** cumulative maximum for this repository/run; AIEOS reserved **USD 250** separately.
+- **Supersedes:** earlier USD **10** additional Day 5 Cursor allocation message.
+- **Model:** standard **Composer 2.5** only (not Fast). No billing-setting changes, no new subscriptions, no duplicate runs.
+- **Spend telemetry:** this agent environment does not expose live dollar usage; the Founder must confirm remaining combined budget in Cursor billing. Work stops before exceeding the Engine USD 250 conservative allocation when usage cannot be verified.
