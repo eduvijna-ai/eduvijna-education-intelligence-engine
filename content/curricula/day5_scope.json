@@ -504,5 +504,97 @@
       ],
       "notes": "Official SCERT PDF content is web-indexed; runtime acceptance still requires exact SourceRevision bytes, locator review and academic applicability."
     }
+  },
+  "frozen_required_academic_sources": [
+    {
+      "key": "scert-syllabus-index",
+      "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=Z+4YBPX+caUE5uiQSu6xdg%3D%3D",
+      "source_type": "official_syllabus",
+      "document_type": "syllabus_index"
+    },
+    {
+      "key": "scert-ps-english-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_EM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "scert-bs-english-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_EM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "scert-textbooks-2025-26-draft",
+      "url": "https://scert.telangana.gov.in/DisplayImage.aspx?encry=Ytc1G1ftx++8OiL2XRvtdg%3D%3D",
+      "source_type": "official_authority",
+      "document_type": "textbook_index"
+    },
+    {
+      "key": "scert-learning-outcomes-index",
+      "url": "https://scert.telangana.gov.in/Home.aspx/Pdf/pdf/publication/academiccalendar/Displaycontent.aspx?encry=SJZ%2FfnzG7N12MF87SAyR3A%3D%3D",
+      "source_type": "official_authority",
+      "document_type": "learning_outcome_index"
+    },
+    {
+      "key": "scert-physical-science-handbook-x",
+      "url": "https://www.scert.telangana.gov.in/PDF/publication/moduls/Phy_HB_X_EM.pdf",
+      "source_type": "official_authority",
+      "document_type": "teacher_handbook"
+    },
+    {
+      "key": "tgbie-maths-ia-annual-plan-2025-26",
+      "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Annual_Plan_Mahts-1A.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "annual_plan"
+    },
+    {
+      "key": "tgbie-maths-iia-annual-plan-2026-27",
+      "url": "https://tgbienew.cgg.gov.in/scannedPhotos/Circulars/Academic_Annual_Plan__Maths_IIA.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "annual_plan"
+    },
+    {
+      "key": "scert-textbooks-catalogue-2025-26",
+      "url": "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+      "source_type": "official_authority",
+      "document_type": "textbook_index"
+    },
+    {
+      "key": "scert-ps-telugu-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/PS_TM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "scert-bs-telugu-syllabus",
+      "url": "https://scert.telangana.gov.in/PDF/publication/syllabus/BS_TM.pdf",
+      "source_type": "official_syllabus",
+      "document_type": "subject_syllabus"
+    },
+    {
+      "key": "tgbie-official-index",
+      "url": "https://tgbienew.cgg.gov.in/home.do",
+      "source_type": "official_authority",
+      "document_type": "publication_index"
+    },
+    {
+      "key": "scert-learning-outcomes-posters-telugu",
+      "url": "https://scert.telangana.gov.in/pdf/publication/learningoutcomes/publicationlearningoutcomeslo-all-posterss-tm.pdf",
+      "source_type": "official_authority",
+      "document_type": "learning_outcomes"
+    }
+  ],
+  "deferred_authoritative_source_backlog": {
+    "id": "D5-DS01",
+    "status": "DEFERRED_BY_FOUNDER",
+    "closure_policy": "Day 5 engineering may close with this backlog deferred; production claims of officially verified Telangana curriculum data remain prohibited until D5-DS01 passes the unchanged live-source gate.",
+    "evidence_packages": [
+      "SCERT VIII Physical/Biological Science English and corresponding Telugu governing syllabi plus applicability notice",
+      "Complete selected SCERT I-X official inventory snapshot with media/language/part information",
+      "Telangana Learning Outcomes / Academic Standards originals with class/subject/medium applicability",
+      "Official Intermediate First/Second Year General/Vocational catalogue and course/group applicability evidence",
+      "Historical Math IA plus applicable current First/Second Year mathematics syllabi/version notices, including corresponding Telugu material where required"
+    ]
   }
 }
