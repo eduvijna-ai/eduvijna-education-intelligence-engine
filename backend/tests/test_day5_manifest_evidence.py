@@ -5,9 +5,11 @@ import json
 import pytest
 
 from app.curriculum_intelligence.day5_manifest_evidence import (
+    canonical_retrieval_url,
     classify_manifest_entry,
     manifest_evidence_role,
     validate_manifest_identity,
+    validate_required_manifest_contract,
 )
 from app.curriculum_intelligence.source_domains import require_domain, source_domain
 from app.models.enums import SourceType
@@ -116,3 +118,42 @@ def test_authority_reference_domain_cannot_establish_membership() -> None:
     assert source_domain(snapshot) == "authority_reference"
     with pytest.raises(ValueError, match="cannot establish membership"):
         require_domain(snapshot, "membership")
+
+
+def test_fragment_equivalent_urls_are_one_retrieval_identity() -> None:
+    first = _entry(key="one", url="https://example.invalid/source.pdf#one")
+    second = _entry(key="two", url="https://example.invalid/source.pdf#two")
+    validated, blockers = validate_manifest_identity([first, second])
+    assert len(validated) == 1
+    assert blockers
+    assert "URL already bound" in blockers[0]["reason"]
+    assert canonical_retrieval_url(first.url) == canonical_retrieval_url(second.url)
+
+
+def test_missing_frozen_required_source_is_contract_blocker() -> None:
+    from app.curriculum_intelligence.service import load_source_manifest
+
+    entries = load_source_manifest(curricula_content_dir() / "day5_official_sources.json")
+    required_key = SCOPE["frozen_required_academic_sources"][0]["key"]
+    reduced = [entry for entry in entries if entry.key != required_key]
+    frozen, blockers = validate_required_manifest_contract(reduced, SCOPE)
+    assert len(frozen) == 13
+    assert any(
+        item.get("source_key") == required_key
+        and "missing" in str(item.get("reason", "")).lower()
+        for item in blockers
+    )
+
+
+def test_malformed_frozen_supplemental_contract_fails_structurally() -> None:
+    scope = dict(SCOPE)
+    scope["frozen_supplemental_authority_sources"] = [{"key": "broken"}]
+    entry = _entry(
+        key="telangana-state-directory-tgbie",
+        url="https://www.telangana.gov.in/state-web-directory/",
+        document_type="authority_directory",
+    )
+    role, conflict = classify_manifest_entry(entry, scope)
+    assert role == "required_academic"
+    assert conflict is not None
+    assert "missing required field" in conflict.reason
