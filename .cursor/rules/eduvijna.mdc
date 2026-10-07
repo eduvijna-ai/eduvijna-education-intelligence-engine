@@ -10,3 +10,5 @@ When Cursor is used for implementation, select standard Composer 2.5 (not Compos
 Do not enable usage-based billing or paid overage. If a requested execution mode requires it, stop and use the approved zero-overage workflow instead.
 
 Never unlock the next development day and never set founder_approval=true.
+
+CI repair circuit breaker: after two consecutive failed repair iterations for the same active workstream, stop. Do not start a third full repair/CI attempt automatically. Report both SHAs/runs, failing checks, failure class and proposed next action to the Chief Architect/Founder. Infrastructure failures and formally deferred fail-closed external-evidence gates do not count as code-repair failures.
