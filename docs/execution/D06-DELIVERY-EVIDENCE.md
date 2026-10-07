@@ -9,7 +9,7 @@
 
 ## Head SHA and verification
 
-Record at push time:
+Candidate head SHA: `108dbc2` (branch `feature/day6-education-intelligence-validators`).
 
 ```bash
 git rev-parse HEAD
