@@ -57,7 +57,10 @@ def test_relabelled_syllabus_stays_required_academic() -> None:
 def test_relabelled_catalogue_stays_required_academic() -> None:
     entry = _entry(
         key="scert-textbooks-catalogue-2025-26",
-        url="https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D",
+        url=(
+            "https://www.scert.telangana.gov.in/Home.aspx/Pdf/pdf/"
+            "DisplayContent.aspx?encry=ammkNW4%2Fgx+NeApstGPX+A%3D%3D"
+        ),
         document_type="authority_directory",
     )
     role, conflict = classify_manifest_entry(entry, SCOPE)
