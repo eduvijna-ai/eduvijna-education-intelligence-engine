@@ -309,3 +309,9 @@ The repository now uses a **two-strike repair circuit breaker**:
 - an already approved fail-closed external-evidence gate such as D5-DS01 does not count as a code-repair failure when engineering jobs are otherwise green.
 
 This policy is mirrored in `AGENTS.md`, `.cursor/rules/eduvijna.mdc` and `.eduvijna/execution-state.yml`.
+
+## Bounded CI recovery (base `484acdb8`, circuit-breaker pass)
+
+- Repaired malformed `.github/workflows/ci.yml` (duplicate `frontend` / `compose-smoke` / `source-handoff` jobs and stray shell fragment after `source-handoff` `retention-days`).
+- Day 5 CI deferral now uses `python -m app.day5_official_ci_gate`: only a **valid structured** `day5-source-report.json` with empty manifest engineering blockers and Founder `D5-DS01` / `DEFERRED_BY_FOUNDER` in execution state may soften the **job** exit code; `acceptance.passed` remains **false** in the artifact (deferral is not verification).
+- Terminal host-dot URL canonicalization (Codex `r4205908320`) already present in `canonical_retrieval_url` with regression tests; no additional change.
