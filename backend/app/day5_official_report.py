@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.curriculum_intelligence.day5_manifest_evidence import (
     classify_manifest_entry,
     validate_manifest_identity,
+    validate_required_manifest_contract,
 )
 from app.curriculum_intelligence.scoped_acceptance import _revision, evaluate_day5_acceptance
 from app.curriculum_intelligence.scoped_catalogue import ScopedCatalogueError
@@ -128,6 +129,10 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
     verification_slice = load_verification_slice(content_root)
     entries_raw = load_source_manifest(content_root / "day5_official_sources.json")
     entries, manifest_identity_blockers = validate_manifest_identity(entries_raw)
+    frozen_required, manifest_contract_blockers = validate_required_manifest_contract(
+        entries, scope
+    )
+    manifest_identity_blockers.extend(manifest_contract_blockers)
     manifest_classification_blockers: list[dict[str, Any]] = []
     entry_roles: dict[str, str] = {}
     for entry in entries:
@@ -307,7 +312,9 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
     manifest_accounting = {
         "manifest_total": len(entries_raw),
         "manifest_validated_distinct": len(entries),
-        "required_academic_count": len(required_entries),
+        "required_academic_expected_count": len(frozen_required),
+        "required_academic_count": len(frozen_required),
+        "required_academic_present_count": len(required_entries),
         "supplemental_authority_count": len(supplemental_entries),
         "required_academic_retrieved": sum(
             1 for item in required_sources if item["retrieved_content"]
@@ -322,8 +329,9 @@ def build_official_report(session: Session, *, storage_root: Path) -> dict[str, 
             1 for item in supplemental_sources if item["registry_only"]
         ),
         "denominator_note": (
-            "Academic acceptance gates use required_academic_count only; "
-            "supplemental authority directories never establish curriculum membership"
+            "Academic acceptance uses the independently frozen required_academic_count; "
+            "submitted-manifest shrinkage cannot reduce that denominator, and supplemental "
+            "authority directories never establish curriculum membership"
         ),
     }
 
