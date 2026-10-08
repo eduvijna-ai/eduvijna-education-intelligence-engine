@@ -1,7 +1,8 @@
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    EDUVIJNA_EXECUTION_STATE_PATH=/app/.eduvijna/execution-state.yml
 
 WORKDIR /app
 
@@ -12,6 +13,7 @@ COPY backend/tests ./tests
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./
 COPY content/curricula ./content/curricula
+COPY .eduvijna/execution-state.yml ./.eduvijna/execution-state.yml
 COPY .github/workflows/ci.yml ./.github/workflows/ci.yml
 RUN pip install --no-cache-dir '.[dev]'
 RUN mkdir -p /app/data && chown -R eduvijna:eduvijna /app
