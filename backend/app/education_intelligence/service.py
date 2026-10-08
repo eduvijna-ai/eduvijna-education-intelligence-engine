@@ -11,6 +11,7 @@ from app.education_intelligence.contracts import (
     ValidationRunSummary,
 )
 from app.education_intelligence.policy_registry import load_policy_registry
+from app.education_intelligence.quality_rule_pack import seed_quality_rule_pack
 from app.education_intelligence.registry import ValidatorRegistry, build_default_registry
 from app.education_intelligence.taxonomy_registry import seed_taxonomy_registry
 from app.education_intelligence.validators.cognition import CognitiveProgressionValidator
@@ -29,6 +30,10 @@ class EducationIntelligenceValidationService:
         self.registry = registry or build_default_registry()
         if session is not None:
             seed_taxonomy_registry(session)
+            seed_quality_rule_pack(session)
+            from app.education_intelligence.policy_registry import seed_policy_registry
+
+            seed_policy_registry(session)
 
     def validate_item(
         self,

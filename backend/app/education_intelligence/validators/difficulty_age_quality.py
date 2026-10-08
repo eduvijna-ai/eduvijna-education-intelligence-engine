@@ -149,6 +149,25 @@ class AgeGradeAppropriatenessValidator:
     validator_version = "1.0.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
+        authoritative = bool(item.metadata_json.get("authoritative_age_mapping"))
+        if (
+            ctx.curriculum_index
+            and item.grade_year_code
+            and item.grade_year_code in ctx.curriculum_index.grade_authoritative_age
+        ):
+            authoritative = True
+        if item.grade_year_code and not authoritative:
+            return ValidationResult(
+                validator_id=self.validator_id,
+                validator_version=self.validator_version,
+                status=ValidationStatus.REVIEW_REQUIRED,
+                rule_codes=["AGE-001"],
+                severity=ValidationSeverity.ADVISORY,
+                blocking=False,
+                target={"grade_year_code": item.grade_year_code},
+                observed={"authoritative_age_mapping": False},
+                taxonomy_version=ctx.taxonomy.version,
+            )
         if item.age_min is None and item.age_max is None and not item.grade_year_code:
             return ValidationResult(
                 validator_id=self.validator_id,
@@ -309,37 +328,51 @@ class StructuralClarityValidator:
 
 class EducationalQualityRulePackValidator:
     validator_id = "educational_quality_rules"
-    validator_version = "1.0.0"
+    validator_version = "1.1.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
+        pack = ctx.quality_rule_pack
+        if pack is None:
+            return ValidationResult(
+                validator_id=self.validator_id,
+                validator_version=self.validator_version,
+                status=ValidationStatus.REVIEW_REQUIRED,
+                rule_codes=["QUAL-PACK-000"],
+                severity=ValidationSeverity.MANDATORY,
+                blocking=False,
+                target={},
+                observed={"quality_rule_pack": None},
+                taxonomy_version=ctx.taxonomy.version,
+            )
         rule_codes: list[str] = []
         status = ValidationStatus.PASS
         blocking = False
-        observed: dict[str, object] = {}
+        observed: dict[str, object] = {"quality_rule_pack_version": pack.version}
         stem = item.stem_text.strip()
-        if not stem:
-            rule_codes.append("QUAL-ALIGN-001")
-            status = ValidationStatus.FAIL
-            blocking = True
-        if item.question_type == "single_choice" and len(item.options) < 2:
-            rule_codes.append("QUAL-CLAR-001")
-            status = ValidationStatus.FAIL
-            blocking = True
-        if not item.answer_metadata_present:
-            rule_codes.append("QUAL-ANS-001")
-            status = ValidationStatus.FAIL
-            blocking = True
-        if item.explanation_required and not item.explanation_present:
-            rule_codes.append("QUAL-EXPL-001")
-            status = ValidationStatus.FAIL
-            blocking = True
         trick_patterns = ("all of the above are wrong", "none of these", "trick question")
         lower = stem.lower()
-        if any(p in lower for p in trick_patterns):
-            rule_codes.append("QUAL-TRICK-001")
-            if status == ValidationStatus.PASS:
-                status = ValidationStatus.WARN
-            observed["trick_wording"] = True
+        for rule in pack.rules:
+            code = str(rule.get("rule_code", ""))
+            check = str(rule.get("check", ""))
+            is_blocking = bool(rule.get("blocking", False))
+            triggered = False
+            if check == "non_empty_stem" and not stem:
+                triggered = True
+            elif check == "single_choice_min_options" and item.question_type == "single_choice":
+                triggered = len(item.options) < 2
+            elif check == "answer_metadata_present":
+                triggered = not item.answer_metadata_present
+            elif check == "explanation_when_required":
+                triggered = item.explanation_required and not item.explanation_present
+            elif check == "avoid_trick_wording":
+                triggered = any(p in lower for p in trick_patterns)
+            if triggered:
+                rule_codes.append(code)
+                if is_blocking:
+                    status = ValidationStatus.FAIL
+                    blocking = True
+                elif status == ValidationStatus.PASS:
+                    status = ValidationStatus.WARN
         if not rule_codes:
             rule_codes = ["QUAL-PASS-001"]
         return ValidationResult(
@@ -349,7 +382,7 @@ class EducationalQualityRulePackValidator:
             rule_codes=rule_codes,
             severity=ValidationSeverity.MANDATORY if blocking else ValidationSeverity.ADVISORY,
             blocking=blocking,
-            target={"quality_rule_pack": ctx.quality_rule_pack_version},
+            target={"quality_rule_pack_version": pack.version},
             observed=observed,
             taxonomy_version=ctx.taxonomy.version,
         )

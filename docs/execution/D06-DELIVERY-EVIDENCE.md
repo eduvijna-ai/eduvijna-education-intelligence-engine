@@ -2,62 +2,52 @@
 
 ## Status
 
-- **Day 6 engineering**: implementation complete on branch `feature/day6-education-intelligence-validators`
-- **Founder approval**: not requested in this document (separate gate)
-- **D5-DS01 / issue #16**: unchanged — authoritative Telangana source ingestion remains deferred
-- **Paper-level cognitive/competency distribution**: explicitly **not** implemented (Day 10); Day 6 covers per-item cognition and cognitive-progression primitives only
+- **Day 6 engineering**: correction iteration #1 on branch `feature/day6-education-intelligence-validators`
+- **Founder approval**: not requested (separate gate)
+- **D5-DS01 / issue #16**: unchanged — verified via `verify_governance_state()` in `day6_verify`
+- **Exact-head proof**: supplied by CI run on the correction candidate SHA (not embedded as a mutable SHA in this document per C6-R12)
 
-## Head SHA and verification
+## Failed baseline (iteration anchor)
 
-Candidate head SHA: `1bdc867` (branch `feature/day6-education-intelligence-validators`).
+- Base failed SHA: `4775c2379ac46af2eab8f3d5ba0e66957c16545e`
+- Failed CI: run #209 — backend job, Ruff import-order gate
 
-```bash
-git rev-parse HEAD
-python -m app.day6_verify
-```
+## Correction scope map (C6-R01…C6-R15)
 
-Founder harness exit code `0` required.
+| ID | Implementation |
+|----|----------------|
+| C6-R01 | Ruff import order (`fixtures.py`, `models/__init__.py`) + `ruff check app tests` |
+| C6-R02 | `validators/alignment.py` + `scope.py` exact LO scope |
+| C6-R03 | `SourceBackedCompetencyValidator` scoped framework/version/subject |
+| C6-R04 | `AgeGradeAppropriatenessValidator` authoritative mapping gate |
+| C6-R05 | `policy_registry.py` — weakening overrides ignored, authoritative rules kept |
+| C6-R06 | Foreign overrides ignored; tests without simulation metadata |
+| C6-R07 | `RubricIntegrityValidator` weights/links/thresholds |
+| C6-R08 | `quality_rule_pack.py` + persisted `ei_quality_rule_packs` |
+| C6-R09 | `safety_rules.py` versioned policy payload + validator |
+| C6-R10 | `bind_provenance` + `source_entity_refs` on alignment results |
+| C6-R11 | `governance.py` + hardened `day6_verify.py` |
+| C6-R12 | This document — CI/PR supplies exact SHA |
+| C6-R13 | `tests/test_day6_corrections.py` |
+| C6-R14 | Full gate on correction candidate (CI + local commands below) |
+| C6-R15 | Codex review after green CI |
 
-## D6-01…D6-36 map
-
-See `docs/execution/D06-SCOPE-MAP.md` for the authoritative task-to-code matrix aligned with the PR handoff numbering.
-
-## Core modules
-
-| Area | Path |
-|------|------|
-| Service boundary | `backend/app/education_intelligence/service.py` |
-| ValidationResult contract | `backend/app/education_intelligence/contracts.py` |
-| Taxonomy registry | `backend/app/education_intelligence/taxonomy_registry.py` |
-| Policy registry + precedence | `backend/app/education_intelligence/policy_registry.py` |
-| Validators | `backend/app/education_intelligence/validators/` |
-| Composed runs | `backend/app/education_intelligence/composition.py` |
-| Audit persistence | `backend/app/education_intelligence/audit.py`, `ei_validation_audit_runs` |
-| Fixtures | `backend/app/education_intelligence/fixtures.py` |
-| Founder verifier | `backend/app/day6_verify.py` |
-| Migration | `backend/migrations/versions/20261007_0010_day6_education_intelligence.py` |
-
-## Tests executed (candidate)
+## Local verification commands
 
 ```bash
 cd backend
-python -m pytest tests/test_day6_validators.py tests/test_day6_migration.py -q
-python -m pytest -q
-ruff check app
+ruff check app tests
 mypy app
+PATH="$PWD/.venv/bin:$PATH" pytest -q
 python -m app.day6_verify
 ```
 
-PostgreSQL DDL compile: `tests/test_postgres_compile.py` (includes new `ei_*` tables via model metadata).
+## Review-required limitations
 
-## Review-required limitations (explicit)
-
-- Cognitive-demand inference from structured signals uses deterministic heuristics; ambiguous evidence returns `review_required`, not LLM review.
-- Age/grade appropriateness without authoritative age-band mapping returns `review_required` rather than inventing suitability.
-- Bias/fairness semantic ambiguity returns `review_required` (see `SAFE-001`).
-- Official competency mapping requires `source_revision_id` on framework competencies; generic taxonomy tags remain valid without official claims.
-- Telangana fixtures use synthetic curriculum entities only; live authoritative Telangana verification remains blocked by D5-DS01.
+- Cognitive-demand and bias semantics use deterministic rules; ambiguous cases return `review_required`.
+- LO/competency without `source_revision_id` on official paths returns `review_required`.
+- Telangana authoritative sources remain D5-DS01 deferred.
 
 ## Stop gate
 
-Do not merge Day 6 without Founder signoff. Do not unlock Day 7 in `execution-state.yml`.
+Do not merge without Founder signoff. Do not unlock Day 7.

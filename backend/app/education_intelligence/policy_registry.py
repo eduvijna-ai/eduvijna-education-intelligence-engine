@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.education_intelligence.contracts import InstitutionPolicyOverride, PolicyRuleConfig
 from app.education_intelligence.enums import PolicyAuthorityTier, ValidationSeverity
+from app.education_intelligence.safety_rules import seed_safety_rules_in_policy_payload
 from app.models.education_intelligence import PolicyRegistryEntry
 
 V1_POLICY_VERSION = "education-policy-v1.0"
@@ -78,7 +79,8 @@ class PolicyRegistry:
             for rule in applicable:
                 if rule.policy_key in override_keys:
                     ov = override_keys[rule.policy_key]
-                    if ov.tightens_only and _override_weakens(rule, ov):
+                    if _override_weakens(rule, ov):
+                        filtered.append(rule)
                         continue
                     merged = rule.model_copy()
                     merged.value = {**rule.value, **ov.value}
@@ -108,10 +110,14 @@ def _override_weakens(rule: PolicyRuleConfig, override: InstitutionPolicyOverrid
 
 
 def seed_policy_registry(session: Session) -> PolicyRegistry:
-    payload = {
-        "rules": [r.model_dump(mode="json") for r in DEFAULT_GLOBAL_RULES + DEFAULT_BOARD_RULES],
-        "institution_overrides": [],
-    }
+    payload = seed_safety_rules_in_policy_payload(
+        {
+            "rules": [
+                r.model_dump(mode="json") for r in DEFAULT_GLOBAL_RULES + DEFAULT_BOARD_RULES
+            ],
+            "institution_overrides": [],
+        }
+    )
     existing = session.scalar(
         select(PolicyRegistryEntry).where(
             PolicyRegistryEntry.registry_key == "v1",

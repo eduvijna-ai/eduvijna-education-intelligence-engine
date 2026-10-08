@@ -43,12 +43,24 @@ def bind_provenance(
     input_hash = item.canonical_hash()
     bound: list[ValidationResult] = []
     for result in results:
+        entity_refs = list(result.source_entity_refs)
+        if not entity_refs and result.evidence:
+            for ev in result.evidence:
+                if ev.entity_id or ev.source_revision_id:
+                    entity_refs.append(
+                        {
+                            "entity_type": ev.entity_type,
+                            "entity_id": ev.entity_id or "",
+                            "source_revision_id": ev.source_revision_id or "",
+                        }
+                    )
         bound.append(
             result.model_copy(
                 update={
                     "input_hash": input_hash,
                     "taxonomy_version": result.taxonomy_version or taxonomy_version,
                     "policy_version": result.policy_version or policy_version,
+                    "source_entity_refs": entity_refs,
                 }
             )
         )

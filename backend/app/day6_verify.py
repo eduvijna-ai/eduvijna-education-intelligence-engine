@@ -1,4 +1,4 @@
-"""Founder Day 6 verification harness (D6-35)."""
+"""Founder Day 6 verification harness (D6-35 / C6-R11)."""
 
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ from app.education_intelligence.fixtures import (
     seed_cbse_fixture_curriculum,
     seed_telangana_fixture_curriculum,
 )
+from app.education_intelligence.governance import verify_governance_state
+from app.education_intelligence.policy_registry import load_policy_registry
 from app.education_intelligence.service import EducationIntelligenceValidationService
 
 
@@ -42,6 +44,7 @@ def _git_head() -> str:
 
 
 def build_verification_report(session: Session) -> dict[str, object]:
+    governance = verify_governance_state()
     cbse = seed_cbse_fixture_curriculum(session)
     tg = seed_telangana_fixture_curriculum(session)
     session.commit()
@@ -77,22 +80,28 @@ def build_verification_report(session: Session) -> dict[str, object]:
         institution_overrides=[weaken_override],
     )
 
-    isolation_item = positive_cbse_item(cbse).model_copy(
-        update={
-            "item_id": "tenant-isolation",
-            "institution_id": "inst-a",
-            "metadata_json": {"simulate_cross_tenant_override_leak": True},
-        }
-    )
     foreign_override = InstitutionPolicyOverride(
         institution_id="inst-b",
         policy_key="quality.explanation_when_required",
         value={"disable_blocking": True},
     )
+    isolation_item = positive_cbse_item(cbse).model_copy(
+        update={
+            "item_id": "tenant-isolation",
+            "institution_id": "inst-a",
+            "explanation_required": True,
+            "explanation_present": False,
+        }
+    )
     isolation = service.validate_item(
         isolation_item,
         board_code="cbse",
         institution_overrides=[foreign_override],
+    )
+    reg = load_policy_registry(session, institution_overrides=[foreign_override])
+    foreign_ignored = not any(
+        r.value.get("disable_blocking")
+        for r in reg.rules_for_scope(board_code="cbse", institution_id="inst-a")
     )
 
     tg_item = positive_cbse_item(tg).model_copy(
@@ -101,6 +110,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             "learning_outcome_ids": [tg["learning_outcome_id"]],
             "curriculum_version_id": tg["curriculum_version_id"],
             "subject_code": tg["subject_code"],
+            "grade_year_code": "grade-8",
             "metadata_json": {"synthetic_fixture": True, "scope": "telangana"},
         }
     )
@@ -110,6 +120,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
     audit = service.get_audit_run(persisted.run_id)
 
     checks = {
+        "governance_state": governance["passed"],
         "valid_item_passes": valid.aggregate_status == ValidationStatus.PASS,
         "wrong_lo_or_version_fails": wrong_lo.aggregate_status == ValidationStatus.FAIL,
         "cognition_mismatch_detected": any(
@@ -127,7 +138,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "invalid_rubric_fails": rubric_bad.aggregate_status == ValidationStatus.FAIL,
         "official_policy_not_weakened_by_override": with_weaken.aggregate_status
         == ValidationStatus.FAIL,
-        "institution_isolation": isolation.aggregate_status == ValidationStatus.FAIL,
+        "foreign_tenant_override_ignored": foreign_ignored and isolation.aggregate_status
+        == ValidationStatus.FAIL,
         "safety_bias_trigger": safety.blocking_failure,
         "cognitive_progression_invalid_fails": progression_bad.aggregate_status
         == ValidationStatus.FAIL,
@@ -136,18 +148,14 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "provenance_versions_present": bool(valid.taxonomy_version and valid.policy_version),
         "audit_history_persisted": audit is not None,
         "telangana_fixture_runs": tg_valid.run_id,
-        "d5_ds01_unchanged": "deferred",
     }
 
     return {
         "day": 6,
         "head_sha": _git_head(),
+        "governance": governance,
         "checks": checks,
-        "passed": all(
-            v is True
-            for k, v in checks.items()
-            if k not in {"telangana_fixture_runs", "d5_ds01_unchanged"}
-        ),
+        "passed": all(v is True for k, v in checks.items() if k != "telangana_fixture_runs"),
         "sample_run": {
             "run_id": valid.run_id,
             "taxonomy_version": valid.taxonomy_version,
