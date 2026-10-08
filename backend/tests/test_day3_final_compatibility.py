@@ -16,7 +16,7 @@ from app.source_legacy_repair import apply_mapping, inspect_pending
 REV_0005 = "20261002_0005"
 REV_0006 = "20261003_0006"
 REV_0007 = "20261003_0007"
-REV_HEAD = "20261004_0009"
+REV_HEAD = "20261007_0010"
 
 
 def _canonical_bytes(value: object) -> bytes:
