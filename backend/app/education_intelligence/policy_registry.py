@@ -141,9 +141,24 @@ def seed_policy_registry(session: Session) -> PolicyRegistry:
 def load_policy_registry(
     session: Session | None,
     institution_overrides: list[InstitutionPolicyOverride] | None = None,
+    *,
+    version: str | None = None,
 ) -> PolicyRegistry:
     if session is None:
         reg = PolicyRegistry(rules=DEFAULT_GLOBAL_RULES + DEFAULT_BOARD_RULES)
+        if institution_overrides:
+            reg.institution_overrides = institution_overrides
+        return reg
+    if version:
+        row = session.scalar(
+            select(PolicyRegistryEntry).where(PolicyRegistryEntry.version == version)
+        )
+        if row is None:
+            reg = PolicyRegistry(version=version, rules=DEFAULT_GLOBAL_RULES + DEFAULT_BOARD_RULES)
+            if institution_overrides:
+                reg.institution_overrides = institution_overrides
+            return reg
+        reg = _from_payload(row.version, row.payload_json)
         if institution_overrides:
             reg.institution_overrides = institution_overrides
         return reg

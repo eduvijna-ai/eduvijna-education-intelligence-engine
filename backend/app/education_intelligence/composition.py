@@ -94,6 +94,8 @@ def run_validation(
     aggregate = aggregate_status(results)
     blocking_failure = any(r.blocking and r.status == ValidationStatus.FAIL for r in results)
     explanations = explain_results(results)
+    quality_version = ctx.quality_rule_pack.version if ctx.quality_rule_pack else None
+    safety_version = ctx.safety_rule_pack.version if ctx.safety_rule_pack else None
     return ValidationRunSummary(
         run_id=run_id or str(uuid4()),
         input_hash=item.canonical_hash(),
@@ -103,5 +105,9 @@ def run_validation(
         taxonomy_version=ctx.taxonomy.version,
         policy_version=ctx.policy.version,
         validator_versions=versions,
+        metadata={
+            "quality_rule_pack_version": quality_version,
+            "safety_rules_version": safety_version,
+        },
         explanations=explanations,
     )

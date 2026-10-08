@@ -256,14 +256,23 @@ class InstitutionOverrideBoundaryValidator:
                 observed={"weakening_override_applied": True},
                 policy_version=ctx.policy.version,
             )
-        foreign_keys = {
+        foreign_override_count = sum(
+            1
+            for o in ctx.policy.institution_overrides
+            if o.institution_id != item.institution_id
+        )
+        applied_from_foreign = [
             o.policy_key
             for o in ctx.policy.institution_overrides
             if o.institution_id != item.institution_id
-        }
-        applied_keys = {r.policy_key for r in rules}
-        leaked = foreign_keys.intersection(applied_keys)
-        if leaked:
+            and any(
+                r.policy_key == o.policy_key
+                and r.value.get("disable_blocking") == o.value.get("disable_blocking")
+                and o.value.get("disable_blocking")
+                for r in rules
+            )
+        ]
+        if applied_from_foreign:
             return ValidationResult(
                 validator_id=self.validator_id,
                 validator_version=self.validator_version,
@@ -272,7 +281,7 @@ class InstitutionOverrideBoundaryValidator:
                 severity=ValidationSeverity.MANDATORY,
                 blocking=True,
                 target={"institution_id": item.institution_id},
-                observed={"cross_tenant_policy_keys": sorted(leaked)},
+                observed={"foreign_override_values_applied": applied_from_foreign},
                 policy_version=ctx.policy.version,
             )
         return ValidationResult(
@@ -283,18 +292,33 @@ class InstitutionOverrideBoundaryValidator:
             severity=ValidationSeverity.MANDATORY,
             blocking=False,
             target={"institution_id": item.institution_id},
-            observed={"isolation_ok": True, "foreign_overrides_ignored": len(foreign_keys)},
+            observed={
+                "isolation_ok": True,
+                "foreign_overrides_present_not_applied": foreign_override_count,
+            },
             policy_version=ctx.policy.version,
         )
 
 
+def _safety_scan_text(item: CanonicalAssessmentItem) -> str:
+    parts: list[str] = []
+    if item.stem_text:
+        parts.append(item.stem_text)
+    for option in item.options:
+        if option.text:
+            parts.append(option.text)
+    if item.content_text_for_safety:
+        parts.append(item.content_text_for_safety)
+    return "\n".join(parts).lower()
+
+
 class BiasFairnessSafetyValidator:
     validator_id = "bias_fairness_safety"
-    validator_version = "1.1.0"
+    validator_version = "1.2.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         pack = ctx.safety_rule_pack
-        text = (item.content_text_for_safety or item.stem_text or "").lower()
+        text = _safety_scan_text(item)
         if pack is None:
             return ValidationResult(
                 validator_id=self.validator_id,

@@ -151,6 +151,7 @@ class ValidationRunSummary(BaseModel):
     taxonomy_version: str
     policy_version: str
     validator_versions: dict[str, str] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     explanations: list[str] = Field(default_factory=list)
 

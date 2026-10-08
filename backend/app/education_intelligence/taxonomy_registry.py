@@ -113,9 +113,22 @@ def seed_taxonomy_registry(session: Session) -> TaxonomyRegistry:
     return TaxonomyRegistry()
 
 
-def load_taxonomy_registry(session: Session | None) -> TaxonomyRegistry:
+def load_taxonomy_registry(
+    session: Session | None, *, version: str | None = None
+) -> TaxonomyRegistry:
     if session is None:
         return TaxonomyRegistry()
+    if version:
+        row = session.scalar(
+            select(TaxonomyRegistryEntry).where(TaxonomyRegistryEntry.version == version)
+        )
+        if row is None:
+            return TaxonomyRegistry(version=version)
+        return TaxonomyRegistry(
+            version=row.version,
+            cognitive=row.payload_json.get("cognitive", V1_COGNITIVE_LEVELS),
+            competencies=row.payload_json.get("competencies", V1_COMPETENCIES),
+        )
     row = session.scalar(
         select(TaxonomyRegistryEntry)
         .where(TaxonomyRegistryEntry.registry_key == "v1")

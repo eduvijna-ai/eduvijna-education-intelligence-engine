@@ -23,7 +23,11 @@ def persist_validation_run(
         institution_id=institution_id,
         actor_id=actor_id,
         results_json=[r.model_dump(mode="json") for r in summary.results],
-        metadata_json={"validator_versions": summary.validator_versions},
+        metadata_json={
+            "validator_versions": summary.validator_versions,
+            "quality_rule_pack_version": summary.metadata.get("quality_rule_pack_version"),
+            "safety_rules_version": summary.metadata.get("safety_rules_version"),
+        },
     )
     session.add(record)
     session.flush()

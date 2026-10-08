@@ -42,7 +42,27 @@ DEFAULT_QUALITY_RULES: list[dict[str, Any]] = [
         "severity": ValidationSeverity.ADVISORY.value,
         "blocking": False,
     },
+    {
+        "rule_code": "QUAL-CONS-001",
+        "check": "internal_consistency",
+        "severity": ValidationSeverity.MANDATORY.value,
+        "blocking": True,
+    },
+    {
+        "rule_code": "QUAL-COG-001",
+        "check": "cognitive_appropriateness",
+        "severity": ValidationSeverity.ADVISORY.value,
+        "blocking": False,
+    },
+    {
+        "rule_code": "QUAL-RUB-001",
+        "check": "rubric_when_required",
+        "severity": ValidationSeverity.MANDATORY.value,
+        "blocking": True,
+    },
 ]
+
+V2_QUALITY_PACK_VERSION = "quality-v1.1"
 
 
 @dataclass
@@ -73,9 +93,20 @@ def seed_quality_rule_pack(session: Session) -> QualityRulePack:
     return load_quality_rule_pack(session)
 
 
-def load_quality_rule_pack(session: Session | None) -> QualityRulePack:
+def load_quality_rule_pack(
+    session: Session | None, *, version: str | None = None
+) -> QualityRulePack:
     if session is None:
         return QualityRulePack(rules=list(DEFAULT_QUALITY_RULES))
+    if version:
+        row = session.scalar(
+            select(EducationalQualityRulePack).where(
+                EducationalQualityRulePack.version == version,
+            )
+        )
+        if row is None:
+            return QualityRulePack(version=version, rules=list(DEFAULT_QUALITY_RULES))
+        return QualityRulePack(version=row.version, rules=list(row.rules_json))
     row = session.scalar(
         select(EducationalQualityRulePack)
         .where(EducationalQualityRulePack.pack_key == "v1")

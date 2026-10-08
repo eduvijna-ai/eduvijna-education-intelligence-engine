@@ -95,6 +95,14 @@ class EducationIntelligenceValidationService:
             taxonomy_version=ctx.taxonomy.version,
             policy_version=ctx.policy.version,
             validator_versions={validator.validator_id: validator.validator_version},
+            metadata={
+                "quality_rule_pack_version": (
+                    ctx.quality_rule_pack.version if ctx.quality_rule_pack else None
+                ),
+                "safety_rules_version": (
+                    ctx.safety_rule_pack.version if ctx.safety_rule_pack else None
+                ),
+            },
             explanations=explain_results(results),
         )
 

@@ -13,7 +13,7 @@ By the Day 6 completion gate, Eduvijna must be able to accept a canonical assess
 - rubric integrity;
 - design-time difficulty;
 - age/grade appropriateness;
-- cognitive progression/distribution;
+- cognitive progression primitives (per-item; paper-level distribution is Day 10);
 - educational quality;
 - bias/safety;
 - country/board/institution policy constraints.
@@ -87,8 +87,8 @@ Represent why an item is classified at a cognitive level using structured signal
 D6-09 — Validate target versus observed cognitive level  
 Compare declared target cognitive level with structured observed-demand evidence. Acceptance: clear mismatches fail/warn according to configured policy; uncertain cases return review_required, not fabricated certainty.
 
-D6-10 — Add assessment-set cognitive distribution validator  
-Given a supplied set of items, validate requested cognitive/competency distribution with exact denominator accounting. Acceptance: zero/empty denominators, duplicate items and unknown tags cannot produce a passing percentage. No paper planner is implemented.
+D6-10 — Validate target versus observed cognitive level (per item)  
+Compare declared target cognitive level with structured observed-demand evidence on each canonical item. Acceptance: clear mismatches fail/warn according to configured policy; uncertain cases return review_required. Paper-level cognitive/competency percentage distribution is **Day 10**, not Day 6.
 
 D6-11 — Add design-time difficulty profile  
 Represent difficulty as versioned design-time evidence rather than an empirical learner-performance claim. Initial signals may include cognitive demand, prerequisite depth, step count, abstraction, computation load, language load and expected time band. Acceptance: observed/student-calibrated difficulty is not claimed without data.
@@ -145,13 +145,13 @@ D6-28 — Enforce deterministic/idempotent behavior
 Same canonical input plus same rule/taxonomy/policy versions must produce the same deterministic core result. Acceptance: ordering, duplicate metadata and repeated execution do not change outcomes unexpectedly.
 
 D6-29 — Add clean internal service/CLI interfaces  
-Provide engineering calls to validate one item and one supplied item set and inspect rule/policy provenance. Acceptance: no public REST contract is required yet; services remain callable directly in tests.
+Provide engineering calls to validate one canonical item, exercise cognitive-progression primitives, and inspect rule/policy provenance. Acceptance: no public REST contract is required yet; services remain callable directly in tests. Supplied-set paper distribution validation is Day 10.
 
 D6-30 — Add positive fixtures  
 Cover CBSE and Telangana-scoped examples using synthetic/non-copyrighted item text with real entity/source references where appropriate. Acceptance: fixtures clearly distinguish synthetic question content from official curriculum evidence.
 
 D6-31 — Add adversarial fixtures  
-Cover wrong curriculum version, wrong grade/medium/subject, invalid outcome, unsupported competency, cognitive mismatch, invalid difficulty, broken rubric, conflicting policies, cross-tenant override, empty denominators, unsafe/bias rule violations and unknown/review states.
+Cover wrong curriculum version, wrong grade/medium/subject, invalid outcome, unsupported competency, cognitive mismatch, invalid progression, invalid difficulty, broken rubric, conflicting policies, cross-tenant override, unsafe/bias rule violations and unknown/review states.
 
 D6-32 — Preserve SQLite/PostgreSQL compatibility  
 Any persistence additions work locally on SQLite and compile/operate cleanly for PostgreSQL conventions. Acceptance: no SQLite-only JSON/constraint behavior without portable handling.
@@ -163,7 +163,7 @@ D6-34 — Run full regression on exact candidate
 Run complete backend tests, Ruff, mypy, frontend typecheck/build, migrations, PostgreSQL DDL compilation, Compose/API smoke and all Day 3–5 verification gates applicable to the branch. D5-DS01 remains deferred exactly as approved and must not be rewritten green.
 
 D6-35 — Deliver Founder Day 6 verification  
-Provide a deterministic script/report demonstrating: valid item passes; LO/version mismatch fails; cognitive mismatch is caught; difficulty evidence is shown; rubric defect fails; policy precedence prevents an institution override weakening an official rule; bias/safety rule triggers; supplied-set distribution accounts exactly; provenance shows exact validator/policy/source versions.
+Provide a deterministic script/report demonstrating: valid item passes; LO/version mismatch fails; inactive SourceRevision cannot authorize LO; missing/wrong medium handled; cognitive mismatch is caught; difficulty evidence is shown; authoritative age mismatch caught; rubric defect fails; policy precedence prevents an institution override weakening an official rule; foreign tenant override ignored without failing valid tenant items; bias/safety rule triggers (stem cannot be bypassed by supplemental safety text); cognitive progression valid/invalid behavior; structural option defects; provenance shows exact validator/taxonomy/policy/quality/safety/source versions.
 
 D6-36 — Deliver Day 6 evidence map and stop gate  
 Map D6-01…D6-36 to code/tests/evidence, exact head SHA and CI run. List review-required limitations explicitly. Founder approval is separate. Stop before Day 7.
@@ -185,15 +185,7 @@ canonical assessment item
   -> exact provenance / rule codes
 ```
 
-And for a supplied set:
-
-```text
-assessment items
-  -> exact denominator
-  -> competency distribution
-  -> cognitive distribution
-  -> blocking/warning/review_required summary
-```
+Paper-level cognitive/competency distribution for supplied item sets is demonstrated on **Day 10** (prerequisite diagnostics and blueprint allocation). Day 6 demonstrates per-item validation and explicit cognitive-progression primitives only.
 
 No assessment generation is required for this demonstration.
 
@@ -204,7 +196,7 @@ Day 6 engineering may be called complete only when:
 - validator behavior is deterministic on fixed versions;
 - policy precedence is fail-closed;
 - curriculum/source provenance remains exact;
-- rubric and distribution invariants are enforced;
+- rubric invariants and per-item cognitive-progression primitives are enforced;
 - SQLite/PostgreSQL/migration/full regression gates are green;
 - Day 5 deferred D5-DS01 remains open and unchanged in meaning;
 - independent review has no unresolved blocker/major finding for the delivered head.

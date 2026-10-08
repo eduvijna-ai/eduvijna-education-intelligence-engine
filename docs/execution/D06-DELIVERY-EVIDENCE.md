@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Day 6 engineering**: correction iteration #1 on branch `feature/day6-education-intelligence-validators`
+- **Day 6 engineering**: review-closure iteration (D6-F01…D6-F15) on branch `feature/day6-education-intelligence-validators`
 - **Founder approval**: not requested (separate gate)
 - **D5-DS01 / issue #16**: unchanged — verified via `verify_governance_state()` in `day6_verify`
 - **Exact-head proof**: supplied by CI run on the correction candidate SHA (not embedded as a mutable SHA in this document per C6-R12)

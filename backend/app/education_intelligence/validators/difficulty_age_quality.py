@@ -7,44 +7,12 @@ from app.education_intelligence.contracts import (
     ValidationResult,
 )
 from app.education_intelligence.enums import ValidationSeverity, ValidationStatus
-
-QUALITY_RULES_V1 = [
-    {
-        "rule_code": "QUAL-ALIGN-001",
-        "description": "Stem must not be empty",
-        "severity": ValidationSeverity.MANDATORY,
-        "blocking": True,
-    },
-    {
-        "rule_code": "QUAL-CLAR-001",
-        "description": "Single choice requires at least two options",
-        "severity": ValidationSeverity.MANDATORY,
-        "blocking": True,
-    },
-    {
-        "rule_code": "QUAL-ANS-001",
-        "description": "Answer metadata must be present when required",
-        "severity": ValidationSeverity.MANDATORY,
-        "blocking": True,
-    },
-    {
-        "rule_code": "QUAL-EXPL-001",
-        "description": "Explanation required when flagged",
-        "severity": ValidationSeverity.MANDATORY,
-        "blocking": True,
-    },
-    {
-        "rule_code": "QUAL-TRICK-001",
-        "description": "Avoid trick wording patterns",
-        "severity": ValidationSeverity.ADVISORY,
-        "blocking": False,
-    },
-]
+from app.education_intelligence.rule_metadata import rule_outcome_from_metadata
 
 
 class DifficultyValidator:
     validator_id = "difficulty_profile"
-    validator_version = "1.0.0"
+    validator_version = "1.1.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         declared = item.declared_difficulty
@@ -73,7 +41,25 @@ class DifficultyValidator:
                 observed={"profile": None},
                 taxonomy_version=ctx.taxonomy.version,
             )
-        inferred = _infer_difficulty_band(profile)
+        signal_audit = _difficulty_signal_audit(profile)
+        if signal_audit["insufficient_evidence"]:
+            return ValidationResult(
+                validator_id=self.validator_id,
+                validator_version=self.validator_version,
+                status=ValidationStatus.REVIEW_REQUIRED,
+                rule_codes=["DIFF-002"],
+                severity=ValidationSeverity.MANDATORY,
+                blocking=False,
+                target={"declared_difficulty": declared},
+                observed={
+                    "inferred_band": None,
+                    "profile": profile.model_dump(),
+                    "signal_audit": signal_audit,
+                    "design_time_only": True,
+                },
+                taxonomy_version=ctx.taxonomy.version,
+            )
+        inferred = _infer_difficulty_band(profile, signal_audit)
         if inferred is None:
             return ValidationResult(
                 validator_id=self.validator_id,
@@ -83,7 +69,11 @@ class DifficultyValidator:
                 severity=ValidationSeverity.MANDATORY,
                 blocking=False,
                 target={"declared_difficulty": declared},
-                observed={"inferred_band": None, "profile": profile.model_dump()},
+                observed={
+                    "inferred_band": None,
+                    "profile": profile.model_dump(),
+                    "signal_audit": signal_audit,
+                },
                 taxonomy_version=ctx.taxonomy.version,
             )
         delta = abs(inferred - declared)
@@ -99,6 +89,7 @@ class DifficultyValidator:
                 observed={
                     "inferred_band": inferred,
                     "profile": profile.model_dump(),
+                    "signal_audit": signal_audit,
                     "design_time_only": True,
                 },
                 taxonomy_version=ctx.taxonomy.version,
@@ -112,7 +103,11 @@ class DifficultyValidator:
                 severity=ValidationSeverity.ADVISORY,
                 blocking=False,
                 target={"declared_difficulty": declared},
-                observed={"inferred_band": inferred, "profile": profile.model_dump()},
+                observed={
+                    "inferred_band": inferred,
+                    "profile": profile.model_dump(),
+                    "signal_audit": signal_audit,
+                },
                 taxonomy_version=ctx.taxonomy.version,
             )
         return ValidationResult(
@@ -123,12 +118,54 @@ class DifficultyValidator:
             severity=ValidationSeverity.MANDATORY,
             blocking=False,
             target={"declared_difficulty": declared},
-            observed={"inferred_band": inferred, "profile": profile.model_dump()},
+            observed={
+                "inferred_band": inferred,
+                "profile": profile.model_dump(),
+                "signal_audit": signal_audit,
+            },
             taxonomy_version=ctx.taxonomy.version,
         )
 
 
-def _infer_difficulty_band(profile: DifficultyEvidence) -> int | None:
+def _difficulty_signal_audit(profile: DifficultyEvidence) -> dict[str, object]:
+    fields = {
+        "cognitive_demand_band": profile.cognitive_demand_band,
+        "prerequisite_depth": profile.prerequisite_depth,
+        "step_count": profile.step_count,
+        "abstraction_level": profile.abstraction_level,
+        "computation_load": profile.computation_load,
+        "language_load": profile.language_load,
+        "expected_effort_minutes": profile.expected_effort_minutes,
+    }
+    consumed: dict[str, str] = {}
+    for name, value in fields.items():
+        if value is None:
+            consumed[name] = "not_applicable"
+        elif name == "expected_effort_minutes":
+            consumed[name] = "consumed_effort_band"
+        else:
+            consumed[name] = "consumed"
+    numeric_for_band = [
+        profile.cognitive_demand_band,
+        profile.prerequisite_depth,
+        profile.step_count,
+        profile.abstraction_level,
+        profile.computation_load,
+        profile.language_load,
+    ]
+    present_numeric = [v for v in numeric_for_band if v is not None]
+    insufficient = len(present_numeric) < 2
+    return {
+        "signals": consumed,
+        "insufficient_evidence": insufficient,
+    }
+
+
+def _infer_difficulty_band(
+    profile: DifficultyEvidence, signal_audit: dict[str, object]
+) -> int | None:
+    if signal_audit.get("insufficient_evidence"):
+        return None
     signals = [
         profile.cognitive_demand_band,
         profile.abstraction_level,
@@ -136,27 +173,27 @@ def _infer_difficulty_band(profile: DifficultyEvidence) -> int | None:
         profile.language_load,
     ]
     present = [s for s in signals if s is not None]
-    if not present:
-        return None
+    if profile.prerequisite_depth is not None:
+        present.append(min(5, max(1, profile.prerequisite_depth + 1)))
     avg = sum(present) / len(present)
     if profile.step_count is not None and profile.step_count >= 4:
         avg += 0.5
+    if profile.expected_effort_minutes is not None and profile.expected_effort_minutes >= 15:
+        avg += 0.25
     return int(max(1, min(5, round(avg))))
 
 
 class AgeGradeAppropriatenessValidator:
     validator_id = "age_grade_appropriateness"
-    validator_version = "1.0.0"
+    validator_version = "1.1.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
-        authoritative = bool(item.metadata_json.get("authoritative_age_mapping"))
-        if (
-            ctx.curriculum_index
-            and item.grade_year_code
-            and item.grade_year_code in ctx.curriculum_index.grade_authoritative_age
-        ):
-            authoritative = True
-        if item.grade_year_code and not authoritative:
+        authoritative_band: tuple[int, int] | None = None
+        if ctx.curriculum_index and item.grade_year_code:
+            authoritative_band = ctx.curriculum_index.grade_authoritative_age.get(
+                item.grade_year_code
+            )
+        if item.grade_year_code and authoritative_band is None:
             return ValidationResult(
                 validator_id=self.validator_id,
                 validator_version=self.validator_version,
@@ -192,6 +229,23 @@ class AgeGradeAppropriatenessValidator:
                 observed={"invalid_range": True},
                 taxonomy_version=ctx.taxonomy.version,
             )
+        if authoritative_band and item.age_min is not None and item.age_max is not None:
+            auth_min, auth_max = authoritative_band
+            if item.age_max < auth_min or item.age_min > auth_max:
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.FAIL,
+                    rule_codes=["AGE-006"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=True,
+                    target={"age_min": item.age_min, "age_max": item.age_max},
+                    observed={
+                        "authoritative_band": {"min": auth_min, "max": auth_max},
+                        "inconsistent_with_grade": True,
+                    },
+                    taxonomy_version=ctx.taxonomy.version,
+                )
         if item.language_complexity_flag == "excessive" and (item.age_max or 99) <= 12:
             return ValidationResult(
                 validator_id=self.validator_id,
@@ -228,14 +282,21 @@ class AgeGradeAppropriatenessValidator:
                 "age_min": item.age_min,
                 "age_max": item.age_max,
             },
-            observed={"appropriate": True},
+            observed={
+                "appropriate": True,
+                "authoritative_band": (
+                    {"min": authoritative_band[0], "max": authoritative_band[1]}
+                    if authoritative_band
+                    else None
+                ),
+            },
             taxonomy_version=ctx.taxonomy.version,
         )
 
 
 class StructuralClarityValidator:
     validator_id = "structural_clarity"
-    validator_version = "1.0.0"
+    validator_version = "1.1.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         stem = (item.stem_text or "").strip()
@@ -264,6 +325,31 @@ class StructuralClarityValidator:
                     observed={"malformed_options": True},
                     taxonomy_version=ctx.taxonomy.version,
                 )
+            keys = [o.option_key for o in item.options]
+            if len(keys) != len(set(keys)):
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.FAIL,
+                    rule_codes=["STRUCT-010"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=True,
+                    target={"option_keys": keys},
+                    observed={"duplicate_option_keys": True},
+                    taxonomy_version=ctx.taxonomy.version,
+                )
+            if any(not (o.text or "").strip() for o in item.options):
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.FAIL,
+                    rule_codes=["STRUCT-008"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=True,
+                    target={"options": keys},
+                    observed={"blank_option_text": True},
+                    taxonomy_version=ctx.taxonomy.version,
+                )
             texts = [o.text.strip().lower() for o in item.options if o.text.strip()]
             if len(texts) != len(set(texts)):
                 return ValidationResult(
@@ -277,7 +363,8 @@ class StructuralClarityValidator:
                     observed={"duplicate_options": True},
                     taxonomy_version=ctx.taxonomy.version,
                 )
-            if not any(o.is_correct for o in item.options):
+            correct_count = sum(1 for o in item.options if o.is_correct)
+            if correct_count == 0:
                 return ValidationResult(
                     validator_id=self.validator_id,
                     validator_version=self.validator_version,
@@ -287,6 +374,18 @@ class StructuralClarityValidator:
                     blocking=True,
                     target={"options": len(item.options)},
                     observed={"missing_correct_answer": True},
+                    taxonomy_version=ctx.taxonomy.version,
+                )
+            if correct_count > 1:
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.FAIL,
+                    rule_codes=["STRUCT-009"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=True,
+                    target={"options": len(item.options)},
+                    observed={"multiple_correct_answers": correct_count},
                     taxonomy_version=ctx.taxonomy.version,
                 )
         if not item.notation_asset_refs_valid:
@@ -328,7 +427,7 @@ class StructuralClarityValidator:
 
 class EducationalQualityRulePackValidator:
     validator_id = "educational_quality_rules"
-    validator_version = "1.1.0"
+    validator_version = "1.2.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         pack = ctx.quality_rule_pack
@@ -347,6 +446,7 @@ class EducationalQualityRulePackValidator:
         rule_codes: list[str] = []
         status = ValidationStatus.PASS
         blocking = False
+        severity = ValidationSeverity.ADVISORY
         observed: dict[str, object] = {"quality_rule_pack_version": pack.version}
         stem = item.stem_text.strip()
         trick_patterns = ("all of the above are wrong", "none of these", "trick question")
@@ -354,7 +454,6 @@ class EducationalQualityRulePackValidator:
         for rule in pack.rules:
             code = str(rule.get("rule_code", ""))
             check = str(rule.get("check", ""))
-            is_blocking = bool(rule.get("blocking", False))
             triggered = False
             if check == "non_empty_stem" and not stem:
                 triggered = True
@@ -366,13 +465,35 @@ class EducationalQualityRulePackValidator:
                 triggered = item.explanation_required and not item.explanation_present
             elif check == "avoid_trick_wording":
                 triggered = any(p in lower for p in trick_patterns)
-            if triggered:
-                rule_codes.append(code)
-                if is_blocking:
-                    status = ValidationStatus.FAIL
-                    blocking = True
-                elif status == ValidationStatus.PASS:
-                    status = ValidationStatus.WARN
+            elif check == "internal_consistency":
+                triggered = item.question_type == "single_choice" and sum(
+                    1 for o in item.options if o.is_correct
+                ) != 1
+            elif check == "cognitive_appropriateness":
+                triggered = bool(item.declared_cognitive_level) and (
+                    not item.cognitive_demand_evidence
+                )
+            elif check == "rubric_when_required":
+                triggered = bool(item.metadata_json.get("rubric_required")) and (
+                    item.rubric is None
+                )
+            if not triggered:
+                continue
+            rule_codes.append(code)
+            rule_status, rule_severity, rule_blocking = rule_outcome_from_metadata(
+                rule, triggered=True
+            )
+            if rule_blocking:
+                status = ValidationStatus.FAIL
+                blocking = True
+                severity = rule_severity
+            elif rule_status == ValidationStatus.REVIEW_REQUIRED:
+                if status not in {ValidationStatus.FAIL}:
+                    status = ValidationStatus.REVIEW_REQUIRED
+                severity = rule_severity
+            elif status == ValidationStatus.PASS:
+                status = rule_status
+                severity = rule_severity
         if not rule_codes:
             rule_codes = ["QUAL-PASS-001"]
         return ValidationResult(
@@ -380,7 +501,7 @@ class EducationalQualityRulePackValidator:
             validator_version=self.validator_version,
             status=status,
             rule_codes=rule_codes,
-            severity=ValidationSeverity.MANDATORY if blocking else ValidationSeverity.ADVISORY,
+            severity=severity,
             blocking=blocking,
             target={"quality_rule_pack_version": pack.version},
             observed=observed,

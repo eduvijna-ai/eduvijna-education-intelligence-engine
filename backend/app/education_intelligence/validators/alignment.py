@@ -7,6 +7,9 @@ from app.education_intelligence.contracts import (
     ValidationResult,
 )
 from app.education_intelligence.enums import EvidenceAuthority, ValidationSeverity, ValidationStatus
+from app.education_intelligence.source_revision_validation import (
+    assess_source_revision_for_official_evidence,
+)
 from app.models.curriculum import CurriculumVersion
 from app.models.enums import CurriculumStatus
 
@@ -26,7 +29,7 @@ def _entity_refs(evidence: list[EvidenceRef]) -> list[dict[str, str]]:
 
 class LearningOutcomeValidator:
     validator_id = "learning_outcome_alignment"
-    validator_version = "1.1.0"
+    validator_version = "1.2.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         if not item.learning_outcome_ids:
@@ -94,11 +97,27 @@ class LearningOutcomeValidator:
                 observed={"scope_claims_incomplete": True},
                 taxonomy_version=ctx.taxonomy.version,
             )
+        if ctx.curriculum_index and any(
+            ctx.curriculum_index.lo_requires_medium(lo_id) for lo_id in item.learning_outcome_ids
+        ):
+            if not item.medium_code:
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.FAIL,
+                    rule_codes=["LO-ALIGN-010"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=True,
+                    target={"medium_code": item.medium_code},
+                    observed={"missing_medium_for_scoped_lo": True},
+                    taxonomy_version=ctx.taxonomy.version,
+                )
         missing: list[str] = []
         inactive: list[str] = []
         wrong_version: list[str] = []
         scope_failures: list[dict[str, str]] = []
         missing_source: list[str] = []
+        invalid_source: list[dict[str, str]] = []
         evidence: list[EvidenceRef] = []
         for lo_id in item.learning_outcome_ids:
             lo = ctx.curriculum_index.learning_outcomes.get(lo_id)
@@ -117,7 +136,10 @@ class LearningOutcomeValidator:
             )
             if not matched:
                 scope_failures.append({"lo_id": lo_id, "reason": reason or "scope_mismatch"})
-            if lo.source_revision_id:
+            outcome, detail = assess_source_revision_for_official_evidence(
+                ctx.session, lo.source_revision_id
+            )
+            if outcome == "ok" and lo.source_revision_id:
                 evidence.append(
                     EvidenceRef(
                         authority=EvidenceAuthority.OFFICIAL_CURRICULUM_RULE,
@@ -125,10 +147,15 @@ class LearningOutcomeValidator:
                         entity_id=lo.id,
                         source_revision_id=lo.source_revision_id,
                         locator=lo.source_locator,
+                        detail={"revision_status": detail or ""},
                     )
                 )
-            else:
+            elif outcome == "missing":
                 missing_source.append(lo_id)
+            elif outcome == "fail":
+                invalid_source.append({"lo_id": lo_id, "reason": detail or "invalid_revision"})
+            else:
+                invalid_source.append({"lo_id": lo_id, "reason": detail or "review_revision"})
         if missing or inactive or wrong_version or scope_failures:
             return ValidationResult(
                 validator_id=self.validator_id,
@@ -149,6 +176,20 @@ class LearningOutcomeValidator:
                     "wrong_version": wrong_version,
                     "scope_failures": scope_failures,
                 },
+                evidence=evidence,
+                source_entity_refs=_entity_refs(evidence),
+                taxonomy_version=ctx.taxonomy.version,
+            )
+        if invalid_source:
+            return ValidationResult(
+                validator_id=self.validator_id,
+                validator_version=self.validator_version,
+                status=ValidationStatus.FAIL,
+                rule_codes=["LO-ALIGN-009"],
+                severity=ValidationSeverity.MANDATORY,
+                blocking=True,
+                target={"learning_outcome_ids": item.learning_outcome_ids},
+                observed={"invalid_source_revision": invalid_source},
                 evidence=evidence,
                 source_entity_refs=_entity_refs(evidence),
                 taxonomy_version=ctx.taxonomy.version,
@@ -189,7 +230,7 @@ class LearningOutcomeValidator:
 
 class SourceBackedCompetencyValidator:
     validator_id = "source_backed_competency"
-    validator_version = "1.1.0"
+    validator_version = "1.2.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         if not item.competency_claim_official:
@@ -202,6 +243,22 @@ class SourceBackedCompetencyValidator:
                 blocking=False,
                 target={"competency_claim_official": False},
                 observed={"generic_tagging": True},
+                taxonomy_version=ctx.taxonomy.version,
+            )
+        if not item.grade_year_code or not item.subject_code:
+            return ValidationResult(
+                validator_id=self.validator_id,
+                validator_version=self.validator_version,
+                status=ValidationStatus.REVIEW_REQUIRED,
+                rule_codes=["COMP-SRC-006"],
+                severity=ValidationSeverity.MANDATORY,
+                blocking=False,
+                target={
+                    "grade_year_code": item.grade_year_code,
+                    "subject_code": item.subject_code,
+                    "medium_code": item.medium_code,
+                },
+                observed={"scope_claims_incomplete": True},
                 taxonomy_version=ctx.taxonomy.version,
             )
         if ctx.curriculum_index is None or not item.curriculum_version_id:
@@ -219,6 +276,7 @@ class SourceBackedCompetencyValidator:
         unresolved: list[str] = []
         wrong_scope: list[str] = []
         missing_source: list[str] = []
+        invalid_source: list[dict[str, str]] = []
         evidence: list[EvidenceRef] = []
         for raw in item.competency_codes:
             code, _ = ctx.taxonomy.resolve_competency(raw)
@@ -236,32 +294,37 @@ class SourceBackedCompetencyValidator:
             if comp is None:
                 unresolved.append(code)
                 continue
-            if not ctx.curriculum_index.competency_in_scope(
+            matched, reason = ctx.curriculum_index.competency_matches_claim(
                 comp.id,
+                grade_year_code=item.grade_year_code,
+                medium_code=item.medium_code,
+                subject_code=item.subject_code,
                 framework_id=ctx.curriculum_index.framework_id,
                 curriculum_version_id=item.curriculum_version_id,
-            ):
-                wrong_scope.append(code)
-                continue
-            scopes = ctx.curriculum_index.competency_scopes.get(comp.id, [])
-            if scopes and item.subject_code:
-                if not any(
-                    s.subject_code is None or s.subject_code == item.subject_code for s in scopes
-                ):
-                    wrong_scope.append(code)
-                    continue
-            if not comp.source_revision_id:
-                missing_source.append(code)
-                continue
-            evidence.append(
-                EvidenceRef(
-                    authority=EvidenceAuthority.OFFICIAL_CURRICULUM_RULE,
-                    entity_type="competency",
-                    entity_id=comp.id,
-                    source_revision_id=comp.source_revision_id,
-                    locator=comp.source_locator,
-                )
             )
+            if not matched:
+                wrong_scope.append(f"{code}:{reason or 'scope'}")
+                continue
+            outcome, detail = assess_source_revision_for_official_evidence(
+                ctx.session, comp.source_revision_id
+            )
+            if outcome == "ok" and comp.source_revision_id:
+                evidence.append(
+                    EvidenceRef(
+                        authority=EvidenceAuthority.OFFICIAL_CURRICULUM_RULE,
+                        entity_type="competency",
+                        entity_id=comp.id,
+                        source_revision_id=comp.source_revision_id,
+                        locator=comp.source_locator,
+                        detail={"revision_status": detail or ""},
+                    )
+                )
+            elif outcome == "missing":
+                missing_source.append(code)
+            elif outcome == "fail":
+                invalid_source.append({"competency": code, "reason": detail or "invalid_revision"})
+            else:
+                invalid_source.append({"competency": code, "reason": detail or "review_revision"})
         if unresolved or wrong_scope:
             return ValidationResult(
                 validator_id=self.validator_id,
@@ -276,6 +339,20 @@ class SourceBackedCompetencyValidator:
                     "subject_code": item.subject_code,
                 },
                 observed={"unresolved": unresolved, "wrong_scope": wrong_scope},
+                evidence=evidence,
+                source_entity_refs=_entity_refs(evidence),
+                taxonomy_version=ctx.taxonomy.version,
+            )
+        if invalid_source:
+            return ValidationResult(
+                validator_id=self.validator_id,
+                validator_version=self.validator_version,
+                status=ValidationStatus.FAIL,
+                rule_codes=["COMP-SRC-005"],
+                severity=ValidationSeverity.MANDATORY,
+                blocking=True,
+                target={"competency_codes": item.competency_codes},
+                observed={"invalid_source_revision": invalid_source},
                 evidence=evidence,
                 source_entity_refs=_entity_refs(evidence),
                 taxonomy_version=ctx.taxonomy.version,

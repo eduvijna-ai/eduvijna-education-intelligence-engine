@@ -42,6 +42,9 @@ class CurriculumScopeIndex:
             current = self.nodes_by_id.get(current.parent_id)
         return NodeScope(grade_year_code=grade, medium_code=medium, subject_code=subject)
 
+    def lo_requires_medium(self, lo_id: str) -> bool:
+        return any(s.medium_code is not None for s in self.lo_scopes.get(lo_id, []))
+
     def lo_matches_claim(
         self,
         lo_id: str,
@@ -53,6 +56,8 @@ class CurriculumScopeIndex:
         scopes = self.lo_scopes.get(lo_id, [])
         if not scopes:
             return False, "no_linked_scope_nodes"
+        if self.lo_requires_medium(lo_id) and not medium_code:
+            return False, "missing_medium"
         for scope in scopes:
             if subject_code and scope.subject_code and scope.subject_code != subject_code:
                 continue
@@ -62,7 +67,9 @@ class CurriculumScopeIndex:
                 and scope.grade_year_code != grade_year_code
             ):
                 continue
-            if medium_code and scope.medium_code and scope.medium_code != medium_code:
+            if scope.medium_code and scope.medium_code != (medium_code or ""):
+                continue
+            if medium_code and scope.medium_code is None:
                 continue
             if subject_code and scope.subject_code is None:
                 continue
@@ -76,6 +83,42 @@ class CurriculumScopeIndex:
         if medium_code:
             return False, "wrong_medium"
         return False, "scope_mismatch"
+
+    def competency_matches_claim(
+        self,
+        competency_id: str,
+        *,
+        grade_year_code: str | None,
+        medium_code: str | None,
+        subject_code: str | None,
+        framework_id: str | None,
+        curriculum_version_id: str,
+    ) -> tuple[bool, str | None]:
+        comp = self.competencies_by_id.get(competency_id)
+        if comp is None:
+            return False, "competency_not_found"
+        if framework_id and comp.framework_id and comp.framework_id != framework_id:
+            return False, "wrong_framework"
+        scopes = self.competency_scopes.get(competency_id, [])
+        if not scopes:
+            return comp.framework_id == framework_id, None
+        if any(s.medium_code for s in scopes) and not medium_code:
+            return False, "missing_medium"
+        for scope in scopes:
+            if subject_code and scope.subject_code and scope.subject_code != subject_code:
+                continue
+            if (
+                grade_year_code
+                and scope.grade_year_code
+                and scope.grade_year_code != grade_year_code
+            ):
+                continue
+            if scope.medium_code and scope.medium_code != (medium_code or ""):
+                continue
+            if medium_code and scope.medium_code is None:
+                continue
+            return True, None
+        return False, "wrong_scope"
 
     def competency_in_scope(
         self,
