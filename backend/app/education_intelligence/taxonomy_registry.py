@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.models.education_intelligence import TaxonomyRegistryEntry
 
 V1_TAXONOMY_VERSION = "cognitive-competency-v1.0"
@@ -123,7 +124,7 @@ def load_taxonomy_registry(
             select(TaxonomyRegistryEntry).where(TaxonomyRegistryEntry.version == version)
         )
         if row is None:
-            return TaxonomyRegistry(version=version)
+            raise RegistryVersionNotFound("taxonomy", version)
         return TaxonomyRegistry(
             version=row.version,
             cognitive=row.payload_json.get("cognitive", V1_COGNITIVE_LEVELS),

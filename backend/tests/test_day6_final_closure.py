@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -15,17 +16,24 @@ from app.education_intelligence.contracts import (
 )
 from app.education_intelligence.enums import ValidationStatus
 from app.education_intelligence.fixtures import positive_cbse_item, seed_cbse_fixture_curriculum
-from app.education_intelligence.policy_registry import V1_POLICY_VERSION, load_policy_registry
+from app.education_intelligence.policy_registry import (
+    V1_POLICY_VERSION,
+    load_policy_registry,
+    seed_policy_registry,
+)
 from app.education_intelligence.quality_rule_pack import (
     DEFAULT_QUALITY_RULES,
     V1_QUALITY_PACK_VERSION,
     V2_QUALITY_PACK_VERSION,
     load_quality_rule_pack,
+    seed_quality_rule_pack,
 )
+from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.education_intelligence.service import EducationIntelligenceValidationService
 from app.education_intelligence.taxonomy_registry import (
     V1_TAXONOMY_VERSION,
     load_taxonomy_registry,
+    seed_taxonomy_registry,
 )
 from app.education_intelligence.validators.rubric_policy_safety import _safety_scan_text
 from app.models.curriculum import LearningOutcome
@@ -273,8 +281,9 @@ def test_difficulty_incomplete_evidence_review() -> None:
 
 def test_historical_version_replay() -> None:
     with _session() as session:
-        seed_cbse_fixture_curriculum(session)
-        session.commit()
+        seed_taxonomy_registry(session)
+        seed_quality_rule_pack(session)
+        seed_policy_registry(session)
         session.add(
             TaxonomyRegistryEntry(
                 registry_key="v1",
@@ -304,9 +313,5 @@ def test_historical_version_replay() -> None:
         assert v1_pack.version != v2_pack.version
         policy_v1 = load_policy_registry(session, version=V1_POLICY_VERSION)
         assert policy_v1.version == V1_POLICY_VERSION
-
-
-def test_day6_docs_exclude_paper_distribution() -> None:
-    text = open("/workspace/docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md").read()
-    assert "assessment-set cognitive distribution validator" not in text
-    assert "Day 10" in text
+        with pytest.raises(RegistryVersionNotFound):
+            load_taxonomy_registry(session, version="does-not-exist")

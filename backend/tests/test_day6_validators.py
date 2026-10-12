@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -140,10 +141,12 @@ def test_audit_persistence() -> None:
         assert stored.input_hash == summary.input_hash
 
 
-def test_founder_verification_report() -> None:
+def test_founder_verification_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EDUVIJNA_CANDIDATE_SHA", "local-founder-verify-sha")
     with _session() as session:
         report = build_verification_report(session)
         assert report["passed"] is True
+        assert report["head_sha"] == "local-founder-verify-sha"
 
 
 def test_evidence_authority_types_distinct() -> None:

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.education_intelligence.contracts import InstitutionPolicyOverride, PolicyRuleConfig
 from app.education_intelligence.enums import PolicyAuthorityTier, ValidationSeverity
+from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.education_intelligence.safety_rules import seed_safety_rules_in_policy_payload
 from app.models.education_intelligence import PolicyRegistryEntry
 
@@ -154,10 +155,7 @@ def load_policy_registry(
             select(PolicyRegistryEntry).where(PolicyRegistryEntry.version == version)
         )
         if row is None:
-            reg = PolicyRegistry(version=version, rules=DEFAULT_GLOBAL_RULES + DEFAULT_BOARD_RULES)
-            if institution_overrides:
-                reg.institution_overrides = institution_overrides
-            return reg
+            raise RegistryVersionNotFound("policy", version)
         reg = _from_payload(row.version, row.payload_json)
         if institution_overrides:
             reg.institution_overrides = institution_overrides

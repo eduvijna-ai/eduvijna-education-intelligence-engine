@@ -41,6 +41,10 @@ jobs:
         run: python -m app.day4_verify
       - name: Verify Day 5 generic curriculum contracts
         run: python -m app.day5_verify
+      - name: Verify Day 6 education intelligence
+        env:
+          EDUVIJNA_CANDIDATE_SHA: ${{ github.sha }}
+        run: python -m app.day6_verify
       - name: Migration round-trip
         run: |
           mkdir -p data
@@ -184,6 +188,10 @@ jobs:
           make source-verify
           make day4-verify
           make day5-verify
+      - name: Verify Day 6 founder harness in Compose
+        env:
+          EDUVIJNA_CANDIDATE_SHA: ${{ github.sha }}
+        run: docker compose exec -T -e EDUVIJNA_CANDIDATE_SHA backend python -m app.day6_verify
       - name: Verify API frontend and development env
         run: |
           curl --fail --silent http://127.0.0.1:8000/health

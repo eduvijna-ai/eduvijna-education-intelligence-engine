@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.education_intelligence.enums import ValidationSeverity
+from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.models.education_intelligence import EducationalQualityRulePack
 
 V1_QUALITY_PACK_VERSION = "quality-v1.0"
@@ -105,7 +106,7 @@ def load_quality_rule_pack(
             )
         )
         if row is None:
-            return QualityRulePack(version=version, rules=list(DEFAULT_QUALITY_RULES))
+            raise RegistryVersionNotFound("quality_rule_pack", version)
         return QualityRulePack(version=row.version, rules=list(row.rules_json))
     row = session.scalar(
         select(EducationalQualityRulePack)

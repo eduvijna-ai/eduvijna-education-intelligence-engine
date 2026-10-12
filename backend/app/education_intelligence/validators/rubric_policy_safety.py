@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.education_intelligence.context import ValidationContext
 from app.education_intelligence.contracts import CanonicalAssessmentItem, ValidationResult
 from app.education_intelligence.enums import ValidationSeverity, ValidationStatus
+from app.education_intelligence.rule_metadata import rule_outcome_from_metadata
 
 
 class RubricIntegrityValidator:
@@ -314,12 +315,12 @@ def _safety_scan_text(item: CanonicalAssessmentItem) -> str:
 
 class BiasFairnessSafetyValidator:
     validator_id = "bias_fairness_safety"
-    validator_version = "1.2.0"
+    validator_version = "1.3.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         pack = ctx.safety_rule_pack
         text = _safety_scan_text(item)
-        if pack is None:
+        if pack is None or not getattr(pack, "found", True):
             return ValidationResult(
                 validator_id=self.validator_id,
                 validator_version=self.validator_version,
@@ -331,53 +332,48 @@ class BiasFairnessSafetyValidator:
                 observed={},
                 policy_version=ctx.policy.version,
             )
-        hits: list[str] = []
-        review_codes: list[str] = []
+        rule_codes: list[str] = []
+        status = ValidationStatus.PASS
+        severity = ValidationSeverity.SAFETY
+        blocking = False
         for rule in pack.rules:
             pattern = str(rule.get("pattern", "")).lower()
             if not pattern or pattern not in text:
                 continue
             code = str(rule.get("rule_code", "SAFE-UNK"))
             if rule.get("review_required"):
-                review_codes.append(code)
-            elif rule.get("blocking", True):
-                hits.append(code)
-        if hits:
-            return ValidationResult(
-                validator_id=self.validator_id,
-                validator_version=self.validator_version,
-                status=ValidationStatus.FAIL,
-                rule_codes=hits,
-                severity=ValidationSeverity.SAFETY,
-                blocking=True,
-                target={"safety_rules_version": pack.version},
-                observed={
-                    "rule_hits": hits,
-                    "policy_version": pack.policy_version,
-                    "not_comprehensive_semantic_scan": True,
-                },
-                policy_version=pack.policy_version or ctx.policy.version,
-            )
-        if review_codes:
-            return ValidationResult(
-                validator_id=self.validator_id,
-                validator_version=self.validator_version,
-                status=ValidationStatus.REVIEW_REQUIRED,
-                rule_codes=review_codes,
-                severity=ValidationSeverity.SAFETY,
-                blocking=False,
-                target={"safety_rules_version": pack.version},
-                observed={"ambiguous_semantic": True, "policy_version": pack.policy_version},
-                policy_version=pack.policy_version or ctx.policy.version,
-            )
+                rule_status = ValidationStatus.REVIEW_REQUIRED
+                rule_severity = ValidationSeverity.SAFETY
+                rule_blocking = False
+            else:
+                rule_status, rule_severity, rule_blocking = rule_outcome_from_metadata(
+                    rule, triggered=True
+                )
+            rule_codes.append(code)
+            if rule_blocking:
+                status = ValidationStatus.FAIL
+                blocking = True
+                severity = rule_severity
+            elif rule_status == ValidationStatus.REVIEW_REQUIRED:
+                if status != ValidationStatus.FAIL:
+                    status = ValidationStatus.REVIEW_REQUIRED
+                severity = rule_severity
+            elif status == ValidationStatus.PASS and rule_status == ValidationStatus.WARN:
+                status = ValidationStatus.WARN
+                severity = rule_severity
+        if not rule_codes:
+            rule_codes = ["SAFE-PASS"]
         return ValidationResult(
             validator_id=self.validator_id,
             validator_version=self.validator_version,
-            status=ValidationStatus.PASS,
-            rule_codes=["SAFE-PASS"],
-            severity=ValidationSeverity.SAFETY,
-            blocking=False,
+            status=status,
+            rule_codes=rule_codes,
+            severity=severity,
+            blocking=blocking,
             target={"safety_rules_version": pack.version},
-            observed={"clean": True, "policy_version": pack.policy_version},
+            observed={
+                "policy_version": pack.policy_version,
+                "not_comprehensive_semantic_scan": True,
+            },
             policy_version=pack.policy_version or ctx.policy.version,
         )

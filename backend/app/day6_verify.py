@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -45,6 +46,13 @@ def _git_head() -> str:
         )
     except Exception:
         return "unknown"
+
+
+def _resolve_candidate_sha() -> str:
+    explicit = os.environ.get("EDUVIJNA_CANDIDATE_SHA", "").strip()
+    if explicit:
+        return explicit
+    return _git_head()
 
 
 def _staged_revision_for_lo(session: Session, lo_id: str) -> None:
@@ -224,6 +232,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
 
     raw_checks = governance.get("checks")
     gov_checks: dict[str, Any] = raw_checks if isinstance(raw_checks, dict) else {}
+    report_head_sha = _resolve_candidate_sha()
     checks = {
         "governance_state": governance["passed"],
         "valid_item_passes": valid.aggregate_status == ValidationStatus.PASS,
@@ -276,16 +285,24 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "telangana_fixture_runs": tg_valid.run_id,
         "d5_ds01_still_deferred": bool(gov_checks.get("d5_ds01_deferred")),
         "day7_locked": bool(gov_checks.get("day7_locked")),
+        "candidate_sha_resolved": report_head_sha != "unknown",
     }
 
     return {
         "day": 6,
-        "head_sha": _git_head(),
+        "head_sha": report_head_sha,
+        "candidate_sha_source": (
+            "EDUVIJNA_CANDIDATE_SHA"
+            if os.environ.get("EDUVIJNA_CANDIDATE_SHA", "").strip()
+            else ("git" if report_head_sha != "unknown" else "unknown")
+        ),
+        "candidate_sha_resolved": report_head_sha != "unknown",
         "governance": governance,
         "checks": checks,
         "passed": all(
             v is True for k, v in checks.items() if k not in {"telangana_fixture_runs"}
-        ),
+        )
+        and report_head_sha != "unknown",
         "sample_run": {
             "run_id": valid.run_id,
             "taxonomy_version": valid.taxonomy_version,

@@ -2,10 +2,23 @@
 
 ## Status
 
-- **Day 6 engineering**: review-closure iteration (D6-F01…D6-F15) on branch `feature/day6-education-intelligence-validators`
+- **Day 6 engineering**: acceptance-closure iteration (D6-A01…D6-A12) on branch `feature/day6-education-intelligence-validators`
 - **Founder approval**: not requested (separate gate)
 - **D5-DS01 / issue #16**: unchanged — verified via `verify_governance_state()` in `day6_verify`
 - **Exact-head proof**: supplied by CI run on the correction candidate SHA (not embedded as a mutable SHA in this document per C6-R12)
+
+## Acceptance-closure scope map (D6-A01…D6-A12)
+
+| ID | Implementation |
+|----|----------------|
+| D6-A01 | Ruff import order in `day6_verify.py` |
+| D6-A02 | Only ACTIVE `SourceRevision` authorizes new official PASS |
+| D6-A03 | `RegistryVersionNotFound` — exact registry loads fail closed |
+| D6-A04–A05 | Safety historical replay + `rule_metadata` in safety validator |
+| D6-A06 | `tests/test_day6_acceptance.py` |
+| D6-A07–A08 | Portable test paths; `EDUVIJNA_CANDIDATE_SHA` in CI/Compose |
+| D6-A09 | `D06-EDUCATION-INTELLIGENCE-VALIDATORS.md` numbering aligned with PR |
+| D6-A10–A12 | Exact-head CI, Codex review, final PR evidence |
 
 ## Failed baseline (iteration anchor)
 
