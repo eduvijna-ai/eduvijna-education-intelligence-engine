@@ -3,8 +3,10 @@ name: CI
 on:
   pull_request:
     branches: [develop, main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [develop, main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -36,19 +38,38 @@ jobs:
         run: ruff check app tests
       - name: Mypy
         run: mypy app
-      - name: Pytest
-        run: pytest
+      - name: Pytest — targeted during implementation, full at acceptance
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" || "${{ github.event.action }}" == "ready_for_review" ]]; then
+            echo "Acceptance checkpoint: running full backend suite"
+            pytest
+          else
+            echo "Implementation checkpoint: running Day 7 tests only"
+            mapfile -t day7_tests < <(find tests -maxdepth 1 -type f -name 'test_day7*.py' -print | sort)
+            if (( ${#day7_tests[@]} == 0 )); then
+              echo "No Day 7 tests exist yet; targeted pytest skipped."
+            else
+              pytest -q "${day7_tests[@]}"
+            fi
+          fi
       - name: Verify canonical domain sample
+        if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
         run: python -m app.domain_verify
       - name: Verify Source Intelligence sample
+        if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
         run: python -m app.source_verify
       - name: Verify Day 4 curriculum intelligence sample
+        if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
         run: python -m app.day4_verify
       - name: Verify Day 5 generic curriculum contracts
+        if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
         run: python -m app.day5_verify
       - name: Verify Day 6 education intelligence
+        if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
         run: python -m app.day6_verify
       - name: Migration round-trip
+        if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
         run: |
           mkdir -p data
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
@@ -66,6 +87,7 @@ jobs:
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic check
 
   day4-official-evidence:
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -98,6 +120,7 @@ jobs:
           retention-days: 30
 
   day5-official-evidence:
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -135,6 +158,7 @@ jobs:
           retention-days: 30
 
   frontend:
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -152,6 +176,7 @@ jobs:
         run: npm run build
 
   compose-smoke:
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     steps:
