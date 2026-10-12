@@ -32,7 +32,15 @@ ci_repair_policy:
     - failure_classification
     - root_cause_hypothesis
     - proposed_next_action
-current_day: 6
+  incremental_test_strategy:
+    mode: impacted_tests_only
+    full_regression_only_at_acceptance_checkpoint: true
+    rerun_successful_unaffected_jobs_on_repair: false
+    validator_change: relevant_validator_and_adversarial_tests
+    docker_change: container_specific_smoke
+    migration_or_shared_core_change: targeted_migration_and_shared_regression
+    final_acceptance_checkpoint: one_full_regression
+current_day: 7
 
 days:
   1:
@@ -75,14 +83,18 @@ days:
     depends_on: 4
   6:
     name: Education Intelligence Validators
-    state: ACTIVE
-    founder_approval: false
+    state: COMPLETE
+    founder_approval: true
     activation_signal: "Proceed to merge Day 5 and activate Day 6."
+    approval_signal: "Founder approved Day 6 and authorized proceeding. Exact green candidate d36eb0991eddf80e8957cd5c079fa72b1bdecfcd; CI #215 green. Codex final review unavailable due repository environment blocker; Founder authorized proceed with documented external review-service exception."
+    merge_commit: "dffd31b6da5558234ae0636fe4384305f4778400"
+    review_exception: "Codex final review unavailable on final SHA due repository environment setup blocker; Founder explicitly authorized proceeding."
     depends_on: 5
   7:
     name: Knowledge Intelligence and AnythingLLM
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    activation_signal: "Founder approved Day 6 and authorized proceeding to Day 7."
     depends_on: 6
   8:
     name: LangGraph Orchestration
