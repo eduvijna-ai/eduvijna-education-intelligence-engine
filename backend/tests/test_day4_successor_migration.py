@@ -25,7 +25,7 @@ from tests.test_day4_framework_structure import _context, _link_input, _tree
 
 BACKEND = Path(__file__).resolve().parents[1]
 PREVIOUS = "20261004_0008"
-HEAD = "20261004_0009"
+HEAD = "20261007_0010"
 TABLES = ("framework_structure_nodes", "learning_outcome_competency_links")
 
 
