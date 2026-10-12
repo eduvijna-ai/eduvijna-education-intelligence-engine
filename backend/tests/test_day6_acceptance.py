@@ -255,8 +255,14 @@ def test_non_active_source_revision_cannot_authorize_lo(status: str) -> None:
 
 
 def test_day6_docs_exclude_paper_distribution_portable() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    doc = repo_root / "docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md"
+    relative = Path("docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md")
+    roots = (
+        Path(__file__).resolve().parents[2],  # repository checkout
+        Path(__file__).resolve().parents[1],  # /app in the backend image
+        Path.cwd(),
+    )
+    doc = next((root / relative for root in roots if (root / relative).is_file()), None)
+    assert doc is not None, f"Day 6 execution spec not found under: {roots}"
     text = doc.read_text(encoding="utf-8")
     assert "assessment-set cognitive distribution validator" not in text
     assert "Day 10" in text

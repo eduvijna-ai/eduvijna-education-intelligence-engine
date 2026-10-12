@@ -13,6 +13,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# For pull requests, github.sha is the synthetic merge commit. Day 6 evidence
+# must identify the actual candidate branch head; pushes use github.sha.
+env:
+  EDUVIJNA_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -42,8 +47,6 @@ jobs:
       - name: Verify Day 5 generic curriculum contracts
         run: python -m app.day5_verify
       - name: Verify Day 6 education intelligence
-        env:
-          EDUVIJNA_CANDIDATE_SHA: ${{ github.sha }}
         run: python -m app.day6_verify
       - name: Migration round-trip
         run: |
@@ -181,17 +184,14 @@ jobs:
           done
           docker compose logs frontend
           exit 1
-      - name: Verify documented developer commands
+      # Exhaustive lint/type/test/regression already ran once in the backend job.
+      # Compose is responsible only for container-specific integration behavior.
+      - name: Verify container-specific Day 6 acceptance path
         run: |
-          make lint
-          make test
-          make source-verify
-          make day4-verify
-          make day5-verify
+          docker compose --env-file .env.development run --rm backend \
+            pytest -q tests/test_day6_acceptance.py::test_day6_docs_exclude_paper_distribution_portable
       - name: Verify Day 6 founder harness in Compose
-        env:
-          EDUVIJNA_CANDIDATE_SHA: ${{ github.sha }}
-        run: docker compose exec -T -e EDUVIJNA_CANDIDATE_SHA backend python -m app.day6_verify
+        run: docker compose exec -T backend python -m app.day6_verify
       - name: Verify API frontend and development env
         run: |
           curl --fail --silent http://127.0.0.1:8000/health
