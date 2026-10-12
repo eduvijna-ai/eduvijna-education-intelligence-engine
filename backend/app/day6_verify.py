@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
@@ -31,7 +31,7 @@ from app.education_intelligence.fixtures import (
 from app.education_intelligence.governance import verify_governance_state
 from app.education_intelligence.policy_registry import load_policy_registry
 from app.education_intelligence.service import EducationIntelligenceValidationService
-from app.models.curriculum import LearningOutcome
+from app.models.curriculum import Competency, LearningOutcome
 from app.models.source import SourceRevision
 
 
@@ -227,6 +227,37 @@ def build_verification_report(session: Session) -> dict[str, object]:
         r for r in official_comp.results if r.validator_id == "source_backed_competency"
     )
 
+    inactive_comp_entity = session.scalars(select(Competency)).first()
+    assert inactive_comp_entity is not None
+    inactive_comp_entity.active = False
+    session.commit()
+    inactive_official_comp = service.validate_item(
+        positive_cbse_item(cbse).model_copy(
+            update={
+                "item_id": "official-comp-inactive",
+                "competency_claim_official": True,
+            }
+        ),
+        board_code="cbse",
+    )
+    inactive_comp_result = next(
+        r
+        for r in inactive_official_comp.results
+        if r.validator_id == "source_backed_competency"
+    )
+
+    incomplete_age_item = service.validate_item(
+        positive_cbse_item(cbse).model_copy(
+            update={"item_id": "age-incomplete", "age_min": 12, "age_max": None}
+        ),
+        board_code="cbse",
+    )
+    incomplete_age_result = next(
+        r
+        for r in incomplete_age_item.results
+        if r.validator_id == "age_grade_appropriateness"
+    )
+
     persisted = service.validate_item(positive_cbse_item(cbse), board_code="cbse", persist=True)
     audit = service.get_audit_run(persisted.run_id)
 
@@ -274,6 +305,11 @@ def build_verification_report(session: Session) -> dict[str, object]:
             ValidationStatus.REVIEW_REQUIRED,
         }
         and bool(comp_result.source_entity_refs or comp_result.evidence),
+        "inactive_official_competency_cannot_pass": inactive_comp_result.status
+        == ValidationStatus.FAIL
+        and not inactive_comp_result.evidence,
+        "incomplete_age_claim_not_incorrect_pass": incomplete_age_result.status
+        == ValidationStatus.REVIEW_REQUIRED,
         "provenance_versions_present": bool(
             valid.taxonomy_version
             and valid.policy_version
