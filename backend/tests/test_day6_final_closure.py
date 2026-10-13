@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
@@ -36,7 +36,7 @@ from app.education_intelligence.taxonomy_registry import (
     seed_taxonomy_registry,
 )
 from app.education_intelligence.validators.rubric_policy_safety import _safety_scan_text
-from app.models.curriculum import LearningOutcome
+from app.models.curriculum import Competency, LearningOutcome
 from app.models.education_intelligence import EducationalQualityRulePack, TaxonomyRegistryEntry
 from app.models.source import SourceRevision
 
@@ -139,6 +139,42 @@ def test_lo_wrong_medium_fails() -> None:
         assert lo.status == ValidationStatus.FAIL
 
 
+def test_official_competency_active_eligible() -> None:
+    with _session() as session:
+        ctx = seed_cbse_fixture_curriculum(session)
+        session.commit()
+        service = EducationIntelligenceValidationService(session)
+        item = positive_cbse_item(ctx).model_copy(update={"competency_claim_official": True})
+        comp_r = next(
+            r
+            for r in service.validate_item(item, board_code="cbse").results
+            if r.validator_id == "source_backed_competency"
+        )
+        assert comp_r.status == ValidationStatus.PASS
+        assert comp_r.validator_version == "1.3.0"
+        assert comp_r.evidence
+
+
+def test_official_competency_inactive_entity_fails_without_evidence() -> None:
+    with _session() as session:
+        ctx = seed_cbse_fixture_curriculum(session)
+        comp = session.scalars(select(Competency)).first()
+        assert comp is not None
+        comp.active = False
+        session.commit()
+        service = EducationIntelligenceValidationService(session)
+        item = positive_cbse_item(ctx).model_copy(update={"competency_claim_official": True})
+        comp_r = next(
+            r
+            for r in service.validate_item(item, board_code="cbse").results
+            if r.validator_id == "source_backed_competency"
+        )
+        assert comp_r.status == ValidationStatus.FAIL
+        assert comp_r.validator_version == "1.3.0"
+        assert comp_r.observed.get("inactive")
+        assert not comp_r.evidence
+
+
 def test_official_competency_inactive_revision_fails() -> None:
     with _session() as session:
         ctx = seed_cbse_fixture_curriculum(session)
@@ -177,6 +213,33 @@ def test_official_competency_inactive_revision_fails() -> None:
         assert comp_r.status == ValidationStatus.FAIL
 
 
+@pytest.mark.parametrize(
+    ("age_min", "age_max", "expected"),
+    [
+        (99, None, ValidationStatus.FAIL),
+        (None, 4, ValidationStatus.FAIL),
+        (12, None, ValidationStatus.REVIEW_REQUIRED),
+        (None, 14, ValidationStatus.REVIEW_REQUIRED),
+        (12, 14, ValidationStatus.PASS),
+    ],
+)
+def test_authoritative_age_band_bounds(
+    age_min: int | None, age_max: int | None, expected: ValidationStatus
+) -> None:
+    with _session() as session:
+        ctx = seed_cbse_fixture_curriculum(session)
+        session.commit()
+        item = positive_cbse_item(ctx).model_copy(update={"age_min": age_min, "age_max": age_max})
+        service = EducationIntelligenceValidationService(session)
+        age = next(
+            r
+            for r in service.validate_item(item, board_code="cbse").results
+            if r.validator_id == "age_grade_appropriateness"
+        )
+        assert age.status == expected
+        assert age.validator_version == "1.2.0"
+
+
 def test_authoritative_age_band_mismatch_fails() -> None:
     with _session() as session:
         ctx = seed_cbse_fixture_curriculum(session)
@@ -189,6 +252,7 @@ def test_authoritative_age_band_mismatch_fails() -> None:
             if r.validator_id == "age_grade_appropriateness"
         )
         assert age.status == ValidationStatus.FAIL
+        assert age.validator_version == "1.2.0"
 
 
 def test_caller_metadata_cannot_forge_age_authority() -> None:

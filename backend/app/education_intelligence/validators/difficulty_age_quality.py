@@ -185,7 +185,7 @@ def _infer_difficulty_band(
 
 class AgeGradeAppropriatenessValidator:
     validator_id = "age_grade_appropriateness"
-    validator_version = "1.1.0"
+    validator_version = "1.2.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         authoritative_band: tuple[int, int] | None = None
@@ -229,9 +229,9 @@ class AgeGradeAppropriatenessValidator:
                 observed={"invalid_range": True},
                 taxonomy_version=ctx.taxonomy.version,
             )
-        if authoritative_band and item.age_min is not None and item.age_max is not None:
+        if authoritative_band:
             auth_min, auth_max = authoritative_band
-            if item.age_max < auth_min or item.age_min > auth_max:
+            if item.age_min is not None and item.age_min > auth_max:
                 return ValidationResult(
                     validator_id=self.validator_id,
                     validator_version=self.validator_version,
@@ -243,6 +243,44 @@ class AgeGradeAppropriatenessValidator:
                     observed={
                         "authoritative_band": {"min": auth_min, "max": auth_max},
                         "inconsistent_with_grade": True,
+                        "bound": "age_min",
+                    },
+                    taxonomy_version=ctx.taxonomy.version,
+                )
+            if item.age_max is not None and item.age_max < auth_min:
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.FAIL,
+                    rule_codes=["AGE-006"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=True,
+                    target={"age_min": item.age_min, "age_max": item.age_max},
+                    observed={
+                        "authoritative_band": {"min": auth_min, "max": auth_max},
+                        "inconsistent_with_grade": True,
+                        "bound": "age_max",
+                    },
+                    taxonomy_version=ctx.taxonomy.version,
+                )
+            has_min = item.age_min is not None
+            has_max = item.age_max is not None
+            if has_min != has_max:
+                return ValidationResult(
+                    validator_id=self.validator_id,
+                    validator_version=self.validator_version,
+                    status=ValidationStatus.REVIEW_REQUIRED,
+                    rule_codes=["AGE-007"],
+                    severity=ValidationSeverity.MANDATORY,
+                    blocking=False,
+                    target={
+                        "grade_year_code": item.grade_year_code,
+                        "age_min": item.age_min,
+                        "age_max": item.age_max,
+                    },
+                    observed={
+                        "authoritative_band": {"min": auth_min, "max": auth_max},
+                        "incomplete_age_claim": True,
                     },
                     taxonomy_version=ctx.taxonomy.version,
                 )

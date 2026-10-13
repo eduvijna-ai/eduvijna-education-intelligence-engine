@@ -230,7 +230,7 @@ class LearningOutcomeValidator:
 
 class SourceBackedCompetencyValidator:
     validator_id = "source_backed_competency"
-    validator_version = "1.2.0"
+    validator_version = "1.3.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         if not item.competency_claim_official:
@@ -275,6 +275,7 @@ class SourceBackedCompetencyValidator:
             )
         unresolved: list[str] = []
         wrong_scope: list[str] = []
+        inactive: list[str] = []
         missing_source: list[str] = []
         invalid_source: list[dict[str, str]] = []
         evidence: list[EvidenceRef] = []
@@ -305,6 +306,9 @@ class SourceBackedCompetencyValidator:
             if not matched:
                 wrong_scope.append(f"{code}:{reason or 'scope'}")
                 continue
+            if not comp.active:
+                inactive.append(code)
+                continue
             outcome, detail = assess_source_revision_for_official_evidence(
                 ctx.session, comp.source_revision_id
             )
@@ -325,7 +329,7 @@ class SourceBackedCompetencyValidator:
                 invalid_source.append({"competency": code, "reason": detail or "invalid_revision"})
             else:
                 invalid_source.append({"competency": code, "reason": detail or "review_revision"})
-        if unresolved or wrong_scope:
+        if unresolved or wrong_scope or inactive:
             return ValidationResult(
                 validator_id=self.validator_id,
                 validator_version=self.validator_version,
@@ -338,7 +342,11 @@ class SourceBackedCompetencyValidator:
                     "curriculum_version_id": item.curriculum_version_id,
                     "subject_code": item.subject_code,
                 },
-                observed={"unresolved": unresolved, "wrong_scope": wrong_scope},
+                observed={
+                    "unresolved": unresolved,
+                    "wrong_scope": wrong_scope,
+                    "inactive": inactive,
+                },
                 evidence=evidence,
                 source_entity_refs=_entity_refs(evidence),
                 taxonomy_version=ctx.taxonomy.version,
