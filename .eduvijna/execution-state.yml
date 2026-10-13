@@ -20,7 +20,7 @@ reviewer:
   product: Codex
 source_of_truth: GitHub
 ci_repair_policy:
-  max_consecutive_failed_repair_iterations: 2
+  max_consecutive_failed_repair_iterations: 3
   scope: same_active_workstream
   on_limit: STOP_AND_ESCALATE
   infrastructure_retry_exempt: true
@@ -40,6 +40,20 @@ ci_repair_policy:
     docker_change: container_specific_smoke
     migration_or_shared_core_change: targeted_migration_and_shared_regression
     final_acceptance_checkpoint: one_full_regression
+review_loop_policy:
+  sequence:
+    - chatgpt_handoff_to_cursor
+    - cursor_implementation
+    - codex_exact_sha_review
+    - cursor_targeted_repair_if_findings
+    - codex_rereview
+  iteration_definition: one_cursor_candidate_plus_one_codex_review
+  max_iterations_per_task: 3
+  on_findings_after_iteration_3: STOP_AND_ESCALATE
+  cursor_completion_marker: "EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>"
+  exact_head_review_required: true
+  auto_merge: false
+  auto_unlock_next_day: false
 current_day: 6
 
 days:
@@ -91,9 +105,14 @@ days:
     engineering_ci_run: 38246297963
     engineering_ci_status: GREEN
     review_status: BLOCKED_BY_CODEX_P1
+    correction_pr: 20
+    correction_candidate: "ca230d4a4d425c6a6c9899b065616d9920049b0a"
+    review_loop_task: "day6-final-p1-closure"
+    review_loop_iteration: 1
+    review_loop_max: 3
     unresolved_review_findings:
-      - "P1: official competency validation can authorize an inactive competency entity"
-      - "P1: age/grade validator can PASS incomplete age claims without validating the supplied bound against the authoritative band"
+      - "P1: bump source_backed_competency validator_version because inactive-competency semantics changed"
+      - "P1: bump age_grade_appropriateness validator_version because incomplete-age semantics changed"
     governance_correction: "Founder did not sign off Day 6. Prior approval/Day 7 activation was recorded in error and has been corrected."
     depends_on: 5
   7:
