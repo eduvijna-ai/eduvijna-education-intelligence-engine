@@ -1,0 +1,3 @@
+# Pytest selectors for the currently implemented/repaired task.
+# Cursor must keep this file scoped to the active task only.
+tests/test_day6_final_closure.py
