@@ -41,9 +41,12 @@ ci_repair_policy:
     migration_or_shared_core_change: targeted_migration_and_shared_regression
     final_acceptance_checkpoint: one_full_regression
 review_loop_policy:
+  founder_approved: true
+  approval_signal: "Approve the workflow and run pytest only for the implemented task, not all tasks every time."
   sequence:
     - chatgpt_handoff_to_cursor
     - cursor_implementation
+    - cursor_targeted_pytest
     - codex_exact_sha_review
     - cursor_targeted_repair_if_findings
     - codex_rereview
@@ -52,6 +55,15 @@ review_loop_policy:
   on_findings_after_iteration_3: STOP_AND_ESCALATE
   cursor_completion_marker: "EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>"
   exact_head_review_required: true
+  pytest_policy:
+    implementation_iteration: impacted_task_tests_only
+    repair_iteration: impacted_finding_tests_only
+    unaffected_historical_tests: do_not_rerun
+    full_regression: final_acceptance_checkpoint_only
+    early_full_regression_exception:
+      - shared_core_change
+      - schema_or_migration_change
+      - test_infrastructure_change
   auto_merge: false
   auto_unlock_next_day: false
 current_day: 6
