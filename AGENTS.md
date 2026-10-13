@@ -61,6 +61,8 @@ Every implementation task follows one bounded autonomous loop:
 
 Iteration rules:
 
+- Cursor must keep `.eduvijna/pytest-targets.txt` scoped to the currently implemented/repaired task before posting its completion marker.
+- PR CI and Compose backend pytest consume that same target file; they must not run unrelated historical pytest modules during implementation/review iterations.
 - One **task iteration** = one Cursor implementation/repair candidate followed by one Codex review of that exact candidate.
 - Maximum = **3 total iterations for the same task**, including the initial implementation.
 - If Codex still reports unresolved findings after iteration 3, immediately **STOP_AND_ESCALATE**. Never start iteration 4 automatically.
