@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -31,7 +33,10 @@ def _session() -> Session:
 
 
 def test_governance_verifier_reads_execution_state() -> None:
-    report = verify_governance_state()
+    fixture = (
+        Path(__file__).resolve().parent / "fixtures" / "execution-state-day6-governance.yml"
+    )
+    report = verify_governance_state(explicit_path=fixture)
     assert report["passed"] is True
     assert report["checks"]["d5_ds01_deferred"] is True
     assert report["checks"]["day7_locked"] is True
