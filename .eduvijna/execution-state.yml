@@ -132,6 +132,11 @@ days:
     state: ACTIVE
     founder_approval: false
     activation_signal: "Founder signed off Day 6 and requested the Day 7 tasklist."
+    tasklist_approval_signal: "Founder approved Day 7 D7-01..D7-36 tasklist and authorized implementation."
+    approved_scope: D7-01..D7-36
+    review_loop_task: "day7-knowledge-intelligence-anythingllm"
+    review_loop_iteration: 1
+    review_loop_max: 3
     depends_on: 6
   8:
     name: LangGraph Orchestration
