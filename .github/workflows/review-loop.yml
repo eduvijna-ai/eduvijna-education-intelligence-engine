@@ -13,7 +13,8 @@ jobs:
   cursor-complete-to-codex:
     if: >-
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, 'EDUVIJNA_CURSOR_COMPLETE')
+      contains(github.event.comment.body, 'EDUVIJNA_CURSOR_COMPLETE') &&
+      !contains(github.event.comment.body, '@cursor')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
@@ -46,17 +47,6 @@ jobs:
             const requestMarker = `<!-- eduvijna-codex-request head=${head} -->`;
             if (comments.some(c => (c.body || "").includes(requestMarker))) {
               return;
-            }
-
-            if (pr.data.draft) {
-              await github.graphql(
-                `mutation($id: ID!) {
-                  markPullRequestReadyForReview(input: { pullRequestId: $id }) {
-                    pullRequest { id isDraft }
-                  }
-                }`,
-                { id: pr.data.node_id }
-              );
             }
 
             await github.rest.issues.createComment({
