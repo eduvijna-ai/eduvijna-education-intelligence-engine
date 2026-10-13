@@ -137,6 +137,9 @@ days:
     review_loop_task: "day7-knowledge-intelligence-anythingllm"
     review_loop_iteration: 1
     review_loop_max: 3
+    implementation_pr: 22
+    implementation_branch: "feature/day7-knowledge-intelligence-anythingllm-v2"
+    implementation_status: CURSOR_ITERATION_1
     depends_on: 6
   8:
     name: LangGraph Orchestration
