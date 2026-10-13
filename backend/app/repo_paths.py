@@ -56,3 +56,18 @@ def ci_workflow_file(*, start: Path | None = None) -> Path:
     if workflow.is_file():
         return workflow
     raise RepositoryRootError("CI workflow file is missing from this runtime layout")
+
+
+def execution_spec_file(relative: str, *, start: Path | None = None) -> Path:
+    """Resolve a docs/execution spec across checkout and backend-only image layouts."""
+    rel = Path(relative)
+    roots = (
+        repository_root(start=start),
+        Path(__file__).resolve().parents[1],  # /app in backend image
+        Path.cwd(),
+    )
+    for root in roots:
+        candidate = root / rel
+        if candidate.is_file():
+            return candidate
+    raise RepositoryRootError(f"Execution spec not found: {relative}")

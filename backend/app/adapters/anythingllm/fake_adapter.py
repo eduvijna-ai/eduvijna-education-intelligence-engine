@@ -11,6 +11,7 @@ from app.adapters.anythingllm.types import (
     AdapterErrorCode,
     AdapterRetrievalHit,
     AdapterRetrievalRequest,
+    AdapterUploadedDocument,
     GatewayAvailability,
     GatewayProbeResult,
     IndexDocumentPayload,
@@ -114,16 +115,22 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
         payload: IndexDocumentPayload,
         *,
         idempotency_key: str,
-    ) -> str:
+    ) -> AdapterUploadedDocument:
         self._guard()
         if idempotency_key in self._idempotency:
             existing_id = self._idempotency[idempotency_key]
             doc = self._documents.get((workspace_slug, existing_id))
             if doc is not None:
-                return existing_id
+                location = f"custom-documents/{existing_id}.txt"
+                return AdapterUploadedDocument(
+                    stable_id=location,
+                    remote_doc_id=existing_id,
+                    remote_location=location,
+                )
         document_id = hashlib.sha256(
             f"{workspace_slug}:{payload.content_checksum}:{idempotency_key}".encode()
         ).hexdigest()[:24]
+        location = f"custom-documents/{document_id}.txt"
         self._workspaces.add(workspace_slug)
         self._documents[(workspace_slug, document_id)] = _StoredDocument(
             workspace_slug=workspace_slug,
@@ -136,11 +143,25 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
             idempotency_key=idempotency_key,
         )
         self._idempotency[idempotency_key] = document_id
-        return document_id
+        return AdapterUploadedDocument(
+            stable_id=location,
+            remote_doc_id=document_id,
+            remote_location=location,
+        )
 
     def remove_document(self, workspace_slug: str, document_id: str) -> None:
         self._guard()
-        self._documents.pop((workspace_slug, document_id), None)
+        if (workspace_slug, document_id) in self._documents:
+            self._documents.pop((workspace_slug, document_id), None)
+            return
+        for key in list(self._documents):
+            ws, internal_id = key
+            if ws != workspace_slug:
+                continue
+            location = f"custom-documents/{internal_id}.txt"
+            if document_id in {internal_id, location}:
+                self._documents.pop(key, None)
+                return
 
     def lookup_document(
         self, workspace_slug: str, document_id: str
@@ -180,14 +201,19 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
                     continue
                 if not query_tokens:
                     score = 0.1
+                chunk_id = f"chunk-{doc.document_id}"
                 hits.append(
                     AdapterRetrievalHit(
                         workspace_slug=workspace_slug,
-                        document_id=doc.document_id,
+                        document_id=chunk_id,
                         text=doc.evidence_text,
                         score=score,
                         rank=0,
-                        metadata=dict(doc.metadata),
+                        metadata={
+                            **dict(doc.metadata),
+                            "sourceDocument": doc.document_id,
+                            "docId": doc.document_id,
+                        },
                     )
                 )
         hits.sort(key=lambda h: (-h.score, h.workspace_slug, h.document_id))

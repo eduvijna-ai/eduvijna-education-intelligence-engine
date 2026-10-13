@@ -55,6 +55,15 @@ class AdapterDocumentRef:
 
 
 @dataclass(frozen=True, slots=True)
+class AdapterUploadedDocument:
+    """Stable remote identity persisted on the Eduvijna binding (D7-R08)."""
+
+    stable_id: str
+    remote_doc_id: str | None = None
+    remote_location: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class AdapterRetrievalHit:
     workspace_slug: str
     document_id: str

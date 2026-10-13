@@ -6,6 +6,7 @@ from app.adapters.anythingllm.types import (
     AdapterDocumentRef,
     AdapterRetrievalHit,
     AdapterRetrievalRequest,
+    AdapterUploadedDocument,
     GatewayProbeResult,
     IndexDocumentPayload,
     WorkspaceKey,
@@ -29,8 +30,8 @@ class AnythingLLMAdapter(Protocol):
         payload: IndexDocumentPayload,
         *,
         idempotency_key: str,
-    ) -> str:
-        """Upload/index document; returns document id."""
+    ) -> AdapterUploadedDocument:
+        """Upload/index document; returns stable remote identity for embed/remove."""
 
     def remove_document(self, workspace_slug: str, document_id: str) -> None: ...
 

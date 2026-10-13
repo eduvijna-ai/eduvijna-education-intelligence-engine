@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.adapters.anythingllm.protocol import AnythingLLMAdapter
 from app.adapters.anythingllm.types import AdapterError, AdapterRetrievalRequest
 from app.knowledge_intelligence.audit import hash_query_text, new_query_id, record_audit_event
+from app.knowledge_intelligence.binding_match import build_binding_lookup, match_binding_for_hit
 from app.knowledge_intelligence.contracts import (
     AppliedKnowledgeScope,
     KnowledgeEvidenceItem,
@@ -21,6 +22,7 @@ from app.knowledge_intelligence.scope import (
     binding_visible_to_request,
     scope_from_source,
 )
+from app.knowledge_intelligence.scope_verify import local_scope_passes
 from app.models.knowledge_intelligence import KnowledgeSourceBinding
 from app.models.source import Source, SourceRevision
 
@@ -42,18 +44,8 @@ def _validate_request(request: KnowledgeRetrievalRequest, profile: RetrievalProf
 
 
 def compile_scope_filters(request: KnowledgeRetrievalRequest) -> dict[str, str | list[str]]:
-    filters: dict[str, str | list[str]] = {}
-    if request.grade_year_code:
-        filters["grade_year_code"] = request.grade_year_code
-    if request.medium_code:
-        filters["medium_code"] = request.medium_code
-    if request.subject_code:
-        filters["subject_code"] = request.subject_code
-    if request.topic_codes:
-        filters["topic_codes"] = request.topic_codes
-    if request.concept_codes:
-        filters["concept_codes"] = request.concept_codes
-    return filters
+    """Adapter hints only; authoritative scope checks happen locally (D7-R07)."""
+    return {}
 
 
 def _authority_rank(trust_tier: str) -> int:
@@ -140,17 +132,14 @@ def retrieve_knowledge(
         hits = []
         warnings.append("gateway_unavailable")
 
-    binding_by_doc: dict[tuple[str, str], KnowledgeSourceBinding] = {}
-    for binding in visible_bindings:
-        if binding.anythingllm_document_id:
-            binding_by_doc[(binding.anythingllm_workspace, binding.anythingllm_document_id)] = (
-                binding
-            )
+    binding_by_doc = build_binding_lookup(visible_bindings)
 
     items: list[KnowledgeEvidenceItem] = []
     dropped_foreign = 0
+    scope_verification_warnings: list[str] = []
+    verified_filters: dict[str, str | list[str]] = {}
     for hit in hits:
-        matched_binding = binding_by_doc.get((hit.workspace_slug, hit.document_id))
+        matched_binding = match_binding_for_hit(hit, binding_by_doc)
         if matched_binding is None:
             warnings.append(f"unknown_remote_document:{hit.document_id}")
             continue
@@ -181,6 +170,17 @@ def retrieve_knowledge(
             and source.trust_tier not in request.source_authority_tiers
         ):
             continue
+        passes_scope, entity_refs, local_warnings = local_scope_passes(
+            session, source, revision, request
+        )
+        scope_verification_warnings.extend(local_warnings)
+        if not passes_scope:
+            for warning in local_warnings:
+                if warning.startswith("dropped_"):
+                    warnings.append(f"{warning}:{revision.id}")
+            continue
+        for key, value in entity_refs.items():
+            verified_filters[key] = value
         items.append(
             KnowledgeEvidenceItem(
                 source_id=source.id,
@@ -195,11 +195,8 @@ def retrieve_knowledge(
                 retrieval_score=hit.score,
                 retrieval_rank=hit.rank,
                 anythingllm_workspace=hit.workspace_slug,
-                anythingllm_document_id=hit.document_id,
-                entity_refs={
-                    "curriculum_version_id": request.curriculum_version_id,
-                    "exam_version_id": request.exam_version_id,
-                },
+                anythingllm_document_id=matched_binding.anythingllm_document_id or hit.document_id,
+                entity_refs=entity_refs,
                 citation_label=_citation_label(source, revision),
             )
         )
@@ -227,8 +224,12 @@ def retrieve_knowledge(
             organization_id=request.organization_id,
             institution_id=request.institution_id,
             teacher_id=request.teacher_id,
-            curriculum_version_id=request.curriculum_version_id,
-            exam_version_id=request.exam_version_id,
+            curriculum_version_id=verified_filters.get("curriculum_version_id")
+            if isinstance(verified_filters.get("curriculum_version_id"), str)
+            else request.curriculum_version_id,
+            exam_version_id=verified_filters.get("exam_version_id")
+            if isinstance(verified_filters.get("exam_version_id"), str)
+            else request.exam_version_id,
             grade_year_code=request.grade_year_code,
             medium_code=request.medium_code,
             subject_code=request.subject_code,
@@ -236,6 +237,8 @@ def retrieve_knowledge(
             concept_codes=request.concept_codes,
             source_authority_tiers=request.source_authority_tiers,
             workspaces_queried=workspaces,
+            verified_filters=verified_filters,
+            scope_verification_warnings=sorted(set(scope_verification_warnings)),
         ),
         warnings=warnings,
         dropped_foreign_tenant_count=dropped_foreign,

@@ -7,22 +7,30 @@ Founder approved D7-01…D7-36 and authorized implementation.
 ## Review loop
 
 - task: `day7-knowledge-intelligence-anythingllm`
-- current iteration: 1/3
+- current iteration: 2/3
 - builder: Cursor, standard Composer 2.5 only
 - reviewer: Codex (exact-SHA, after completion marker)
 - completion marker: `EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>`
 - no automatic merge
 - Day 8 remains locked until Founder signoff
 
-## Engineering status (iteration 1 candidate)
+## Engineering status (iteration 2 candidate)
 
-D7-01…D7-36: **IMPLEMENTED** (scope map in `docs/execution/D07-SCOPE-MAP.md`).
+D7-01…D7-36: **IMPLEMENTED** with Codex P1 repairs D7-R01…D7-R09 (scope map in `docs/execution/D07-SCOPE-MAP.md`).
+
+### Iteration 2 repairs
+
+- D7-R01: CLI uses configured adapter factory; `--use-fake` for explicit fake mode
+- D7-R02–R04/R08: HTTP adapter upload/workspace/retrieval/removal contracts + mocked tests
+- D7-R05/R07: verified curriculum/exam provenance and local scope post-filtering
+- D7-R06: idempotent indexing reconciles pending supersession retirements
+- D7-R09: portable Day 7 acceptance spec resolution + Dockerfile COPY
 
 ### Targeted tests (local)
 
 ```text
-pytest tests/test_day7_adapter.py tests/test_day7_indexing.py tests/test_day7_retrieval.py tests/test_day7_acceptance.py
-9 passed
+pytest tests/test_day7_*.py
+18 passed
 ```
 
 ### Migration (D7-33)

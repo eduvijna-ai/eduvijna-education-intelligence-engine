@@ -14,7 +14,7 @@ def test_fake_adapter_probe_and_deterministic_retrieval() -> None:
     adapter = FakeAnythingLLMAdapter()
     assert adapter.probe().availability == GatewayAvailability.AVAILABLE
     slug = adapter.ensure_workspace(WorkspaceKey(scope_key="global", slug="ws-global"))
-    adapter.upload_document(
+    uploaded = adapter.upload_document(
         slug,
         IndexDocumentPayload(
             title="t",
@@ -24,6 +24,7 @@ def test_fake_adapter_probe_and_deterministic_retrieval() -> None:
         ),
         idempotency_key="idem-1",
     )
+    assert uploaded.stable_id
     hits = adapter.retrieve(
         AdapterRetrievalRequest(
             query_text="quadratic factorisation",
@@ -54,7 +55,7 @@ def test_fake_adapter_idempotent_upload() -> None:
     )
     first = adapter.upload_document(slug, payload, idempotency_key="idem-2")
     second = adapter.upload_document(slug, payload, idempotency_key="idem-2")
-    assert first == second
+    assert first.stable_id == second.stable_id
 
 
 def test_fake_adapter_unavailable_simulation() -> None:

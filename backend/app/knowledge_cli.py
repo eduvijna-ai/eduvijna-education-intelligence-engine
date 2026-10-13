@@ -13,6 +13,11 @@ from app.knowledge_intelligence.service import KnowledgeIntelligenceService
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Knowledge Intelligence engineering CLI (D7-29)")
+    parser.add_argument(
+        "--use-fake",
+        action="store_true",
+        help="Force deterministic in-memory AnythingLLM adapter (tests/dev only)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("probe", help="Probe AnythingLLM gateway availability")
@@ -42,7 +47,7 @@ def main() -> None:
     retire_parser.add_argument("binding_id")
 
     args = parser.parse_args()
-    adapter = build_anythingllm_adapter(force_fake=True)
+    adapter = build_anythingllm_adapter(force_fake=True if args.use_fake else None)
     session = session_factory()()
     try:
         service = KnowledgeIntelligenceService(session, adapter=adapter)

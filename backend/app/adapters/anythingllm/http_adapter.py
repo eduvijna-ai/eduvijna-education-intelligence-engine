@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -13,6 +14,7 @@ from app.adapters.anythingllm.types import (
     AdapterErrorCode,
     AdapterRetrievalHit,
     AdapterRetrievalRequest,
+    AdapterUploadedDocument,
     GatewayAvailability,
     GatewayProbeResult,
     IndexDocumentPayload,
@@ -47,6 +49,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         *,
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
     ) -> httpx.Response:
         url = f"{self._base_url}{path}"
         last_error: AdapterError | None = None
@@ -59,6 +62,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                         headers=self._headers(),
                         json=json_body,
                         files=files,
+                        data=form_data,
                     )
             except httpx.TimeoutException:
                 last_error = AdapterError(
@@ -136,10 +140,28 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             capabilities=("workspace", "upload", "retrieve", "remove"),
         )
 
+    def _find_workspace_slug(self, slug: str) -> str | None:
+        response = self._request("GET", "/api/v1/workspaces")
+        body = response.json()
+        workspaces = body.get("workspaces") if isinstance(body, dict) else body
+        if not isinstance(workspaces, list):
+            return None
+        for item in workspaces:
+            if not isinstance(item, dict):
+                continue
+            candidate = item.get("slug") or item.get("name")
+            if candidate == slug:
+                return str(candidate)
+        return None
+
     def resolve_workspace(self, key: WorkspaceKey) -> str:
-        return key.slug
+        existing = self._find_workspace_slug(key.slug)
+        return existing or key.slug
 
     def ensure_workspace(self, key: WorkspaceKey) -> str:
+        existing = self._find_workspace_slug(key.slug)
+        if existing:
+            return existing
         try:
             self._request(
                 "POST",
@@ -147,9 +169,37 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                 json_body={"name": key.slug},
             )
         except AdapterError as exc:
-            if exc.http_status != 409:
-                raise
+            if exc.http_status in {400, 409}:
+                existing = self._find_workspace_slug(key.slug)
+                if existing:
+                    return existing
+            raise
         return key.slug
+
+    @staticmethod
+    def _parse_uploaded_document(body: dict[str, Any]) -> AdapterUploadedDocument:
+        documents = body.get("documents")
+        if not isinstance(documents, list) or not documents:
+            raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload missing documents[]")
+        first = documents[0]
+        if not isinstance(first, dict):
+            raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload document entry invalid")
+        remote_doc_id = first.get("id") or first.get("docId")
+        remote_location = first.get("location") or first.get("docpath") or first.get("path")
+        if isinstance(remote_location, str) and remote_location:
+            stable_id = remote_location
+        elif isinstance(remote_doc_id, str) and remote_doc_id:
+            stable_id = remote_doc_id
+        else:
+            raise AdapterError(
+                AdapterErrorCode.INVALID_RESPONSE,
+                "upload document missing stable id/location",
+            )
+        return AdapterUploadedDocument(
+            stable_id=stable_id,
+            remote_doc_id=remote_doc_id if isinstance(remote_doc_id, str) else None,
+            remote_location=remote_location if isinstance(remote_location, str) else None,
+        )
 
     def upload_document(
         self,
@@ -157,7 +207,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         payload: IndexDocumentPayload,
         *,
         idempotency_key: str,
-    ) -> str:
+    ) -> AdapterUploadedDocument:
         metadata = {
             **payload.metadata,
             "title": payload.title,
@@ -167,29 +217,32 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             "evidence_role": "source_evidence",
         }
         files = {
-            "file": (f"{idempotency_key}.txt", payload.evidence_text.encode("utf-8"), "text/plain"),
-            "metadata": (None, str(metadata)),
+            "file": (
+                f"{idempotency_key}.txt",
+                payload.evidence_text.encode("utf-8"),
+                "text/plain",
+            ),
+        }
+        form_data = {
+            "addToWorkspaces": json.dumps([workspace_slug]),
+            "metadata": json.dumps(metadata),
         }
         response = self._request(
             "POST",
-            f"/api/v1/document/upload/{workspace_slug}",
+            "/api/v1/document/upload",
             files=files,
+            form_data=form_data,
         )
         body = response.json()
         if not isinstance(body, dict):
             raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload response not object")
-        document = body.get("document") or body
-        if isinstance(document, dict):
-            doc_id = document.get("id") or document.get("docId")
-            if isinstance(doc_id, str) and doc_id:
-                return doc_id
-        raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload missing document id")
+        return self._parse_uploaded_document(body)
 
     def remove_document(self, workspace_slug: str, document_id: str) -> None:
         self._request(
-            "DELETE",
-            "/api/v1/document/remove-document",
-            json_body={"workspaceSlug": workspace_slug, "documentId": document_id},
+            "POST",
+            f"/api/v1/workspace/{workspace_slug}/update-embeddings",
+            json_body={"deletes": [document_id]},
         )
 
     def lookup_document(
@@ -206,11 +259,12 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             if not isinstance(item, dict):
                 continue
             doc_id = item.get("id") or item.get("docId")
-            if doc_id == document_id:
+            location = item.get("location") or item.get("docpath")
+            if document_id in {doc_id, location}:
                 title = item.get("title")
                 return AdapterDocumentRef(
                     workspace_slug=workspace_slug,
-                    document_id=document_id,
+                    document_id=str(doc_id or document_id),
                     title=title if isinstance(title, str) else None,
                 )
         return None
@@ -243,23 +297,31 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                 if not isinstance(item, dict):
                     continue
                 text = item.get("text") or item.get("content") or ""
-                doc_id = item.get("id") or item.get("docId") or item.get("documentId")
-                if not isinstance(doc_id, str):
+                chunk_id = item.get("id") or item.get("chunkId") or item.get("vectorId")
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                doc_id = (
+                    metadata.get("sourceDocument")
+                    or metadata.get("docId")
+                    or metadata.get("documentId")
+                    or item.get("docId")
+                    or item.get("documentId")
+                )
+                if not isinstance(chunk_id, str) and not isinstance(doc_id, str):
                     continue
+                hit_document_id = chunk_id if isinstance(chunk_id, str) else str(doc_id)
                 score_raw = item.get("score") or item.get("similarity") or 0.0
                 try:
                     score = float(score_raw)
                 except (TypeError, ValueError):
                     score = 0.0
-                metadata = item.get("metadata")
                 hits.append(
                     AdapterRetrievalHit(
                         workspace_slug=workspace_slug,
-                        document_id=doc_id,
+                        document_id=hit_document_id,
                         text=str(text),
                         score=score,
                         rank=index + 1,
-                        metadata=metadata if isinstance(metadata, dict) else {},
+                        metadata=metadata,
                     )
                 )
         hits.sort(key=lambda h: (-h.score, h.workspace_slug, h.document_id))

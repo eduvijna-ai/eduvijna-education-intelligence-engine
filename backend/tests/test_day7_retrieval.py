@@ -12,6 +12,8 @@ from app.knowledge_intelligence.fixtures import seed_knowledge_fixtures
 from app.knowledge_intelligence.indexing import index_source_revision
 from app.knowledge_intelligence.retrieval import retrieve_knowledge
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
+from app.models.curriculum import CurriculumPack, CurriculumVersion
+from app.models.source import Source, SourceRevision
 
 
 def _session() -> Session:
@@ -66,6 +68,106 @@ def test_tenant_isolation_drops_foreign_institution_evidence() -> None:
         )
         assert any("institution" in item.title.lower() for item in scoped.items)
         assert all(item.source_revision_checksum for item in scoped.items)
+
+
+def test_curriculum_filter_drops_unrelated_revision() -> None:
+    adapter = FakeAnythingLLMAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        pack = CurriculumPack(
+            code="ki-pack",
+            name="KI Pack",
+            country="IN",
+            metadata_json={"synthetic_fixture": True},
+        )
+        session.add(pack)
+        session.flush()
+        curriculum_version = CurriculumVersion(
+            curriculum_pack_id=pack.id,
+            version_code="v1",
+            metadata_json={"synthetic_fixture": True},
+        )
+        session.add(curriculum_version)
+        session.flush()
+        forged_curriculum_id = "forged-curriculum-version"
+        result = retrieve_knowledge(
+            session,
+            adapter,
+            KnowledgeRetrievalRequest(
+                query_text="quadratic equations",
+                curriculum_version_id=forged_curriculum_id,
+                top_k=5,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            ),
+        )
+        assert result.items == []
+        assert any("dropped_unverified_curriculum" in w for w in result.warnings)
+
+        revision = session.get(SourceRevision, fixtures.official_revision_id)
+        assert revision is not None
+        revision.curriculum_versions.append(curriculum_version)
+        session.commit()
+        linked = retrieve_knowledge(
+            session,
+            adapter,
+            KnowledgeRetrievalRequest(
+                query_text="quadratic equations",
+                curriculum_version_id=curriculum_version.id,
+                top_k=5,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            ),
+        )
+        assert linked.items
+        assert linked.items[0].entity_refs.get("curriculum_version_id") == curriculum_version.id
+
+
+def test_local_grade_filter_drops_metadata_mismatch() -> None:
+    adapter = FakeAnythingLLMAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        official_revision = session.get(SourceRevision, fixtures.official_revision_id)
+        assert official_revision is not None
+        source = session.get(Source, official_revision.source_id)
+        assert source is not None
+        source.metadata_json = {**source.metadata_json, "grade_year_code": "grade-10"}
+        session.commit()
+        mismatch = retrieve_knowledge(
+            session,
+            adapter,
+            KnowledgeRetrievalRequest(
+                query_text="quadratic equations",
+                grade_year_code="grade-9",
+                top_k=5,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            ),
+        )
+        assert mismatch.items == []
+        match = retrieve_knowledge(
+            session,
+            adapter,
+            KnowledgeRetrievalRequest(
+                query_text="quadratic equations",
+                grade_year_code="grade-10",
+                top_k=5,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            ),
+        )
+        assert match.items
 
 
 def test_authority_metadata_not_upgraded_by_score() -> None:

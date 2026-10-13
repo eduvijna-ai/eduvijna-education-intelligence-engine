@@ -57,6 +57,51 @@ def find_active_binding_for_source(
     ).first()
 
 
+def list_active_bindings_for_source(
+    session: Session,
+    source_id: str,
+) -> list[KnowledgeSourceBinding]:
+    return list(
+        session.scalars(
+            select(KnowledgeSourceBinding)
+            .where(
+                KnowledgeSourceBinding.source_id == source_id,
+                KnowledgeSourceBinding.index_status == KnowledgeIndexStatus.ACTIVE.value,
+            )
+            .order_by(
+                KnowledgeSourceBinding.indexed_at.desc(),
+                KnowledgeSourceBinding.created_at.desc(),
+            )
+        )
+    )
+
+
+def reconcile_supersession_for_source(
+    session: Session,
+    adapter: AnythingLLMAdapter,
+    source_id: str,
+    *,
+    keep_binding_id: str,
+    actor_id: str | None = None,
+) -> list[str]:
+    """Retry pending retirements and retire stale active bindings (D7-R06)."""
+    actions: list[str] = []
+    active_bindings = list_active_bindings_for_source(session, source_id)
+    for binding in active_bindings:
+        if binding.id == keep_binding_id:
+            continue
+        if binding.metadata_json.get("retire_retryable"):
+            actions.append(f"retry_retire:{binding.id}")
+        _retire_binding(
+            session,
+            adapter,
+            binding,
+            superseded_by=keep_binding_id,
+            actor_id=actor_id,
+        )
+    return actions
+
+
 def index_source_revision(
     session: Session,
     adapter: AnythingLLMAdapter,
@@ -81,6 +126,13 @@ def index_source_revision(
         and existing.index_status == KnowledgeIndexStatus.ACTIVE.value
         and existing.source_revision_checksum == revision.checksum
     ):
+        reconcile_supersession_for_source(
+            session,
+            adapter,
+            source.id,
+            keep_binding_id=existing.id,
+            actor_id=actor_id,
+        )
         return existing
 
     scope = scope_from_source(source)
@@ -117,7 +169,7 @@ def index_source_revision(
     )
 
     try:
-        document_id = adapter.upload_document(
+        uploaded = adapter.upload_document(
             workspace_slug,
             payload,
             idempotency_key=_idempotency_key(revision, profile.version),
@@ -143,15 +195,32 @@ def index_source_revision(
         raise IndexingError(exc.message) from exc
 
     prior_active = find_active_binding_for_source(session, source.id)
-    binding.anythingllm_document_id = document_id
+    binding.anythingllm_document_id = uploaded.stable_id
+    binding.metadata_json = {
+        **binding.metadata_json,
+        "anythingllm_remote_doc_id": uploaded.remote_doc_id,
+        "anythingllm_remote_location": uploaded.remote_location,
+    }
     binding.index_status = KnowledgeIndexStatus.ACTIVE.value
     binding.indexed_at = datetime.now(UTC)
     binding.retired_at = None
-    revision.anythingllm_document_id = document_id
+    revision.anythingllm_document_id = uploaded.stable_id
     source.anythingllm_workspace = workspace_slug
 
+    pending_remote_retire = False
     if prior_active is not None and prior_active.id != binding.id:
         _retire_binding(session, adapter, prior_active, superseded_by=binding.id, actor_id=actor_id)
+        session.refresh(prior_active)
+        pending_remote_retire = bool(prior_active.metadata_json.get("retire_retryable"))
+
+    if not pending_remote_retire:
+        reconcile_supersession_for_source(
+            session,
+            adapter,
+            source.id,
+            keep_binding_id=binding.id,
+            actor_id=actor_id,
+        )
 
     record_audit_event(
         session,
@@ -160,7 +229,7 @@ def index_source_revision(
         retrieval_profile_version=profile.version,
         workspaces_queried=[workspace_slug],
         source_revision_ids=[revision.id],
-        payload={"binding_id": binding.id, "document_id": document_id},
+        payload={"binding_id": binding.id, "document_id": uploaded.stable_id},
     )
     session.flush()
     return binding
@@ -205,7 +274,11 @@ def _retire_binding(
     else:
         binding.index_status = KnowledgeIndexStatus.RETIRED.value
     binding.retired_at = datetime.now(UTC)
-    binding.metadata_json = {**binding.metadata_json, "superseded_by": superseded_by}
+    binding.metadata_json = {
+        **binding.metadata_json,
+        "superseded_by": superseded_by,
+        "retire_retryable": False,
+    }
     record_audit_event(
         session,
         event_type=KnowledgeAuditEventType.INDEX_SUPERSEDE

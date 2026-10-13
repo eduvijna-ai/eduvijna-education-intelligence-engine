@@ -12,19 +12,25 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
+from app.adapters.anythingllm.factory import build_anythingllm_adapter
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
-from app.adapters.anythingllm.types import GatewayAvailability
+from app.adapters.anythingllm.http_adapter import HttpAnythingLLMAdapter
+from app.adapters.anythingllm.types import AdapterError, AdapterErrorCode, GatewayAvailability
+from app.core.config import Settings
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
 from app.knowledge_intelligence.eligibility import IndexEligibilityError
 from app.knowledge_intelligence.fixtures import seed_knowledge_fixtures, staged_revision_for_source
 from app.knowledge_intelligence.governance import verify_day7_governance_state
-from app.knowledge_intelligence.indexing import index_source_revision
+from app.knowledge_intelligence.indexing import (
+    index_source_revision,
+    list_active_bindings_for_source,
+)
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.knowledge_intelligence.service import KnowledgeIntelligenceService
 from app.models.knowledge_intelligence import KnowledgeAuditEvent
-from app.models.source import SourceRevision
+from app.models.source import Source, SourceRevision
 
 
 def _git_head() -> str:
@@ -122,6 +128,92 @@ def build_verification_report(session: Session) -> dict[str, object]:
     audit_count = session.scalar(select(KnowledgeAuditEvent.id).limit(1))
     audits = list(session.scalars(select(KnowledgeAuditEvent)).all())
 
+    forged_curriculum = service.retrieve(
+        KnowledgeRetrievalRequest(
+            query_text="quadratic equations",
+            curriculum_version_id="forged-curriculum-id",
+            top_k=3,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+    )
+    official_source = session.get(Source, official_binding.source_id)
+    grade_mismatch = KnowledgeRetrievalRequest(
+        query_text="quadratic equations",
+        grade_year_code="grade-9",
+        top_k=3,
+        retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+    )
+    if official_source is not None:
+        official_source.metadata_json = {
+            **official_source.metadata_json,
+            "grade_year_code": "grade-10",
+        }
+    session.flush()
+    grade_filtered = service.retrieve(grade_mismatch)
+
+    class _FailOnceRetireAdapter(FakeAnythingLLMAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self._retire_calls = 0
+
+        def remove_document(self, workspace_slug: str, document_id: str) -> None:
+            self._retire_calls += 1
+            if self._retire_calls == 1:
+                raise AdapterError(
+                    AdapterErrorCode.UNAVAILABLE,
+                    "simulated retire failure",
+                    retryable=True,
+                )
+            super().remove_document(workspace_slug, document_id)
+
+    supersession_adapter = _FailOnceRetireAdapter()
+    supersession_service = KnowledgeIntelligenceService(session, adapter=supersession_adapter)
+    first_binding = supersession_service.index_source_revision(
+        fixtures.teacher_revision_id,
+        retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+    )
+    base_revision = session.get(SourceRevision, fixtures.teacher_revision_id)
+    supersession_reconciled = False
+    if base_revision is not None:
+        base_revision.status = "superseded"
+        base_revision.active_slot = None
+        successor = SourceRevision(
+            source_id=base_revision.source_id,
+            revision_number=base_revision.revision_number + 1,
+            checksum="1" * 64,
+            source_snapshot_checksum="2" * 64,
+            ingestion_method="manual",
+            content_type="text/plain",
+            byte_size=32,
+            retrieved_at=base_revision.retrieved_at,
+            status="active",
+            active_slot=1,
+            extraction_status="succeeded",
+            extracted_text="SYNTHETIC FIXTURE: supersession verify revision",
+            extracted_checksum="1" * 64,
+            metadata_json={"synthetic_fixture": True},
+        )
+        session.add(successor)
+        session.flush()
+        replacement = supersession_service.index_source_revision(
+            successor.id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        supersession_service.index_source_revision(
+            successor.id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        active_after = list_active_bindings_for_source(session, first_binding.source_id)
+        supersession_reconciled = (
+            len(active_after) == 1 and active_after[0].id == replacement.id
+        )
+
+    explicit_fake = build_anythingllm_adapter(force_fake=True)
+    configured_http = build_anythingllm_adapter(
+        Settings(anythingllm_base_url="http://anythingllm.test", anythingllm_api_key="secret"),
+        force_fake=False,
+    )
+
     report_head_sha = _resolve_candidate_sha()
     gov_checks_raw = governance.get("checks", {})
     gov_checks = gov_checks_raw if isinstance(gov_checks_raw, dict) else {}
@@ -149,6 +241,11 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "d5_ds01_still_deferred": bool(gov_checks.get("d5_ds01_deferred")),
         "day8_locked": bool(gov_checks.get("day8_locked")),
         "candidate_sha_resolved": report_head_sha != "unknown",
+        "curriculum_provenance_not_forged": forged_curriculum.items == [],
+        "local_grade_scope_filter_enforced": grade_filtered.items == [],
+        "supersession_retire_failure_recoverable": supersession_reconciled,
+        "fake_adapter_explicit_mode": isinstance(explicit_fake, FakeAnythingLLMAdapter),
+        "configured_adapter_uses_http": isinstance(configured_http, HttpAnythingLLMAdapter),
     }
 
     return {

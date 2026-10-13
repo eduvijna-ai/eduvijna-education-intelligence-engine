@@ -60,6 +60,8 @@ class AppliedKnowledgeScope(BaseModel):
     concept_codes: list[str] = Field(default_factory=list)
     source_authority_tiers: list[str] = Field(default_factory=list)
     workspaces_queried: list[str] = Field(default_factory=list)
+    verified_filters: dict[str, str | list[str]] = Field(default_factory=dict)
+    scope_verification_warnings: list[str] = Field(default_factory=list)
 
 
 class KnowledgeRetrievalResult(BaseModel):
