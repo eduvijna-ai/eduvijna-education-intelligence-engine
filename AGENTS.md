@@ -47,18 +47,39 @@ Cost rules:
 - If an included quota blocks progress, stop and surface the blocker rather than enabling extra paid usage.
 
 
+## Bounded implementation / review loop
+
+Every implementation task follows one bounded autonomous loop:
+
+1. ChatGPT / Chief Architect posts the authoritative handoff to Cursor.
+2. Cursor implements the task using standard Composer 2.5 and runs only impacted tests during iteration work.
+3. Cursor pushes one exact candidate SHA and posts `EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>` with test evidence.
+4. Repository automation marks the PR ready if needed and requests Codex review on that exact SHA.
+5. If Codex has unresolved findings, repository automation assigns those findings back to Cursor on the same PR as the next iteration.
+6. Cursor repairs only those findings, posts a new exact completion marker, and Codex re-reviews.
+7. If Codex has no unresolved findings, automated implementation stops and the task moves to the Chief Architect / Founder gate.
+
+Iteration rules:
+
+- One **task iteration** = one Cursor implementation/repair candidate followed by one Codex review of that exact candidate.
+- Maximum = **3 total iterations for the same task**, including the initial implementation.
+- If Codex still reports unresolved findings after iteration 3, immediately **STOP_AND_ESCALATE**. Never start iteration 4 automatically.
+- Infrastructure outage/cancellation/rate-limit events do not consume an iteration when independently evidenced.
+- Do not change task scope between iterations. New scope is a new Founder/Chief Architect decision.
+- No automatic merge and no automatic next-day unlock.
+
 ## CI repair circuit breaker
 
-Autonomous repair loops are bounded.
+CI repair follows the same bounded philosophy.
 
-- A **repair iteration** is a code/document change intended to resolve the current failing CI/review set, followed by an authoritative CI run on that candidate.
-- If **two consecutive repair iterations fail for the same active workstream before a green candidate is reached**, stop the autonomous repair loop. Do not launch a third full repair/CI cycle automatically.
-- On stop, hand back: both candidate SHAs, CI run IDs, failing jobs/checks, whether the second failure is the same/new/flaky class, the likely root cause, and the smallest proposed next action.
-- The Chief Architect/Founder must then choose one of: resume with a revised plan, narrow scope, defer an external dependency, or abandon/revert the workstream.
-- Cheap targeted local/unit checks may be used between the two attempts; do not substitute repeated full CI runs for diagnosis.
-- A runner outage, cancellation, rate-limit/platform incident, or other independently evidenced infrastructure failure does **not** count as a repair failure; one infrastructure retry is allowed.
-- A previously approved **fail-closed external-evidence gate** (for example a formally deferred authoritative-source package) does not count as a repair failure when all engineering jobs are green and the red status is the expected recorded outcome.
-- Codex findings still require closure before Founder review; the circuit breaker stops blind iteration, not review accountability.
+- A **repair iteration** is a code/document change intended to resolve the current failing CI/review set, followed by the smallest authoritative test set needed for that change.
+- Maximum autonomous repair iterations for the same active workstream: **3**.
+- After the third failed iteration, immediately `STOP_AND_ESCALATE`.
+- On stop, hand back candidate SHAs, CI/check IDs, failing checks, failure classification, likely root cause, and the smallest proposed next action.
+- Use targeted unit/integration checks during repair. Do not repeat the full historical regression unless shared infrastructure/migrations changed or the task has reached its final acceptance checkpoint.
+- A runner outage, cancellation, rate-limit/platform incident, or other independently evidenced infrastructure failure does **not** count as a repair failure.
+- A previously approved fail-closed external-evidence gate does not count as a repair failure when engineering checks are green and the red outcome is the expected recorded gate.
+- Codex findings require closure before Founder review unless the Founder explicitly authorizes a documented exception.
 
 ## Core architecture constraints
 
