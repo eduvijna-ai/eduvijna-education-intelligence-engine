@@ -30,10 +30,18 @@ def revision_matches_exam_filter(
     return any(ev.id == exam_version_id for ev in revision.exam_versions)
 
 
+def _coerce_metadata_filter_value(value: object) -> str | list[str] | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return value
+    return None
+
+
 def _metadata_value(source: Source, revision: SourceRevision, key: str) -> str | list[str] | None:
     for container in (revision.metadata_json, source.metadata_json):
         if key in container:
-            return container[key]
+            return _coerce_metadata_filter_value(container[key])
     return None
 
 

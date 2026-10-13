@@ -298,7 +298,10 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                     continue
                 text = item.get("text") or item.get("content") or ""
                 chunk_id = item.get("id") or item.get("chunkId") or item.get("vectorId")
-                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                raw_metadata = item.get("metadata")
+                metadata: dict[str, Any] = {}
+                if isinstance(raw_metadata, dict):
+                    metadata = raw_metadata
                 doc_id = (
                     metadata.get("sourceDocument")
                     or metadata.get("docId")
