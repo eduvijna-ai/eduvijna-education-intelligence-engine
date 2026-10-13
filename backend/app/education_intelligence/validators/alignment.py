@@ -230,7 +230,7 @@ class LearningOutcomeValidator:
 
 class SourceBackedCompetencyValidator:
     validator_id = "source_backed_competency"
-    validator_version = "1.2.0"
+    validator_version = "1.3.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         if not item.competency_claim_official:

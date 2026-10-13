@@ -151,6 +151,7 @@ def test_official_competency_active_eligible() -> None:
             if r.validator_id == "source_backed_competency"
         )
         assert comp_r.status == ValidationStatus.PASS
+        assert comp_r.validator_version == "1.3.0"
         assert comp_r.evidence
 
 
@@ -169,6 +170,7 @@ def test_official_competency_inactive_entity_fails_without_evidence() -> None:
             if r.validator_id == "source_backed_competency"
         )
         assert comp_r.status == ValidationStatus.FAIL
+        assert comp_r.validator_version == "1.3.0"
         assert comp_r.observed.get("inactive")
         assert not comp_r.evidence
 
@@ -235,6 +237,7 @@ def test_authoritative_age_band_bounds(
             if r.validator_id == "age_grade_appropriateness"
         )
         assert age.status == expected
+        assert age.validator_version == "1.2.0"
 
 
 def test_authoritative_age_band_mismatch_fails() -> None:
@@ -249,6 +252,7 @@ def test_authoritative_age_band_mismatch_fails() -> None:
             if r.validator_id == "age_grade_appropriateness"
         )
         assert age.status == ValidationStatus.FAIL
+        assert age.validator_version == "1.2.0"
 
 
 def test_caller_metadata_cannot_forge_age_authority() -> None:

@@ -185,7 +185,7 @@ def _infer_difficulty_band(
 
 class AgeGradeAppropriatenessValidator:
     validator_id = "age_grade_appropriateness"
-    validator_version = "1.1.0"
+    validator_version = "1.2.0"
 
     def validate(self, item: CanonicalAssessmentItem, ctx: ValidationContext) -> ValidationResult:
         authoritative_band: tuple[int, int] | None = None
