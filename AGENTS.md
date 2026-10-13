@@ -106,3 +106,21 @@ Codex review findings should be fixed on the same PR and CI rerun until all bloc
 When the automated loop is green, stop implementation and mark the work ready for Founder review.
 
 Do not start the next day.
+
+## Cursor Cloud specific instructions
+
+The Cloud Agent image is Ubuntu 24.04 with the Day 1 toolchain prepared on top of Cursor's default image. Active work is Day 1 in `docs/execution/D01-FOUNDATION.md`. The repository has no backend, frontend, Compose file, or dev server yet, so the environment `start` command is empty.
+
+Toolchains:
+
+- Python 3.12 is `/usr/bin/python3`. `python3.12-venv` and `python3-dev` are installed, so `python3 -m venv` works. SQLite is the stdlib `sqlite3` module (3.45).
+- Node.js 22.22.2 is installed with nvm at `~/.nvm/versions/node/v22.22.2/bin`. Prepend that `bin` directory to `PATH` before project Node commands so `node` and `npm` come from the same install. `/exec-daemon/node` can appear earlier on `PATH` and is a different Node build.
+- GNU Make and `build-essential` are already on the image.
+
+`install` is idempotent. It checks that `python3 -m venv` works (and installs `python3.12-venv` plus `python3-dev` only when that check fails), selects the newest nvm Node, then:
+
+- if `backend/requirements.txt` exists, creates `.venv` and runs `pip install -r backend/requirements.txt`;
+- otherwise, if `backend/pyproject.toml` exists, creates `.venv` and runs `pip install -e ./backend`;
+- if `frontend/package-lock.json` exists, runs `npm ci --prefix frontend`.
+
+Docker is absent. Add it when the Day 1 Compose stack is introduced.
