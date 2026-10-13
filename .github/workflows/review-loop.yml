@@ -13,7 +13,8 @@ jobs:
   cursor-complete-to-codex:
     if: >-
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, 'EDUVIJNA_CURSOR_COMPLETE')
+      contains(github.event.comment.body, 'EDUVIJNA_CURSOR_COMPLETE') &&
+      !contains(github.event.comment.body, '@cursor')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
