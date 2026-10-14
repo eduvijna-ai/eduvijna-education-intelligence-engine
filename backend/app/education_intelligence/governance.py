@@ -8,6 +8,7 @@ import yaml
 
 _EXECUTION_STATE_ENV = "EDUVIJNA_EXECUTION_STATE_PATH"
 _EXECUTION_STATE_RELATIVE = Path(".eduvijna") / "execution-state.yml"
+_DAY7_ACTIVE_PHASE_STATES = frozenset({"ACTIVE", "FOUNDER_REVIEW", "COMPLETE"})
 
 
 def resolve_execution_state_path(explicit_path: Path | str | None = None) -> Path:
@@ -73,14 +74,34 @@ def _day5_deferred_checks(day5: dict[str, Any]) -> dict[str, bool]:
     }
 
 
-def _day6_review_evidence_present(day6: dict[str, Any]) -> bool:
-    if day6.get("review_status") == "COMPLETE_CLEAN":
-        return True
-    if day6.get("codex_review_result"):
-        return True
-    if day6.get("merge_commit"):
-        return True
-    return False
+def _non_empty_string(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _historical_day6_record_checks(day6: dict[str, Any]) -> dict[str, bool]:
+    return {
+        "day6_complete": day6.get("state") == "COMPLETE",
+        "day6_founder_approved": day6.get("founder_approval") is True,
+        "day6_review_status_complete_clean": day6.get("review_status") == "COMPLETE_CLEAN",
+        "day6_engineering_ci_green": day6.get("engineering_ci_status") == "GREEN",
+        "day6_merge_commit_present": _non_empty_string(day6.get("merge_commit")),
+        "day6_codex_review_clean": day6.get("codex_review_result")
+        == "CLEAN_NO_MAJOR_ISSUES",
+        "day6_codex_reviewed_commit_present": _non_empty_string(
+            day6.get("codex_reviewed_commit")
+        ),
+    }
+
+
+def _day7_phase_checks(current_day: int, day7: dict[str, Any]) -> dict[str, bool]:
+    state = day7.get("state")
+    if current_day == 7:
+        valid = isinstance(state, str) and state in _DAY7_ACTIVE_PHASE_STATES
+    elif current_day > 7:
+        valid = state == "COMPLETE" and day7.get("founder_approval") is True
+    else:
+        valid = False
+    return {"day7_phase_valid": valid}
 
 
 def verify_governance_state(
@@ -109,11 +130,8 @@ def verify_governance_state(
         checks = {
             "mode": "historical_day6_complete",
             "current_day_is_6": False,
-            "day6_complete": day6.get("state") == "COMPLETE",
-            "day6_founder_approved": day6.get("founder_approval") is True,
-            "day6_review_evidence_present": _day6_review_evidence_present(day6),
-            "day7_state_recorded": isinstance(day7.get("state"), str)
-            and bool(str(day7.get("state")).strip()),
+            **_historical_day6_record_checks(day6),
+            **_day7_phase_checks(current_day, day7),
             **_day5_deferred_checks(day5),
         }
     else:

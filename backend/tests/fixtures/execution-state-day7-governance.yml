@@ -9,8 +9,10 @@ days:
     state: COMPLETE
     founder_approval: true
     review_status: COMPLETE_CLEAN
-    codex_review_result: CLEAN_NO_MAJOR_ISSUES
+    engineering_ci_status: GREEN
     merge_commit: "dffd31b6da5558234ae0636fe4384305f4778400"
+    codex_review_result: CLEAN_NO_MAJOR_ISSUES
+    codex_reviewed_commit: "682e4982ac46238e8efe3b32e50aa10c6b2dd519"
   7:
     state: ACTIVE
     founder_approval: false

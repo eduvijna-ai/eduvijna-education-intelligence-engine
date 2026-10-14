@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+import pytest
+import yaml
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -65,6 +69,82 @@ def test_governance_invalid_day6_history_fails_when_day7_active() -> None:
     assert report["passed"] is False
     assert report["checks"]["mode"] == "historical_day6_complete"
     assert report["checks"]["day6_complete"] is False
+
+
+def _fixtures_dir() -> Path:
+    return Path(__file__).resolve().parent / "fixtures"
+
+
+def _load_governance_fixture(name: str) -> dict[str, Any]:
+    with (_fixtures_dir() / name).open(encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle)
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _write_governance_fixture(tmp_path: Path, state: dict[str, Any]) -> Path:
+    path = tmp_path / "execution-state.yml"
+    path.write_text(yaml.safe_dump(state, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _set_day6_field(state: dict[str, Any], field: str, value: object) -> None:
+    state["days"][6][field] = value
+
+
+def _remove_day6_field(state: dict[str, Any], field: str) -> None:
+    state["days"][6].pop(field, None)
+
+
+_HISTORICAL_DAY6_FAILURE_CASES: list[tuple[Callable[[dict[str, Any]], None], str]] = [
+    (lambda state: _set_day6_field(state, "state", "ACTIVE"), "day6_complete"),
+    (lambda state: _set_day6_field(state, "founder_approval", False), "day6_founder_approved"),
+    (
+        lambda state: _set_day6_field(state, "review_status", "PENDING"),
+        "day6_review_status_complete_clean",
+    ),
+    (
+        lambda state: _set_day6_field(state, "engineering_ci_status", "RED"),
+        "day6_engineering_ci_green",
+    ),
+    (lambda state: _remove_day6_field(state, "merge_commit"), "day6_merge_commit_present"),
+    (
+        lambda state: _set_day6_field(state, "codex_review_result", "P1_FINDINGS"),
+        "day6_codex_review_clean",
+    ),
+    (
+        lambda state: _remove_day6_field(state, "codex_reviewed_commit"),
+        "day6_codex_reviewed_commit_present",
+    ),
+]
+
+
+@pytest.mark.parametrize(("mutator", "failing_check"), _HISTORICAL_DAY6_FAILURE_CASES)
+def test_historical_governance_requires_coherent_day6_record(
+    tmp_path: Path,
+    mutator: Callable[[dict[str, Any]], None],
+    failing_check: str,
+) -> None:
+    state = _load_governance_fixture("execution-state-day7-governance.yml")
+    mutator(state)
+    report = verify_governance_state(explicit_path=_write_governance_fixture(tmp_path, state))
+    assert report["passed"] is False
+    assert report["checks"][failing_check] is False
+
+
+def test_historical_governance_rejects_invalid_day7_state(tmp_path: Path) -> None:
+    state = _load_governance_fixture("execution-state-day7-governance.yml")
+    state["days"][7]["state"] = "LOCKED"
+    report = verify_governance_state(explicit_path=_write_governance_fixture(tmp_path, state))
+    assert report["passed"] is False
+    assert report["checks"]["day7_phase_valid"] is False
+
+
+def test_historical_governance_requires_day7_complete_after_day7(tmp_path: Path) -> None:
+    fixture = _fixtures_dir() / "execution-state-day8-incomplete-day7.yml"
+    report = verify_governance_state(explicit_path=fixture)
+    assert report["passed"] is False
+    assert report["checks"]["day7_phase_valid"] is False
 
 
 def test_lo_wrong_grade_fails() -> None:
