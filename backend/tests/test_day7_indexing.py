@@ -158,6 +158,138 @@ def test_supersession_retire_failure_reconciled_on_retry() -> None:
         assert retired.index_status == "superseded"
 
 
+class _CountingUploadAdapter(FakeAnythingLLMAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.upload_count = 0
+        self.remove_calls: list[tuple[str, str]] = []
+
+    def upload_document(self, workspace_slug, payload, *, idempotency_key):
+        self.upload_count += 1
+        return super().upload_document(workspace_slug, payload, idempotency_key=idempotency_key)
+
+    def remove_document(self, workspace_slug: str, document_id: str) -> None:
+        self.remove_calls.append((workspace_slug, document_id))
+        return super().remove_document(workspace_slug, document_id)
+
+
+class _FailOnceLegacyRetireAdapter(_CountingUploadAdapter):
+    def remove_document(self, workspace_slug: str, document_id: str) -> None:
+        self.remove_calls.append((workspace_slug, document_id))
+        if (
+            len(self.remove_calls) == 1
+            and workspace_slug == "eduvijna-legacy-profile-agnostic"
+        ):
+            raise AdapterError(
+                AdapterErrorCode.UNAVAILABLE,
+                "simulated legacy retire failure",
+                retryable=True,
+            )
+        super().remove_document(workspace_slug, document_id)
+
+
+class _AlwaysFailLegacyRetireAdapter(_CountingUploadAdapter):
+    def remove_document(self, workspace_slug: str, document_id: str) -> None:
+        self.remove_calls.append((workspace_slug, document_id))
+        if workspace_slug == "eduvijna-legacy-profile-agnostic":
+            raise AdapterError(
+                AdapterErrorCode.UNAVAILABLE,
+                "simulated legacy retire failure",
+                retryable=True,
+            )
+        super().remove_document(workspace_slug, document_id)
+
+
+def test_legacy_workspace_retire_failure_persists_and_retries_on_idempotent_index() -> None:
+    adapter = _FailOnceLegacyRetireAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        binding = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        legacy_removal_key = binding.anythingllm_document_id
+        assert legacy_removal_key
+        binding.anythingllm_workspace = "eduvijna-legacy-profile-agnostic"
+        session.commit()
+        migrated = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        assert migrated.index_status == "active"
+        assert migrated.metadata_json.get("legacy_anythingllm_workspace") == (
+            "eduvijna-legacy-profile-agnostic"
+        )
+        assert migrated.metadata_json.get("legacy_anythingllm_document_id") == legacy_removal_key
+        assert migrated.metadata_json.get("legacy_workspace_retire_retryable") is True
+        uploads_after_migration = adapter.upload_count
+
+        again = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        assert again.id == migrated.id
+        assert again.index_status == "active"
+        assert "legacy_anythingllm_workspace" not in again.metadata_json
+        assert adapter.upload_count == uploads_after_migration
+        legacy_removes = [
+            call
+            for call in adapter.remove_calls
+            if call == ("eduvijna-legacy-profile-agnostic", legacy_removal_key)
+        ]
+        assert len(legacy_removes) >= 2
+
+
+def test_legacy_workspace_retire_repeated_failure_keeps_retry_state() -> None:
+    adapter = _AlwaysFailLegacyRetireAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        binding = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        legacy_removal_key = binding.anythingllm_document_id
+        binding.anythingllm_workspace = "eduvijna-legacy-profile-agnostic"
+        session.commit()
+        index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        uploads_after_migration = adapter.upload_count
+        for _ in range(2):
+            again = index_source_revision(
+                session,
+                adapter,
+                fixtures.official_revision_id,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            )
+            session.commit()
+            assert again.index_status == "active"
+            assert again.metadata_json.get("legacy_workspace_retire_retryable") is True
+        assert adapter.upload_count == uploads_after_migration
+        assert legacy_removal_key
+        assert adapter.remove_calls.count(
+            ("eduvijna-legacy-profile-agnostic", legacy_removal_key)
+        ) >= 3
+
+
 def test_legacy_workspace_is_migrated_on_reindex() -> None:
     adapter = FakeAnythingLLMAdapter()
     with _session() as session:

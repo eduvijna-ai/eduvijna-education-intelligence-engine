@@ -31,6 +31,122 @@ def _idempotency_key(revision: SourceRevision, profile_version: str) -> str:
     return f"{revision.id}:{revision.checksum}:{profile_version}"
 
 
+_LEGACY_WORKSPACE_METADATA_KEY = "legacy_anythingllm_workspace"
+_LEGACY_REMOVAL_METADATA_KEY = "legacy_anythingllm_document_id"
+_LEGACY_RETIRE_RETRYABLE_KEY = "legacy_workspace_retire_retryable"
+_LEGACY_RETIRE_ERROR_KEY = "legacy_workspace_retire_error"
+_LEGACY_RETIRE_TERMINAL_KEY = "legacy_workspace_retire_terminal"
+
+
+def _legacy_retire_pending(binding: KnowledgeSourceBinding) -> bool:
+    meta = binding.metadata_json
+    if not meta.get(_LEGACY_RETIRE_RETRYABLE_KEY):
+        return False
+    legacy_workspace = meta.get(_LEGACY_WORKSPACE_METADATA_KEY)
+    legacy_removal = meta.get(_LEGACY_REMOVAL_METADATA_KEY)
+    return (
+        isinstance(legacy_workspace, str)
+        and bool(legacy_workspace.strip())
+        and isinstance(legacy_removal, str)
+        and bool(legacy_removal.strip())
+    )
+
+
+def _persist_legacy_retire_pending(
+    binding: KnowledgeSourceBinding,
+    *,
+    legacy_workspace: str,
+    legacy_removal_key: str,
+    error_message: str,
+    retryable: bool,
+    terminal: bool = False,
+) -> None:
+    binding.metadata_json = {
+        **binding.metadata_json,
+        _LEGACY_WORKSPACE_METADATA_KEY: legacy_workspace,
+        _LEGACY_REMOVAL_METADATA_KEY: legacy_removal_key,
+        _LEGACY_RETIRE_ERROR_KEY: error_message,
+        _LEGACY_RETIRE_RETRYABLE_KEY: retryable and not terminal,
+        _LEGACY_RETIRE_TERMINAL_KEY: terminal,
+    }
+
+
+def _clear_legacy_retire_pending(binding: KnowledgeSourceBinding) -> None:
+    meta = dict(binding.metadata_json)
+    for key in (
+        _LEGACY_WORKSPACE_METADATA_KEY,
+        _LEGACY_REMOVAL_METADATA_KEY,
+        _LEGACY_RETIRE_RETRYABLE_KEY,
+        _LEGACY_RETIRE_ERROR_KEY,
+        _LEGACY_RETIRE_TERMINAL_KEY,
+    ):
+        meta.pop(key, None)
+    binding.metadata_json = meta
+
+
+def _retry_pending_legacy_workspace_retirement(
+    session: Session,
+    adapter: AnythingLLMAdapter,
+    binding: KnowledgeSourceBinding,
+    *,
+    actor_id: str | None,
+) -> None:
+    if not _legacy_retire_pending(binding):
+        return
+    meta = binding.metadata_json
+    legacy_workspace = str(meta[_LEGACY_WORKSPACE_METADATA_KEY])
+    legacy_removal_key = str(meta[_LEGACY_REMOVAL_METADATA_KEY])
+    if legacy_workspace == binding.anythingllm_workspace:
+        _clear_legacy_retire_pending(binding)
+        session.flush()
+        return
+    try:
+        adapter.remove_document(legacy_workspace, legacy_removal_key)
+    except AdapterError as exc:
+        _persist_legacy_retire_pending(
+            binding,
+            legacy_workspace=legacy_workspace,
+            legacy_removal_key=legacy_removal_key,
+            error_message=exc.message,
+            retryable=exc.retryable,
+            terminal=not exc.retryable,
+        )
+        record_audit_event(
+            session,
+            event_type=KnowledgeAuditEventType.INDEX_RETIRE,
+            actor_id=actor_id,
+            retrieval_profile_version=binding.retrieval_profile_version,
+            workspaces_queried=[legacy_workspace],
+            source_revision_ids=[binding.source_revision_id],
+            warnings=[f"legacy workspace retire pending: {exc.message}"],
+            errors=[exc.message] if not exc.retryable else [],
+            payload={
+                "binding_id": binding.id,
+                "legacy_workspace": legacy_workspace,
+                "legacy_removal_key": legacy_removal_key,
+                "retryable": exc.retryable,
+            },
+        )
+        session.flush()
+        return
+    _clear_legacy_retire_pending(binding)
+    record_audit_event(
+        session,
+        event_type=KnowledgeAuditEventType.INDEX_RETIRE,
+        actor_id=actor_id,
+        retrieval_profile_version=binding.retrieval_profile_version,
+        workspaces_queried=[legacy_workspace],
+        source_revision_ids=[binding.source_revision_id],
+        payload={
+            "binding_id": binding.id,
+            "legacy_workspace": legacy_workspace,
+            "legacy_removal_key": legacy_removal_key,
+            "legacy_retire_reconciled": True,
+        },
+    )
+    session.flush()
+
+
 def find_current_binding(
     session: Session,
     revision_id: str,
@@ -142,6 +258,12 @@ def index_source_revision(
         and existing.source_revision_checksum == revision.checksum
         and existing.anythingllm_workspace == workspace_slug
     ):
+        _retry_pending_legacy_workspace_retirement(
+            session,
+            adapter,
+            existing,
+            actor_id=actor_id,
+        )
         reconcile_supersession_for_source(
             session,
             adapter,
@@ -312,11 +434,32 @@ def index_source_revision(
         try:
             adapter.remove_document(legacy_workspace, legacy_removal_key)
         except AdapterError as exc:
-            binding.metadata_json = {
-                **binding.metadata_json,
-                "legacy_workspace_retire_error": exc.message,
-                "legacy_workspace_retire_retryable": exc.retryable,
-            }
+            _persist_legacy_retire_pending(
+                binding,
+                legacy_workspace=legacy_workspace,
+                legacy_removal_key=legacy_removal_key,
+                error_message=exc.message,
+                retryable=exc.retryable,
+                terminal=not exc.retryable,
+            )
+            record_audit_event(
+                session,
+                event_type=KnowledgeAuditEventType.INDEX_RETIRE,
+                actor_id=actor_id,
+                retrieval_profile_version=profile.version,
+                workspaces_queried=[legacy_workspace],
+                source_revision_ids=[revision.id],
+                warnings=[f"legacy workspace retire pending: {exc.message}"],
+                errors=[exc.message] if not exc.retryable else [],
+                payload={
+                    "binding_id": binding.id,
+                    "legacy_workspace": legacy_workspace,
+                    "legacy_removal_key": legacy_removal_key,
+                    "retryable": exc.retryable,
+                },
+            )
+        else:
+            _clear_legacy_retire_pending(binding)
 
     record_audit_event(
         session,
