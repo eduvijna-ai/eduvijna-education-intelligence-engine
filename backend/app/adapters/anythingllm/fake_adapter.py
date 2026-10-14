@@ -154,8 +154,8 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
             )
         if idempotency_key in self._idempotency:
             existing_id = self._idempotency[idempotency_key]
-            doc = self._documents.get((workspace_slug, existing_id))
-            if doc is not None:
+            existing_doc = self._documents.get((workspace_slug, existing_id))
+            if existing_doc is not None:
                 location = f"custom-documents/{existing_id}.txt"
                 return AdapterUploadedDocument(
                     stable_id=doc_source,
