@@ -14,9 +14,14 @@ Founder approved D7-01…D7-36 and authorized implementation.
 - no automatic merge
 - Day 8 remains locked until Founder signoff
 
-## Engineering status (iteration 2 candidate)
+## Engineering status (iteration 3 candidate)
 
 D7-01…D7-36: **IMPLEMENTED** with Codex P1 repairs D7-R01…D7-R09 (scope map in `docs/execution/D07-SCOPE-MAP.md`).
+
+### Iteration 3 repairs (final)
+
+- P1-01: `addToWorkspaces` wire format is comma-separated slug string (not JSON array)
+- P1-02: vector-search binding via `metadata.docSource`; chunk UUID never used as document identity
 
 ### Iteration 2 repairs
 
