@@ -153,6 +153,20 @@ days:
     iteration_3_codex_p1_count: 1
     stop_and_escalate_reason: "Codex found a new P1 on exact iteration-3 SHA 7dca3b976024c4f88632ad20404569b128b96d46: stable docSource identity is not persisted/guaranteed before vector-hit binding match."
     stop_and_escalate_action: "No Cursor iteration 4. Founder/Chief Architect decision required."
+    production_identity_closure:
+      founder_authorized: true
+      authorization_signal: "Founder requested Cursor handoff for the Chief Architect Day 7 production identity closure."
+      task: "day7-production-identity-closure"
+      state: ACTIVE
+      review_loop_iteration: 1
+      review_loop_max: 3
+      pr: 23
+      branch: "fix/day7-production-identity-closure"
+      base_day7_candidate: "7dca3b976024c4f88632ad20404569b128b96d46"
+      scope: D7-PIC-01..D7-PIC-10
+      merge_target: "feature/day7-knowledge-intelligence-anythingllm-v2"
+      auto_merge: false
+      day8_unlock: false
     iteration_3_scope:
       - "AnythingLLM addToWorkspaces wire format"
       - "AnythingLLM vector-hit stable document identity mapping"
