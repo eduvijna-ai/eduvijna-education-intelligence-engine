@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
@@ -11,13 +11,15 @@ from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.knowledge_intelligence.doc_source_identity import build_stable_doc_source_identity
 from app.knowledge_intelligence.eligibility import IndexEligibilityError
+from app.knowledge_intelligence.enums import KnowledgeAuditEventType
 from app.knowledge_intelligence.fixtures import seed_knowledge_fixtures, staged_revision_for_source
 from app.knowledge_intelligence.indexing import (
+    IndexingError,
     index_source_revision,
     list_active_bindings_for_source,
 )
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
-from app.models.knowledge_intelligence import KnowledgeSourceBinding
+from app.models.knowledge_intelligence import KnowledgeAuditEvent, KnowledgeSourceBinding
 from app.models.source import SourceRevision
 
 
@@ -288,6 +290,170 @@ def test_legacy_workspace_retire_repeated_failure_keeps_retry_state() -> None:
         assert adapter.remove_calls.count(
             ("eduvijna-legacy-profile-agnostic", legacy_removal_key)
         ) >= 3
+
+
+class _FailOnceMigrationUploadAdapter(_CountingUploadAdapter):
+    def upload_document(self, workspace_slug, payload, *, idempotency_key):
+        self.upload_count += 1
+        if self.upload_count == 2:
+            raise AdapterError(
+                AdapterErrorCode.UNAVAILABLE,
+                "simulated migration upload failure",
+                retryable=True,
+            )
+        return FakeAnythingLLMAdapter.upload_document(
+            self, workspace_slug, payload, idempotency_key=idempotency_key
+        )
+
+
+def test_legacy_identity_preserved_when_migration_upload_fails_then_retries() -> None:
+    adapter = _FailOnceMigrationUploadAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        binding = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        legacy_removal_key = binding.anythingllm_document_id
+        assert legacy_removal_key
+        binding.anythingllm_workspace = "eduvijna-legacy-profile-agnostic"
+        session.commit()
+
+        with pytest.raises(IndexingError, match="simulated migration upload failure"):
+            index_source_revision(
+                session,
+                adapter,
+                fixtures.official_revision_id,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            )
+        session.commit()
+        failed = session.get(KnowledgeSourceBinding, binding.id)
+        assert failed is not None
+        assert failed.index_status == "failed"
+        assert failed.metadata_json.get("legacy_anythingllm_workspace") == (
+            "eduvijna-legacy-profile-agnostic"
+        )
+        assert failed.metadata_json.get("legacy_anythingllm_document_id") == legacy_removal_key
+
+        recovered = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        assert recovered.index_status == "active"
+        assert "legacy_anythingllm_workspace" not in recovered.metadata_json
+        assert adapter.upload_count == 3
+        assert adapter.remove_calls.count(
+            ("eduvijna-legacy-profile-agnostic", legacy_removal_key)
+        ) == 1
+
+        again = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        assert again.id == recovered.id
+        assert adapter.upload_count == 3
+
+
+class _TerminalLegacyRetireAdapter(_CountingUploadAdapter):
+    def remove_document(self, workspace_slug: str, document_id: str) -> None:
+        self.remove_calls.append((workspace_slug, document_id))
+        if workspace_slug == "eduvijna-legacy-profile-agnostic":
+            raise AdapterError(
+                AdapterErrorCode.UNAVAILABLE,
+                "terminal legacy removal failure",
+                retryable=False,
+            )
+        super().remove_document(workspace_slug, document_id)
+
+
+def test_terminal_legacy_retire_surfaces_without_index_success() -> None:
+    adapter = _TerminalLegacyRetireAdapter()
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        binding = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        legacy_removal_key = binding.anythingllm_document_id
+        binding.anythingllm_workspace = "eduvijna-legacy-profile-agnostic"
+        session.commit()
+        uploads_after_initial = adapter.upload_count
+        revision_id = fixtures.official_revision_id
+
+        with pytest.raises(IndexingError, match="terminal legacy removal failure"):
+            index_source_revision(
+                session,
+                adapter,
+                revision_id,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            )
+        session.commit()
+        migrated = session.get(KnowledgeSourceBinding, binding.id)
+        assert migrated is not None
+        assert migrated.index_status == "active"
+        assert migrated.metadata_json.get("legacy_workspace_retire_terminal") is True
+        assert migrated.metadata_json.get("legacy_anythingllm_workspace") == (
+            "eduvijna-legacy-profile-agnostic"
+        )
+        assert migrated.metadata_json.get("legacy_anythingllm_document_id") == legacy_removal_key
+        success_events = list(
+            session.scalars(
+                select(KnowledgeAuditEvent).where(
+                    KnowledgeAuditEvent.event_type
+                    == KnowledgeAuditEventType.INDEX_SUCCESS.value
+                )
+            )
+        )
+        assert len(success_events) == 1
+        retire_events = list(
+            session.scalars(
+                select(KnowledgeAuditEvent).where(
+                    KnowledgeAuditEvent.event_type
+                    == KnowledgeAuditEventType.INDEX_RETIRE.value
+                )
+            )
+        )
+        assert any(
+            "terminal legacy removal failure" in (event.errors_json or [])
+            for event in retire_events
+        )
+        assert adapter.upload_count == uploads_after_initial + 1
+
+        with pytest.raises(IndexingError, match="terminal legacy removal failure"):
+            index_source_revision(
+                session,
+                adapter,
+                revision_id,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            )
+        session.commit()
+        assert adapter.upload_count == uploads_after_initial + 1
+
+    with Session(engine) as session2:
+        with pytest.raises(IndexingError, match="terminal legacy removal failure"):
+            index_source_revision(
+                session2,
+                adapter,
+                revision_id,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            )
 
 
 def test_legacy_workspace_is_migrated_on_reindex() -> None:

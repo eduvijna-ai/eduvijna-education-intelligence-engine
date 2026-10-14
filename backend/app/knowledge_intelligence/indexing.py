@@ -38,6 +38,51 @@ _LEGACY_RETIRE_ERROR_KEY = "legacy_workspace_retire_error"
 _LEGACY_RETIRE_TERMINAL_KEY = "legacy_workspace_retire_terminal"
 
 
+def _legacy_cleanup_identity_from_metadata(
+    binding: KnowledgeSourceBinding,
+) -> tuple[str | None, str | None]:
+    meta = binding.metadata_json
+    legacy_workspace = meta.get(_LEGACY_WORKSPACE_METADATA_KEY)
+    legacy_removal = meta.get(_LEGACY_REMOVAL_METADATA_KEY)
+    if (
+        isinstance(legacy_workspace, str)
+        and bool(legacy_workspace.strip())
+        and isinstance(legacy_removal, str)
+        and bool(legacy_removal.strip())
+    ):
+        return legacy_workspace, legacy_removal
+    return None, None
+
+
+def _stash_legacy_cleanup_identity(
+    binding: KnowledgeSourceBinding,
+    *,
+    legacy_workspace: str,
+    legacy_removal_key: str,
+) -> None:
+    binding.metadata_json = {
+        **binding.metadata_json,
+        _LEGACY_WORKSPACE_METADATA_KEY: legacy_workspace,
+        _LEGACY_REMOVAL_METADATA_KEY: legacy_removal_key,
+    }
+
+
+def _legacy_retire_terminal_unresolved(binding: KnowledgeSourceBinding) -> bool:
+    if not binding.metadata_json.get(_LEGACY_RETIRE_TERMINAL_KEY):
+        return False
+    legacy_workspace, legacy_removal = _legacy_cleanup_identity_from_metadata(binding)
+    return legacy_workspace is not None and legacy_removal is not None
+
+
+def _raise_if_legacy_retire_terminal_unresolved(binding: KnowledgeSourceBinding) -> None:
+    if not _legacy_retire_terminal_unresolved(binding):
+        return
+    message = binding.metadata_json.get(_LEGACY_RETIRE_ERROR_KEY)
+    if not isinstance(message, str) or not message.strip():
+        message = "legacy workspace cleanup terminally unresolved"
+    raise IndexingError(message)
+
+
 def _legacy_retire_pending(binding: KnowledgeSourceBinding) -> bool:
     meta = binding.metadata_json
     if not meta.get(_LEGACY_RETIRE_RETRYABLE_KEY):
@@ -258,12 +303,14 @@ def index_source_revision(
         and existing.source_revision_checksum == revision.checksum
         and existing.anythingllm_workspace == workspace_slug
     ):
+        _raise_if_legacy_retire_terminal_unresolved(existing)
         _retry_pending_legacy_workspace_retirement(
             session,
             adapter,
             existing,
             actor_id=actor_id,
         )
+        _raise_if_legacy_retire_terminal_unresolved(existing)
         reconcile_supersession_for_source(
             session,
             adapter,
@@ -276,13 +323,18 @@ def index_source_revision(
 
     legacy_workspace: str | None = None
     legacy_removal_key: str | None = None
-    if (
-        existing is not None
-        and existing.index_status == KnowledgeIndexStatus.ACTIVE.value
-        and existing.anythingllm_workspace != workspace_slug
-    ):
-        legacy_workspace = existing.anythingllm_workspace
-        legacy_removal_key = existing.anythingllm_document_id
+    if existing is not None:
+        if (
+            existing.index_status == KnowledgeIndexStatus.ACTIVE.value
+            and existing.anythingllm_workspace != workspace_slug
+        ):
+            legacy_workspace = existing.anythingllm_workspace
+            legacy_removal_key = existing.anythingllm_document_id
+        else:
+            stashed_workspace, stashed_removal = _legacy_cleanup_identity_from_metadata(existing)
+            if stashed_workspace and stashed_workspace != workspace_slug:
+                legacy_workspace = stashed_workspace
+                legacy_removal_key = stashed_removal
     doc_source_identity = build_stable_doc_source_identity(
         revision.id,
         profile.version,
@@ -296,6 +348,19 @@ def index_source_revision(
         source_locator=base_payload.source_locator,
         metadata={**base_payload.metadata, "docSource": doc_source_identity},
     )
+
+    if (
+        existing is not None
+        and legacy_workspace
+        and legacy_removal_key
+        and legacy_workspace != workspace_slug
+    ):
+        _stash_legacy_cleanup_identity(
+            existing,
+            legacy_workspace=legacy_workspace,
+            legacy_removal_key=legacy_removal_key,
+        )
+        session.flush()
 
     if existing is not None:
         existing.anythingllm_workspace = workspace_slug
@@ -460,6 +525,8 @@ def index_source_revision(
             )
         else:
             _clear_legacy_retire_pending(binding)
+
+    _raise_if_legacy_retire_terminal_unresolved(binding)
 
     record_audit_event(
         session,

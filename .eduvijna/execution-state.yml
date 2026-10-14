@@ -42,18 +42,20 @@ ci_repair_policy:
     final_acceptance_checkpoint: one_full_regression
 review_loop_policy:
   founder_approved: true
-  approval_signal: "Approve the workflow and run pytest only for the implemented task, not all tasks every time."
+  approval_signal: "Founder manual ChatGPT review workflow; automatic Codex review loop disabled."
+  mode: founder_manual_chatgpt_review
   sequence:
-    - chatgpt_handoff_to_cursor
+    - chatgpt_requirements_handoff_to_cursor
     - cursor_implementation
-    - cursor_targeted_pytest
-    - codex_exact_sha_review
-    - cursor_targeted_repair_if_findings
-    - codex_rereview
-  iteration_definition: one_cursor_candidate_plus_one_codex_review
-  max_iterations_per_task: 3
-  on_findings_after_iteration_3: STOP_AND_ESCALATE
-  cursor_completion_marker: "EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>"
+    - founder_manually_notifies_chatgpt_cursor_complete
+    - chatgpt_manual_code_review_exact_head
+    - chatgpt_new_cursor_handoff_if_changes_required
+    - repeat_founder_notification_and_chatgpt_review_until_clean
+    - next_acceptance_or_signoff_gate_only_after_clean_review
+  codex_in_default_loop: false
+  codex_only_when: founder_explicitly_requests
+  automatic_cursor_codex_issue_comment_loop: disabled
+  automatic_three_cycle_stop: false_unless_founder_reinstates
   exact_head_review_required: true
   pytest_policy:
     implementation_iteration: impacted_task_tests_only
