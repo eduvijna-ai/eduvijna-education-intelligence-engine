@@ -226,7 +226,7 @@ days:
         governance_reconciliation:
           develop_merge_base: "961848d9f38474d7a09641f6166b1b46d31adb64"
           status: COMPLETE
-          reconciled_at_branch_head: pending_commit
+          reconciled_at_branch_head: "90584b57ef6b8b8064008f715a336d1166429f33"
         codex_required: false
         auto_merge: false
         day8_unlock: false
