@@ -164,7 +164,8 @@ days:
       branch: "fix/day7-production-identity-closure"
       base_day7_candidate: "7dca3b976024c4f88632ad20404569b128b96d46"
       scope: D7-PIC-01..D7-PIC-10
-      merge_target: "feature/day7-knowledge-intelligence-anythingllm-v2"
+      merge_target: "develop"
+      integration_strategy: "PR #23 supersedes PR #22 for final Day 7 integration after closure; preserve PR #22 as exhausted-loop audit history."
       auto_merge: false
       day8_unlock: false
     iteration_3_scope:
