@@ -12,6 +12,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
 from app.models import SourceAuditEvent, SourceDiff, SourceRevision
+from tests.migration_test_support import repository_alembic_head
 
 
 def _run_alembic(
@@ -169,7 +170,7 @@ def test_day3_migration_preserves_day1_day2_records(tmp_path: Path) -> None:
             "policy_rule_source_revisions",
         }.issubset(tables)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "20261007_0010",
+            repository_alembic_head(),
         )
     finally:
         connection.close()

@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from uuid import uuid4
 
+from tests.migration_test_support import repository_alembic_head
+
 
 def _run_alembic(
     database_path: Path,
@@ -79,7 +81,7 @@ def test_partial_day3_schema_failure_rolls_back_and_can_retry(tmp_path: Path) ->
         connection.close()
 
     _run_alembic(database_path, "upgrade", "head")
-    assert _revision(database_path) == "20261007_0010"
+    assert _revision(database_path) == repository_alembic_head()
 
 
 def test_foreign_key_validation_failure_keeps_old_revision_and_schema(
@@ -120,7 +122,7 @@ def test_foreign_key_validation_failure_keeps_old_revision_and_schema(
         connection.close()
 
     _run_alembic(database_path, "upgrade", "head")
-    assert _revision(database_path) == "20261007_0010"
+    assert _revision(database_path) == repository_alembic_head()
 
     connection = sqlite3.connect(database_path)
     try:

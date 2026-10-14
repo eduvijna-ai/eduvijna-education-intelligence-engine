@@ -38,8 +38,33 @@ def test_governance_verifier_reads_execution_state() -> None:
     )
     report = verify_governance_state(explicit_path=fixture)
     assert report["passed"] is True
+    assert report["checks"]["mode"] == "active_day6"
     assert report["checks"]["d5_ds01_deferred"] is True
     assert report["checks"]["day7_locked"] is True
+
+
+def test_governance_historical_day6_passes_when_day7_active() -> None:
+    fixture = (
+        Path(__file__).resolve().parent / "fixtures" / "execution-state-day7-governance.yml"
+    )
+    report = verify_governance_state(explicit_path=fixture)
+    assert report["passed"] is True
+    assert report["checks"]["mode"] == "historical_day6_complete"
+    assert report["checks"]["day6_complete"] is True
+    assert report["checks"]["day6_founder_approved"] is True
+    assert "day7_locked" not in report["checks"]
+
+
+def test_governance_invalid_day6_history_fails_when_day7_active() -> None:
+    fixture = (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "execution-state-invalid-day6-history.yml"
+    )
+    report = verify_governance_state(explicit_path=fixture)
+    assert report["passed"] is False
+    assert report["checks"]["mode"] == "historical_day6_complete"
+    assert report["checks"]["day6_complete"] is False
 
 
 def test_lo_wrong_grade_fails() -> None:

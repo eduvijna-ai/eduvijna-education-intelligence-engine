@@ -21,11 +21,11 @@ from app.db.session import create_database_engine
 from app.models.curriculum import CurriculumNode
 from app.models.curriculum_intelligence import AssessmentEvidence
 from app.models.source import SourceAuditEvent
+from tests.migration_test_support import repository_alembic_head
 from tests.test_day4_framework_structure import _context, _link_input, _tree
 
 BACKEND = Path(__file__).resolve().parents[1]
 PREVIOUS = "20261004_0008"
-HEAD = "20261007_0010"
 TABLES = ("framework_structure_nodes", "learning_outcome_competency_links")
 
 
@@ -317,7 +317,9 @@ def test_distinct_marking_scheme_evidence_survives_failed_lossy_downgrade(tmp_pa
     result = _alembic(database, "downgrade", PREVIOUS, success=False)
     assert "collapse distinct marking-scheme evidence" in result.stderr
     assert _rows(database, "assessment_evidence") == before
-    assert _rows(database, "alembic_version") == [{"version_num": HEAD}]
+    assert _rows(database, "alembic_version") == [
+        {"version_num": repository_alembic_head()}
+    ]
     assert set(TABLES) <= set(sa.inspect(engine).get_table_names())
     engine.dispose()
 
@@ -411,7 +413,9 @@ def test_0009_unknown_ownership_blocks_downgrade_without_destroying_evidence(
     assert _rows(database, "system_settings") == before
     assert {name: _rows(database, name) for name in TABLES} == framework_rows
     assert _rows(database, "assessment_evidence") == evidence
-    assert _rows(database, "alembic_version") == [{"version_num": HEAD}]
+    assert _rows(database, "alembic_version") == [
+        {"version_num": repository_alembic_head()}
+    ]
     with engine.begin() as connection:
         damaged_id = replacements["id"] if damage == "id" else original["id"]
         connection.execute(settings.delete().where(settings.c.id == damaged_id))

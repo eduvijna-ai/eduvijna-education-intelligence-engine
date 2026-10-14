@@ -320,9 +320,10 @@ def build_verification_report(session: Session) -> dict[str, object]:
         and audit.metadata_json.get("quality_rule_pack_version") is not None,
         "telangana_fixture_runs": tg_valid.run_id,
         "d5_ds01_still_deferred": bool(gov_checks.get("d5_ds01_deferred")),
-        "day7_locked": bool(gov_checks.get("day7_locked")),
         "candidate_sha_resolved": report_head_sha != "unknown",
     }
+    if gov_checks.get("mode") == "active_day6":
+        checks["day7_locked"] = bool(gov_checks.get("day7_locked"))
 
     return {
         "day": 6,
@@ -336,7 +337,9 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "governance": governance,
         "checks": checks,
         "passed": all(
-            v is True for k, v in checks.items() if k not in {"telangana_fixture_runs"}
+            v is True
+            for k, v in checks.items()
+            if k not in {"telangana_fixture_runs"} and v is not None
         )
         and report_head_sha != "unknown",
         "sample_run": {
