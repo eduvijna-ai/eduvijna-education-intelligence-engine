@@ -128,11 +128,19 @@ def index_source_revision(
 
     assert_revision_index_eligible(revision)
 
+    scope = scope_from_source(source)
+    workspace_key = workspace_key_for_scope(
+        scope,
+        retrieval_profile_version=profile.version,
+    )
+    workspace_slug = adapter.ensure_workspace(workspace_key)
+
     existing = find_current_binding(session, revision.id, profile.version)
     if (
         existing is not None
         and existing.index_status == KnowledgeIndexStatus.ACTIVE.value
         and existing.source_revision_checksum == revision.checksum
+        and existing.anythingllm_workspace == workspace_slug
     ):
         reconcile_supersession_for_source(
             session,
@@ -144,9 +152,15 @@ def index_source_revision(
         )
         return existing
 
-    scope = scope_from_source(source)
-    workspace_key = workspace_key_for_scope(scope)
-    workspace_slug = adapter.ensure_workspace(workspace_key)
+    legacy_workspace: str | None = None
+    legacy_removal_key: str | None = None
+    if (
+        existing is not None
+        and existing.index_status == KnowledgeIndexStatus.ACTIVE.value
+        and existing.anythingllm_workspace != workspace_slug
+    ):
+        legacy_workspace = existing.anythingllm_workspace
+        legacy_removal_key = existing.anythingllm_document_id
     doc_source_identity = build_stable_doc_source_identity(
         revision.id,
         profile.version,
@@ -161,6 +175,8 @@ def index_source_revision(
         metadata={**base_payload.metadata, "docSource": doc_source_identity},
     )
 
+    if existing is not None:
+        existing.anythingllm_workspace = workspace_slug
     binding = existing or KnowledgeSourceBinding(
         source_id=source.id,
         source_revision_id=revision.id,
@@ -286,6 +302,21 @@ def index_source_revision(
             keep_binding_id=binding.id,
             actor_id=actor_id,
         )
+
+    if (
+        legacy_workspace
+        and legacy_removal_key
+        and legacy_workspace != workspace_slug
+        and binding.index_status == KnowledgeIndexStatus.ACTIVE.value
+    ):
+        try:
+            adapter.remove_document(legacy_workspace, legacy_removal_key)
+        except AdapterError as exc:
+            binding.metadata_json = {
+                **binding.metadata_json,
+                "legacy_workspace_retire_error": exc.message,
+                "legacy_workspace_retire_retryable": exc.retryable,
+            }
 
     record_audit_event(
         session,

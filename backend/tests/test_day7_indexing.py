@@ -158,6 +158,33 @@ def test_supersession_retire_failure_reconciled_on_retry() -> None:
         assert retired.index_status == "superseded"
 
 
+def test_legacy_workspace_is_migrated_on_reindex() -> None:
+    adapter = FakeAnythingLLMAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        binding = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        expected_workspace = binding.anythingllm_workspace
+        binding.anythingllm_workspace = "eduvijna-legacy-profile-agnostic"
+        session.commit()
+        rebound = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        assert rebound.id == binding.id
+        assert rebound.anythingllm_workspace == expected_workspace
+        assert rebound.index_status == "active"
+
+
 def test_dual_retrieval_profiles_remain_active_independently() -> None:
     adapter = FakeAnythingLLMAdapter()
     with _session() as session:
@@ -187,6 +214,7 @@ def test_dual_retrieval_profiles_remain_active_independently() -> None:
         )
         assert len(active_v1) == 1
         assert len(active_v0) == 1
+        assert v1.anythingllm_workspace != v0.anythingllm_workspace
 
 
 def test_inactive_revision_rejected() -> None:

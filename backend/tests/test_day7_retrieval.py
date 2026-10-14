@@ -229,6 +229,38 @@ def test_binding_match_resolves_stable_doc_source_identity() -> None:
     assert match_binding_for_hit(unknown, lookup) is None
 
 
+def test_top_k_one_profile_query_uses_only_profile_workspace() -> None:
+    adapter = FakeAnythingLLMAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        v0 = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version="ki-retrieval-v0",
+        )
+        v1 = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version="ki-retrieval-v1",
+        )
+        session.commit()
+        assert v0.anythingllm_workspace != v1.anythingllm_workspace
+        v1_result = retrieve_knowledge(
+            session,
+            adapter,
+            KnowledgeRetrievalRequest(
+                query_text="quadratic equations completing square",
+                top_k=1,
+                retrieval_profile_version="ki-retrieval-v1",
+            ),
+        )
+        assert len(v1_result.items) == 1
+        assert v1_result.items[0].binding_id == v1.id
+
+
 def test_missing_doc_source_warning_is_audit_visible() -> None:
     with _session() as session:
         fixtures = seed_knowledge_fixtures(session)

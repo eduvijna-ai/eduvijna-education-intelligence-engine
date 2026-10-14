@@ -346,11 +346,15 @@ def test_upload_reuses_existing_doc_source_without_post(adapter: HttpAnythingLLM
             return _MockResponse(
                 200,
                 {
-                    "documents": [
+                    "workspace": [
                         {
-                            "id": "doc-existing",
-                            "location": "custom-documents/doc-existing.txt",
-                            "docSource": _STABLE_DOC_SOURCE,
+                            "documents": [
+                                {
+                                    "id": "doc-existing",
+                                    "location": "custom-documents/doc-existing.txt",
+                                    "metadata": json.dumps({"docSource": _STABLE_DOC_SOURCE}),
+                                }
+                            ]
                         }
                     ]
                 },
@@ -383,15 +387,19 @@ def test_upload_timeout_reconciles_remote_document(adapter: HttpAnythingLLMAdapt
         if path == "/api/v1/workspace/ws-global":
             workspace_calls += 1
             if workspace_calls == 1:
-                return _MockResponse(200, {"documents": []})
+                return _MockResponse(200, {"workspace": [{"documents": []}]})
             return _MockResponse(
                 200,
                 {
-                    "documents": [
+                    "workspace": [
                         {
-                            "id": "doc-late",
-                            "location": "custom-documents/doc-late.txt",
-                            "docSource": _STABLE_DOC_SOURCE,
+                            "documents": [
+                                {
+                                    "id": "doc-late",
+                                    "location": "custom-documents/doc-late.txt",
+                                    "metadata": json.dumps({"docSource": _STABLE_DOC_SOURCE}),
+                                }
+                            ]
                         }
                     ]
                 },
@@ -436,6 +444,66 @@ class _InvalidJsonResponse:
 
     def json(self) -> dict[str, Any]:
         raise ValueError("invalid json")
+
+
+def test_workspace_array_response_lists_documents(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
+    ) -> _MockResponse:
+        return _MockResponse(
+            200,
+            {
+                "workspace": [
+                    {
+                        "documents": [
+                            {
+                                "id": "doc-1",
+                                "location": "custom-documents/doc-1.txt",
+                                "metadata": json.dumps({"docSource": _STABLE_DOC_SOURCE}),
+                            }
+                        ]
+                    }
+                ]
+            },
+        )
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    docs = adapter._workspace_documents("ws-global")
+    assert len(docs) == 1
+    assert HttpAnythingLLMAdapter._extract_doc_source_from_document(docs[0]) == _STABLE_DOC_SOURCE
+
+
+def test_malformed_workspace_response_raises(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
+    ) -> _MockResponse:
+        return _MockResponse(200, {"workspace": "not-an-array"})
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    with pytest.raises(AdapterError) as exc:
+        adapter._workspace_documents("ws-global")
+    assert exc.value.code == AdapterErrorCode.INVALID_RESPONSE
+
+
+def test_malformed_metadata_string_does_not_fabricate_doc_source() -> None:
+    entry = {
+        "id": "doc-x",
+        "location": "custom-documents/doc-x.txt",
+        "metadata": "{not-json",
+    }
+    assert HttpAnythingLLMAdapter._extract_doc_source_from_document(entry) is None
 
 
 def test_invalid_json_maps_to_adapter_error(adapter: HttpAnythingLLMAdapter) -> None:

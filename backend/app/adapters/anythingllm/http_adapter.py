@@ -155,15 +155,54 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             capabilities=("workspace", "upload", "retrieve", "remove"),
         )
 
+    @staticmethod
+    def _unwrap_workspace_documents(body: dict[str, Any]) -> list[dict[str, Any]]:
+        if "documents" in body:
+            documents = body.get("documents")
+            if documents is None:
+                return []
+            if not isinstance(documents, list):
+                raise AdapterError(
+                    AdapterErrorCode.INVALID_RESPONSE,
+                    "workspace documents not list",
+                )
+            return [item for item in documents if isinstance(item, dict)]
+
+        workspace = body.get("workspace")
+        if workspace is None:
+            return []
+        if isinstance(workspace, list):
+            if not workspace:
+                return []
+            first = workspace[0]
+            if not isinstance(first, dict):
+                raise AdapterError(
+                    AdapterErrorCode.INVALID_RESPONSE,
+                    "workspace entry invalid",
+                )
+            documents = first.get("documents")
+        elif isinstance(workspace, dict):
+            documents = workspace.get("documents")
+        else:
+            raise AdapterError(
+                AdapterErrorCode.INVALID_RESPONSE,
+                "workspace shape invalid",
+            )
+        if documents is None:
+            return []
+        if not isinstance(documents, list):
+            raise AdapterError(
+                AdapterErrorCode.INVALID_RESPONSE,
+                "workspace documents not list",
+            )
+        return [item for item in documents if isinstance(item, dict)]
+
     def _workspace_documents(self, workspace_slug: str) -> list[dict[str, Any]]:
         response = self._request("GET", f"/api/v1/workspace/{workspace_slug}")
         body = self._json_body(response)
         if not isinstance(body, dict):
             raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "workspace response not object")
-        documents = body.get("documents") or body.get("workspace", {}).get("documents") or []
-        if not isinstance(documents, list):
-            return []
-        return [item for item in documents if isinstance(item, dict)]
+        return self._unwrap_workspace_documents(body)
 
     def _find_workspace_slug(self, slug: str) -> str | None:
         response = self._request("GET", "/api/v1/workspaces")
@@ -202,12 +241,28 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         return key.slug
 
     @staticmethod
-    def _extract_doc_source_from_document(entry: dict[str, Any]) -> str | None:
+    def _metadata_mapping(raw_metadata: object) -> dict[str, Any] | None:
+        if isinstance(raw_metadata, dict):
+            return raw_metadata
+        if isinstance(raw_metadata, str):
+            if not raw_metadata.strip():
+                return None
+            try:
+                parsed = json.loads(raw_metadata)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(parsed, dict):
+                return parsed
+            return None
+        return None
+
+    @classmethod
+    def _extract_doc_source_from_document(cls, entry: dict[str, Any]) -> str | None:
         raw = entry.get("docSource")
         if isinstance(raw, str) and raw.strip():
             return raw.strip()
-        nested = entry.get("metadata")
-        if isinstance(nested, dict):
+        nested = cls._metadata_mapping(entry.get("metadata"))
+        if nested is not None:
             nested_source = nested.get("docSource")
             if isinstance(nested_source, str) and nested_source.strip():
                 return nested_source.strip()

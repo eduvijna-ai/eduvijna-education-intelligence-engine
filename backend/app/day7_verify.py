@@ -278,6 +278,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         official_binding.index_status == "active"
         and v0_binding.index_status == "active"
         and official_binding.id != v0_binding.id
+        and official_binding.anythingllm_workspace != v0_binding.anythingllm_workspace
     )
 
     class _MissingDocSourceOnlyAdapter(FakeAnythingLLMAdapter):

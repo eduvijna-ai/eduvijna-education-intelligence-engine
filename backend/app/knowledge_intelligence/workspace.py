@@ -7,8 +7,15 @@ from app.knowledge_intelligence.enums import KnowledgeOwnershipScope
 from app.knowledge_intelligence.scope import KnowledgeScope
 
 
-def workspace_key_for_scope(scope: KnowledgeScope) -> WorkspaceKey:
-    parts: list[str] = [scope.ownership_scope.value]
+def workspace_key_for_scope(
+    scope: KnowledgeScope,
+    *,
+    retrieval_profile_version: str,
+) -> WorkspaceKey:
+    parts: list[str] = [
+        scope.ownership_scope.value,
+        f"profile:{retrieval_profile_version}",
+    ]
     if scope.organization_id:
         parts.append(f"org:{scope.organization_id}")
     if scope.institution_id:
@@ -26,6 +33,8 @@ def workspace_key_from_parts(
     organization_id: str | None,
     institution_id: str | None,
     teacher_id: str | None,
+    *,
+    retrieval_profile_version: str,
 ) -> WorkspaceKey:
     return workspace_key_for_scope(
         KnowledgeScope(
@@ -33,5 +42,6 @@ def workspace_key_from_parts(
             organization_id=organization_id,
             institution_id=institution_id,
             teacher_id=teacher_id,
-        )
+        ),
+        retrieval_profile_version=retrieval_profile_version,
     )
