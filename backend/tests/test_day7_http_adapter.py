@@ -9,6 +9,7 @@ import pytest
 from app.adapters.anythingllm.http_adapter import HttpAnythingLLMAdapter
 from app.adapters.anythingllm.types import (
     AdapterError,
+    AdapterErrorCode,
     AdapterRetrievalRequest,
     IndexDocumentPayload,
     WorkspaceKey,
@@ -56,8 +57,11 @@ def test_upload_parses_documents_array_and_adds_workspace(adapter: HttpAnythingL
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
         form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> _MockResponse:
         captured.append((method, path, {"json": json_body, "form": form_data, "files": files}))
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(200, {"documents": []})
         return _MockResponse(
             200,
             {
@@ -82,10 +86,10 @@ def test_upload_parses_documents_array_and_adds_workspace(adapter: HttpAnythingL
     assert uploaded.doc_source_identity == _STABLE_DOC_SOURCE
     assert uploaded.remote_doc_id == "doc-uuid-1"
     assert uploaded.remote_location == "custom-documents/doc-uuid-1.txt"
-    assert captured[0][0] == "POST"
-    assert captured[0][1] == "/api/v1/document/upload"
-    assert captured[0][2]["form"]["addToWorkspaces"] == "ws-global"
-    metadata = json.loads(captured[0][2]["form"]["metadata"])
+    upload_call = next(call for call in captured if call[1] == "/api/v1/document/upload")
+    assert upload_call[0] == "POST"
+    assert upload_call[2]["form"]["addToWorkspaces"] == "ws-global"
+    metadata = json.loads(upload_call[2]["form"]["metadata"])
     assert metadata["docSource"] == _STABLE_DOC_SOURCE
 
 
@@ -97,7 +101,10 @@ def test_upload_doc_source_echo_mismatch_fails_closed(adapter: HttpAnythingLLMAd
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
         form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> _MockResponse:
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(200, {"documents": []})
         return _MockResponse(
             200,
             {
@@ -125,7 +132,10 @@ def test_upload_doc_source_missing_echo_fails_closed(adapter: HttpAnythingLLMAda
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
         form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> _MockResponse:
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(200, {"documents": []})
         return _MockResponse(
             200,
             {
@@ -175,8 +185,11 @@ def test_two_uploads_same_workspace_do_not_require_create(adapter: HttpAnythingL
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
         form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> _MockResponse:
         nonlocal workspace_calls
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(200, {"documents": []})
         if path == "/api/v1/workspaces":
             workspace_calls += 1
             return _MockResponse(200, {"workspaces": [{"slug": "ws-global", "name": "ws-global"}]})
@@ -265,13 +278,14 @@ def test_vector_search_maps_chunk_to_doc_source(adapter: HttpAnythingLLMAdapter)
         )
 
     adapter._request = fake_request  # type: ignore[method-assign]
-    hits = adapter.retrieve(
+    response = adapter.retrieve(
         AdapterRetrievalRequest(
             query_text="evidence",
             top_k=3,
             workspace_slugs=("ws-global",),
         )
     )
+    hits = response.hits
     assert hits[0].document_id == stable
     assert hits[0].metadata["docSource"] == stable
     assert hits[0].metadata["vector_chunk_id"] == "chunk-uuid"
@@ -301,14 +315,150 @@ def test_vector_search_skips_chunk_without_doc_source(adapter: HttpAnythingLLMAd
         )
 
     adapter._request = fake_request  # type: ignore[method-assign]
-    hits = adapter.retrieve(
+    response = adapter.retrieve(
         AdapterRetrievalRequest(
             query_text="orphan",
             top_k=3,
             workspace_slugs=("ws-global",),
         )
     )
-    assert hits == []
+    assert response.hits == ()
+    assert response.warnings == ("missing_doc_source:chunk-uuid-only",)
+
+
+def test_upload_reuses_existing_doc_source_without_post(adapter: HttpAnythingLLMAdapter) -> None:
+    upload_calls = 0
+
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
+    ) -> _MockResponse:
+        nonlocal upload_calls
+        if path == "/api/v1/document/upload":
+            upload_calls += 1
+            raise AssertionError("upload should not be called when docSource already exists")
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(
+                200,
+                {
+                    "documents": [
+                        {
+                            "id": "doc-existing",
+                            "location": "custom-documents/doc-existing.txt",
+                            "docSource": _STABLE_DOC_SOURCE,
+                        }
+                    ]
+                },
+            )
+        raise AssertionError(path)
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    uploaded = adapter.upload_document("ws-global", _payload(), idempotency_key="reuse")
+    assert uploaded.remote_location == "custom-documents/doc-existing.txt"
+    assert upload_calls == 0
+
+
+def test_upload_timeout_reconciles_remote_document(adapter: HttpAnythingLLMAdapter) -> None:
+    upload_calls = 0
+    workspace_calls = 0
+
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
+    ) -> _MockResponse:
+        nonlocal upload_calls, workspace_calls
+        if path == "/api/v1/document/upload":
+            upload_calls += 1
+            raise AdapterError(AdapterErrorCode.TIMEOUT, "timed out", retryable=True)
+        if path == "/api/v1/workspace/ws-global":
+            workspace_calls += 1
+            if workspace_calls == 1:
+                return _MockResponse(200, {"documents": []})
+            return _MockResponse(
+                200,
+                {
+                    "documents": [
+                        {
+                            "id": "doc-late",
+                            "location": "custom-documents/doc-late.txt",
+                            "docSource": _STABLE_DOC_SOURCE,
+                        }
+                    ]
+                },
+            )
+        raise AssertionError(path)
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    uploaded = adapter.upload_document("ws-global", _payload(), idempotency_key="timeout-recover")
+    assert uploaded.remote_location == "custom-documents/doc-late.txt"
+    assert upload_calls == 1
+
+
+def test_upload_timeout_without_reconciliation_fails(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
+    ) -> _MockResponse:
+        if path == "/api/v1/document/upload":
+            raise AdapterError(AdapterErrorCode.TIMEOUT, "timed out", retryable=True)
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(200, {"documents": []})
+        raise AssertionError(path)
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    with pytest.raises(AdapterError) as exc:
+        adapter.upload_document("ws-global", _payload(), idempotency_key="timeout-fail")
+    assert exc.value.code == AdapterErrorCode.AMBIGUOUS_UPLOAD
+
+
+@dataclass
+class _InvalidJsonResponse:
+    status_code: int = 200
+
+    @property
+    def is_success(self) -> bool:
+        return True
+
+    def json(self) -> dict[str, Any]:
+        raise ValueError("invalid json")
+
+
+def test_invalid_json_maps_to_adapter_error(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+    ) -> _InvalidJsonResponse:
+        return _InvalidJsonResponse()
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    with pytest.raises(AdapterError) as exc:
+        adapter.retrieve(
+            AdapterRetrievalRequest(
+                query_text="x",
+                top_k=1,
+                workspace_slugs=("ws-global",),
+            )
+        )
+    assert exc.value.code == AdapterErrorCode.INVALID_RESPONSE
 
 
 def test_malformed_upload_response_fails_closed(adapter: HttpAnythingLLMAdapter) -> None:
@@ -319,7 +469,10 @@ def test_malformed_upload_response_fails_closed(adapter: HttpAnythingLLMAdapter)
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
         form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> _MockResponse:
+        if path == "/api/v1/workspace/ws-global":
+            return _MockResponse(200, {"documents": []})
         return _MockResponse(200, {"success": True})
 
     adapter._request = fake_request  # type: ignore[method-assign]

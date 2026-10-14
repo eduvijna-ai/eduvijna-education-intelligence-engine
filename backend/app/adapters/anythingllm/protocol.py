@@ -4,8 +4,8 @@ from typing import Protocol
 
 from app.adapters.anythingllm.types import (
     AdapterDocumentRef,
-    AdapterRetrievalHit,
     AdapterRetrievalRequest,
+    AdapterRetrievalResponse,
     AdapterUploadedDocument,
     GatewayProbeResult,
     IndexDocumentPayload,
@@ -39,4 +39,4 @@ class AnythingLLMAdapter(Protocol):
         self, workspace_slug: str, document_id: str
     ) -> AdapterDocumentRef | None: ...
 
-    def retrieve(self, request: AdapterRetrievalRequest) -> list[AdapterRetrievalHit]: ...
+    def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse: ...

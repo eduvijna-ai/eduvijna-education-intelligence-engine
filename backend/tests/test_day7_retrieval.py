@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
-from app.adapters.anythingllm.types import AdapterRetrievalHit
+from app.adapters.anythingllm.types import (
+    AdapterRetrievalHit,
+    AdapterRetrievalRequest,
+    AdapterRetrievalResponse,
+)
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.knowledge_intelligence.binding_match import build_binding_lookup, match_binding_for_hit
@@ -15,7 +19,7 @@ from app.knowledge_intelligence.indexing import index_source_revision
 from app.knowledge_intelligence.retrieval import retrieve_knowledge
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.models.curriculum import CurriculumPack, CurriculumVersion
-from app.models.knowledge_intelligence import KnowledgeSourceBinding
+from app.models.knowledge_intelligence import KnowledgeAuditEvent, KnowledgeSourceBinding
 from app.models.source import Source, SourceRevision
 
 
@@ -223,6 +227,57 @@ def test_binding_match_resolves_stable_doc_source_identity() -> None:
         metadata={"docSource": "eduvijna://knowledge/other/ki-v1/" + "b" * 64},
     )
     assert match_binding_for_hit(unknown, lookup) is None
+
+
+def test_missing_doc_source_warning_is_audit_visible() -> None:
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        index_adapter = FakeAnythingLLMAdapter()
+        binding = index_source_revision(
+            session,
+            index_adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+        session.commit()
+        stable = binding.metadata_json["anythingllm_doc_source_identity"]
+        assert isinstance(stable, str)
+
+        class _MixedHitAdapter(FakeAnythingLLMAdapter):
+            def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse:
+                return AdapterRetrievalResponse(
+                    hits=(
+                        AdapterRetrievalHit(
+                            workspace_slug=binding.anythingllm_workspace,
+                            document_id=stable,
+                            text="valid evidence snippet",
+                            score=0.95,
+                            rank=1,
+                            metadata={"docSource": stable},
+                        ),
+                    ),
+                    warnings=("missing_doc_source:chunk-orphan",),
+                )
+
+        result = retrieve_knowledge(
+            session,
+            _MixedHitAdapter(),
+            KnowledgeRetrievalRequest(
+                query_text="valid evidence",
+                top_k=3,
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            ),
+        )
+        session.commit()
+        assert result.items
+        assert any(w.startswith("missing_doc_source:") for w in result.warnings)
+        audits = list(session.scalars(select(KnowledgeAuditEvent)).all())
+        assert any(
+            any(w.startswith("missing_doc_source:") for w in audit.warnings_json)
+            for audit in audits
+            if audit.event_type == "retrieve"
+        )
 
 
 def test_authority_metadata_not_upgraded_by_score() -> None:

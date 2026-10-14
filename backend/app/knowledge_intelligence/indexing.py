@@ -47,11 +47,13 @@ def find_current_binding(
 def find_active_binding_for_source(
     session: Session,
     source_id: str,
+    retrieval_profile_version: str,
 ) -> KnowledgeSourceBinding | None:
     return session.scalars(
         select(KnowledgeSourceBinding)
         .where(
             KnowledgeSourceBinding.source_id == source_id,
+            KnowledgeSourceBinding.retrieval_profile_version == retrieval_profile_version,
             KnowledgeSourceBinding.index_status == KnowledgeIndexStatus.ACTIVE.value,
         )
         .order_by(KnowledgeSourceBinding.created_at.desc())
@@ -61,12 +63,14 @@ def find_active_binding_for_source(
 def list_active_bindings_for_source(
     session: Session,
     source_id: str,
+    retrieval_profile_version: str,
 ) -> list[KnowledgeSourceBinding]:
     return list(
         session.scalars(
             select(KnowledgeSourceBinding)
             .where(
                 KnowledgeSourceBinding.source_id == source_id,
+                KnowledgeSourceBinding.retrieval_profile_version == retrieval_profile_version,
                 KnowledgeSourceBinding.index_status == KnowledgeIndexStatus.ACTIVE.value,
             )
             .order_by(
@@ -82,12 +86,15 @@ def reconcile_supersession_for_source(
     adapter: AnythingLLMAdapter,
     source_id: str,
     *,
+    retrieval_profile_version: str,
     keep_binding_id: str,
     actor_id: str | None = None,
 ) -> list[str]:
     """Retry pending retirements and retire stale active bindings (D7-R06)."""
     actions: list[str] = []
-    active_bindings = list_active_bindings_for_source(session, source_id)
+    active_bindings = list_active_bindings_for_source(
+        session, source_id, retrieval_profile_version
+    )
     for binding in active_bindings:
         if binding.id == keep_binding_id:
             continue
@@ -131,6 +138,7 @@ def index_source_revision(
             session,
             adapter,
             source.id,
+            retrieval_profile_version=profile.version,
             keep_binding_id=existing.id,
             actor_id=actor_id,
         )
@@ -228,7 +236,7 @@ def index_source_revision(
         session.flush()
         raise IndexingError("upload docSource echo missing or mismatched")
 
-    prior_active = find_active_binding_for_source(session, source.id)
+    prior_active = find_active_binding_for_source(session, source.id, profile.version)
     remote_removal_key = uploaded.remote_location or uploaded.remote_doc_id
     if not remote_removal_key:
         binding.index_status = KnowledgeIndexStatus.FAILED.value
@@ -274,6 +282,7 @@ def index_source_revision(
             session,
             adapter,
             source.id,
+            retrieval_profile_version=profile.version,
             keep_binding_id=binding.id,
             actor_id=actor_id,
         )

@@ -14,6 +14,7 @@ from app.adapters.anythingllm.types import (
     AdapterErrorCode,
     AdapterRetrievalHit,
     AdapterRetrievalRequest,
+    AdapterRetrievalResponse,
     AdapterUploadedDocument,
     GatewayAvailability,
     GatewayProbeResult,
@@ -42,6 +43,18 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
 
+    @staticmethod
+    def _json_body(response: httpx.Response) -> Any:
+        try:
+            return response.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise AdapterError(
+                AdapterErrorCode.INVALID_RESPONSE,
+                "AnythingLLM response is not valid JSON",
+                retryable=False,
+                http_status=response.status_code,
+            ) from exc
+
     def _request(
         self,
         method: str,
@@ -50,10 +63,12 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         json_body: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
         form_data: dict[str, Any] | None = None,
+        allow_retries: bool = True,
     ) -> httpx.Response:
         url = f"{self._base_url}{path}"
         last_error: AdapterError | None = None
-        for attempt in range(self._max_retries + 1):
+        attempts = (self._max_retries + 1) if allow_retries else 1
+        for attempt in range(attempts):
             try:
                 with httpx.Client(timeout=self._timeout) as client:
                     response = client.request(
@@ -70,7 +85,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                     "AnythingLLM request timed out",
                     retryable=True,
                 )
-                if attempt < self._max_retries:
+                if allow_retries and attempt < attempts - 1:
                     time.sleep(0.2 * (attempt + 1))
                     continue
                 raise last_error from None
@@ -81,7 +96,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                     retryable=True,
                 )
                 logger.debug("AnythingLLM transport failure: %s", type(exc).__name__)
-                if attempt < self._max_retries:
+                if allow_retries and attempt < attempts - 1:
                     time.sleep(0.2 * (attempt + 1))
                     continue
                 raise last_error from exc
@@ -100,7 +115,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                     retryable=True,
                     http_status=response.status_code,
                 )
-                if attempt < self._max_retries:
+                if allow_retries and attempt < attempts - 1:
                     time.sleep(0.2 * (attempt + 1))
                     continue
                 raise last_error
@@ -140,9 +155,19 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             capabilities=("workspace", "upload", "retrieve", "remove"),
         )
 
+    def _workspace_documents(self, workspace_slug: str) -> list[dict[str, Any]]:
+        response = self._request("GET", f"/api/v1/workspace/{workspace_slug}")
+        body = self._json_body(response)
+        if not isinstance(body, dict):
+            raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "workspace response not object")
+        documents = body.get("documents") or body.get("workspace", {}).get("documents") or []
+        if not isinstance(documents, list):
+            return []
+        return [item for item in documents if isinstance(item, dict)]
+
     def _find_workspace_slug(self, slug: str) -> str | None:
         response = self._request("GET", "/api/v1/workspaces")
-        body = response.json()
+        body = self._json_body(response)
         workspaces = body.get("workspaces") if isinstance(body, dict) else body
         if not isinstance(workspaces, list):
             return None
@@ -222,6 +247,29 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             remote_location=remote_location.strip(),
         )
 
+    def _reconcile_uploaded_document(
+        self,
+        workspace_slug: str,
+        expected_doc_source: str,
+    ) -> AdapterUploadedDocument | None:
+        matches = [
+            item
+            for item in self._workspace_documents(workspace_slug)
+            if self._extract_doc_source_from_document(item) == expected_doc_source
+        ]
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise AdapterError(
+                AdapterErrorCode.AMBIGUOUS_UPLOAD,
+                "multiple remote documents share the same docSource",
+                retryable=True,
+            )
+        return self._parse_uploaded_document(
+            {"documents": matches},
+            expected_doc_source=expected_doc_source,
+        )
+
     def upload_document(
         self,
         workspace_slug: str,
@@ -237,6 +285,11 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                 retryable=False,
             )
         expected_doc_source = expected_doc_source.strip()
+
+        reconciled = self._reconcile_uploaded_document(workspace_slug, expected_doc_source)
+        if reconciled is not None:
+            return reconciled
+
         metadata = {
             **payload.metadata,
             "docSource": expected_doc_source,
@@ -257,16 +310,32 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             "addToWorkspaces": workspace_slug,
             "metadata": json.dumps(metadata),
         }
-        response = self._request(
-            "POST",
-            "/api/v1/document/upload",
-            files=files,
-            form_data=form_data,
-        )
-        body = response.json()
-        if not isinstance(body, dict):
-            raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload response not object")
-        return self._parse_uploaded_document(body, expected_doc_source=expected_doc_source)
+        try:
+            response = self._request(
+                "POST",
+                "/api/v1/document/upload",
+                files=files,
+                form_data=form_data,
+                allow_retries=False,
+            )
+            body = self._json_body(response)
+            if not isinstance(body, dict):
+                raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload response not object")
+            return self._parse_uploaded_document(body, expected_doc_source=expected_doc_source)
+        except AdapterError as exc:
+            if exc.code not in {
+                AdapterErrorCode.TIMEOUT,
+                AdapterErrorCode.UNAVAILABLE,
+            }:
+                raise
+            recovered = self._reconcile_uploaded_document(workspace_slug, expected_doc_source)
+            if recovered is not None:
+                return recovered
+            raise AdapterError(
+                AdapterErrorCode.AMBIGUOUS_UPLOAD,
+                "upload outcome ambiguous; remote document not provable",
+                retryable=True,
+            ) from exc
 
     def remove_document(self, workspace_slug: str, document_id: str) -> None:
         self._request(
@@ -278,16 +347,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
     def lookup_document(
         self, workspace_slug: str, document_id: str
     ) -> AdapterDocumentRef | None:
-        response = self._request("GET", f"/api/v1/workspace/{workspace_slug}")
-        body = response.json()
-        if not isinstance(body, dict):
-            raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "workspace response not object")
-        documents = body.get("documents") or body.get("workspace", {}).get("documents") or []
-        if not isinstance(documents, list):
-            return None
-        for item in documents:
-            if not isinstance(item, dict):
-                continue
+        for item in self._workspace_documents(workspace_slug):
             doc_id = item.get("id") or item.get("docId")
             location = item.get("location") or item.get("docpath")
             if document_id in {doc_id, location}:
@@ -299,8 +359,9 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                 )
         return None
 
-    def retrieve(self, request: AdapterRetrievalRequest) -> list[AdapterRetrievalHit]:
+    def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse:
         hits: list[AdapterRetrievalHit] = []
+        warnings: list[str] = []
         for workspace_slug in request.workspace_slugs:
             response = self._request(
                 "POST",
@@ -311,7 +372,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                     "scoreThreshold": 0.0,
                 },
             )
-            body = response.json()
+            body = self._json_body(response)
             if not isinstance(body, dict):
                 raise AdapterError(
                     AdapterErrorCode.INVALID_RESPONSE,
@@ -332,9 +393,11 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                 if isinstance(raw_metadata, dict):
                     metadata = dict(raw_metadata)
                 doc_source = metadata.get("docSource")
-                if not isinstance(doc_source, str) or not doc_source.strip():
-                    continue
                 chunk_id = item.get("id") or item.get("chunkId") or item.get("vectorId")
+                chunk_label = chunk_id if isinstance(chunk_id, str) and chunk_id else "unknown"
+                if not isinstance(doc_source, str) or not doc_source.strip():
+                    warnings.append(f"missing_doc_source:{chunk_label}")
+                    continue
                 if isinstance(chunk_id, str):
                     metadata["vector_chunk_id"] = chunk_id
                 hit_document_id = doc_source
@@ -354,4 +417,5 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                     )
                 )
         hits.sort(key=lambda h: (-h.score, h.workspace_slug, h.document_id))
-        return hits[: request.top_k]
+        limited = hits[: request.top_k]
+        return AdapterRetrievalResponse(hits=tuple(limited), warnings=tuple(warnings))

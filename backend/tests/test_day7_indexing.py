@@ -135,7 +135,9 @@ def test_supersession_retire_failure_reconciled_on_retry() -> None:
             retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
         )
         session.commit()
-        active = list_active_bindings_for_source(session, first.source_id)
+        active = list_active_bindings_for_source(
+            session, first.source_id, DEFAULT_RETRIEVAL_PROFILE_VERSION
+        )
         assert len(active) == 2
 
         again = index_source_revision(
@@ -146,12 +148,45 @@ def test_supersession_retire_failure_reconciled_on_retry() -> None:
         )
         session.commit()
         assert again.id == replacement.id
-        active_after = list_active_bindings_for_source(session, first.source_id)
+        active_after = list_active_bindings_for_source(
+            session, first.source_id, DEFAULT_RETRIEVAL_PROFILE_VERSION
+        )
         assert len(active_after) == 1
         assert active_after[0].id == replacement.id
         retired = session.get(KnowledgeSourceBinding, first.id)
         assert retired is not None
         assert retired.index_status == "superseded"
+
+
+def test_dual_retrieval_profiles_remain_active_independently() -> None:
+    adapter = FakeAnythingLLMAdapter()
+    with _session() as session:
+        fixtures = seed_knowledge_fixtures(session)
+        session.commit()
+        v1 = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version="ki-retrieval-v1",
+        )
+        v0 = index_source_revision(
+            session,
+            adapter,
+            fixtures.official_revision_id,
+            retrieval_profile_version="ki-retrieval-v0",
+        )
+        session.commit()
+        assert v1.index_status == "active"
+        assert v0.index_status == "active"
+        assert v1.id != v0.id
+        active_v1 = list_active_bindings_for_source(
+            session, v1.source_id, "ki-retrieval-v1"
+        )
+        active_v0 = list_active_bindings_for_source(
+            session, v0.source_id, "ki-retrieval-v0"
+        )
+        assert len(active_v1) == 1
+        assert len(active_v0) == 1
 
 
 def test_inactive_revision_rejected() -> None:

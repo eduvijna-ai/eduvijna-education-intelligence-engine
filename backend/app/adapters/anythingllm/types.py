@@ -21,6 +21,8 @@ class AdapterErrorCode(StrEnum):
     INVALID_RESPONSE = "invalid_response"
     UNAVAILABLE = "unavailable"
     VALIDATION = "validation"
+    CONFIGURATION = "configuration"
+    AMBIGUOUS_UPLOAD = "ambiguous_upload"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +82,12 @@ class AdapterRetrievalRequest:
     top_k: int
     workspace_slugs: tuple[str, ...]
     metadata_filters: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class AdapterRetrievalResponse:
+    hits: tuple[AdapterRetrievalHit, ...]
+    warnings: tuple[str, ...] = ()
 
 
 class AdapterError(Exception):

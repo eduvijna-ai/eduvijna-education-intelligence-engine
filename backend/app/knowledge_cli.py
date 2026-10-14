@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict
 
 from app.adapters.anythingllm.factory import build_anythingllm_adapter
+from app.adapters.anythingllm.types import AdapterError
 from app.db.session import session_factory
 from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
@@ -47,12 +48,27 @@ def main() -> None:
     retire_parser.add_argument("binding_id")
 
     args = parser.parse_args()
-    adapter = build_anythingllm_adapter(force_fake=True if args.use_fake else None)
+    try:
+        adapter = build_anythingllm_adapter(force_fake=True if args.use_fake else None)
+    except AdapterError as exc:
+        print(
+            json.dumps(
+                {
+                    "error": exc.message,
+                    "code": exc.code.value,
+                },
+                indent=2,
+            )
+        )
+        raise SystemExit(1) from exc
     session = session_factory()()
     try:
         service = KnowledgeIntelligenceService(session, adapter=adapter)
         if args.command == "probe":
-            print(json.dumps(asdict(service.probe_gateway()), indent=2))
+            probe = service.probe_gateway()
+            print(json.dumps(asdict(probe), indent=2))
+            if probe.availability.value != "available":
+                raise SystemExit(1)
             return
         if args.command == "index":
             binding = service.index_source_revision(

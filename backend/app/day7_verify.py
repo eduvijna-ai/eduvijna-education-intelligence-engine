@@ -18,8 +18,8 @@ from app.adapters.anythingllm.http_adapter import HttpAnythingLLMAdapter
 from app.adapters.anythingllm.types import (
     AdapterError,
     AdapterErrorCode,
-    AdapterRetrievalHit,
     AdapterRetrievalRequest,
+    AdapterRetrievalResponse,
     AdapterUploadedDocument,
     GatewayAvailability,
     IndexDocumentPayload,
@@ -237,7 +237,11 @@ def build_verification_report(session: Session) -> dict[str, object]:
             successor.id,
             retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
         )
-        active_after = list_active_bindings_for_source(session, first_binding.source_id)
+        active_after = list_active_bindings_for_source(
+            session,
+            first_binding.source_id,
+            DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
         supersession_reconciled = (
             len(active_after) == 1 and active_after[0].id == replacement.id
         )
@@ -246,6 +250,55 @@ def build_verification_report(session: Session) -> dict[str, object]:
     configured_http = build_anythingllm_adapter(
         Settings(anythingllm_base_url="http://anythingllm.test", anythingllm_api_key="secret"),
         force_fake=False,
+    )
+
+    def _configuration_error(settings: Settings) -> bool:
+        try:
+            build_anythingllm_adapter(settings, force_fake=False)
+        except AdapterError as exc:
+            return exc.code == AdapterErrorCode.CONFIGURATION
+        return False
+
+    missing_config_fails_closed = (
+        _configuration_error(Settings(anythingllm_base_url=None, anythingllm_api_key=None))
+        and _configuration_error(
+            Settings(anythingllm_base_url="http://anythingllm.test", anythingllm_api_key=None)
+        )
+        and _configuration_error(
+            Settings(anythingllm_base_url=None, anythingllm_api_key="secret")
+        )
+    )
+
+    v0_binding = service.index_source_revision(
+        fixtures.official_revision_id,
+        retrieval_profile_version="ki-retrieval-v0",
+    )
+    session.commit()
+    dual_profiles_independently_active = (
+        official_binding.index_status == "active"
+        and v0_binding.index_status == "active"
+        and official_binding.id != v0_binding.id
+    )
+
+    class _MissingDocSourceOnlyAdapter(FakeAnythingLLMAdapter):
+        def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse:
+            return AdapterRetrievalResponse(
+                hits=(),
+                warnings=("missing_doc_source:chunk-z",),
+            )
+
+    missing_only = KnowledgeIntelligenceService(
+        session, adapter=_MissingDocSourceOnlyAdapter()
+    ).retrieve(
+        KnowledgeRetrievalRequest(
+            query_text="quadratic",
+            top_k=3,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+    )
+    session.commit()
+    missing_doc_source_audited = any(
+        warning.startswith("missing_doc_source:") for warning in missing_only.warnings
     )
 
     official_revision = session.get(SourceRevision, fixtures.official_revision_id)
@@ -262,18 +315,22 @@ def build_verification_report(session: Session) -> dict[str, object]:
     )
 
     class _UnknownHitAdapter(FakeAnythingLLMAdapter):
-        def retrieve(self, request: AdapterRetrievalRequest) -> list[AdapterRetrievalHit]:
+        def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse:
+            from app.adapters.anythingllm.types import AdapterRetrievalHit
+
             unknown = "eduvijna://knowledge/unknown-rev/ki-v1/" + ("9" * 64)
-            return [
-                AdapterRetrievalHit(
-                    workspace_slug="ws-global",
-                    document_id=unknown,
-                    text="forged evidence",
-                    score=0.99,
-                    rank=1,
-                    metadata={"docSource": unknown},
-                )
-            ]
+            return AdapterRetrievalResponse(
+                hits=(
+                    AdapterRetrievalHit(
+                        workspace_slug="ws-global",
+                        document_id=unknown,
+                        text="forged evidence",
+                        score=0.99,
+                        rank=1,
+                        metadata={"docSource": unknown},
+                    ),
+                ),
+            )
 
     unknown_service = KnowledgeIntelligenceService(session, adapter=_UnknownHitAdapter())
     unknown_hit = unknown_service.retrieve(
@@ -334,6 +391,9 @@ def build_verification_report(session: Session) -> dict[str, object]:
             item.binding_id == official_binding.id for item in scoped.items
         ),
         "unknown_doc_source_rejected": unknown_doc_source_rejected,
+        "missing_gateway_config_fails_closed": missing_config_fails_closed,
+        "dual_retrieval_profiles_independently_active": dual_profiles_independently_active,
+        "missing_doc_source_retrieval_audited": missing_doc_source_audited,
     }
 
     return {

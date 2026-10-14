@@ -34,7 +34,7 @@ def test_fake_adapter_probe_and_deterministic_retrieval() -> None:
             top_k=3,
             workspace_slugs=(slug,),
         )
-    )
+    ).hits
     assert hits
     assert hits[0].rank == 1
     second = adapter.retrieve(
@@ -43,7 +43,7 @@ def test_fake_adapter_probe_and_deterministic_retrieval() -> None:
             top_k=3,
             workspace_slugs=(slug,),
         )
-    )
+    ).hits
     assert [item.document_id for item in hits] == [item.document_id for item in second]
 
 

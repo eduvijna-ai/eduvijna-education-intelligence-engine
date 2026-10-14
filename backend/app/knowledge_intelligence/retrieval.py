@@ -6,7 +6,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.anythingllm.protocol import AnythingLLMAdapter
-from app.adapters.anythingllm.types import AdapterError, AdapterRetrievalRequest
+from app.adapters.anythingllm.types import (
+    AdapterError,
+    AdapterRetrievalHit,
+    AdapterRetrievalRequest,
+)
 from app.knowledge_intelligence.audit import hash_query_text, new_query_id, record_audit_event
 from app.knowledge_intelligence.binding_match import build_binding_lookup, match_binding_for_hit
 from app.knowledge_intelligence.contracts import (
@@ -125,8 +129,11 @@ def retrieve_knowledge(
         metadata_filters=compile_scope_filters(request),
     )
     errors: list[str] = []
+    hits: list[AdapterRetrievalHit] = []
     try:
-        hits = adapter.retrieve(adapter_request)
+        adapter_response = adapter.retrieve(adapter_request)
+        hits = list(adapter_response.hits)
+        warnings.extend(adapter_response.warnings)
     except AdapterError as exc:
         errors.append(exc.message)
         hits = []
@@ -141,7 +148,6 @@ def retrieve_knowledge(
     for hit in hits:
         doc_source_meta = (hit.metadata or {}).get("docSource")
         if not isinstance(doc_source_meta, str) or not doc_source_meta.strip():
-            warnings.append("missing_doc_source")
             continue
         matched_binding = match_binding_for_hit(hit, binding_by_doc)
         if matched_binding is None:

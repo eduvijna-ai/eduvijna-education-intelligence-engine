@@ -30,7 +30,7 @@ class KnowledgeIntelligenceService:
         adapter: AnythingLLMAdapter | None = None,
     ) -> None:
         self._session = session
-        self._adapter = adapter or build_anythingllm_adapter(force_fake=True)
+        self._adapter = adapter or build_anythingllm_adapter()
 
     def probe_gateway(self) -> GatewayProbeResult:
         return self._adapter.probe()
