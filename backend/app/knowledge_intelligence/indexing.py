@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.anythingllm.protocol import AnythingLLMAdapter
-from app.adapters.anythingllm.types import AdapterError
+from app.adapters.anythingllm.types import AdapterError, IndexDocumentPayload
 from app.knowledge_intelligence.audit import record_audit_event
+from app.knowledge_intelligence.doc_source_identity import build_stable_doc_source_identity
 from app.knowledge_intelligence.eligibility import assert_revision_index_eligible
 from app.knowledge_intelligence.enums import KnowledgeAuditEventType, KnowledgeIndexStatus
 from app.knowledge_intelligence.payload import build_index_payload
@@ -138,7 +139,19 @@ def index_source_revision(
     scope = scope_from_source(source)
     workspace_key = workspace_key_for_scope(scope)
     workspace_slug = adapter.ensure_workspace(workspace_key)
-    payload = build_index_payload(source, revision)
+    doc_source_identity = build_stable_doc_source_identity(
+        revision.id,
+        profile.version,
+        revision.checksum,
+    )
+    base_payload = build_index_payload(source, revision)
+    payload = IndexDocumentPayload(
+        title=base_payload.title,
+        evidence_text=base_payload.evidence_text,
+        content_checksum=base_payload.content_checksum,
+        source_locator=base_payload.source_locator,
+        metadata={**base_payload.metadata, "docSource": doc_source_identity},
+    )
 
     binding = existing or KnowledgeSourceBinding(
         source_id=source.id,
@@ -194,17 +207,60 @@ def index_source_revision(
         session.flush()
         raise IndexingError(exc.message) from exc
 
+    returned_doc_source = uploaded.doc_source_identity or uploaded.stable_id
+    if returned_doc_source != doc_source_identity:
+        binding.index_status = KnowledgeIndexStatus.FAILED.value
+        binding.metadata_json = {
+            **binding.metadata_json,
+            "last_error": "upload docSource echo missing or mismatched",
+            "retryable": True,
+        }
+        record_audit_event(
+            session,
+            event_type=KnowledgeAuditEventType.INDEX_FAILURE,
+            actor_id=actor_id,
+            retrieval_profile_version=profile.version,
+            workspaces_queried=[workspace_slug],
+            source_revision_ids=[revision.id],
+            errors=["upload docSource echo missing or mismatched"],
+            payload={"binding_id": binding.id},
+        )
+        session.flush()
+        raise IndexingError("upload docSource echo missing or mismatched")
+
     prior_active = find_active_binding_for_source(session, source.id)
-    binding.anythingllm_document_id = uploaded.stable_id
+    remote_removal_key = uploaded.remote_location or uploaded.remote_doc_id
+    if not remote_removal_key:
+        binding.index_status = KnowledgeIndexStatus.FAILED.value
+        binding.metadata_json = {
+            **binding.metadata_json,
+            "last_error": "upload missing remote removal location",
+            "retryable": True,
+        }
+        record_audit_event(
+            session,
+            event_type=KnowledgeAuditEventType.INDEX_FAILURE,
+            actor_id=actor_id,
+            retrieval_profile_version=profile.version,
+            workspaces_queried=[workspace_slug],
+            source_revision_ids=[revision.id],
+            errors=["upload missing remote removal location"],
+            payload={"binding_id": binding.id},
+        )
+        session.flush()
+        raise IndexingError("upload missing remote removal location")
+
+    binding.anythingllm_document_id = remote_removal_key
     binding.metadata_json = {
         **binding.metadata_json,
+        "anythingllm_doc_source_identity": doc_source_identity,
         "anythingllm_remote_doc_id": uploaded.remote_doc_id,
         "anythingllm_remote_location": uploaded.remote_location,
     }
     binding.index_status = KnowledgeIndexStatus.ACTIVE.value
     binding.indexed_at = datetime.now(UTC)
     binding.retired_at = None
-    revision.anythingllm_document_id = uploaded.stable_id
+    revision.anythingllm_document_id = remote_removal_key
     source.anythingllm_workspace = workspace_slug
 
     pending_remote_retire = False
@@ -229,7 +285,11 @@ def index_source_revision(
         retrieval_profile_version=profile.version,
         workspaces_queried=[workspace_slug],
         source_revision_ids=[revision.id],
-        payload={"binding_id": binding.id, "document_id": uploaded.stable_id},
+        payload={
+            "binding_id": binding.id,
+            "document_id": remote_removal_key,
+            "doc_source_identity": doc_source_identity,
+        },
     )
     session.flush()
     return binding

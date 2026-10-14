@@ -139,9 +139,13 @@ def retrieve_knowledge(
     scope_verification_warnings: list[str] = []
     verified_filters: dict[str, str | list[str]] = {}
     for hit in hits:
+        doc_source_meta = (hit.metadata or {}).get("docSource")
+        if not isinstance(doc_source_meta, str) or not doc_source_meta.strip():
+            warnings.append("missing_doc_source")
+            continue
         matched_binding = match_binding_for_hit(hit, binding_by_doc)
         if matched_binding is None:
-            warnings.append(f"unknown_remote_document:{hit.document_id}")
+            warnings.append(f"unknown_remote_document:{doc_source_meta}")
             continue
         source = _require_source(session, matched_binding.source_id)
         revision = session.get(SourceRevision, matched_binding.source_revision_id)

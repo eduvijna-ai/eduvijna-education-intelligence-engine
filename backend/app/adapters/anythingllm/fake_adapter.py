@@ -117,13 +117,22 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
         idempotency_key: str,
     ) -> AdapterUploadedDocument:
         self._guard()
+        doc_source = payload.metadata.get("docSource")
+        if not isinstance(doc_source, str) or not doc_source.strip():
+            raise AdapterError(
+                AdapterErrorCode.VALIDATION,
+                "upload requires metadata.docSource stable identity",
+                retryable=False,
+            )
+        doc_source = doc_source.strip()
         if idempotency_key in self._idempotency:
             existing_id = self._idempotency[idempotency_key]
             doc = self._documents.get((workspace_slug, existing_id))
             if doc is not None:
                 location = f"custom-documents/{existing_id}.txt"
                 return AdapterUploadedDocument(
-                    stable_id=location,
+                    stable_id=doc_source,
+                    doc_source_identity=doc_source,
                     remote_doc_id=existing_id,
                     remote_location=location,
                 )
@@ -139,12 +148,13 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
             evidence_text=payload.evidence_text,
             content_checksum=payload.content_checksum,
             source_locator=payload.source_locator,
-            metadata=dict(payload.metadata),
+            metadata={**dict(payload.metadata), "docSource": doc_source},
             idempotency_key=idempotency_key,
         )
         self._idempotency[idempotency_key] = document_id
         return AdapterUploadedDocument(
-            stable_id=location,
+            stable_id=doc_source,
+            doc_source_identity=doc_source,
             remote_doc_id=document_id,
             remote_location=location,
         )
@@ -201,18 +211,21 @@ class FakeAnythingLLMAdapter(AnythingLLMAdapter):
                     continue
                 if not query_tokens:
                     score = 0.1
+                doc_source = doc.metadata.get("docSource")
+                if not isinstance(doc_source, str) or not doc_source.strip():
+                    continue
                 chunk_id = f"chunk-{doc.document_id}"
                 hits.append(
                     AdapterRetrievalHit(
                         workspace_slug=workspace_slug,
-                        document_id=chunk_id,
+                        document_id=doc_source.strip(),
                         text=doc.evidence_text,
                         score=score,
                         rank=0,
                         metadata={
                             **dict(doc.metadata),
-                            "sourceDocument": doc.document_id,
-                            "docId": doc.document_id,
+                            "docSource": doc_source.strip(),
+                            "vector_chunk_id": chunk_id,
                         },
                     )
                 )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +33,19 @@ def adapter() -> HttpAnythingLLMAdapter:
     return HttpAnythingLLMAdapter("http://anythingllm.test", "test-key")
 
 
+_STABLE_DOC_SOURCE = "eduvijna://knowledge/rev-http/ki-v1/" + "c" * 64
+
+
+def _payload(**extra: str) -> IndexDocumentPayload:
+    return IndexDocumentPayload(
+        title="t",
+        evidence_text="evidence",
+        content_checksum="abc",
+        source_locator="loc",
+        metadata={"docSource": _STABLE_DOC_SOURCE, **extra},
+    )
+
+
 def test_upload_parses_documents_array_and_adds_workspace(adapter: HttpAnythingLLMAdapter) -> None:
     captured: list[tuple[str, str, dict[str, Any]]] = []
 
@@ -52,6 +66,7 @@ def test_upload_parses_documents_array_and_adds_workspace(adapter: HttpAnythingL
                     {
                         "id": "doc-uuid-1",
                         "location": "custom-documents/doc-uuid-1.txt",
+                        "docSource": _STABLE_DOC_SOURCE,
                     }
                 ],
             },
@@ -60,19 +75,72 @@ def test_upload_parses_documents_array_and_adds_workspace(adapter: HttpAnythingL
     adapter._request = fake_request  # type: ignore[method-assign]
     uploaded = adapter.upload_document(
         "ws-global",
-        IndexDocumentPayload(
-            title="t",
-            evidence_text="evidence",
-            content_checksum="abc",
-            source_locator="loc",
-        ),
+        _payload(),
         idempotency_key="idem-http-1",
     )
-    assert uploaded.stable_id == "custom-documents/doc-uuid-1.txt"
+    assert uploaded.stable_id == _STABLE_DOC_SOURCE
+    assert uploaded.doc_source_identity == _STABLE_DOC_SOURCE
     assert uploaded.remote_doc_id == "doc-uuid-1"
+    assert uploaded.remote_location == "custom-documents/doc-uuid-1.txt"
     assert captured[0][0] == "POST"
     assert captured[0][1] == "/api/v1/document/upload"
     assert captured[0][2]["form"]["addToWorkspaces"] == "ws-global"
+    metadata = json.loads(captured[0][2]["form"]["metadata"])
+    assert metadata["docSource"] == _STABLE_DOC_SOURCE
+
+
+def test_upload_doc_source_echo_mismatch_fails_closed(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+    ) -> _MockResponse:
+        return _MockResponse(
+            200,
+            {
+                "documents": [
+                    {
+                        "id": "doc-uuid-1",
+                        "location": "custom-documents/doc-uuid-1.txt",
+                        "docSource": "uploaded-file.txt",
+                    }
+                ]
+            },
+        )
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    with pytest.raises(AdapterError) as exc:
+        adapter.upload_document("ws-global", _payload(), idempotency_key="idem-mismatch")
+    assert exc.value.code.value == "invalid_response"
+
+
+def test_upload_doc_source_missing_echo_fails_closed(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+    ) -> _MockResponse:
+        return _MockResponse(
+            200,
+            {
+                "documents": [
+                    {
+                        "id": "doc-uuid-1",
+                        "location": "custom-documents/doc-uuid-1.txt",
+                    }
+                ]
+            },
+        )
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    with pytest.raises(AdapterError):
+        adapter.upload_document("ws-global", _payload(), idempotency_key="idem-missing")
 
 
 def test_ensure_workspace_resolves_existing_before_create(adapter: HttpAnythingLLMAdapter) -> None:
@@ -114,11 +182,17 @@ def test_two_uploads_same_workspace_do_not_require_create(adapter: HttpAnythingL
             return _MockResponse(200, {"workspaces": [{"slug": "ws-global", "name": "ws-global"}]})
         if path == "/api/v1/document/upload":
             doc_id = f"doc-{workspace_calls}-{len(files or {})}"
+            meta = json.loads((form_data or {})["metadata"])
+            stable = meta["docSource"]
             return _MockResponse(
                 200,
                 {
                     "documents": [
-                        {"id": doc_id, "location": f"custom-documents/{doc_id}.txt"},
+                        {
+                            "id": doc_id,
+                            "location": f"custom-documents/{doc_id}.txt",
+                            "docSource": stable,
+                        },
                     ]
                 },
             )
@@ -128,6 +202,7 @@ def test_two_uploads_same_workspace_do_not_require_create(adapter: HttpAnythingL
     adapter.ensure_workspace(WorkspaceKey(scope_key="global", slug="ws-global"))
     adapter.ensure_workspace(WorkspaceKey(scope_key="global", slug="ws-global"))
     for key in ("idem-a", "idem-b"):
+        stable = f"eduvijna://knowledge/{key}/ki-v1/" + ("d" * 64)
         adapter.upload_document(
             "ws-global",
             IndexDocumentPayload(
@@ -135,6 +210,7 @@ def test_two_uploads_same_workspace_do_not_require_create(adapter: HttpAnythingL
                 evidence_text="sample evidence text",
                 content_checksum=key,
                 source_locator="loc",
+                metadata={"docSource": stable},
             ),
             idempotency_key=key,
         )
@@ -162,6 +238,7 @@ def test_remove_uses_update_embeddings_deletes(adapter: HttpAnythingLLMAdapter) 
 
 
 def test_vector_search_maps_chunk_to_doc_source(adapter: HttpAnythingLLMAdapter) -> None:
+    stable = "eduvijna://knowledge/rev-1/ki-v1/" + "e" * 64
     def fake_request(
         method: str,
         path: str,
@@ -179,7 +256,7 @@ def test_vector_search_maps_chunk_to_doc_source(adapter: HttpAnythingLLMAdapter)
                         "text": "matched evidence",
                         "score": 0.91,
                         "metadata": {
-                            "docSource": "custom-documents/doc-1.txt",
+                            "docSource": stable,
                             "chunkSource": "custom-documents/doc-1.txt#chunk-0",
                         },
                     }
@@ -195,8 +272,8 @@ def test_vector_search_maps_chunk_to_doc_source(adapter: HttpAnythingLLMAdapter)
             workspace_slugs=("ws-global",),
         )
     )
-    assert hits[0].document_id == "custom-documents/doc-1.txt"
-    assert hits[0].metadata["docSource"] == "custom-documents/doc-1.txt"
+    assert hits[0].document_id == stable
+    assert hits[0].metadata["docSource"] == stable
     assert hits[0].metadata["vector_chunk_id"] == "chunk-uuid"
 
 
@@ -254,6 +331,7 @@ def test_malformed_upload_response_fails_closed(adapter: HttpAnythingLLMAdapter)
                 evidence_text="x",
                 content_checksum="a",
                 source_locator="loc",
+                metadata={"docSource": _STABLE_DOC_SOURCE},
             ),
             idempotency_key="bad",
         )

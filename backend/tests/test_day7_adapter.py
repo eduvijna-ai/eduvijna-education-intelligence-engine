@@ -9,6 +9,8 @@ from app.adapters.anythingllm.types import (
     WorkspaceKey,
 )
 
+_STABLE_DOC_SOURCE = "eduvijna://knowledge/rev-1/ki-v1/" + "a" * 64
+
 
 def test_fake_adapter_probe_and_deterministic_retrieval() -> None:
     adapter = FakeAnythingLLMAdapter()
@@ -21,10 +23,11 @@ def test_fake_adapter_probe_and_deterministic_retrieval() -> None:
             evidence_text="quadratic equations factorisation practice",
             content_checksum="abc",
             source_locator="loc",
+            metadata={"docSource": _STABLE_DOC_SOURCE},
         ),
         idempotency_key="idem-1",
     )
-    assert uploaded.stable_id
+    assert uploaded.stable_id == _STABLE_DOC_SOURCE
     hits = adapter.retrieve(
         AdapterRetrievalRequest(
             query_text="quadratic factorisation",
@@ -52,6 +55,7 @@ def test_fake_adapter_idempotent_upload() -> None:
         evidence_text="sample",
         content_checksum="abc",
         source_locator="loc",
+        metadata={"docSource": _STABLE_DOC_SOURCE},
     )
     first = adapter.upload_document(slug, payload, idempotency_key="idem-2")
     second = adapter.upload_document(slug, payload, idempotency_key="idem-2")

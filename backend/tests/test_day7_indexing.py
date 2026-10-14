@@ -9,6 +9,7 @@ from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.adapters.anythingllm.types import AdapterError, AdapterErrorCode
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
+from app.knowledge_intelligence.doc_source_identity import build_stable_doc_source_identity
 from app.knowledge_intelligence.eligibility import IndexEligibilityError
 from app.knowledge_intelligence.fixtures import seed_knowledge_fixtures, staged_revision_for_source
 from app.knowledge_intelligence.indexing import (
@@ -47,6 +48,20 @@ def test_active_revision_indexes_idempotently() -> None:
         assert first.id == second.id
         assert first.index_status == "active"
         assert first.anythingllm_document_id
+        revision = session.get(SourceRevision, fixtures.official_revision_id)
+        assert revision is not None
+        expected_identity = build_stable_doc_source_identity(
+            revision.id,
+            DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            revision.checksum,
+        )
+        assert first.metadata_json.get("anythingllm_doc_source_identity") == expected_identity
+        assert second.metadata_json.get("anythingllm_doc_source_identity") == expected_identity
+        assert first.metadata_json.get("anythingllm_remote_location")
+        assert (
+            first.metadata_json.get("anythingllm_remote_location")
+            == first.anythingllm_document_id
+        )
 
 
 class _FailOnceRetireAdapter(FakeAnythingLLMAdapter):

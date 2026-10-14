@@ -173,7 +173,8 @@ def test_local_grade_filter_drops_metadata_mismatch() -> None:
         assert match.items
 
 
-def test_binding_match_resolves_doc_source_to_uploaded_location() -> None:
+def test_binding_match_resolves_stable_doc_source_identity() -> None:
+    stable_id = f"eduvijna://knowledge/rev-1/ki-v1/{'a' * 64}"
     binding = KnowledgeSourceBinding(
         source_id="source-1",
         source_revision_id="rev-1",
@@ -184,6 +185,7 @@ def test_binding_match_resolves_doc_source_to_uploaded_location() -> None:
         index_status="active",
         retrieval_profile_version="ki-v1",
         metadata_json={
+            "anythingllm_doc_source_identity": stable_id,
             "anythingllm_remote_location": "custom-documents/doc-1.txt",
             "anythingllm_remote_doc_id": "doc-uuid-1",
         },
@@ -191,12 +193,12 @@ def test_binding_match_resolves_doc_source_to_uploaded_location() -> None:
     lookup = build_binding_lookup([binding])
     hit = AdapterRetrievalHit(
         workspace_slug="ws-global",
-        document_id="custom-documents/doc-1.txt",
+        document_id=stable_id,
         text="evidence",
         score=0.9,
         rank=1,
         metadata={
-            "docSource": "custom-documents/doc-1.txt",
+            "docSource": stable_id,
             "vector_chunk_id": "chunk-uuid",
         },
     )
@@ -208,9 +210,19 @@ def test_binding_match_resolves_doc_source_to_uploaded_location() -> None:
         text="orphan",
         score=0.9,
         rank=1,
-        metadata={},
+        metadata={"docSource": "chunk-uuid"},
     )
     assert match_binding_for_hit(orphan_chunk, lookup) is None
+
+    unknown = AdapterRetrievalHit(
+        workspace_slug="ws-global",
+        document_id="eduvijna://knowledge/other/ki-v1/" + "b" * 64,
+        text="unknown",
+        score=0.9,
+        rank=1,
+        metadata={"docSource": "eduvijna://knowledge/other/ki-v1/" + "b" * 64},
+    )
+    assert match_binding_for_hit(unknown, lookup) is None
 
 
 def test_authority_metadata_not_upgraded_by_score() -> None:

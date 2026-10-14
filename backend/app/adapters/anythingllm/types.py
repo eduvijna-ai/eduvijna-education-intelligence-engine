@@ -56,11 +56,12 @@ class AdapterDocumentRef:
 
 @dataclass(frozen=True, slots=True)
 class AdapterUploadedDocument:
-    """Stable remote identity persisted on the Eduvijna binding (D7-R08)."""
+    """Upload result: stable docSource identity plus remote removal keys (D7-PIC-04)."""
 
     stable_id: str
     remote_doc_id: str | None = None
     remote_location: str | None = None
+    doc_source_identity: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

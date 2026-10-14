@@ -15,11 +15,20 @@ import app.models  # noqa: F401
 from app.adapters.anythingllm.factory import build_anythingllm_adapter
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.adapters.anythingllm.http_adapter import HttpAnythingLLMAdapter
-from app.adapters.anythingllm.types import AdapterError, AdapterErrorCode, GatewayAvailability
+from app.adapters.anythingllm.types import (
+    AdapterError,
+    AdapterErrorCode,
+    AdapterRetrievalHit,
+    AdapterRetrievalRequest,
+    AdapterUploadedDocument,
+    GatewayAvailability,
+    IndexDocumentPayload,
+)
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
+from app.knowledge_intelligence.doc_source_identity import build_stable_doc_source_identity
 from app.knowledge_intelligence.eligibility import IndexEligibilityError
 from app.knowledge_intelligence.fixtures import seed_knowledge_fixtures, staged_revision_for_source
 from app.knowledge_intelligence.governance import verify_day7_governance_state
@@ -151,6 +160,31 @@ def build_verification_report(session: Session) -> dict[str, object]:
     session.flush()
     grade_filtered = service.retrieve(grade_mismatch)
 
+    class _BadEchoAdapter(FakeAnythingLLMAdapter):
+        def upload_document(
+            self,
+            workspace_slug: str,
+            payload: IndexDocumentPayload,
+            *,
+            idempotency_key: str,
+        ) -> AdapterUploadedDocument:
+            return AdapterUploadedDocument(
+                stable_id="uploaded-file.txt",
+                remote_doc_id="doc-bad",
+                remote_location="custom-documents/doc-bad.txt",
+            )
+
+    bad_echo_failed = False
+    try:
+        index_source_revision(
+            session,
+            _BadEchoAdapter(),
+            fixtures.teacher_revision_id,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+    except Exception:
+        bad_echo_failed = True
+
     class _FailOnceRetireAdapter(FakeAnythingLLMAdapter):
         def __init__(self) -> None:
             super().__init__()
@@ -214,6 +248,45 @@ def build_verification_report(session: Session) -> dict[str, object]:
         force_fake=False,
     )
 
+    official_revision = session.get(SourceRevision, fixtures.official_revision_id)
+    assert official_revision is not None
+    stable_identity = build_stable_doc_source_identity(
+        official_revision.id,
+        DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        official_revision.checksum,
+    )
+    stable_identity_repeat = build_stable_doc_source_identity(
+        official_revision.id,
+        DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        official_revision.checksum,
+    )
+
+    class _UnknownHitAdapter(FakeAnythingLLMAdapter):
+        def retrieve(self, request: AdapterRetrievalRequest) -> list[AdapterRetrievalHit]:
+            unknown = "eduvijna://knowledge/unknown-rev/ki-v1/" + ("9" * 64)
+            return [
+                AdapterRetrievalHit(
+                    workspace_slug="ws-global",
+                    document_id=unknown,
+                    text="forged evidence",
+                    score=0.99,
+                    rank=1,
+                    metadata={"docSource": unknown},
+                )
+            ]
+
+    unknown_service = KnowledgeIntelligenceService(session, adapter=_UnknownHitAdapter())
+    unknown_hit = unknown_service.retrieve(
+        KnowledgeRetrievalRequest(
+            query_text="quadratic",
+            top_k=3,
+            retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+        )
+    )
+    unknown_doc_source_rejected = unknown_hit.items == [] and any(
+        warning.startswith("unknown_remote_document:") for warning in unknown_hit.warnings
+    )
+
     report_head_sha = _resolve_candidate_sha()
     gov_checks_raw = governance.get("checks", {})
     gov_checks = gov_checks_raw if isinstance(gov_checks_raw, dict) else {}
@@ -246,6 +319,21 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "supersession_retire_failure_recoverable": supersession_reconciled,
         "fake_adapter_explicit_mode": isinstance(explicit_fake, FakeAnythingLLMAdapter),
         "configured_adapter_uses_http": isinstance(configured_http, HttpAnythingLLMAdapter),
+        "stable_doc_source_identity_deterministic": stable_identity == stable_identity_repeat,
+        "doc_source_identity_persisted_on_binding": (
+            official_binding.metadata_json.get("anythingllm_doc_source_identity")
+            == stable_identity
+        ),
+        "remote_location_persisted_separately": bool(
+            official_binding.metadata_json.get("anythingllm_remote_location")
+        )
+        and official_binding.metadata_json.get("anythingllm_doc_source_identity")
+        != official_binding.metadata_json.get("anythingllm_remote_location"),
+        "gateway_doc_source_echo_mismatch_fails_closed": bad_echo_failed,
+        "vector_hit_maps_through_stable_doc_source": any(
+            item.binding_id == official_binding.id for item in scoped.items
+        ),
+        "unknown_doc_source_rejected": unknown_doc_source_rejected,
     }
 
     return {

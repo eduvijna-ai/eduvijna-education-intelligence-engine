@@ -3,26 +3,25 @@ from __future__ import annotations
 from app.adapters.anythingllm.types import AdapterRetrievalHit
 from app.models.knowledge_intelligence import KnowledgeSourceBinding
 
-_METADATA_ID_KEYS = (
-    "docSource",
-    "sourceDocument",
-    "docId",
-    "documentId",
-    "document_id",
-    "source_document_id",
-)
+_DOC_SOURCE_METADATA_KEY = "anythingllm_doc_source_identity"
 
 
-def alternate_document_keys(binding: KnowledgeSourceBinding) -> tuple[str, ...]:
-    keys: list[str] = []
-    if binding.anythingllm_document_id:
-        keys.append(binding.anythingllm_document_id)
+def persisted_doc_source_identity(binding: KnowledgeSourceBinding) -> str | None:
+    value = binding.metadata_json.get(_DOC_SOURCE_METADATA_KEY)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def remote_removal_key(binding: KnowledgeSourceBinding) -> str | None:
     meta = binding.metadata_json
     for field in ("anythingllm_remote_location", "anythingllm_remote_doc_id"):
         value = meta.get(field)
-        if isinstance(value, str) and value:
-            keys.append(value)
-    return tuple(dict.fromkeys(keys))
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    if binding.anythingllm_document_id:
+        return binding.anythingllm_document_id
+    return None
 
 
 def build_binding_lookup(
@@ -30,9 +29,10 @@ def build_binding_lookup(
 ) -> dict[tuple[str, str], KnowledgeSourceBinding]:
     lookup: dict[tuple[str, str], KnowledgeSourceBinding] = {}
     for binding in bindings:
-        workspace = binding.anythingllm_workspace
-        for key in alternate_document_keys(binding):
-            lookup[(workspace, key)] = binding
+        identity = persisted_doc_source_identity(binding)
+        if identity is None:
+            continue
+        lookup[(binding.anythingllm_workspace, identity)] = binding
     return lookup
 
 
@@ -40,14 +40,10 @@ def match_binding_for_hit(
     hit: AdapterRetrievalHit,
     lookup: dict[tuple[str, str], KnowledgeSourceBinding],
 ) -> KnowledgeSourceBinding | None:
-    direct = lookup.get((hit.workspace_slug, hit.document_id))
-    if direct is not None:
-        return direct
     metadata = hit.metadata or {}
-    for key_name in _METADATA_ID_KEYS:
-        candidate = metadata.get(key_name)
-        if isinstance(candidate, str) and candidate:
-            matched = lookup.get((hit.workspace_slug, candidate))
-            if matched is not None:
-                return matched
-    return None
+    doc_source = metadata.get("docSource")
+    if not isinstance(doc_source, str) or not doc_source.strip():
+        return None
+    if hit.document_id != doc_source:
+        return None
+    return lookup.get((hit.workspace_slug, doc_source))

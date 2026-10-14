@@ -177,28 +177,49 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         return key.slug
 
     @staticmethod
-    def _parse_uploaded_document(body: dict[str, Any]) -> AdapterUploadedDocument:
+    def _extract_doc_source_from_document(entry: dict[str, Any]) -> str | None:
+        raw = entry.get("docSource")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        nested = entry.get("metadata")
+        if isinstance(nested, dict):
+            nested_source = nested.get("docSource")
+            if isinstance(nested_source, str) and nested_source.strip():
+                return nested_source.strip()
+        return None
+
+    @classmethod
+    def _parse_uploaded_document(
+        cls,
+        body: dict[str, Any],
+        *,
+        expected_doc_source: str,
+    ) -> AdapterUploadedDocument:
         documents = body.get("documents")
         if not isinstance(documents, list) or not documents:
             raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload missing documents[]")
         first = documents[0]
         if not isinstance(first, dict):
             raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload document entry invalid")
-        remote_doc_id = first.get("id") or first.get("docId")
-        remote_location = first.get("location") or first.get("docpath") or first.get("path")
-        if isinstance(remote_location, str) and remote_location:
-            stable_id = remote_location
-        elif isinstance(remote_doc_id, str) and remote_doc_id:
-            stable_id = remote_doc_id
-        else:
+        returned_doc_source = cls._extract_doc_source_from_document(first)
+        if returned_doc_source != expected_doc_source:
             raise AdapterError(
                 AdapterErrorCode.INVALID_RESPONSE,
-                "upload document missing stable id/location",
+                "upload docSource echo missing or mismatched",
+                retryable=True,
+            )
+        remote_doc_id = first.get("id") or first.get("docId")
+        remote_location = first.get("location") or first.get("docpath") or first.get("path")
+        if not isinstance(remote_location, str) or not remote_location.strip():
+            raise AdapterError(
+                AdapterErrorCode.INVALID_RESPONSE,
+                "upload document missing remote location",
             )
         return AdapterUploadedDocument(
-            stable_id=stable_id,
+            stable_id=expected_doc_source,
+            doc_source_identity=expected_doc_source,
             remote_doc_id=remote_doc_id if isinstance(remote_doc_id, str) else None,
-            remote_location=remote_location if isinstance(remote_location, str) else None,
+            remote_location=remote_location.strip(),
         )
 
     def upload_document(
@@ -208,8 +229,17 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         *,
         idempotency_key: str,
     ) -> AdapterUploadedDocument:
+        expected_doc_source = payload.metadata.get("docSource")
+        if not isinstance(expected_doc_source, str) or not expected_doc_source.strip():
+            raise AdapterError(
+                AdapterErrorCode.VALIDATION,
+                "upload requires metadata.docSource stable identity",
+                retryable=False,
+            )
+        expected_doc_source = expected_doc_source.strip()
         metadata = {
             **payload.metadata,
+            "docSource": expected_doc_source,
             "title": payload.title,
             "content_checksum": payload.content_checksum,
             "source_locator": payload.source_locator,
@@ -236,7 +266,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
         body = response.json()
         if not isinstance(body, dict):
             raise AdapterError(AdapterErrorCode.INVALID_RESPONSE, "upload response not object")
-        return self._parse_uploaded_document(body)
+        return self._parse_uploaded_document(body, expected_doc_source=expected_doc_source)
 
     def remove_document(self, workspace_slug: str, document_id: str) -> None:
         self._request(
