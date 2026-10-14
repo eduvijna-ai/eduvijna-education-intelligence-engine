@@ -224,7 +224,7 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
             ),
         }
         form_data = {
-            "addToWorkspaces": json.dumps([workspace_slug]),
+            "addToWorkspaces": workspace_slug,
             "metadata": json.dumps(metadata),
         }
         response = self._request(
@@ -297,21 +297,17 @@ class HttpAnythingLLMAdapter(AnythingLLMAdapter):
                 if not isinstance(item, dict):
                     continue
                 text = item.get("text") or item.get("content") or ""
-                chunk_id = item.get("id") or item.get("chunkId") or item.get("vectorId")
                 raw_metadata = item.get("metadata")
                 metadata: dict[str, Any] = {}
                 if isinstance(raw_metadata, dict):
-                    metadata = raw_metadata
-                doc_id = (
-                    metadata.get("sourceDocument")
-                    or metadata.get("docId")
-                    or metadata.get("documentId")
-                    or item.get("docId")
-                    or item.get("documentId")
-                )
-                if not isinstance(chunk_id, str) and not isinstance(doc_id, str):
+                    metadata = dict(raw_metadata)
+                doc_source = metadata.get("docSource")
+                if not isinstance(doc_source, str) or not doc_source.strip():
                     continue
-                hit_document_id = chunk_id if isinstance(chunk_id, str) else str(doc_id)
+                chunk_id = item.get("id") or item.get("chunkId") or item.get("vectorId")
+                if isinstance(chunk_id, str):
+                    metadata["vector_chunk_id"] = chunk_id
+                hit_document_id = doc_source
                 score_raw = item.get("score") or item.get("similarity") or 0.0
                 try:
                     score = float(score_raw)

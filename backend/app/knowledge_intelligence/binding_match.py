@@ -4,6 +4,7 @@ from app.adapters.anythingllm.types import AdapterRetrievalHit
 from app.models.knowledge_intelligence import KnowledgeSourceBinding
 
 _METADATA_ID_KEYS = (
+    "docSource",
     "sourceDocument",
     "docId",
     "documentId",

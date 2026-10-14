@@ -5,14 +5,17 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
+from app.adapters.anythingllm.types import AdapterRetrievalHit
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
+from app.knowledge_intelligence.binding_match import build_binding_lookup, match_binding_for_hit
 from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
 from app.knowledge_intelligence.fixtures import seed_knowledge_fixtures
 from app.knowledge_intelligence.indexing import index_source_revision
 from app.knowledge_intelligence.retrieval import retrieve_knowledge
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.models.curriculum import CurriculumPack, CurriculumVersion
+from app.models.knowledge_intelligence import KnowledgeSourceBinding
 from app.models.source import Source, SourceRevision
 
 
@@ -168,6 +171,46 @@ def test_local_grade_filter_drops_metadata_mismatch() -> None:
             ),
         )
         assert match.items
+
+
+def test_binding_match_resolves_doc_source_to_uploaded_location() -> None:
+    binding = KnowledgeSourceBinding(
+        source_id="source-1",
+        source_revision_id="rev-1",
+        source_revision_checksum="a" * 64,
+        anythingllm_workspace="ws-global",
+        anythingllm_document_id="custom-documents/doc-1.txt",
+        ownership_scope="global_official",
+        index_status="active",
+        retrieval_profile_version="ki-v1",
+        metadata_json={
+            "anythingllm_remote_location": "custom-documents/doc-1.txt",
+            "anythingllm_remote_doc_id": "doc-uuid-1",
+        },
+    )
+    lookup = build_binding_lookup([binding])
+    hit = AdapterRetrievalHit(
+        workspace_slug="ws-global",
+        document_id="custom-documents/doc-1.txt",
+        text="evidence",
+        score=0.9,
+        rank=1,
+        metadata={
+            "docSource": "custom-documents/doc-1.txt",
+            "vector_chunk_id": "chunk-uuid",
+        },
+    )
+    assert match_binding_for_hit(hit, lookup) is binding
+
+    orphan_chunk = AdapterRetrievalHit(
+        workspace_slug="ws-global",
+        document_id="chunk-uuid",
+        text="orphan",
+        score=0.9,
+        rank=1,
+        metadata={},
+    )
+    assert match_binding_for_hit(orphan_chunk, lookup) is None
 
 
 def test_authority_metadata_not_upgraded_by_score() -> None:

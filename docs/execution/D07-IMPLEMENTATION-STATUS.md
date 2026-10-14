@@ -7,7 +7,7 @@ Founder approved D7-01…D7-36 and authorized implementation.
 ## Review loop
 
 - task: `day7-knowledge-intelligence-anythingllm`
-- current iteration: 2/3
+- current iteration: 3/3
 - builder: Cursor, standard Composer 2.5 only
 - reviewer: Codex (exact-SHA, after completion marker)
 - completion marker: `EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>`

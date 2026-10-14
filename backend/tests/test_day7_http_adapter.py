@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -73,7 +72,7 @@ def test_upload_parses_documents_array_and_adds_workspace(adapter: HttpAnythingL
     assert uploaded.remote_doc_id == "doc-uuid-1"
     assert captured[0][0] == "POST"
     assert captured[0][1] == "/api/v1/document/upload"
-    assert json.loads(captured[0][2]["form"]["addToWorkspaces"]) == ["ws-global"]
+    assert captured[0][2]["form"]["addToWorkspaces"] == "ws-global"
 
 
 def test_ensure_workspace_resolves_existing_before_create(adapter: HttpAnythingLLMAdapter) -> None:
@@ -162,7 +161,7 @@ def test_remove_uses_update_embeddings_deletes(adapter: HttpAnythingLLMAdapter) 
     assert captured[0][1] == {"deletes": ["custom-documents/doc-1.txt"]}
 
 
-def test_vector_search_maps_chunk_to_source_document(adapter: HttpAnythingLLMAdapter) -> None:
+def test_vector_search_maps_chunk_to_doc_source(adapter: HttpAnythingLLMAdapter) -> None:
     def fake_request(
         method: str,
         path: str,
@@ -176,10 +175,13 @@ def test_vector_search_maps_chunk_to_source_document(adapter: HttpAnythingLLMAda
             {
                 "results": [
                     {
-                        "id": "vector-chunk-9",
+                        "id": "chunk-uuid",
                         "text": "matched evidence",
                         "score": 0.91,
-                        "metadata": {"sourceDocument": "custom-documents/doc-1.txt"},
+                        "metadata": {
+                            "docSource": "custom-documents/doc-1.txt",
+                            "chunkSource": "custom-documents/doc-1.txt#chunk-0",
+                        },
                     }
                 ]
             },
@@ -193,8 +195,43 @@ def test_vector_search_maps_chunk_to_source_document(adapter: HttpAnythingLLMAda
             workspace_slugs=("ws-global",),
         )
     )
-    assert hits[0].document_id == "vector-chunk-9"
-    assert hits[0].metadata["sourceDocument"] == "custom-documents/doc-1.txt"
+    assert hits[0].document_id == "custom-documents/doc-1.txt"
+    assert hits[0].metadata["docSource"] == "custom-documents/doc-1.txt"
+    assert hits[0].metadata["vector_chunk_id"] == "chunk-uuid"
+
+
+def test_vector_search_skips_chunk_without_doc_source(adapter: HttpAnythingLLMAdapter) -> None:
+    def fake_request(
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None,
+        form_data: dict[str, Any] | None = None,
+    ) -> _MockResponse:
+        return _MockResponse(
+            200,
+            {
+                "results": [
+                    {
+                        "id": "chunk-uuid-only",
+                        "text": "orphan chunk",
+                        "score": 0.5,
+                        "metadata": {},
+                    }
+                ]
+            },
+        )
+
+    adapter._request = fake_request  # type: ignore[method-assign]
+    hits = adapter.retrieve(
+        AdapterRetrievalRequest(
+            query_text="orphan",
+            top_k=3,
+            workspace_slugs=("ws-global",),
+        )
+    )
+    assert hits == []
 
 
 def test_malformed_upload_response_fails_closed(adapter: HttpAnythingLLMAdapter) -> None:
