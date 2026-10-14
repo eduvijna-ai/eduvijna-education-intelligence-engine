@@ -157,7 +157,7 @@ days:
       founder_authorized: true
       authorization_signal: "Founder requested Cursor handoff for the Chief Architect Day 7 production identity closure."
       task: "day7-production-identity-closure"
-      state: ITERATION_3_FINAL_REVIEW_RUNNING
+      state: STOP_AND_ESCALATE
       review_loop_iteration: 3
       review_loop_max: 3
       iteration_3_candidate: "204e8e531fd82ba6e07895d64e9fed64266202f9"
@@ -166,7 +166,10 @@ days:
       iteration_3_compose_status: GREEN
       iteration_3_local_focused_pytest: "37 passed"
       iteration_3_day7_verify_status: GREEN
-      iteration_3_codex_status: RUNNING_EXACT_SHA
+      iteration_3_codex_status: P1_FINDING
+      iteration_3_codex_p1_count: 1
+      stop_and_escalate_reason: "Final closure iteration 3/3 Codex review found a new P1: failed legacy-workspace retirement is recorded but its workspace/removal identity is not persisted/retried, so stale shared-workspace evidence can remain and interfere with profile-isolated retrieval."
+      stop_and_escalate_action: "No closure iteration 4. No full regression. No merge. Founder/Chief Architect decision required."
       iteration_2_candidate: "66518b2e84ab1150acd1db86faf5a1bc2a8690c7"
       iteration_2_targeted_ci_run: 38556040449
       iteration_2_backend_targeted_status: GREEN
