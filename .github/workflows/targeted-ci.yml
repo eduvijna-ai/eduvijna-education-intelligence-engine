@@ -46,6 +46,11 @@ jobs:
           fi
           printf 'Target pytest: %s\n' "${targets[@]}"
           pytest -q "${targets[@]}"
+      - name: Verify Day 8 founder harness on exact PR head
+        run: |
+          git fetch --no-tags --depth=1 origin "${EDUVIJNA_CANDIDATE_SHA}"
+          git checkout --detach "${EDUVIJNA_CANDIDATE_SHA}"
+          python -m app.day8_verify
 
   compose-smoke:
     if: github.event.pull_request.draft == false

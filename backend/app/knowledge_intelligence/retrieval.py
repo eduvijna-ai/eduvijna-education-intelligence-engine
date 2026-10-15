@@ -139,7 +139,7 @@ def retrieve_knowledge(
         hits = []
         warnings.append("gateway_unavailable")
 
-    binding_by_doc = build_binding_lookup(visible_bindings)
+    binding_by_doc = build_binding_lookup(bindings)
 
     items: list[KnowledgeEvidenceItem] = []
     dropped_foreign = 0
@@ -154,6 +154,17 @@ def retrieve_knowledge(
             warnings.append(f"unknown_remote_document:{doc_source_meta}")
             continue
         source = _require_source(session, matched_binding.source_id)
+        if not binding_visible_to_request(
+            scope_from_source(source),
+            organization_id=request.organization_id,
+            institution_id=request.institution_id,
+            teacher_id=request.teacher_id,
+        ):
+            dropped_foreign += 1
+            warnings.append(
+                f"dropped_foreign_tenant:{matched_binding.source_revision_id}"
+            )
+            continue
         revision = session.get(SourceRevision, matched_binding.source_revision_id)
         if revision is None:
             warnings.append(f"missing_revision:{matched_binding.source_revision_id}")
@@ -163,14 +174,6 @@ def retrieve_knowledge(
             continue
         if revision.status != "active":
             warnings.append(f"inactive_revision:{matched_binding.source_revision_id}")
-            continue
-        if not binding_visible_to_request(
-            scope_from_source(source),
-            organization_id=request.organization_id,
-            institution_id=request.institution_id,
-            teacher_id=request.teacher_id,
-        ):
-            dropped_foreign += 1
             continue
         if hit.score < profile.score_threshold:
             continue

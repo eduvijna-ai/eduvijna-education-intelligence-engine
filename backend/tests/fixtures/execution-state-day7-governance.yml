@@ -16,3 +16,6 @@ days:
   7:
     state: ACTIVE
     founder_approval: false
+  8:
+    state: LOCKED
+    founder_approval: false

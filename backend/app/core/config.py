@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/eduvijna.db"
     anythingllm_base_url: str | None = None
     anythingllm_api_key: str | None = None
+    anythingllm_orchestration_workspace: str | None = None
     api_secret_key: str = Field(default=LOCAL_API_SECRET, min_length=8)
     mcp_api_key: str | None = None
     log_level: str = "INFO"

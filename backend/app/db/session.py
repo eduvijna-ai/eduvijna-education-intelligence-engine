@@ -29,6 +29,8 @@ def _enable_sqlite_foreign_keys(dbapi_connection: Any, _: Any) -> None:
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
     finally:
         cursor.close()
 
