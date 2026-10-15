@@ -68,5 +68,7 @@ def draft_to_canonical(
                 "content_text_for_safety",
             }
         }
-        | {"marks": request_marks or draft.marks},
+        | {
+            "marks": request_marks if request_marks is not None else draft.marks,
+        },
     )

@@ -150,6 +150,7 @@ class OrchestrationService:
                     "solver": "author",
                     "reviewers": "solver",
                     "repair": "duplicate_validate",
+                    "diagnostic_enrich": "duplicate_validate",
                 }.get(retry_target)
                 if retry_predecessor is None:
                     return self._failed_result(
@@ -162,6 +163,7 @@ class OrchestrationService:
                     "solver": OrchestrationRunStatus.SOLVING.value,
                     "reviewers": OrchestrationRunStatus.REVIEWING.value,
                     "repair": OrchestrationRunStatus.REPAIRING.value,
+                    "diagnostic_enrich": OrchestrationRunStatus.REVIEWING.value,
                 }[retry_target]
                 self._graph.update_state(
                     config,

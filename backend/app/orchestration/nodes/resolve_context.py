@@ -67,20 +67,20 @@ def resolve_context_node(
     try:
         retrieval = deps.knowledge_service.retrieve(
             KnowledgeRetrievalRequest(
-            query_text=query,
-            organization_id=scope.organization_id,
-            institution_id=scope.institution_id,
-            teacher_id=scope.teacher_id,
-            curriculum_version_id=scope.curriculum_version_id,
-            exam_version_id=scope.exam_version_id,
-            grade_year_code=scope.grade_year_code,
-            medium_code=scope.medium_code,
-            subject_code=scope.subject_code,
-            topic_codes=scope.topic_codes,
-            concept_codes=scope.concept_codes,
-            retrieval_profile_version=request.retrieval_profile_version
-            or DEFAULT_RETRIEVAL_PROFILE_VERSION,
-            actor_id=scope.actor_id,
+                query_text=query,
+                organization_id=scope.organization_id,
+                institution_id=scope.institution_id,
+                teacher_id=scope.teacher_id,
+                curriculum_version_id=scope.curriculum_version_id,
+                exam_version_id=scope.exam_version_id,
+                grade_year_code=scope.grade_year_code,
+                medium_code=scope.medium_code,
+                subject_code=scope.subject_code,
+                topic_codes=scope.topic_codes,
+                concept_codes=scope.concept_codes,
+                retrieval_profile_version=request.retrieval_profile_version
+                or DEFAULT_RETRIEVAL_PROFILE_VERSION,
+                actor_id=scope.actor_id,
             )
         )
     except RetrievalError as exc:

@@ -36,6 +36,9 @@ def deterministic_validate_node(
     context = KnowledgeContextPack.model_validate(state.get("knowledge_context") or {})
     allowed_revisions = {item.source_revision_id for item in context.evidence}
     allowed_evidence_refs = {item.citation_label for item in context.evidence}
+    evidence_snippet_by_revision = {
+        item.source_revision_id: item.snippet for item in context.evidence
+    }
     drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
     solvers: dict[str, SolverResult] = {}
     for raw in state.get("solver_results") or []:
@@ -55,7 +58,12 @@ def deterministic_validate_node(
                 issue_codes.append("provenance_unknown_revision")
                 blocking = True
 
-        if "ignore previous instructions" in draft.stem_text.lower():
+        injection_surfaces: list[str] = [draft.stem_text]
+        for revision_id in draft.source_revision_ids:
+            snippet = evidence_snippet_by_revision.get(revision_id)
+            if snippet:
+                injection_surfaces.append(snippet)
+        if any("ignore previous instructions" in text.lower() for text in injection_surfaces):
             issue_codes.append("injection_evidence_control")
             repairable = True
             marks_mismatch = (

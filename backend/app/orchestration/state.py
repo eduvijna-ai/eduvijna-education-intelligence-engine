@@ -24,6 +24,9 @@ class OrchestrationGraphState(TypedDict, total=False):
     review_verdicts: list[dict[str, Any]]
     deterministic_validation: list[dict[str, Any]]
     duplicate_validation: list[dict[str, Any]]
+    diagnostic_validation: list[dict[str, Any]]
+    diagnostic_results: list[dict[str, Any]]
+    diagnostic_tag_repair_item_ids: list[str]
     repair_count_by_item: Annotated[dict[str, int], _merge_dict]
     repair_instructions_by_item: dict[str, list[str]]
     node_attempts: Annotated[dict[str, int], _merge_dict]
@@ -36,6 +39,7 @@ class OrchestrationGraphState(TypedDict, total=False):
     interrupt_payload: dict[str, Any] | None
     human_decision: dict[str, Any] | None
     human_approved: bool
+    diagnostic_human_approved: bool
     human_revalidate: bool
     pipeline_halt: bool
     gateway_retry_required: bool

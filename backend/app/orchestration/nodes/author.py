@@ -65,6 +65,7 @@ def author_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
             user_payload={
                 "run_id": request.run_id,
                 "item_id": slot.item_id,
+                "slot_index": slot.slot_index,
                 "allowed_source_revision_ids": allowed_revision_ids,
                 "learning_outcome_ids": lo_ids,
                 "marks": request.marks,
