@@ -290,6 +290,86 @@ def test_nested_curriculum_topic_concept_ancestry_is_enforced() -> None:
         session, wrong_subject
     )
 
+    grade = subject.parent.parent if subject.parent is not None else None
+    medium = subject.parent
+    assert grade is not None
+    assert medium is not None
+
+    grade_nine = CurriculumNode(
+        curriculum_version=version,
+        node_type=CurriculumNodeType.GRADE_YEAR.value,
+        code="grade-9",
+        title="Grade 9",
+    )
+    medium_nine = CurriculumNode(
+        curriculum_version=version,
+        parent=grade_nine,
+        node_type=CurriculumNodeType.MEDIUM.value,
+        code="english",
+        title="English",
+    )
+    subject_nine = CurriculumNode(
+        curriculum_version=version,
+        parent=medium_nine,
+        node_type=CurriculumNodeType.SUBJECT.value,
+        code="mathematics",
+        title="Mathematics",
+    )
+    grade_nine_topic = CurriculumNode(
+        curriculum_version=version,
+        parent=subject_nine,
+        node_type=CurriculumNodeType.TOPIC.value,
+        code="grade-nine-topic",
+        title="Grade 9 topic",
+    )
+    telugu_medium = CurriculumNode(
+        curriculum_version=version,
+        parent=grade,
+        node_type=CurriculumNodeType.MEDIUM.value,
+        code="telugu",
+        title="Telugu",
+    )
+    telugu_subject = CurriculumNode(
+        curriculum_version=version,
+        parent=telugu_medium,
+        node_type=CurriculumNodeType.SUBJECT.value,
+        code="mathematics",
+        title="Mathematics",
+    )
+    telugu_topic = CurriculumNode(
+        curriculum_version=version,
+        parent=telugu_subject,
+        node_type=CurriculumNodeType.TOPIC.value,
+        code="telugu-topic",
+        title="Telugu topic",
+    )
+    session.add_all(
+        [
+            grade_nine,
+            medium_nine,
+            subject_nine,
+            grade_nine_topic,
+            telugu_medium,
+            telugu_subject,
+            telugu_topic,
+        ]
+    )
+    session.flush()
+
+    wrong_grade = valid.model_copy(
+        update={"topic_codes": ["grade-nine-topic"], "concept_codes": []}
+    )
+    assert "invalid_topic_code:grade-nine-topic" in validate_curriculum_hierarchy(
+        session, wrong_grade
+    )
+
+    wrong_medium = valid.model_copy(
+        update={"topic_codes": ["telugu-topic"], "concept_codes": []}
+    )
+    assert "invalid_topic_code:telugu-topic" in validate_curriculum_hierarchy(
+        session, wrong_medium
+    )
+
     pack = version.curriculum_pack
     other_version = CurriculumVersion(
         curriculum_pack=pack,
