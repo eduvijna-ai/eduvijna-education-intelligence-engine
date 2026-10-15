@@ -535,9 +535,17 @@ def test_multicall_crash_restart_reuses_completed_call(tmp_path: Path) -> None:
             if call.call_context is not None
             and call.call_context.role == GenerationNodeRole.AUTHOR
         ]
-        assert result.status == OrchestrationRunStatus.COMPLETED, result.model_dump(
-            mode="json"
+        restart_snapshot = service_b.compiled_graph.get_state(
+            {"configurable": {"thread_id": result.run_id}}
         )
+        assert result.status == OrchestrationRunStatus.COMPLETED, {
+            "errors": result.errors,
+            "metadata": result.metadata_json,
+            "snapshot_next": restart_snapshot.next,
+            "snapshot_status": restart_snapshot.values.get("status"),
+            "snapshot_errors": restart_snapshot.values.get("errors"),
+            "gateway_retry_node": restart_snapshot.values.get("gateway_retry_node"),
+        }
         assert len(fresh_author_calls) == 1
         assert fresh_author_calls[0].call_context is not None
         assert fresh_author_calls[0].call_context.item_id.endswith("-slot-1")
