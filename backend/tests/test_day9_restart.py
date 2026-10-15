@@ -7,7 +7,10 @@ import app.models  # noqa: F401
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-from app.orchestration.enums import OrchestrationRunStatus
+from app.diagnostic_intelligence.checkpoint_proof import (
+    prove_interrupted_diagnostic_checkpoint_restart,
+)
+from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
 from app.orchestration.factory import build_orchestration_service
 from app.orchestration.fixtures import (
     build_diagnostic_orchestration_request,
@@ -16,7 +19,7 @@ from app.orchestration.fixtures import (
 from app.orchestration.gateway.fake import FakeGenerationGateway
 
 
-def test_durable_diagnostic_calls_reused_on_new_service_instance() -> None:
+def test_completed_idempotent_replay_is_not_restart() -> None:
     engine = create_engine("sqlite:///:memory:")
     enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
@@ -40,7 +43,7 @@ def test_durable_diagnostic_calls_reused_on_new_service_instance() -> None:
             [
                 c
                 for c in gateway_a.call_history()
-                if c.call_context and c.call_context.role.value == "diagnostic"
+                if c.call_context and c.call_context.role == GenerationNodeRole.DIAGNOSTIC
             ]
         )
         service_a.close()
@@ -58,7 +61,7 @@ def test_durable_diagnostic_calls_reused_on_new_service_instance() -> None:
             [
                 c
                 for c in gateway_b.call_history()
-                if c.call_context and c.call_context.role.value == "diagnostic"
+                if c.call_context and c.call_context.role == GenerationNodeRole.DIAGNOSTIC
             ]
         )
         assert first.status == OrchestrationRunStatus.COMPLETED
@@ -67,3 +70,7 @@ def test_durable_diagnostic_calls_reused_on_new_service_instance() -> None:
         assert diag_a >= 1
         assert diag_b == 0
         service_b.close()
+
+
+def test_file_backed_checkpoint_restart_reuses_diagnostic_calls() -> None:
+    assert prove_interrupted_diagnostic_checkpoint_restart() is True

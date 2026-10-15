@@ -176,7 +176,11 @@ def build_orchestration_graph(
     graph.add_conditional_edges(
         "human_gate",
         route_after_human,
-        {"deterministic_validate": "deterministic_validate", "whole_output": "whole_output"},
+        {
+            "deterministic_validate": "deterministic_validate",
+            "diagnostic_enrich": "diagnostic_enrich",
+            "whole_output": "whole_output",
+        },
     )
     graph.add_edge("whole_output", END)
 

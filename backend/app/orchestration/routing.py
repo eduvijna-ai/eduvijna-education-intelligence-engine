@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.diagnostic_intelligence.repair_policy import diagnostic_repair_is_tag_only
 from app.orchestration.contracts import OrchestrationRequest
+from app.orchestration.diagnostic_routing import pending_diagnostic_enrichment
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.state import OrchestrationGraphState
 
@@ -118,4 +119,7 @@ def route_after_human(state: OrchestrationGraphState) -> str:
     decision = state.get("human_decision") or {}
     if state.get("human_revalidate") and decision.get("action") == "edit":
         return "deterministic_validate"
+    request = OrchestrationRequest.model_validate(state["request"])
+    if decision.get("action") == "approve" and pending_diagnostic_enrichment(state, request):
+        return "diagnostic_enrich"
     return "whole_output"

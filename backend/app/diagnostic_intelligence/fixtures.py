@@ -76,6 +76,7 @@ def run_positive_fixture_validation(
         topic_codes=["whole-numbers"],
         concept_codes=["addition-whole"],
         learning_outcome_ids=["lo-fixture-1"],
+        competency_codes=["application"],
         allowed_source_revision_ids=item.source_revision_ids,
         allowed_evidence_refs=allowed_refs or ["[CIT-1]"],
     )

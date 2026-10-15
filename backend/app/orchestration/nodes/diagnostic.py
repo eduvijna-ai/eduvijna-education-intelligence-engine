@@ -176,21 +176,23 @@ def diagnostic_enrich_node(
                 "issue_codes": preflight.issue_codes,
             }
             summaries_by_id[draft.item_id] = summary
-            if preflight.status.value != "not_applicable":
-                results_by_id[draft.item_id] = {
-                    "item_id": draft.item_id,
-                    "question_type": draft.question_type,
-                    "option_tags": [],
-                    "aggregate_status": preflight.status.value,
-                    "errors": preflight.issue_codes if preflight.blocking else [],
-                    "warnings": preflight.issue_codes,
-                    "audit_refs": [audit_id],
-                }
+            results_by_id[draft.item_id] = {
+                "item_id": draft.item_id,
+                "question_type": draft.question_type,
+                "option_tags": [],
+                "aggregate_status": preflight.status.value,
+                "errors": preflight.issue_codes if preflight.blocking else [],
+                "warnings": preflight.issue_codes,
+                "audit_refs": [audit_id],
+            }
             continue
 
+        by_slot = request.metadata_json.get("diagnostic_fixture_by_slot") or {}
         scenario_map = request.metadata_json.get("diagnostic_fixture_by_item") or {}
         fixture_scenario = str(
-            scenario_map.get(draft.item_id) or authoring.fixture_scenario
+            by_slot.get(str(draft.slot_index))
+            or scenario_map.get(draft.item_id)
+            or authoring.fixture_scenario
         )
         authoring = authoring.model_copy(update={"fixture_scenario": fixture_scenario})
 

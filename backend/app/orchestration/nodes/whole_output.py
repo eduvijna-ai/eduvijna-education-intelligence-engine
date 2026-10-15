@@ -10,6 +10,7 @@ from app.orchestration.contracts import (
     utc_now,
 )
 from app.orchestration.dependencies import OrchestrationDependencies
+from app.orchestration.diagnostic_routing import diagnostics_finished
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
 from app.orchestration.state import OrchestrationGraphState
@@ -34,10 +35,10 @@ def whole_output_node(
     duplicate_block = any(item.get("is_duplicate") for item in duplicate)
     repair_counts = state.get("repair_count_by_item") or {}
     exhausted = any(count > request.effective_max_repairs() for count in repair_counts.values())
-    review_required = any(item.get("review_required") for item in deterministic) or any(
-        item.get("review_required") for item in diagnostic
-    )
+    deterministic_review = any(item.get("review_required") for item in deterministic)
+    diagnostic_review = any(item.get("review_required") for item in diagnostic)
     human_approved = bool(state.get("human_approved"))
+    diagnostic_human_approved = bool(state.get("diagnostic_human_approved"))
 
     if state.get("gateway_retry_required"):
         status = OrchestrationRunStatus.RETRY_REQUIRED
@@ -52,9 +53,15 @@ def whole_output_node(
     elif exhausted:
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("repair_exhausted")
-    elif review_required and not human_approved:
+    elif deterministic_review and not human_approved:
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("review_required_unresolved")
+    elif diagnostic_review and not diagnostic_human_approved:
+        status = OrchestrationRunStatus.REVIEW_REQUIRED
+        errors.append("diagnostic_review_required_unresolved")
+    elif not diagnostics_finished(state, request) and request.diagnostic_enrichment_enabled():
+        status = OrchestrationRunStatus.REVIEW_REQUIRED
+        errors.append("diagnostic_enrichment_incomplete")
     else:
         status = OrchestrationRunStatus.COMPLETED
 

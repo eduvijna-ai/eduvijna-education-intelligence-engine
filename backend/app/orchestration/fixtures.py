@@ -71,7 +71,10 @@ def build_diagnostic_orchestration_request(
         "diagnostic_fixture_scenario": diagnostic_scenario,
     }
     if requested_count >= 2:
-        metadata["diagnostic_fixture_by_item"] = {}
+        metadata["diagnostic_fixture_by_slot"] = {
+            "0": "diagnostic_clean_pass",
+            "1": "diagnostic_repair_then_pass",
+        }
     return request.model_copy(
         update={
             "requested_count": requested_count,

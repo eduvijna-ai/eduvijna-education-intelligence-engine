@@ -5,18 +5,8 @@ from app.diagnostic_intelligence.contracts import (
     MisconceptionDefinition,
 )
 from app.diagnostic_intelligence.enums import MisconceptionStatus
+from app.diagnostic_intelligence.scope_policy import definition_matches_request_scope
 from app.diagnostic_intelligence.taxonomy_registry import load_taxonomy
-
-
-def _candidate_filter_aligned(
-    request_values: list[str],
-    entry_values: list[str],
-) -> bool:
-    if not request_values:
-        return True
-    if not entry_values:
-        return True
-    return bool(set(request_values).intersection(entry_values))
 
 
 def resolve_misconception_candidates(
@@ -27,24 +17,7 @@ def resolve_misconception_candidates(
     for entry in taxonomy.misconceptions:
         if entry.status != MisconceptionStatus.ACTIVE:
             continue
-        if (
-            request.subject_code
-            and entry.subject_code
-            and entry.subject_code != request.subject_code
-        ):
-            continue
-        if request.grade_year_code and entry.grade_year_code:
-            if entry.grade_year_code != request.grade_year_code:
-                continue
-        if not _candidate_filter_aligned(request.topic_codes, entry.topic_codes):
-            continue
-        if not _candidate_filter_aligned(request.concept_codes, entry.concept_codes):
-            continue
-        if not _candidate_filter_aligned(request.competency_codes, entry.competency_codes):
-            continue
-        if not _candidate_filter_aligned(
-            request.learning_outcome_ids, entry.learning_outcome_ids
-        ):
+        if not definition_matches_request_scope(request, entry):
             continue
         candidates.append(entry)
     return candidates

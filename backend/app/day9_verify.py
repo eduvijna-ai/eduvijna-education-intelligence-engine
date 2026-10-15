@@ -16,6 +16,9 @@ import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
+from app.diagnostic_intelligence.checkpoint_proof import (
+    prove_interrupted_diagnostic_checkpoint_restart,
+)
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
     DistractorDiagnosticResult,
@@ -71,6 +74,24 @@ def _candidate_sha_checks() -> tuple[str, str, dict[str, bool]]:
     )
 
 
+def _tenant_isolation_proof(orchestration: object, ctx: dict[str, str]) -> bool:
+    result = orchestration.run(  # type: ignore[attr-defined]
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_foreign_revision",
+            idempotency_key="day9-tenant-isolation-proof",
+        )
+    )
+    issue_codes: list[str] = []
+    for entry in result.metadata_json.get("diagnostic_results") or []:
+        for tag in entry.get("option_tags") or []:
+            issue_codes.extend(list(tag.get("issue_codes") or []))
+    return (
+        result.status == OrchestrationRunStatus.FAILED
+        and "tenant_evidence_mismatch" in issue_codes
+    )
+
+
 def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
     item = build_fixture_mcq_item()
     request = DiagnosticAuthoringRequest(
@@ -79,6 +100,8 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         grade_year_code="grade-8",
         topic_codes=["whole-numbers"],
         concept_codes=["addition-whole"],
+        competency_codes=["application"],
+        learning_outcome_ids=["lo-fixture-1"],
         allowed_evidence_refs=["[CIT-1]"],
     )
     codes = {c.misconception_code for c in resolve_misconception_candidates(request)}
@@ -163,14 +186,16 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
     session.commit()
-    foreign = orchestration.run(
+    forged = orchestration.run(
         build_diagnostic_orchestration_request(
             ctx,
             diagnostic_scenario="diagnostic_forged_evidence",
-            idempotency_key="day9-foreign-evidence-key",
+            idempotency_key="day9-forged-evidence-key",
         )
     )
     session.commit()
+    tenant_isolation_ok = _tenant_isolation_proof(orchestration, ctx)
+    checkpoint_restart_ok = prove_interrupted_diagnostic_checkpoint_restart()
     replay = orchestration.run(
         build_diagnostic_orchestration_request(
             ctx,
@@ -210,7 +235,9 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "option_tags_produced": bool(option_tags),
         "correct_option_protected": correct_protected,
         "day6_authority_survives": blocked.status == OrchestrationRunStatus.FAILED,
-        "foreign_evidence_rejected": foreign.status == OrchestrationRunStatus.FAILED,
+        "forged_evidence_rejected": forged.status == OrchestrationRunStatus.FAILED,
+        "tenant_isolation_enforced": tenant_isolation_ok,
+        "checkpoint_restart_proof": checkpoint_restart_ok,
         "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED,
         "unknown_code_rejected": unknown.status == OrchestrationRunStatus.FAILED,
         "idempotent_replay": replay.run_id == clean.run_id,

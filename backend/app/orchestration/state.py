@@ -39,6 +39,7 @@ class OrchestrationGraphState(TypedDict, total=False):
     interrupt_payload: dict[str, Any] | None
     human_decision: dict[str, Any] | None
     human_approved: bool
+    diagnostic_human_approved: bool
     human_revalidate: bool
     pipeline_halt: bool
     gateway_retry_required: bool

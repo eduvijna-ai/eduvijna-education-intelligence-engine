@@ -17,7 +17,11 @@
       "diagnostic_signal": "successor",
       "evidence_source_revision_ids": [],
       "status": "active",
-      "metadata_json": {"fixture": true}
+      "metadata_json": {
+        "fixture": true,
+        "broad_curriculum_scope": true,
+        "broad_scope_dimensions": ["learning_outcome_ids"]
+      }
     },
     {
       "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
@@ -35,7 +39,11 @@
       "diagnostic_signal": "off-by-one-low",
       "evidence_source_revision_ids": [],
       "status": "active",
-      "metadata_json": {"fixture": true}
+      "metadata_json": {
+        "fixture": true,
+        "broad_curriculum_scope": true,
+        "broad_scope_dimensions": ["learning_outcome_ids"]
+      }
     },
     {
       "misconception_code": "MATH.ADD.WHOLE.DOUBLE_OPERAND",
@@ -53,7 +61,32 @@
       "diagnostic_signal": "double-operand",
       "evidence_source_revision_ids": [],
       "status": "active",
-      "metadata_json": {"fixture": true}
+      "metadata_json": {
+        "fixture": true,
+        "broad_curriculum_scope": true,
+        "broad_scope_dimensions": ["learning_outcome_ids"]
+      }
+    },
+    {
+      "misconception_code": "MATH.ADD.BROAD.EXPLICIT_WILDCARD",
+      "version": "1",
+      "title": "Explicit broad-scope misconception for policy tests",
+      "description": "Matches any learning outcome when topic and concept align.",
+      "domain": "mathematics",
+      "subject_code": "mathematics",
+      "grade_year_code": "grade-8",
+      "topic_codes": ["whole-numbers"],
+      "concept_codes": ["addition-whole"],
+      "learning_outcome_ids": [],
+      "competency_codes": ["application"],
+      "error_pattern": "broad policy sample",
+      "diagnostic_signal": "broad-policy",
+      "evidence_source_revision_ids": [],
+      "status": "active",
+      "metadata_json": {
+        "broad_curriculum_scope": true,
+        "broad_scope_dimensions": ["learning_outcome_ids"]
+      }
     },
     {
       "misconception_code": "MATH.ADD.WHOLE.INACTIVE_SAMPLE",

@@ -74,6 +74,14 @@ def human_gate_node(
             },
             attempt_map=attempt_map,
         )
+    diagnostic_validation = state.get("diagnostic_validation") or []
+    diagnostic_review = any(
+        item.get("review_required")
+        and not item.get("blocking")
+        and not item.get("repairable")
+        for item in diagnostic_validation
+    )
+
     if decision.action == "edit":
         drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
         patched: list[dict[str, Any]] = []
@@ -117,17 +125,21 @@ def human_gate_node(
             },
             attempt_map=attempt_map,
         )
+    approve_update: dict[str, Any] = {
+        "human_decision": decision.model_dump(mode="json"),
+        "human_revalidate": False,
+        "status": OrchestrationRunStatus.REVIEWING.value,
+        "interrupt_payload": payload,
+        "audit_refs": [audit_id],
+    }
+    if diagnostic_review:
+        approve_update["diagnostic_human_approved"] = True
+    else:
+        approve_update["human_approved"] = True
     return timed_update(
         state,
         "human_gate",
         started,
-        {
-            "human_decision": decision.model_dump(mode="json"),
-            "human_approved": True,
-            "human_revalidate": False,
-            "status": OrchestrationRunStatus.REVIEWING.value,
-            "interrupt_payload": payload,
-            "audit_refs": [audit_id],
-        },
+        approve_update,
         attempt_map=attempt_map,
     )

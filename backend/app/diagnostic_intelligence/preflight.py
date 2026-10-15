@@ -6,6 +6,8 @@ from app.diagnostic_intelligence.candidate_resolver import resolve_misconception
 from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest
 from app.diagnostic_intelligence.eligibility import diagnostic_eligibility
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
+from app.diagnostic_intelligence.scope_policy import validate_required_diagnostic_scope
+from app.diagnostic_intelligence.taxonomy_registry import load_taxonomy
 
 
 @dataclass(slots=True)
@@ -43,6 +45,25 @@ def run_diagnostic_preflight(request: DiagnosticAuthoringRequest) -> DiagnosticP
             status=DiagnosticValidationStatus.REJECT,
             issue_codes=["missing_taxonomy_version"],
             blocking=True,
+        )
+
+    try:
+        load_taxonomy(request.taxonomy_version)
+    except Exception:
+        return DiagnosticPreflightResult(
+            allow_model_call=False,
+            status=DiagnosticValidationStatus.REJECT,
+            issue_codes=["unknown_taxonomy_version"],
+            blocking=True,
+        )
+
+    scope_issues = validate_required_diagnostic_scope(request)
+    if scope_issues:
+        return DiagnosticPreflightResult(
+            allow_model_call=False,
+            status=DiagnosticValidationStatus.REVIEW_REQUIRED,
+            issue_codes=scope_issues,
+            review_required=True,
         )
 
     candidates = resolve_misconception_candidates(request)
