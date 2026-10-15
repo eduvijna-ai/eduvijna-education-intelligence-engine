@@ -103,6 +103,7 @@ class OrchestrationService:
         resume: HumanResumeDecision | dict[str, Any] | None = None,
         allow_gateway_retry: bool = False,
     ) -> OrchestrationResult:
+        self._control.close()
         self._control = open_control_session(self._session)
         self._deps.control_session = self._control
         terminal, canonical_run_id, record_status = claim_idempotency(self._control, request)
