@@ -2,71 +2,67 @@
 
 Authoritative scope: `docs/execution/D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md`
 
-Founder approved D7-01…D7-36 and authorized implementation.
+## Final status
 
-## Review loop
+- Day 7: **COMPLETE**
+- Founder signoff: **APPROVED**
+- Final accepted candidate: `5b07830caafad4916e950da6293f8c039131a25d`
+- Final integration PR: #23
+- Merge commit: `041a0d3038b1653652600abaf0477c9682fd45dd`
+- Final targeted PR CI: `38671063433` — SUCCESS
+- Final full acceptance CI: `38671063319` — SUCCESS
+- Full Docker Compose acceptance: SUCCESS
+- Day 8: **ACTIVE**, implementation pending Founder approval of the Day 8 tasklist
 
-- task: `day7-knowledge-intelligence-anythingllm`
-- current iteration: 3/3
-- builder: Cursor, standard Composer 2.5 only
-- reviewer: Codex (exact-SHA, after completion marker)
-- completion marker: `EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>`
-- no automatic merge
-- Day 8 remains locked until Founder signoff
+## Engineering scope
 
-## Engineering status (iteration 3 candidate)
+D7-01…D7-36 are complete.
 
-D7-01…D7-36: **IMPLEMENTED** with Codex P1 repairs D7-R01…D7-R09 (scope map in `docs/execution/D07-SCOPE-MAP.md`).
+The final Day 7 implementation includes the Founder-authorized production identity closure and subsequent manual ChatGPT review flow. Historical Codex iterations and STOP_AND_ESCALATE records are preserved in `.eduvijna/execution-state.yml` for audit; they are not the active review workflow.
 
-### Iteration 3 repairs (final)
+### Production identity closure completed
 
-- P1-01: `addToWorkspaces` wire format is comma-separated slug string (not JSON array)
-- P1-02: vector-search binding via `metadata.docSource`; chunk UUID never used as document identity
+- deterministic Eduvijna-controlled `docSource` identity
+- exact upload echo validation before ACTIVE
+- persisted separation of retrieval identity and remote removal identity
+- no blind retry of ambiguous uploads
+- real AnythingLLM workspace response parsing
+- persisted metadata JSON-string decoding
+- retrieval-profile-specific AnythingLLM workspaces
+- profile-scoped supersession
+- missing `docSource` audit visibility
+- durable retry of failed legacy-workspace retirement
+- terminal legacy-retirement failures remain durable and fail safely
 
-### Iteration 2 repairs
+### Final acceptance evidence
 
-- D7-R01: CLI uses configured adapter factory; `--use-fake` for explicit fake mode
-- D7-R02–R04/R08: HTTP adapter upload/workspace/retrieval/removal contracts + mocked tests
-- D7-R05/R07: verified curriculum/exam provenance and local scope post-filtering
-- D7-R06: idempotent indexing reconciles pending supersession retirements
-- D7-R09: portable Day 7 acceptance spec resolution + Dockerfile COPY
+The final GitHub-hosted acceptance run `38671063319` passed:
 
-### Targeted tests (local)
+- full backend pytest
+- Ruff
+- Mypy
+- canonical domain verifier
+- Source Intelligence verifier
+- Day 4 verifier
+- Day 5 verifier
+- Day 6 verifier
+- Day 7 verifier
+- Alembic upgrade/downgrade/re-upgrade/check
+- frontend typecheck
+- frontend build
+- full Docker Compose startup
+- backend readiness and API smoke
+- Day 6 Compose acceptance
+- Day 7 verifier in Compose
+- Day 7 acceptance tests in Compose
+- environment secret isolation
+- SQLite persistence restart smoke
 
-```text
-pytest tests/test_day7_*.py
-18 passed
-```
+Targeted PR CI `38671063433` also passed, including targeted Docker Compose.
 
-### Migration (D7-33)
+## Governance
 
-- `20261012_0011_day7_knowledge_intelligence.py`
-- `alembic upgrade head` — OK
-- `alembic downgrade 20261007_0010` → `alembic upgrade head` — OK
-- `alembic check` — no drift
-
-### Founder verifier (D7-35)
-
-```text
-python -m app.day7_verify
-passed: true (all checks green)
-```
-
-### Non-goals preserved
-
-- D5-DS01 / issue #16 unchanged
-- Day 8 LOCKED
-- No LangGraph, question generation, or public REST/MCP knowledge API
-
-## Testing policy
-
-During implementation:
-
-- `.eduvijna/pytest-targets.txt` lists only Day 7 test modules
-- impacted pytest only; no full historical regression on this iteration
-
-Final acceptance (Founder gate):
-
-- one full regression checkpoint
-- exact-SHA Codex review clean or repaired within loop
-- Founder approval before Day 8 unlock
+- Founder manual ChatGPT review is the active default workflow.
+- Automatic Cursor→Codex→Cursor issue-comment review automation is disabled.
+- D5-DS01 / issue #16 remains deferred and unchanged.
+- Day 8 was activated only after explicit Founder Day 7 signoff.
