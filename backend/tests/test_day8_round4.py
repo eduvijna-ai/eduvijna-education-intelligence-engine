@@ -16,6 +16,7 @@ from app.db.session import enable_sqlite_foreign_keys
 from app.education_intelligence.fixtures import seed_cbse_fixture_curriculum
 from app.models.curriculum import CurriculumNode, CurriculumVersion
 from app.models.enums import CurriculumNodeType
+from app.models.orchestration import OrchestrationAuditEvent
 from app.orchestration.checkpoint import build_managed_checkpointer
 from app.orchestration.contracts import ResolvedScope
 from app.orchestration.control_session import open_control_session
@@ -31,6 +32,12 @@ from app.orchestration.fixtures import (
 from app.orchestration.gateway.anythingllm import AnythingLLMGenerationGateway
 from app.orchestration.gateway.fake import FakeGenerationGateway
 from app.orchestration.gateway.types import GenerationGatewayError, GenerationRequest
+from app.orchestration.gateway_invoke import invoke_generation
+from app.orchestration.generation_call_store import (
+    claim_generation_call_start,
+    mark_generation_call_ambiguous,
+)
+from app.orchestration.model_calls import call_cache_key
 from app.orchestration.gateway.workspace_contract import (
     ORCHESTRATION_WORKSPACE_PROMPT_MARKER,
     verify_orchestration_workspace,
@@ -79,6 +86,77 @@ def test_explicit_gateway_retry_recovers_retryable_author_failure(code: str) -> 
     assert second.approved_count == 1
     service.close()
     session.close()
+
+
+class _CrashBeforeRetryResponseGateway(FakeGenerationGateway):
+    def generate(self, request: GenerationRequest):
+        raise SystemExit("synthetic process crash during explicitly authorized retry")
+
+
+def test_retry_authorization_audit_is_durable_before_external_side_effect(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "retry-audit.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        gateway = _CrashBeforeRetryResponseGateway()
+        ctx, service = build_day8_test_service(session, gateway=gateway)
+        run_id = "retry-audit-run"
+        request = GenerationRequest(
+            role=GenerationNodeRole.AUTHOR,
+            prompt_version="author@v1",
+            system_prompt="system",
+            user_payload={"run_id": run_id, "item_id": "slot-0"},
+            output_schema_name="DraftQuestionItem",
+        )
+        key = call_cache_key(
+            run_id=run_id,
+            role=request.role,
+            item_id="slot-0",
+            prompt_version=request.prompt_version,
+            payload=request.user_payload,
+        )
+        claim_generation_call_start(
+            service.dependencies.control_session,
+            run_id=run_id,
+            cache_key=key,
+            commit=True,
+        )
+        mark_generation_call_ambiguous(
+            service.dependencies.control_session,
+            run_id=run_id,
+            cache_key=key,
+            commit=True,
+        )
+        state = {
+            "run_id": run_id,
+            "request_hash": "retry-audit-hash",
+            "generation_call_cache": {},
+            "allow_gateway_retry": True,
+        }
+        with pytest.raises(SystemExit):
+            invoke_generation(
+                service.dependencies,
+                state,  # type: ignore[arg-type]
+                node_name="author",
+                attempt=2,
+                request=request,
+                run_id=run_id,
+                item_id="slot-0",
+            )
+
+        verify = open_control_session(session)
+        event = verify.scalar(
+            select(OrchestrationAuditEvent).where(
+                OrchestrationAuditEvent.run_id == run_id,
+                OrchestrationAuditEvent.status == "retry_authorized",
+            )
+        )
+        assert event is not None
+        verify.close()
+        service.close()
 
 
 def test_concurrent_explicit_retry_does_not_mutate_checkpoint_or_call_gateway() -> None:
