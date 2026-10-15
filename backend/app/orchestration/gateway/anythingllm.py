@@ -15,7 +15,6 @@ from app.orchestration.gateway.types import (
 
 logger = logging.getLogger("eduvijna.orchestration.anythingllm")
 
-_SUPPORTED_MODEL_SETTINGS = frozenset({"temperature", "top_p"})
 
 
 class AnythingLLMGenerationGateway:
@@ -55,19 +54,13 @@ class AnythingLLMGenerationGateway:
             "Respond with a single JSON object only."
         )
 
-    @staticmethod
-    def _validate_model_settings(model_settings: dict[str, Any]) -> None:
-        unsupported = set(model_settings) - _SUPPORTED_MODEL_SETTINGS
-        if unsupported:
-            raise GenerationGatewayError(
-                "gateway_validation",
-                f"Unsupported model settings: {sorted(unsupported)}",
-                retryable=False,
-            )
-
     def generate(self, request: GenerationRequest) -> GenerationResponse:
         if request.model_settings:
-            self._validate_model_settings(request.model_settings)
+            raise GenerationGatewayError(
+                "gateway_validation",
+                "Per-call model_settings are not supported by AnythingLLM workspace chat",
+                retryable=False,
+            )
         workspace = request.workspace_slug or self._workspace_slug
         if not workspace:
             raise GenerationGatewayError(

@@ -72,6 +72,7 @@ def route_after_validation(state: OrchestrationGraphState) -> str:
 def route_after_human(state: OrchestrationGraphState) -> str:
     if pipeline_halted(state):
         return "whole_output"
-    if state.get("human_revalidate"):
+    decision = state.get("human_decision") or {}
+    if state.get("human_revalidate") and decision.get("action") == "edit":
         return "deterministic_validate"
     return "whole_output"

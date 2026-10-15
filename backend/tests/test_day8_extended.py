@@ -159,9 +159,7 @@ def test_sqlite_checkpoint_survives_service_rebuild() -> None:
             )
             paused = service.run(request)
             assert paused.status == OrchestrationRunStatus.REVIEW_REQUIRED
-            thread_id = request.run_id
-            completed = service.run(request, resume=HumanResumeDecision(action="approve"))
-            assert completed.status == OrchestrationRunStatus.COMPLETED
+            calls_before = len(service.dependencies.gateway.call_history())
             service.close()
 
             rebuilt = build_orchestration_service(
@@ -172,9 +170,12 @@ def test_sqlite_checkpoint_survives_service_rebuild() -> None:
                 force_fake=True,
             )
             try:
-                state = rebuilt.compiled_graph.get_state(
-                    {"configurable": {"thread_id": thread_id}}
+                completed = rebuilt.run(
+                    request, resume=HumanResumeDecision(action="approve")
                 )
-                assert state.values.get("final_result") is not None
+                calls_after = len(rebuilt.dependencies.gateway.call_history())
+                assert completed.status == OrchestrationRunStatus.COMPLETED
+                assert calls_before > 0
+                assert calls_after == 0
             finally:
                 rebuilt.close()

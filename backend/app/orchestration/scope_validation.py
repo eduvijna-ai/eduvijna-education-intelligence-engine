@@ -33,7 +33,7 @@ def validate_context_scope(
         if exp is None:
             continue
         obs = _norm(observed)
-        if obs is not None and obs != exp:
+        if obs is None or obs != exp:
             issues.append(f"scope_mismatch:{field}")
 
     if resolved.topic_codes:

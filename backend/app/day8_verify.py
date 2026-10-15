@@ -70,13 +70,32 @@ def build_verification_report(session: Session) -> dict[str, object]:
             ctx, scenario="blocking_day6", idempotency_key="day8-block-key"
         )
     )
-    foreign = service.run(
-        build_orchestration_request(
-            ctx,
-            scenario="foreign_tenant",
-            idempotency_key="day8-foreign-tenant-key",
-        )
+    from app.knowledge_intelligence.contracts import AppliedKnowledgeScope, KnowledgeContextPack
+    from app.orchestration.contracts import ResolvedScope
+    from app.orchestration.scope_validation import validate_context_scope
+
+    scope_probe = validate_context_scope(
+        ResolvedScope(
+            curriculum_version_id=ctx["curriculum_version_id"],
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+        ),
+        KnowledgeContextPack(
+            query_id="probe",
+            query_text="probe",
+            retrieval_profile_version="ki-retrieval-v1",
+            evidence=[],
+            scope=AppliedKnowledgeScope(
+                organization_id=ctx["organization_id"],
+                institution_id=ctx["institution_id"],
+                curriculum_version_id=None,
+            ),
+            citations=[],
+            bounded_text="",
+            warnings=[],
+        ),
     )
+    foreign_tenant_scope_enforced = "scope_mismatch:curriculum_version_id" in scope_probe
     exhausted = service.run(
         build_orchestration_request(
             ctx,
@@ -131,15 +150,28 @@ def build_verification_report(session: Session) -> dict[str, object]:
             paused_result = resume_service.run(resume_request)
             thread_id = resume_request.run_id
             config = {"configurable": {"thread_id": thread_id}}
-            resumed = resume_service.run(
+            calls_before = len(resume_service.dependencies.gateway.call_history())
+            assert calls_before > 0
+            resume_service.close()
+
+            resume_service_b = build_orchestration_service(
+                checkpoint_session,
+                settings=file_settings,
+                knowledge_adapter=resume_adapter,
+                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                force_fake=True,
+            )
+            resumed = resume_service_b.run(
                 resume_request,
                 resume=HumanResumeDecision(action="approve"),
             )
+            calls_after = len(resume_service_b.dependencies.gateway.call_history())
             resume_ok = (
                 paused_result.status == OrchestrationRunStatus.REVIEW_REQUIRED
                 and resumed.status == OrchestrationRunStatus.COMPLETED
+                and calls_after == 0
             )
-            resume_service.close()
+            resume_service_b.close()
 
             rebuilt = build_orchestration_service(
                 checkpoint_session,
@@ -178,8 +210,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         and clean.approved_count == 1,
         "repair_then_pass": repaired.status == OrchestrationRunStatus.COMPLETED,
         "blocking_not_approved": blocking.status != OrchestrationRunStatus.COMPLETED,
-        "foreign_tenant_blocked": foreign.status != OrchestrationRunStatus.COMPLETED
-        or foreign.approved_count == 0,
+        "foreign_tenant_scope_enforced": foreign_tenant_scope_enforced,
         "repair_exhaustion": exhausted.status
         in {OrchestrationRunStatus.REVIEW_REQUIRED, OrchestrationRunStatus.FAILED},
         "prompt_injection_handled": injection.status != OrchestrationRunStatus.COMPLETED
@@ -202,9 +233,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "candidate_sha_resolved": candidate_sha not in {"", "unknown"},
         "candidate_sha_matches_head": candidate_sha == head_sha,
     }
-    checks["ok"] = all(
-        value for key, value in checks.items() if not key.startswith("candidate_sha")
-    )
+    checks["ok"] = all(value for key, value in checks.items())
     return {
         "checks": checks,
         "scope_guard": scope_guard,

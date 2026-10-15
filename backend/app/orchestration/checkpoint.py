@@ -62,8 +62,7 @@ def build_managed_checkpointer(
 
         normalized = _normalize_postgres_url(url)
         cm = PostgresSaver.from_conn_string(normalized)
-        pg_saver: object = cm.__enter__()
-        assert isinstance(pg_saver, PostgresSaver)
+        pg_saver = cm.__enter__()
         pg_saver.setup()
         return ManagedCheckpointer(pg_saver, closer=lambda: cm.__exit__(None, None, None))
     raise OrchestrationConfigurationError(

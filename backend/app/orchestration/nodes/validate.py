@@ -16,7 +16,13 @@ from app.orchestration.contracts import (
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus, ReviewVerdictStatus
 from app.orchestration.math_tools import deterministic_math_check
-from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
+from app.orchestration.nodes._helpers import (
+    audit_node,
+    get_request,
+    next_attempt,
+    pipeline_failure,
+    timed_update,
+)
 from app.orchestration.state import OrchestrationGraphState
 
 
@@ -90,11 +96,21 @@ def deterministic_validate_node(
                 review_required = True
 
         canonical = draft_to_canonical(draft, scope, request_marks=request.marks)
-        ei_summary = deps.education_service.validate_item(
-            canonical,
-            curriculum_version_id=scope.curriculum_version_id,
-            persist=False,
-        )
+        try:
+            ei_summary = deps.education_service.validate_item(
+                canonical,
+                curriculum_version_id=scope.curriculum_version_id,
+                persist=False,
+            )
+        except Exception:
+            return pipeline_failure(
+                deps,
+                state,
+                "deterministic_validate",
+                started,
+                "day6_service_error",
+                attempt=attempt,
+            )
         if ei_summary.blocking_failure or ei_summary.aggregate_status == ValidationStatus.FAIL:
             issue_codes.append("day6_blocking_validation")
             blocking = True
@@ -119,14 +135,17 @@ def deterministic_validate_node(
         attempt=attempt,
         payload={"items": len(summaries)},
     )
+    update: dict[str, Any] = {
+        "deterministic_validation": summaries,
+        "status": OrchestrationRunStatus.REVIEWING.value,
+        "audit_refs": [audit_id],
+    }
+    if state.get("human_revalidate"):
+        update["human_revalidate"] = False
     return timed_update(
         state,
         "deterministic_validate",
         started,
-        {
-            "deterministic_validation": summaries,
-            "status": OrchestrationRunStatus.REVIEWING.value,
-            "audit_refs": [audit_id],
-        },
+        update,
         attempt_map=attempt_map,
     )

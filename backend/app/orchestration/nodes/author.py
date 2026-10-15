@@ -95,7 +95,9 @@ def author_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
             audit_refs.extend(extra["audit_refs"])
         if extra and extra.get("cache"):
             call_cache = extra["cache"]
-        gateway_usage = merge_gateway_usage(gateway_usage, response.usage)
+        gateway_usage = merge_gateway_usage(
+            gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
+        )
         draft = DraftQuestionItem.model_validate(
             {**response.parsed, "slot_index": slot.slot_index}
         )

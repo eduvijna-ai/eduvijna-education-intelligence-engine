@@ -75,7 +75,9 @@ def solver_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
             audit_refs.extend(extra["audit_refs"])
         if extra and extra.get("cache"):
             call_cache = extra["cache"]
-        gateway_usage = merge_gateway_usage(gateway_usage, response.usage)
+        gateway_usage = merge_gateway_usage(
+            gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
+        )
         solver = SolverResult.model_validate(response.parsed)
         results[draft.item_id] = solver.model_dump(mode="json")
 

@@ -8,7 +8,13 @@ from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
 from app.orchestration.gateway.types import GenerationRequest
 from app.orchestration.gateway_invoke import invoke_generation
-from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
+from app.orchestration.nodes._helpers import (
+    audit_node,
+    get_request,
+    next_attempt,
+    pipeline_failure,
+    timed_update,
+)
 from app.orchestration.prompts.registry import get_prompt
 from app.orchestration.state import OrchestrationGraphState
 from app.orchestration.usage import merge_gateway_usage
@@ -40,9 +46,6 @@ def repair_planner_node(
             )
 
     repair_counts = dict(state.get("repair_count_by_item") or {})
-    for item_id in set(repair_item_ids):
-        repair_counts[item_id] = repair_counts.get(item_id, 0) + 1
-
     prompt = get_prompt("repair")
     gateway_usage = dict(state.get("gateway_usage") or {})
     call_cache = dict(state.get("generation_call_cache") or {})
@@ -63,10 +66,22 @@ def repair_planner_node(
         run_id=request.run_id,
         item_id=None,
     )
-    if response is not None:
-        gateway_usage = merge_gateway_usage(gateway_usage, response.usage)
-        if extra and extra.get("cache"):
-            call_cache = extra["cache"]
+    if extra and "error_code" in extra:
+        failure = pipeline_failure(
+            deps, state, "repair_planner", started, extra["error_code"], attempt=attempt
+        )
+        if extra.get("audit_refs"):
+            failure["audit_refs"] = list(failure.get("audit_refs") or []) + extra["audit_refs"]
+        return failure
+    assert response is not None
+    gateway_usage = merge_gateway_usage(
+        gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
+    )
+    if extra and extra.get("cache"):
+        call_cache = extra["cache"]
+
+    for item_id in set(repair_item_ids):
+        repair_counts[item_id] = repair_counts.get(item_id, 0) + 1
 
     audit_id = audit_node(
         deps,

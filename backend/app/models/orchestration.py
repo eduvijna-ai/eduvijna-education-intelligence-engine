@@ -39,6 +39,17 @@ class OrchestrationIdempotencyRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class OrchestrationGenerationCall(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "orchestration_generation_calls"
+    __table_args__ = (
+        UniqueConstraint("run_id", "cache_key", name="uq_orchestration_generation_call_run_key"),
+    )
+
+    run_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    response_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+
 class OrchestrationCheckpointLease(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "orchestration_checkpoint_leases"
 

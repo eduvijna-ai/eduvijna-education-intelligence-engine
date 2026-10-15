@@ -4,11 +4,18 @@ import time
 from typing import Any
 
 from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
+from app.knowledge_intelligence.retrieval import RetrievalError
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.orchestration.contracts import ResolvedScope
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus
-from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
+from app.orchestration.nodes._helpers import (
+    audit_node,
+    get_request,
+    next_attempt,
+    pipeline_failure,
+    timed_update,
+)
 from app.orchestration.query_text import build_retrieval_query
 from app.orchestration.scope_validation import validate_context_scope
 from app.orchestration.state import OrchestrationGraphState
@@ -57,8 +64,9 @@ def resolve_context_node(
             attempt_map=attempt_map,
         )
 
-    retrieval = deps.knowledge_service.retrieve(
-        KnowledgeRetrievalRequest(
+    try:
+        retrieval = deps.knowledge_service.retrieve(
+            KnowledgeRetrievalRequest(
             query_text=query,
             organization_id=scope.organization_id,
             institution_id=scope.institution_id,
@@ -73,8 +81,18 @@ def resolve_context_node(
             retrieval_profile_version=request.retrieval_profile_version
             or DEFAULT_RETRIEVAL_PROFILE_VERSION,
             actor_id=scope.actor_id,
+            )
         )
-    )
+    except RetrievalError as exc:
+        return pipeline_failure(
+            deps,
+            state,
+            "resolve_context",
+            started,
+            "day7_retrieval_error",
+            attempt=attempt,
+            issue_codes=[str(exc)],
+        )
     pack = deps.knowledge_service.build_context_pack(retrieval)
     scope_issues = validate_context_scope(scope, pack)
     revision_ids = [item.source_revision_id for item in pack.evidence]

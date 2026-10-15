@@ -42,7 +42,10 @@ def reviewers_node(
         (GenerationNodeRole.CURRICULUM_REVIEW, "curriculum_review"),
         (GenerationNodeRole.EDUCATIONAL_REVIEW, "educational_review"),
     ]
-    verdicts: list[dict[str, Any]] = []
+    verdict_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for raw in state.get("review_verdicts") or []:
+        parsed = ReviewVerdict.model_validate(raw)
+        verdict_map[(parsed.item_id, parsed.reviewer)] = raw
     gateway_usage = dict(state.get("gateway_usage") or {})
     call_cache = dict(state.get("generation_call_cache") or {})
     prompt_versions = dict(state.get("prompt_versions") or {})
@@ -96,9 +99,11 @@ def reviewers_node(
                 audit_refs.extend(extra["audit_refs"])
             if extra and extra.get("cache"):
                 call_cache = extra["cache"]
-            gateway_usage = merge_gateway_usage(gateway_usage, response.usage)
+            gateway_usage = merge_gateway_usage(
+                gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
+            )
             verdict = ReviewVerdict.model_validate(response.parsed)
-            verdicts.append(verdict.model_dump(mode="json"))
+            verdict_map[(verdict.item_id, verdict.reviewer)] = verdict.model_dump(mode="json")
             prompt_versions[prompt_name] = prompt.version
 
     return timed_update(
@@ -106,7 +111,7 @@ def reviewers_node(
         "reviewers",
         started,
         {
-            "review_verdicts": verdicts,
+            "review_verdicts": list(verdict_map.values()),
             "status": OrchestrationRunStatus.REVIEWING.value,
             "prompt_versions": prompt_versions,
             "gateway_usage": gateway_usage,
