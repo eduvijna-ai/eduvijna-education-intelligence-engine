@@ -4,7 +4,7 @@ from typing import Any
 
 from app.education_intelligence.governance import load_execution_state, resolve_execution_state_path
 
-_DAY8_HISTORICAL_IN_PROGRESS_STATES = frozenset(
+_DAY8_ACTIVE_PHASE_STATES = frozenset(
     {
         "ACTIVE",
         "READY_FOR_REVIEW",
@@ -21,6 +21,17 @@ def _day5_deferred_checks(day5: dict[str, Any]) -> dict[str, bool]:
         "d5_ds01_status_deferred": day5.get("deferred_backlog_status")
         == "DEFERRED_BY_FOUNDER",
     }
+
+
+def _day8_phase_checks(current_day: int, day8: dict[str, Any]) -> dict[str, bool]:
+    state = day8.get("state")
+    if current_day == 8:
+        valid = isinstance(state, str) and state in _DAY8_ACTIVE_PHASE_STATES
+    elif current_day > 8:
+        valid = state == "COMPLETE" and day8.get("founder_approval") is True
+    else:
+        valid = False
+    return {"day8_phase_valid": valid}
 
 
 def verify_day7_governance_state(
@@ -48,14 +59,12 @@ def verify_day7_governance_state(
             **deferred,
         }
     elif isinstance(current_day, int) and current_day >= 8:
-        day8_state = day8.get("state")
         checks = {
             "mode": "historical_day7_regression",
             "current_day_ge_8": True,
             "day7_complete": day7.get("state") == "COMPLETE",
             "day7_founder_approved": day7.get("founder_approval") is True,
-            "day8_legitimate_progress": isinstance(day8_state, str)
-            and day8_state in _DAY8_HISTORICAL_IN_PROGRESS_STATES,
+            **_day8_phase_checks(current_day, day8),
             **deferred,
         }
     else:

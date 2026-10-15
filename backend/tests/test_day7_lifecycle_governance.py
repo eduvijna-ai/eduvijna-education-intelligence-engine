@@ -34,7 +34,7 @@ def test_governance_historical_day8_regression_passes() -> None:
     assert checks["mode"] == "historical_day7_regression"
     assert checks["day7_complete"] is True
     assert checks["day7_founder_approved"] is True
-    assert checks["day8_legitimate_progress"] is True
+    assert checks["day8_phase_valid"] is True
     assert "day8_locked" not in checks
 
 
@@ -57,7 +57,7 @@ def test_governance_fails_when_day8_still_locked_at_day8() -> None:
     fixture = _fixtures_dir() / "execution-state-invalid-day8-still-locked.yml"
     report = verify_day7_governance_state(explicit_path=fixture)
     assert report["passed"] is False
-    assert report["checks"]["day8_legitimate_progress"] is False
+    assert report["checks"]["day8_phase_valid"] is False
 
 
 def test_governance_d5_ds01_mutation_fails_in_active_day7_mode() -> None:
@@ -74,6 +74,27 @@ def test_governance_d5_ds01_mutation_fails_in_historical_mode() -> None:
     assert report["passed"] is False
     assert report["checks"]["mode"] == "historical_day7_regression"
     assert report["checks"]["d5_ds01_issue_16"] is False
+
+
+def test_governance_fails_when_day9_but_day8_still_active() -> None:
+    fixture = _fixtures_dir() / "execution-state-day9-day8-still-active.yml"
+    report = verify_day7_governance_state(explicit_path=fixture)
+    assert report["passed"] is False
+    assert report["checks"]["day8_phase_valid"] is False
+
+
+def test_governance_passes_when_day9_and_day8_complete_approved() -> None:
+    fixture = _fixtures_dir() / "execution-state-day9-day8-complete-approved.yml"
+    report = verify_day7_governance_state(explicit_path=fixture)
+    assert report["passed"] is True
+    assert report["checks"]["day8_phase_valid"] is True
+
+
+def test_governance_fails_when_day9_and_day8_complete_unapproved() -> None:
+    fixture = _fixtures_dir() / "execution-state-day9-day8-complete-unapproved.yml"
+    report = verify_day7_governance_state(explicit_path=fixture)
+    assert report["passed"] is False
+    assert report["checks"]["day8_phase_valid"] is False
 
 
 def test_day7_verify_passes_on_legitimate_day8_execution_state(

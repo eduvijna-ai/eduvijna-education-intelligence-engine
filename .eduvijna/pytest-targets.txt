@@ -5,3 +5,4 @@ tests/test_day8_round2.py
 tests/test_day8_round3.py
 tests/test_day8_round4.py
 tests/test_day7_retrieval.py
+tests/test_day7_lifecycle_governance.py
