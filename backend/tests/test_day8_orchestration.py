@@ -4,14 +4,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
-from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.orchestration.enums import OrchestrationRunStatus
-from app.orchestration.fixtures import build_orchestration_request, seed_day8_fixtures
+from app.orchestration.fixtures import build_day8_test_service, build_orchestration_request
 from app.orchestration.graph import build_orchestration_graph
 from app.orchestration.scope_guard import verify_day8_scope_guard
-from app.orchestration.service import OrchestrationService
 
 
 def _session() -> Session:
@@ -21,22 +19,22 @@ def _session() -> Session:
     return Session(engine)
 
 
-def _service(session: Session) -> tuple[dict[str, str], OrchestrationService]:
-    adapter = FakeAnythingLLMAdapter()
-    ctx = seed_day8_fixtures(session, adapter=adapter)
-    service = OrchestrationService(session, ki_adapter=adapter, memory_checkpointer=True)
-    return ctx, service
+def _service(session: Session):
+    return build_day8_test_service(session)
 
 
 def test_day8_graph_compiles_and_clean_pass() -> None:
     session = _session()
     ctx, service = _service(session)
-    graph = build_orchestration_graph(service.dependencies, checkpointer=service._checkpointer)
+    graph = build_orchestration_graph(
+        service.dependencies, checkpointer=service.managed_checkpointer.saver
+    )
     assert graph is not None
     result = service.run(build_orchestration_request(ctx, scenario="clean_pass"))
     assert result.status == OrchestrationRunStatus.COMPLETED
     assert result.approved_count == 1
     assert result.source_revision_ids
+    assert result.audit_refs
     session.close()
 
 

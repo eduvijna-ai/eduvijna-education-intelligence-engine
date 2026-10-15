@@ -15,7 +15,7 @@ def merge_gateway_usage(
     existing: dict[str, Any] | None, gateway_usage: dict[str, Any]
 ) -> dict[str, Any]:
     merged: dict[str, Any] = dict(existing or {})
-    calls = int(merged.get("model_calls", 0)) + int(gateway_usage.get("model_calls", 0))
-    merged["model_calls"] = calls
+    increment = int(gateway_usage.get("model_calls", 0) or 0) or 1
+    merged["model_calls"] = int(merged.get("model_calls", 0)) + increment
     merged["last_usage"] = gateway_usage
     return merged

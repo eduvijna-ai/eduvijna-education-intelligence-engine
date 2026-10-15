@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -18,10 +19,12 @@ class OrchestrationAuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     attempt: Mapped[int] = mapped_column(nullable=False, default=1)
     prompt_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    source_revision_ids_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    issue_codes_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    source_revision_ids_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    issue_codes_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     gateway_request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 
 class OrchestrationIdempotencyRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -32,7 +35,7 @@ class OrchestrationIdempotencyRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     run_id: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
-    result_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

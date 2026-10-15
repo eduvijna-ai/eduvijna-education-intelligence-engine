@@ -34,4 +34,6 @@ def persist_audit_event(
         payload_json=payload or {},
     )
     session.add(event)
+    session.flush()
+    assert event.id is not None
     return event

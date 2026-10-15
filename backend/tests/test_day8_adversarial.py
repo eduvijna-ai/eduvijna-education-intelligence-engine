@@ -4,14 +4,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
-from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-from app.orchestration.enums import OrchestrationRunStatus
-from app.orchestration.fixtures import build_orchestration_request, seed_day8_fixtures
+from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
+from app.orchestration.exceptions import IdempotencyConflictError
+from app.orchestration.fixtures import build_day8_test_service, build_orchestration_request
 from app.orchestration.gateway.fake import FakeGenerationGateway
-from app.orchestration.gateway.types import GenerationGatewayError
-from app.orchestration.service import OrchestrationService
+from app.orchestration.gateway.types import GenerationGatewayError, GenerationRequest
 
 
 def _session() -> Session:
@@ -22,15 +21,7 @@ def _session() -> Session:
 
 
 def _service(session: Session, gateway=None):
-    adapter = FakeAnythingLLMAdapter()
-    ctx = seed_day8_fixtures(session, adapter=adapter)
-    service = OrchestrationService(
-        session,
-        gateway=gateway,
-        ki_adapter=adapter,
-        memory_checkpointer=True,
-    )
-    return ctx, service
+    return build_day8_test_service(session, gateway=gateway)
 
 
 def test_malformed_json_gateway_fails() -> None:
@@ -86,9 +77,6 @@ def test_duplicate_output_rejected() -> None:
 
 def test_gateway_errors_structured() -> None:
     gateway = FakeGenerationGateway()
-    from app.orchestration.enums import GenerationNodeRole
-    from app.orchestration.gateway.types import GenerationRequest
-
     for scenario, code in [
         ("gateway_timeout", "gateway_timeout"),
         ("gateway_401", "gateway_unauthorized"),
@@ -107,3 +95,20 @@ def test_gateway_errors_structured() -> None:
             )
         except GenerationGatewayError as exc:
             assert exc.code == code
+
+
+def test_idempotency_conflict() -> None:
+    session = _session()
+    ctx, service = _service(session)
+    first = build_orchestration_request(ctx, idempotency_key="conflict-key-123456")
+    service.run(first)
+    second = build_orchestration_request(
+        ctx, scenario="repair_then_pass", idempotency_key="conflict-key-123456"
+    )
+    try:
+        service.run(second)
+        raised = False
+    except IdempotencyConflictError:
+        raised = True
+    assert raised
+    session.close()

@@ -34,6 +34,13 @@ class OrchestrationGraphState(TypedDict, total=False):
     gateway_usage: dict[str, Any]
     node_latencies_ms: Annotated[dict[str, float], _merge_dict]
     interrupt_payload: dict[str, Any] | None
+    human_decision: dict[str, Any] | None
+    human_approved: bool
+    human_revalidate: bool
+    pipeline_halt: bool
+    repair_item_ids: list[str]
+    generation_call_cache: dict[str, Any]
+    audit_refs: Annotated[list[str], operator.add]
     final_result: dict[str, Any] | None
     created_at: str
     updated_at: str

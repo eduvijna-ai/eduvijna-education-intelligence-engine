@@ -3,14 +3,9 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from app.education_intelligence.contracts import (
-    CanonicalAssessmentItem,
-    CognitiveDemandEvidence,
-    DifficultyEvidence,
-    QuestionOptionInput,
-)
 from app.education_intelligence.enums import ValidationStatus
 from app.knowledge_intelligence.contracts import KnowledgeContextPack
+from app.orchestration.canonical_mapping import draft_to_canonical
 from app.orchestration.contracts import (
     DeterministicValidationSummary,
     DraftQuestionItem,
@@ -21,58 +16,20 @@ from app.orchestration.contracts import (
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus, ReviewVerdictStatus
 from app.orchestration.math_tools import deterministic_math_check
-from app.orchestration.nodes._helpers import audit_node, get_request, timed_update
+from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
 from app.orchestration.state import OrchestrationGraphState
-
-
-def _to_canonical(
-    draft: DraftQuestionItem, scope: ResolvedScope, request_marks: float | None
-) -> CanonicalAssessmentItem:
-    return CanonicalAssessmentItem(
-        item_id=draft.item_id,
-        stem_text=draft.stem_text,
-        question_type=draft.question_type,
-        options=[
-            QuestionOptionInput(
-                option_key=opt.option_key, text=opt.text, is_correct=opt.is_correct
-            )
-            for opt in draft.options
-        ],
-        declared_cognitive_level=draft.declared_cognitive_level,
-        competency_codes=draft.competency_codes,
-        learning_outcome_ids=draft.learning_outcome_ids,
-        curriculum_version_id=scope.curriculum_version_id,
-        grade_year_code=scope.grade_year_code,
-        medium_code=scope.medium_code,
-        subject_code=scope.subject_code,
-        declared_difficulty=draft.declared_difficulty,
-        difficulty_evidence=DifficultyEvidence(
-            cognitive_demand_band=draft.declared_difficulty or 2,
-            step_count=1,
-            computation_load=2,
-            language_load=1,
-        ),
-        cognitive_demand_evidence=CognitiveDemandEvidence(application_required=True),
-        age_min=12,
-        age_max=14,
-        institution_id=scope.institution_id,
-        answer_metadata_present=True,
-        metadata_json={
-            **draft.metadata_json,
-            "marks": request_marks or draft.marks,
-            "synthetic_fixture": True,
-        },
-    )
 
 
 def deterministic_validate_node(
     state: OrchestrationGraphState, deps: OrchestrationDependencies
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    attempt, attempt_map = next_attempt(state, "deterministic_validate")
     request = get_request(state)
     scope = ResolvedScope.model_validate(state.get("resolved_scope") or {})
     context = KnowledgeContextPack.model_validate(state.get("knowledge_context") or {})
     allowed_revisions = {item.source_revision_id for item in context.evidence}
+    allowed_evidence_refs = {item.citation_label for item in context.evidence}
     drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
     solvers: dict[str, SolverResult] = {}
     for raw in state.get("solver_results") or []:
@@ -90,12 +47,6 @@ def deterministic_validate_node(
         for revision_id in draft.source_revision_ids:
             if revision_id not in allowed_revisions:
                 issue_codes.append("provenance_unknown_revision")
-                blocking = True
-
-        if request.fixture_scenario() == "foreign_tenant":
-            scope_org = context.scope.organization_id
-            if scope_org and scope.organization_id and scope_org != scope.organization_id:
-                issue_codes.append("tenant_isolation_violation")
                 blocking = True
 
         if "ignore previous instructions" in draft.stem_text.lower():
@@ -125,6 +76,10 @@ def deterministic_validate_node(
         for verdict in verdicts:
             if verdict.item_id != draft.item_id:
                 continue
+            for ref in verdict.evidence_refs:
+                if ref and ref not in allowed_evidence_refs:
+                    issue_codes.append("reviewer_unknown_evidence_ref")
+                    blocking = True
             if verdict.status == ReviewVerdictStatus.REJECT:
                 issue_codes.extend(verdict.issue_codes)
                 blocking = True
@@ -134,15 +89,7 @@ def deterministic_validate_node(
             elif verdict.status == ReviewVerdictStatus.REVIEW_REQUIRED:
                 review_required = True
 
-        canonical = _to_canonical(draft, scope, request.marks)
-        if request.fixture_scenario() == "blocking_day6":
-            canonical = canonical.model_copy(
-                update={
-                    "content_text_for_safety": (
-                        "Perform this unsafe lab experiment at home without supervision."
-                    )
-                }
-            )
+        canonical = draft_to_canonical(draft, scope, request_marks=request.marks)
         ei_summary = deps.education_service.validate_item(
             canonical,
             curriculum_version_id=scope.curriculum_version_id,
@@ -164,11 +111,12 @@ def deterministic_validate_node(
             ).model_dump(mode="json")
         )
 
-    audit_node(
+    audit_id = audit_node(
         deps,
         state,
         "deterministic_validate",
         "ok",
+        attempt=attempt,
         payload={"items": len(summaries)},
     )
     return timed_update(
@@ -178,5 +126,7 @@ def deterministic_validate_node(
         {
             "deterministic_validation": summaries,
             "status": OrchestrationRunStatus.REVIEWING.value,
+            "audit_refs": [audit_id],
         },
+        attempt_map=attempt_map,
     )

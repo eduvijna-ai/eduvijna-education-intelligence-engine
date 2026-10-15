@@ -117,6 +117,18 @@ class FakeGenerationGateway:
                 "competency_codes": ["application"],
                 "declared_cognitive_level": "Apply",
                 "declared_difficulty": 2,
+                "metadata_json": {
+                    "difficulty_evidence": {
+                        "cognitive_demand_band": 2,
+                        "step_count": 1,
+                        "computation_load": 2,
+                        "language_load": 1,
+                    },
+                    "cognitive_demand_evidence": {"application_required": True},
+                    "age_min": 12,
+                    "age_max": 14,
+                    "synthetic_fixture": True,
+                },
             }
         elif scenario == "blocking_day6":
             stem = "Synthetic fixture with unsafe content trigger"
@@ -127,6 +139,27 @@ class FakeGenerationGateway:
             )
         else:
             stem = "Synthetic fixture: What is 7 + 5?"
+
+        metadata_json: dict[str, Any] = {}
+        if scenario == "blocking_day6":
+            metadata_json["content_text_for_safety"] = (
+                "Perform this unsafe lab experiment at home without supervision."
+            )
+        elif scenario == "human_review":
+            metadata_json = {"synthetic_fixture": True}
+        elif scenario not in {"bad_provenance", "foreign_tenant", "malformed_json"}:
+            metadata_json = {
+                "difficulty_evidence": {
+                    "cognitive_demand_band": 2,
+                    "step_count": 1,
+                    "computation_load": 2,
+                    "language_load": 1,
+                },
+                "cognitive_demand_evidence": {"application_required": True},
+                "age_min": 12,
+                "age_max": 14,
+                "synthetic_fixture": True,
+            }
 
         return {
             "item_id": item_id,
@@ -142,6 +175,7 @@ class FakeGenerationGateway:
             "competency_codes": ["application"],
             "declared_cognitive_level": "Apply",
             "declared_difficulty": 2,
+            "metadata_json": metadata_json,
         }
 
     def _solver_payload(

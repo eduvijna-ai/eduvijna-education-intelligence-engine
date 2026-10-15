@@ -83,8 +83,11 @@ class ResolvedScope(BaseModel):
     grade_year_code: str | None = None
     medium_code: str | None = None
     subject_code: str | None = None
+    topic_codes: list[str] = Field(default_factory=list)
+    concept_codes: list[str] = Field(default_factory=list)
     organization_id: str | None = None
     institution_id: str | None = None
+    teacher_id: str | None = None
     actor_id: str | None = None
     scope_warnings: list[str] = Field(default_factory=list)
     scope_errors: list[str] = Field(default_factory=list)
@@ -147,6 +150,7 @@ class OrchestrationRequest(BaseModel):
     max_repairs: int = Field(default=2, ge=0, le=HARD_MAX_REPAIRS)
     organization_id: str | None = None
     institution_id: str | None = None
+    teacher_id: str | None = None
     actor_id: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 

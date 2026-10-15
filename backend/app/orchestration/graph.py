@@ -17,7 +17,12 @@ from app.orchestration.nodes.reviewers import reviewers_node
 from app.orchestration.nodes.solver import solver_node
 from app.orchestration.nodes.validate import deterministic_validate_node
 from app.orchestration.nodes.whole_output import whole_output_node
-from app.orchestration.routing import route_after_scope, route_after_validation
+from app.orchestration.routing import (
+    route_after_fallible,
+    route_after_human,
+    route_after_scope,
+    route_after_validation,
+)
 from app.orchestration.state import OrchestrationGraphState
 
 
@@ -29,6 +34,10 @@ def _bind(
         return fn(state, deps)
 
     return node
+
+
+def _continue_or_output(state: OrchestrationGraphState) -> str:
+    return "whole_output" if route_after_fallible(state) == "whole_output" else "continue"
 
 
 def build_orchestration_graph(
@@ -53,11 +62,31 @@ def build_orchestration_graph(
         route_after_scope,
         {"resolve_context": "resolve_context", "whole_output": "whole_output"},
     )
-    graph.add_edge("resolve_context", "plan_generation")
-    graph.add_edge("plan_generation", "author")
-    graph.add_edge("author", "solver")
-    graph.add_edge("solver", "reviewers")
-    graph.add_edge("reviewers", "deterministic_validate")
+    graph.add_conditional_edges(
+        "resolve_context",
+        _continue_or_output,
+        {"continue": "plan_generation", "whole_output": "whole_output"},
+    )
+    graph.add_conditional_edges(
+        "plan_generation",
+        _continue_or_output,
+        {"continue": "author", "whole_output": "whole_output"},
+    )
+    graph.add_conditional_edges(
+        "author",
+        _continue_or_output,
+        {"continue": "solver", "whole_output": "whole_output"},
+    )
+    graph.add_conditional_edges(
+        "solver",
+        _continue_or_output,
+        {"continue": "reviewers", "whole_output": "whole_output"},
+    )
+    graph.add_conditional_edges(
+        "reviewers",
+        _continue_or_output,
+        {"continue": "deterministic_validate", "whole_output": "whole_output"},
+    )
     graph.add_edge("deterministic_validate", "duplicate_validate")
     graph.add_conditional_edges(
         "duplicate_validate",
@@ -69,10 +98,11 @@ def build_orchestration_graph(
         },
     )
     graph.add_edge("repair", "author")
-    graph.add_edge("human_gate", "whole_output")
+    graph.add_conditional_edges(
+        "human_gate",
+        route_after_human,
+        {"deterministic_validate": "deterministic_validate", "whole_output": "whole_output"},
+    )
     graph.add_edge("whole_output", END)
 
-    return graph.compile(
-        checkpointer=checkpointer,  # type: ignore[arg-type]
-        interrupt_before=["human_gate"],
-    )
+    return graph.compile(checkpointer=checkpointer)  # type: ignore[arg-type]
