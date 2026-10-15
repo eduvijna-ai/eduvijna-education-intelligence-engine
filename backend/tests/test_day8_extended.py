@@ -92,7 +92,13 @@ def test_anythingllm_generation_wire_request_shape() -> None:
     }
     mock_workspace = MagicMock()
     mock_workspace.status_code = 200
-    mock_workspace.json.return_value = {"workspace": {"documents": [], "slug": "orchestration-ws", "openAiPrompt": "EDUVIJNA_ORCHESTRATION_V1 trusted guard"}}
+    mock_workspace.json.return_value = {
+        "workspace": {
+            "documents": [],
+            "slug": "orchestration-ws",
+            "openAiPrompt": "EDUVIJNA_ORCHESTRATION_V1 trusted guard",
+        }
+    }
     with (
         patch.object(httpx.Client, "get", return_value=mock_workspace),
         patch.object(httpx.Client, "post", return_value=mock_response) as post,
