@@ -30,6 +30,23 @@ def _build_interrupt_payload(state: OrchestrationGraphState) -> dict[str, Any]:
     for item in drafts:
         for revision_id in item.get("source_revision_ids") or []:
             revision_ids.append(str(revision_id))
+    diagnostic_validation = state.get("diagnostic_validation") or []
+    diagnostic_results = state.get("diagnostic_results") or []
+    diagnostic_summaries: list[dict[str, Any]] = []
+    for entry in diagnostic_results:
+        option_issues: list[str] = []
+        for tag in entry.get("option_tags") or []:
+            option_issues.extend(list(tag.get("issue_codes") or []))
+        diagnostic_summaries.append(
+            {
+                "item_id": entry.get("item_id"),
+                "question_type": entry.get("question_type"),
+                "aggregate_status": entry.get("aggregate_status"),
+                "issue_codes": sorted(set(option_issues))[:24],
+                "taxonomy_version": entry.get("taxonomy_version"),
+                "audit_refs": list(entry.get("audit_refs") or [])[:4],
+            }
+        )
     return {
         "run_id": state.get("run_id"),
         "status": state.get("status"),
@@ -37,6 +54,8 @@ def _build_interrupt_payload(state: OrchestrationGraphState) -> dict[str, Any]:
         "repair_count_by_item": state.get("repair_count_by_item") or {},
         "deterministic_validation": state.get("deterministic_validation") or [],
         "review_verdicts": state.get("review_verdicts") or [],
+        "diagnostic_validation": diagnostic_validation,
+        "diagnostic_results": diagnostic_summaries,
         "source_revision_ids": sorted(set(revision_ids)),
         "errors": state.get("errors") or [],
         "warnings": state.get("warnings") or [],

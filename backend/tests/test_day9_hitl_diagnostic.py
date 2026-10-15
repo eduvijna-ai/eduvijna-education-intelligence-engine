@@ -53,5 +53,40 @@ def test_hitl_approve_routes_to_diagnostic_enrichment() -> None:
     assert completed.status == OrchestrationRunStatus.COMPLETED
     assert _diag_calls(gateway) >= 1
     assert completed.metadata_json.get("diagnostic_results")
+    payload = paused.metadata_json.get("interrupt_payload") or {}
+    assert payload.get("diagnostic_validation") is not None
+    assert payload.get("diagnostic_results") is not None
+    session.close()
+
+
+def test_diagnostic_repair_human_reject_blocks_completion() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    gateway = FakeGenerationGateway()
+    ctx, service = build_day8_test_service(session, gateway=gateway)
+    request = build_orchestration_request(
+        ctx,
+        scenario="clean_pass",
+        idempotency_key="day9-hitl-diag-review",
+        max_repairs=0,
+    )
+    request = request.model_copy(
+        update={
+            "metadata_json": {
+                **request.metadata_json,
+                "diagnostic_enrichment_enabled": True,
+                "diagnostic_fixture_scenario": "diagnostic_repair_then_pass",
+            },
+        }
+    )
+    paused = service.run(request)
+    assert paused.status == OrchestrationRunStatus.REVIEW_REQUIRED
+    payload = paused.metadata_json.get("interrupt_payload") or {}
+    assert payload.get("diagnostic_results")
+    assert payload.get("diagnostic_validation")
+    rejected = service.run(request, resume=HumanResumeDecision(action="reject"))
+    assert rejected.status == OrchestrationRunStatus.FAILED
     session.close()
 

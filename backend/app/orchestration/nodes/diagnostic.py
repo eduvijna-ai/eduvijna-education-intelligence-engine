@@ -63,8 +63,20 @@ def _build_authoring(
     lo_ids: list[str],
     allowed_revision_ids: list[str],
     allowed_evidence_refs: list[str],
+    *,
+    blocked_tenant_revision_ids: list[str] | None = None,
+    foreign_revision_id: str | None = None,
 ) -> DiagnosticAuthoringRequest:
     diagnostic_item = draft_to_diagnostic_item(draft)
+    if foreign_revision_id:
+        diagnostic_item = diagnostic_item.model_copy(
+            update={
+                "metadata_json": {
+                    **diagnostic_item.metadata_json,
+                    "foreign_revision_id": foreign_revision_id,
+                }
+            }
+        )
     return DiagnosticAuthoringRequest(
         item=diagnostic_item,
         subject_code=scope.subject_code or request.subject_code,
@@ -82,6 +94,7 @@ def _build_authoring(
         actor_id=scope.actor_id or request.actor_id,
         allowed_source_revision_ids=allowed_revision_ids,
         allowed_evidence_refs=allowed_evidence_refs,
+        blocked_tenant_revision_ids=list(blocked_tenant_revision_ids or []),
         fixture_scenario=request.diagnostic_fixture_scenario(),
     )
 
@@ -140,6 +153,15 @@ def diagnostic_enrich_node(
         if target_ids and draft.item_id not in target_ids:
             continue
 
+        blocked_ids = list(
+            request.metadata_json.get("diagnostic_blocked_tenant_revision_ids") or []
+        )
+        foreign_revision_id = str(
+            request.metadata_json.get("diagnostic_foreign_revision_id") or ""
+        ).strip() or None
+        taxonomy_override = str(
+            request.metadata_json.get("diagnostic_taxonomy_version") or ""
+        ).strip()
         authoring = _build_authoring(
             draft,
             scope,
@@ -147,7 +169,11 @@ def diagnostic_enrich_node(
             list(lo_ids) if isinstance(lo_ids, list) else [],
             allowed_revision_ids,
             allowed_evidence_refs,
+            blocked_tenant_revision_ids=blocked_ids,
+            foreign_revision_id=foreign_revision_id,
         )
+        if taxonomy_override:
+            authoring = authoring.model_copy(update={"taxonomy_version": taxonomy_override})
         preflight = run_diagnostic_preflight(authoring)
         scope_meta = _scope_metadata(authoring)
 

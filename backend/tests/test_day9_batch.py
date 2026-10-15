@@ -53,7 +53,6 @@ def test_two_item_batch_preserves_passing_sibling() -> None:
         for c in gateway.call_history()
         if c.call_context and c.call_context.role == GenerationNodeRole.DIAGNOSTIC
     ]
-    assert len(diag_calls) >= 2
     diag_results = {
         entry["item_id"]: entry
         for entry in (result.metadata_json.get("diagnostic_results") or [])
@@ -65,5 +64,16 @@ def test_two_item_batch_preserves_passing_sibling() -> None:
         for c in diag_calls
         if c.call_context and c.call_context.item_id == slot0.item_id
     ]
+    slot1_calls = [
+        c
+        for c in diag_calls
+        if c.call_context and c.call_context.item_id == slot1.item_id
+    ]
     assert len(slot0_calls) == 1
+    assert len(slot1_calls) == 2
+    repairs = result.repair_summary or {}
+    assert repairs.get(slot0.item_id, 0) == 0
+    assert repairs.get(slot1.item_id, 0) == 1
+    assert slot0.source_revision_ids
+    assert slot0.options[1].text == "12"
     session.close()

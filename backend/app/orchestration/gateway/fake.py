@@ -133,6 +133,23 @@ class FakeGenerationGateway:
                     "synthetic_fixture": True,
                 },
             }
+        elif scenario == "unsupported_question_type":
+            return {
+                "item_id": item_id,
+                "stem_text": "Synthetic fixture: What is 7 + 5?",
+                "question_type": "essay",
+                "options": [
+                    {"option_key": "A", "text": "11", "is_correct": False},
+                    {"option_key": "B", "text": "12", "is_correct": True},
+                ],
+                "marks": float(payload.get("marks") or 1),
+                "source_revision_ids": [revision_id],
+                "learning_outcome_ids": [learning_outcome_id] if learning_outcome_id else [],
+                "competency_codes": ["application"],
+                "declared_cognitive_level": "Apply",
+                "declared_difficulty": 2,
+                "metadata_json": {"synthetic_fixture": True},
+            }
         elif scenario == "double_correct":
             return {
                 "item_id": item_id,
@@ -229,146 +246,113 @@ class FakeGenerationGateway:
         allowed_refs = list(payload.get("allowed_evidence_refs") or [])
         evidence_ref = allowed_refs[0] if allowed_refs else "[CIT-1]"
 
-        def tag(option_key: str, code: str | None, signal: str | None) -> dict[str, Any]:
+        def tag(
+            option_key: str,
+            code: str | None,
+            signal: str | None,
+            *,
+            evidence_refs: list[str] | None = None,
+        ) -> dict[str, Any]:
             option: dict[str, Any] = next(
                 (o for o in options if o.get("option_key") == option_key), {}
             )
+            refs = evidence_refs
+            if refs is None:
+                refs = [evidence_ref] if code else []
             return {
                 "option_key": option_key,
                 "is_correct": bool(option.get("is_correct")),
                 "misconception_code": code,
                 "diagnostic_signal": signal,
-                "evidence_refs": [evidence_ref] if code else [],
+                "evidence_refs": refs,
             }
 
-        if scenario == "diagnostic_repair_then_pass" and attempt == 0:
-            wrong_key = next(
-                (str(o.get("option_key")) for o in options if not o.get("is_correct")),
-                "A",
-            )
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "MATH.ADD.WHOLE.OFF_BY_ONE_LOW", "zz-no-match-token"),
-                    *[
-                        tag(str(o.get("option_key")), None, None)
-                        for o in options
-                        if o.get("is_correct")
-                    ],
-                ],
-            }
-        wrong_key = next(
-            (str(o.get("option_key")) for o in options if not o.get("is_correct")),
-            "A",
-        )
+        def clean_pass_tags() -> list[dict[str, Any]]:
+            wrong_keys = [str(o.get("option_key")) for o in options if not o.get("is_correct")]
+            option_tags: list[dict[str, Any]] = []
+            if wrong_keys:
+                option_tags.append(
+                    tag(wrong_keys[0], "MATH.ADD.WHOLE.OFF_BY_ONE_LOW", "off-by-one-low")
+                )
+            if len(wrong_keys) > 1:
+                option_tags.append(
+                    tag(wrong_keys[1], "MATH.ADD.WHOLE.SUM_AS_NEXT", "successor")
+                )
+            for option in options:
+                if option.get("is_correct"):
+                    option_tags.append(tag(str(option.get("option_key")), None, None))
+            return option_tags
+
+        wrong_keys = [str(o.get("option_key")) for o in options if not o.get("is_correct")]
+        wrong_key = wrong_keys[0] if wrong_keys else "A"
         correct_key = next(
             (str(o.get("option_key")) for o in options if o.get("is_correct")),
             "B",
         )
-        if scenario == "diagnostic_unknown_code":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "MATH.INVENTED.CODE", "fake"),
-                    tag(correct_key, None, None),
-                ],
-            }
-        if scenario == "diagnostic_inactive":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "MATH.ADD.WHOLE.INACTIVE_SAMPLE", "inactive"),
-                    tag(correct_key, None, None),
-                ],
-            }
-        if scenario == "diagnostic_wrong_subject":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "SCI.PHYS.FORCE.WRONG_SUBJECT", "newton"),
-                    tag(correct_key, None, None),
-                ],
-            }
-        if scenario == "diagnostic_correct_mislabeled":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "MATH.ADD.WHOLE.OFF_BY_ONE_LOW", "off-by-one-low"),
-                    tag(correct_key, "MATH.ADD.WHOLE.SUM_AS_NEXT", "successor"),
-                ],
-            }
-        if scenario == "diagnostic_foreign_revision":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    {
-                        "option_key": wrong_key,
-                        "is_correct": False,
-                        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-                        "diagnostic_signal": "off-by-one-low",
-                        "evidence_refs": [
-                            str(
-                                payload.get("foreign_revision_id")
-                                or "00000000-0000-0000-0000-000000000099"
-                            )
-                        ],
-                    },
-                    tag(correct_key, None, None),
-                ],
-            }
-        if scenario == "diagnostic_forged_evidence":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    {
-                        "option_key": wrong_key,
-                        "is_correct": False,
-                        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-                        "diagnostic_signal": "off-by-one-low",
-                        "evidence_refs": ["FORGED-REF"],
-                    },
-                    tag(correct_key, None, None),
-                ],
-            }
-        if scenario == "diagnostic_review_required":
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "MATH.ADD.WHOLE.OFF_BY_ONE_LOW", "off-by-one-low"),
-                    tag(correct_key, None, None),
-                ],
-            }
-        if scenario == "diagnostic_second_correct":
-            wrong_key = next(
-                (str(o.get("option_key")) for o in options if not o.get("is_correct")),
-                "A",
-            )
-            return {
-                "item_id": item_id,
-                "option_tags": [
-                    tag(wrong_key, "MATH.ADD.WHOLE.SUM_AS_NEXT", "12"),
-                    *[
-                        tag(str(o.get("option_key")), None, None)
-                        for o in options
-                        if o.get("is_correct")
-                    ],
-                ],
-            }
 
-        option_tags: list[dict[str, Any]] = []
-        wrong_keys = [str(o.get("option_key")) for o in options if not o.get("is_correct")]
-        if wrong_keys:
-            option_tags.append(
-                tag(wrong_keys[0], "MATH.ADD.WHOLE.OFF_BY_ONE_LOW", "off-by-one-low")
+        if scenario == "diagnostic_repair_then_pass" and attempt == 0:
+            tags = clean_pass_tags()
+            for index, entry in enumerate(tags):
+                if entry.get("misconception_code") == "MATH.ADD.WHOLE.OFF_BY_ONE_LOW":
+                    tags[index] = tag(
+                        str(entry["option_key"]),
+                        "MATH.ADD.WHOLE.SUM_AS_NEXT",
+                        "successor",
+                    )
+                    break
+            return {"item_id": item_id, "option_tags": tags}
+
+        if scenario == "diagnostic_unknown_code":
+            tags = clean_pass_tags()
+            tags[0] = tag(wrong_key, "MATH.INVENTED.CODE", "fake")
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_inactive":
+            tags = clean_pass_tags()
+            tags[0] = tag(wrong_key, "MATH.ADD.WHOLE.INACTIVE_SAMPLE", "inactive")
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_wrong_subject":
+            tags = clean_pass_tags()
+            tags[0] = tag(wrong_key, "SCI.PHYS.FORCE.WRONG_SUBJECT", "newton")
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_correct_mislabeled":
+            tags = clean_pass_tags()
+            tags[-1] = tag(correct_key, "MATH.ADD.WHOLE.SUM_AS_NEXT", "successor")
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_foreign_revision":
+            foreign = str(payload.get("foreign_revision_id") or "")
+            tags = clean_pass_tags()
+            tags[0] = tag(
+                wrong_key,
+                "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                "off-by-one-low",
+                evidence_refs=[foreign] if foreign else ["FORGED-REF"],
             )
-        if len(wrong_keys) > 1:
-            option_tags.append(
-                tag(wrong_keys[1], "MATH.ADD.WHOLE.SUM_AS_NEXT", "successor")
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_forged_evidence":
+            tags = clean_pass_tags()
+            tags[0] = tag(
+                wrong_key,
+                "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                "off-by-one-low",
+                evidence_refs=["FORGED-REF"],
             )
-        for option in options:
-            if option.get("is_correct"):
-                option_tags.append(tag(str(option.get("option_key")), None, None))
-        return {"item_id": item_id, "option_tags": option_tags}
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_review_required":
+            tags = clean_pass_tags()
+            tags[0] = tag(
+                wrong_key,
+                "MATH.ADD.WHOLE.SUM_AS_NEXT",
+                "successor",
+            )
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_second_correct":
+            tags = clean_pass_tags()
+            tags[0] = tag(wrong_key, "MATH.ADD.WHOLE.SUM_AS_NEXT", "12")
+            return {"item_id": item_id, "option_tags": tags}
+        if scenario == "diagnostic_malformed_output":
+            return {"item_id": item_id, "option_tags": "not-a-list"}
+
+        return {"item_id": item_id, "option_tags": clean_pass_tags()}
 
     def _review_payload(
         self,

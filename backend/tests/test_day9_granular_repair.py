@@ -43,4 +43,12 @@ def test_tag_only_diagnostic_repair_does_not_reauthor() -> None:
     assert counts.get("solver", 0) == 1
     option_texts = {o.option_key: o.text for o in result.items[0].options}
     assert option_texts["B"] == "12"
+    item_id = result.items[0].item_id
+    assert (result.repair_summary or {}).get(item_id, 0) == 1
+    diag_calls = [
+        c
+        for c in gateway.call_history()
+        if c.call_context and c.call_context.role.value == "diagnostic"
+    ]
+    assert len(diag_calls) == 2
     session.close()

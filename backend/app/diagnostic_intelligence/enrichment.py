@@ -81,6 +81,8 @@ def build_gateway_user_payload(request: DiagnosticAuthoringRequest) -> dict[str,
         ],
         "allowed_source_revision_ids": request.allowed_source_revision_ids,
         "allowed_evidence_refs": request.allowed_evidence_refs,
+        "blocked_tenant_revision_ids": list(request.blocked_tenant_revision_ids),
+        "foreign_revision_id": request.item.metadata_json.get("foreign_revision_id"),
         "fixture_scenario": request.fixture_scenario,
         "run_id": request.item.metadata_json.get("run_id"),
     }

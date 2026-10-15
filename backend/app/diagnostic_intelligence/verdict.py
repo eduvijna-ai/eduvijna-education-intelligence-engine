@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.diagnostic_intelligence.contracts import DiagnosticVerdict, DiagnosticVerdictItem
-from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
+from app.diagnostic_intelligence.enums import DiagnosticIssueCode, DiagnosticValidationStatus
 
 
 def build_diagnostic_verdict(
@@ -53,6 +53,15 @@ def build_diagnostic_verdict(
             "day6_blocking",
             "nonsensical_distractor",
             "non_candidate_misconception",
+            DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value,
+            "empty_option_tags",
+            "missing_option_tags",
+            "extra_option_tags",
+            "duplicate_option_tag_key",
+            "unknown_option_tag_key",
+            "option_correctness_mismatch",
+            "result_item_id_mismatch",
+            "result_question_type_mismatch",
         }
         for code in all_codes
     )

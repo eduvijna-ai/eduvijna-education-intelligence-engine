@@ -4,7 +4,6 @@ from app.diagnostic_intelligence.candidate_resolver import resolve_misconception
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
     DistractorDiagnosticResult,
-    OptionDiagnosticTag,
 )
 from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
@@ -99,19 +98,17 @@ def test_fake_signal_not_in_taxonomy_rejected() -> None:
     service = DiagnosticIntelligenceService()
     request = _request()
     candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
-    wrong = request.item.options[0]
-    tag = OptionDiagnosticTag(
-        item_id=request.item.item_id,
-        option_key=wrong.option_key,
-        is_correct=False,
-        misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-        diagnostic_signal="convenient-fake-signal",
-        metadata_json={"option_text": "convenient-fake-signal in text"},
+    tags = build_fixture_tags(request.item)
+    tags[0] = tags[0].model_copy(
+        update={
+            "misconception_code": "MATH.ADD.WHOLE.SUM_AS_NEXT",
+            "diagnostic_signal": "successor",
+        }
     )
     result = DistractorDiagnosticResult(
         item_id=request.item.item_id,
         question_type=request.item.question_type,
-        option_tags=[tag],
+        option_tags=tags,
     )
     verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert "signal_text_mismatch" in verdict.issue_codes
@@ -119,22 +116,18 @@ def test_fake_signal_not_in_taxonomy_rejected() -> None:
 
 def test_tenant_revision_evidence_rejected() -> None:
     service = DiagnosticIntelligenceService()
+    foreign_revision = "00000000-0000-0000-0000-000000000099"
     request = _request(allowed_source_revision_ids=["00000000-0000-0000-0000-000000000001"])
-    candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
-    wrong = request.item.options[0]
-    tag = OptionDiagnosticTag(
-        item_id=request.item.item_id,
-        option_key=wrong.option_key,
-        is_correct=False,
-        misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-        diagnostic_signal="off-by-one-low",
-        evidence_refs=["00000000-0000-0000-0000-000000000099"],
-        metadata_json={"option_text": "11 off-by-one-low"},
+    request = request.model_copy(
+        update={"blocked_tenant_revision_ids": [foreign_revision]}
     )
+    candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
+    tags = build_fixture_tags(request.item)
+    tags[0] = tags[0].model_copy(update={"evidence_refs": [foreign_revision]})
     result = DistractorDiagnosticResult(
         item_id=request.item.item_id,
         question_type=request.item.question_type,
-        option_tags=[tag],
+        option_tags=tags,
     )
     verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert "tenant_evidence_mismatch" in verdict.issue_codes

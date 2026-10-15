@@ -57,6 +57,9 @@ def build_diagnostic_orchestration_request(
     idempotency_key: str = "day9-fixture-key-001",
     requested_count: int = 1,
     max_repairs: int = 2,
+    diagnostic_blocked_tenant_revision_ids: list[str] | None = None,
+    diagnostic_foreign_revision_id: str | None = None,
+    diagnostic_taxonomy_version: str | None = None,
 ) -> OrchestrationRequest:
     request = build_orchestration_request(
         ctx,
@@ -75,6 +78,14 @@ def build_diagnostic_orchestration_request(
             "0": "diagnostic_clean_pass",
             "1": "diagnostic_repair_then_pass",
         }
+    if diagnostic_blocked_tenant_revision_ids:
+        metadata["diagnostic_blocked_tenant_revision_ids"] = list(
+            diagnostic_blocked_tenant_revision_ids
+        )
+    if diagnostic_foreign_revision_id:
+        metadata["diagnostic_foreign_revision_id"] = diagnostic_foreign_revision_id
+    if diagnostic_taxonomy_version:
+        metadata["diagnostic_taxonomy_version"] = diagnostic_taxonomy_version
     return request.model_copy(
         update={
             "requested_count": requested_count,

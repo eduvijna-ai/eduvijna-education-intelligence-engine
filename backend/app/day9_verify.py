@@ -32,6 +32,7 @@ from app.diagnostic_intelligence.scope_guard import verify_day9_scope_guard
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.diagnostic_intelligence.taxonomy_registry import load_taxonomy
 from app.models.orchestration import OrchestrationAuditEvent, OrchestrationIdempotencyRecord
+from app.orchestration.day9_tenant_fixtures import seed_day9_foreign_tenant_revisions
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.exceptions import IdempotencyConflictError
 from app.orchestration.fixtures import (
@@ -74,11 +75,17 @@ def _candidate_sha_checks() -> tuple[str, str, dict[str, bool]]:
     )
 
 
-def _tenant_isolation_proof(orchestration: object, ctx: dict[str, str]) -> bool:
+def _tenant_isolation_proof(
+    orchestration: object, ctx: dict[str, str], session: Session
+) -> bool:
+    foreign = seed_day9_foreign_tenant_revisions(session, ctx)
+    revision_id = foreign.foreign_organization_revision_id
     result = orchestration.run(  # type: ignore[attr-defined]
         build_diagnostic_orchestration_request(
             ctx,
             diagnostic_scenario="diagnostic_foreign_revision",
+            diagnostic_foreign_revision_id=revision_id,
+            diagnostic_blocked_tenant_revision_ids=[revision_id],
             idempotency_key="day9-tenant-isolation-proof",
         )
     )
@@ -108,7 +115,8 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
     tags = build_fixture_tags(item)
     tags[0] = tags[0].model_copy(
         update={
-            "diagnostic_signal": "fake-signal-only",
+            "misconception_code": "MATH.ADD.WHOLE.SUM_AS_NEXT",
+            "diagnostic_signal": "successor",
             "metadata_json": {"option_text": "unrelated distractor text"},
         }
     )
@@ -138,9 +146,21 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         ),
         candidate_codes=codes,
     )
+    empty = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=[],
+        ),
+        candidate_codes=codes,
+    )
     return {
         "signal_mismatch_rejected": "signal_text_mismatch" in bad_signal.issue_codes,
         "distinctness_enforced": "duplicate_misconception" in duplicate.issue_codes,
+        "canonical_tag_completeness": empty.status.value != "pass",
+        "canonical_option_text_integrity": "untrusted_option_text_metadata"
+        in bad_signal.issue_codes,
     }
 
 
@@ -194,7 +214,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
     session.commit()
-    tenant_isolation_ok = _tenant_isolation_proof(orchestration, ctx)
+    tenant_isolation_ok = _tenant_isolation_proof(orchestration, ctx, session)
     checkpoint_restart_ok = prove_interrupted_diagnostic_checkpoint_restart()
     replay = orchestration.run(
         build_diagnostic_orchestration_request(
@@ -237,8 +257,9 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "day6_authority_survives": blocked.status == OrchestrationRunStatus.FAILED,
         "forged_evidence_rejected": forged.status == OrchestrationRunStatus.FAILED,
         "tenant_isolation_enforced": tenant_isolation_ok,
-        "checkpoint_restart_proof": checkpoint_restart_ok,
-        "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED,
+        "checkpoint_explicit_retry_proof": checkpoint_restart_ok,
+        "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED
+        and any((repaired.repair_summary or {}).values()),
         "unknown_code_rejected": unknown.status == OrchestrationRunStatus.FAILED,
         "idempotent_replay": replay.run_id == clean.run_id,
         "idempotency_conflict_guard": idem_conflict_ok,

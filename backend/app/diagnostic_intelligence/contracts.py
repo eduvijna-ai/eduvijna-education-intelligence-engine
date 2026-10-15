@@ -108,6 +108,7 @@ class DiagnosticAuthoringRequest(BaseModel):
     actor_id: str | None = None
     allowed_source_revision_ids: list[str] = Field(default_factory=list)
     allowed_evidence_refs: list[str] = Field(default_factory=list)
+    blocked_tenant_revision_ids: list[str] = Field(default_factory=list)
     coverage_policy: str = "distinct_misconceptions"
     fixture_scenario: str = "diagnostic_clean_pass"
 

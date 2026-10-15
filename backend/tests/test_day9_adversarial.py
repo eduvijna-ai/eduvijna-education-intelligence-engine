@@ -10,7 +10,6 @@ from app.diagnostic_intelligence.candidate_resolver import resolve_misconception
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
     DistractorDiagnosticResult,
-    OptionDiagnosticTag,
 )
 from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
@@ -48,23 +47,16 @@ def _codes(request: DiagnosticAuthoringRequest) -> set[str]:
 def test_adversarial_unknown_misconception_code() -> None:
     service = DiagnosticIntelligenceService()
     request = _authoring()
-    wrong = request.item.options[0]
+    tags = build_fixture_tags(request.item)
+    tags[0] = tags[0].model_copy(update={"misconception_code": "MATH.HALLUCINATED"})
     result = DistractorDiagnosticResult(
         item_id=request.item.item_id,
         question_type=request.item.question_type,
-        option_tags=[
-            OptionDiagnosticTag(
-                item_id=request.item.item_id,
-                option_key=wrong.option_key,
-                is_correct=False,
-                misconception_code="MATH.HALLUCINATED",
-                diagnostic_signal="fake",
-                metadata_json={"option_text": wrong.text},
-            )
-        ],
+        option_tags=tags,
     )
     verdict = service.validate_result(request, result, candidate_codes=_codes(request))
     assert verdict.blocking is True
+    assert "unknown_misconception_code" in verdict.issue_codes
 
 
 def test_adversarial_inactive_misconception() -> None:
@@ -87,21 +79,12 @@ def test_adversarial_inactive_misconception() -> None:
 def test_adversarial_forged_evidence_ref() -> None:
     service = DiagnosticIntelligenceService()
     request = _authoring("adv-2")
-    wrong = request.item.options[0]
+    tags = build_fixture_tags(request.item)
+    tags[0] = tags[0].model_copy(update={"evidence_refs": ["FORGED-REF"]})
     result = DistractorDiagnosticResult(
         item_id=request.item.item_id,
         question_type=request.item.question_type,
-        option_tags=[
-            OptionDiagnosticTag(
-                item_id=request.item.item_id,
-                option_key=wrong.option_key,
-                is_correct=False,
-                misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-                diagnostic_signal="off-by-one-low",
-                evidence_refs=["FORGED"],
-                metadata_json={"option_text": wrong.text},
-            )
-        ],
+        option_tags=tags,
     )
     verdict = service.validate_result(request, result, candidate_codes=_codes(request))
     assert "forged_evidence_ref" in verdict.issue_codes
@@ -190,5 +173,135 @@ def test_orchestration_gateway_timeout_401_5xx() -> None:
     assert timeout.status == OrchestrationRunStatus.RETRY_REQUIRED
     assert unauthorized.status == OrchestrationRunStatus.FAILED
     assert unavailable.status == OrchestrationRunStatus.RETRY_REQUIRED
+    session.close()
+
+
+def test_adversarial_scope_mismatches_on_full_tags() -> None:
+    service = DiagnosticIntelligenceService()
+    request = _authoring("adv-scope")
+    tags = build_fixture_tags(request.item)
+    tags[0] = tags[0].model_copy(
+        update={"misconception_code": "MATH.ADD.ALGEBRA_TOPIC_ONLY", "diagnostic_signal": "algebra"}
+    )
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=request.item.item_id,
+            question_type=request.item.question_type,
+            option_tags=tags,
+        ),
+        candidate_codes=_codes(request) | {"MATH.ADD.ALGEBRA_TOPIC_ONLY"},
+    )
+    assert "curriculum_scope_mismatch" in verdict.issue_codes
+
+    wrong_grade = request.model_copy(update={"grade_year_code": "grade-10"})
+    verdict_grade = service.validate_result(
+        wrong_grade,
+        DistractorDiagnosticResult(
+            item_id=request.item.item_id,
+            question_type=request.item.question_type,
+            option_tags=build_fixture_tags(request.item),
+        ),
+        candidate_codes=_codes(wrong_grade),
+    )
+    assert verdict_grade.issue_codes
+
+    wrong_subject = request.model_copy(update={"subject_code": "physics"})
+    tags_subject = build_fixture_tags(request.item)
+    tags_subject[0] = tags_subject[0].model_copy(
+        update={"misconception_code": "SCI.PHYS.FORCE.WRONG_SUBJECT"}
+    )
+    verdict_subject = service.validate_result(
+        wrong_subject,
+        DistractorDiagnosticResult(
+            item_id=request.item.item_id,
+            question_type=request.item.question_type,
+            option_tags=tags_subject,
+        ),
+        candidate_codes=_codes(wrong_subject) | {"SCI.PHYS.FORCE.WRONG_SUBJECT"},
+    )
+    assert "curriculum_scope_mismatch" in verdict_subject.issue_codes
+
+
+def test_adversarial_second_correct_distractor() -> None:
+    service = DiagnosticIntelligenceService()
+    request = _authoring("adv-second-correct")
+    tags = build_fixture_tags(request.item)
+    tags[0] = tags[0].model_copy(
+        update={"misconception_code": "MATH.ADD.WHOLE.SUM_AS_NEXT", "diagnostic_signal": "12"}
+    )
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=request.item.item_id,
+            question_type=request.item.question_type,
+            option_tags=tags,
+        ),
+        candidate_codes=_codes(request),
+    )
+    assert (
+        "second_correct_distractor" in verdict.issue_codes
+        or "signal_text_mismatch" in verdict.issue_codes
+    )
+
+
+def test_orchestration_tenant_foreign_revisions_rejected() -> None:
+    from app.orchestration.day9_tenant_fixtures import seed_day9_foreign_tenant_revisions
+
+    session = _session()
+    ctx, service = build_day8_test_service(session)
+    foreign = seed_day9_foreign_tenant_revisions(session, ctx)
+
+    def _run(revision_id: str, key: str) -> list[str]:
+        result = service.run(
+            build_diagnostic_orchestration_request(
+                ctx,
+                diagnostic_scenario="diagnostic_foreign_revision",
+                diagnostic_foreign_revision_id=revision_id,
+                diagnostic_blocked_tenant_revision_ids=[revision_id],
+                idempotency_key=key,
+            )
+        )
+        codes: list[str] = []
+        for entry in result.metadata_json.get("diagnostic_results") or []:
+            for tag in entry.get("option_tags") or []:
+                codes.extend(tag.get("issue_codes") or [])
+        return codes
+
+    org_codes = _run(foreign.foreign_organization_revision_id, "day9-adv-tenant-org")
+    inst_codes = _run(foreign.foreign_institution_revision_id, "day9-adv-tenant-inst")
+    teacher_codes = _run(foreign.foreign_teacher_revision_id, "day9-adv-tenant-teacher")
+    assert "tenant_evidence_mismatch" in org_codes
+    assert "tenant_evidence_mismatch" in inst_codes
+    assert "tenant_evidence_mismatch" in teacher_codes
+    session.close()
+
+
+def test_orchestration_injection_and_second_correct() -> None:
+    session = _session()
+    ctx, service = build_day8_test_service(session)
+    injection = service.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            scenario="injection_evidence",
+            idempotency_key="day9-adv-injection",
+        )
+    )
+    second = service.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_second_correct",
+            idempotency_key="day9-adv-second-correct",
+            max_repairs=0,
+        )
+    )
+    assert injection.status in {
+        OrchestrationRunStatus.REVIEW_REQUIRED,
+        OrchestrationRunStatus.COMPLETED,
+    }
+    assert second.status in {
+        OrchestrationRunStatus.FAILED,
+        OrchestrationRunStatus.REVIEW_REQUIRED,
+    }
     session.close()
 
