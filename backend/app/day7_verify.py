@@ -370,7 +370,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             injection_binding.metadata_json.get("workspace_scope_key")
         ),
         "d5_ds01_still_deferred": bool(gov_checks.get("d5_ds01_deferred")),
-        "day8_locked": bool(gov_checks.get("day8_locked")),
+        "day7_governance_valid": governance.get("passed") is True,
         "candidate_sha_resolved": report_head_sha != "unknown",
         "curriculum_provenance_not_forged": forged_curriculum.items == [],
         "local_grade_scope_filter_enforced": grade_filtered.items == [],
