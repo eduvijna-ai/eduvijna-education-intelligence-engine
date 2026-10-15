@@ -34,6 +34,9 @@ def validate_result_integrity(
         elif result_sources != canonical_item_sources:
             issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
             issues.append("result_source_revision_mismatch")
+    elif result_sources:
+        issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
+        issues.append("result_source_revision_mismatch")
     allowed_sources = set(request.allowed_source_revision_ids)
     if canonical_item_sources and not allowed_sources:
         issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
@@ -43,6 +46,9 @@ def validate_result_integrity(
         if claimed - allowed_sources:
             issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
             issues.append("unauthorized_source_revision")
+    elif result_sources:
+        issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
+        issues.append("unauthorized_source_revision")
     for revision_id in result_sources:
         record = request.revision_tenant_records.get(revision_id)
         if record is not None and tenant_scope_mismatch(

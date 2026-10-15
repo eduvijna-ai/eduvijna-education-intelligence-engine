@@ -19,6 +19,7 @@ from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
 from app.orchestration.fixtures import build_day8_test_service, build_orchestration_request
 from app.orchestration.gateway.fake import FakeGenerationGateway
+from app.orchestration.gateway.request_capture import RequestCapturingGateway
 from app.orchestration.human_decision import HumanResumeDecision
 
 
@@ -154,7 +155,7 @@ def test_hitl_marks_edit_forbidden() -> None:
 
 def test_foreign_injection_not_in_knowledge_context_or_author_payload() -> None:
     session = _session()
-    gateway = FakeGenerationGateway()
+    gateway = RequestCapturingGateway(FakeGenerationGateway())
     ctx, service = build_day8_test_service(session, gateway=gateway)
     from app.orchestration.day9_tenant_fixtures import seed_day9_foreign_tenant_revisions
 
@@ -186,10 +187,12 @@ def test_foreign_injection_not_in_knowledge_context_or_author_payload() -> None:
     bounded = str(knowledge.get("bounded_text") or "")
     assert foreign_id not in evidence_ids
     assert foreign_id not in bounded
-    for call in gateway.call_history():
-        if call.call_context and call.call_context.role == GenerationNodeRole.AUTHOR:
-            payload = json.dumps(call.parsed, default=str)
-            assert foreign_id not in payload
+    author_calls = gateway.captured_for_role(GenerationNodeRole.AUTHOR)
+    assert author_calls
+    for captured in author_calls:
+        payload = json.dumps(captured.user_payload, default=str)
+        assert foreign_id not in payload
+        assert "DAY9-ORG-B" not in payload
     if result.status == OrchestrationRunStatus.COMPLETED:
         assert all(item.marks == 1.0 for item in result.items)
         for item in result.items:

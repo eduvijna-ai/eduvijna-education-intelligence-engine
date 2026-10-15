@@ -3,6 +3,7 @@ tests/test_day9_service_integrity.py
 tests/test_day9_r4_acceptance.py
 tests/test_day9_r5_acceptance.py
 tests/test_day9_r6_acceptance.py
+tests/test_day9_r7_acceptance.py
 tests/test_day9_adversarial.py
 tests/test_day9_audit.py
 tests/test_day9_batch.py

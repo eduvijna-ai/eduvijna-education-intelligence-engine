@@ -320,7 +320,41 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         in empty_auth.issue_codes,
         "arithmetic_operand_context_mismatch": "signal_text_mismatch" in stem_verdict.issue_codes
         and stem_verdict.status.value != "pass",
+        "sourceless_result_source_spoof_rejected": _sourceless_spoof_rejected(service),
     }
+
+
+def _sourceless_spoof_rejected(service: DiagnosticIntelligenceService) -> bool:
+    item = build_fixture_mcq_item(item_id="day9-sourceless-spoof").model_copy(
+        update={"source_revision_ids": []}
+    )
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=[],
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    tags = build_fixture_tags(item)
+    codes = {c.misconception_code for c in resolve_misconception_candidates(request)}
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=["FOREIGN-REVISION"],
+        ),
+        candidate_codes=codes,
+    )
+    return (
+        verdict.status.value != "pass"
+        and verdict.blocking
+        and "result_source_revision_mismatch" in verdict.issue_codes
+    )
 
 
 def _marks_edit_forbidden_proof(orchestration: object, ctx: dict[str, str]) -> bool:
@@ -344,50 +378,67 @@ def _marks_edit_forbidden_proof(orchestration: object, ctx: dict[str, str]) -> b
     )
 
 
-def _foreign_injection_context_proof(
-    orchestration: object, ctx: dict[str, str], foreign_revision_id: str
-) -> bool:
+def _foreign_injection_context_proof() -> bool:
     import json
+    import tempfile
 
     from app.orchestration.enums import GenerationNodeRole
-    from app.orchestration.fixtures import build_orchestration_request
+    from app.orchestration.fixtures import build_day8_test_service, build_orchestration_request
+    from app.orchestration.gateway.fake import FakeGenerationGateway
+    from app.orchestration.gateway.request_capture import RequestCapturingGateway
 
-    foreign_id = foreign_revision_id
-    gateway = getattr(getattr(orchestration, "dependencies", None), "gateway", None)
-    if gateway is None:
-        return False
-    malicious = build_orchestration_request(
-        ctx,
-        scenario="injection_evidence",
-        idempotency_key="day9-foreign-context-proof",
-    )
-    malicious = malicious.model_copy(
-        update={
-            "metadata_json": {
-                **malicious.metadata_json,
-                "injection_revision_id": foreign_id,
-            },
-        }
-    )
-    result = orchestration.run(malicious)  # type: ignore[attr-defined]
-    state = orchestration.compiled_graph.get_state(  # type: ignore[attr-defined]
-        {"configurable": {"thread_id": result.run_id}}
-    )
-    knowledge = state.values.get("knowledge_context") or {}
-    evidence_ids = {
-        str(entry.get("source_revision_id"))
-        for entry in knowledge.get("evidence") or []
-        if entry.get("source_revision_id")
-    }
-    if foreign_id in evidence_ids:
-        return False
-    if foreign_id in str(knowledge.get("bounded_text") or ""):
-        return False
-    for call in gateway.call_history():
-        if call.call_context and call.call_context.role == GenerationNodeRole.AUTHOR:
-            if foreign_id in json.dumps(call.parsed, default=str):
+    with tempfile.TemporaryDirectory() as tmp:
+        engine = create_engine(f"sqlite:///{tmp}/foreign-inj-proof.db")
+        enable_sqlite_foreign_keys(engine)
+        Base.metadata.create_all(engine)
+        with Session(engine) as proof_session:
+            capturing = RequestCapturingGateway(FakeGenerationGateway())
+            ctx, orchestration = build_day8_test_service(proof_session, gateway=capturing)
+            foreign = seed_day9_foreign_tenant_revisions(proof_session, ctx)
+            foreign_id = foreign.foreign_organization_revision_id
+            malicious = build_orchestration_request(
+                ctx,
+                scenario="injection_evidence",
+                idempotency_key="day9-foreign-context-proof",
+            )
+            malicious = malicious.model_copy(
+                update={
+                    "metadata_json": {
+                        **malicious.metadata_json,
+                        "injection_revision_id": foreign_id,
+                    },
+                }
+            )
+            result = orchestration.run(malicious)
+            state = orchestration.compiled_graph.get_state(
+                {"configurable": {"thread_id": result.run_id}}
+            )
+            knowledge = state.values.get("knowledge_context") or {}
+            evidence_ids = {
+                str(entry.get("source_revision_id"))
+                for entry in knowledge.get("evidence") or []
+                if entry.get("source_revision_id")
+            }
+            bounded = str(knowledge.get("bounded_text") or "")
+            if foreign_id in evidence_ids or foreign_id in bounded or "DAY9-ORG-B" in bounded:
                 return False
-    return True
+            author_calls = capturing.captured_for_role(GenerationNodeRole.AUTHOR)
+            if not author_calls:
+                return False
+            for captured in author_calls:
+                blob = json.dumps(captured.user_payload, default=str)
+                if foreign_id in blob or "DAY9-ORG-B" in blob:
+                    return False
+                if foreign_id in captured.system_prompt or "DAY9-ORG-B" in captured.system_prompt:
+                    return False
+            curriculum_calls = capturing.captured_for_role(GenerationNodeRole.CURRICULUM_REVIEW)
+            if not curriculum_calls:
+                return False
+            for captured in curriculum_calls:
+                blob = json.dumps(captured.user_payload, default=str)
+                if foreign_id in blob or "DAY9-ORG-B" in blob:
+                    return False
+            return True
 
 
 def _hitl_diagnostic_edit_revalidates(orchestration: object, ctx: dict[str, str]) -> bool:
@@ -512,15 +563,11 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
     session.commit()
-    tenant_isolation_ok, foreign_org_revision_id = _tenant_isolation_proof(
-        orchestration, ctx, session
-    )
+    tenant_isolation_ok, _ = _tenant_isolation_proof(orchestration, ctx, session)
     hitl_diagnostic_review_ok = _hitl_diagnostic_review_proof(orchestration, ctx)
     hitl_diagnostic_edit_ok = _hitl_diagnostic_edit_revalidates(orchestration, ctx)
     marks_edit_forbidden_ok = _marks_edit_forbidden_proof(orchestration, ctx)
-    foreign_injection_context_ok = _foreign_injection_context_proof(
-        orchestration, ctx, foreign_org_revision_id
-    )
+    foreign_injection_context_ok = _foreign_injection_context_proof()
     injection_evidence_ok = _injection_evidence_proof(orchestration, ctx)
     checkpoint_restart_ok = prove_interrupted_diagnostic_checkpoint_restart()
     replay = orchestration.run(
