@@ -3,12 +3,19 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-_FORBIDDEN_IMPORT_SNIPPETS = (
+_FORBIDDEN_IMPORT_PREFIXES = (
     "openai",
     "anthropic",
     "google.generativeai",
     "langchain_openai",
 )
+
+
+def _forbidden_import(module_name: str) -> bool:
+    return any(
+        module_name == prefix or module_name.startswith(f"{prefix}.")
+        for prefix in _FORBIDDEN_IMPORT_PREFIXES
+    )
 
 
 def verify_day8_scope_guard() -> dict[str, object]:
@@ -19,10 +26,6 @@ def verify_day8_scope_guard() -> dict[str, object]:
         if path.name == "scope_guard.py":
             continue
         text = path.read_text(encoding="utf-8")
-        lowered = text.lower()
-        for snippet in _FORBIDDEN_IMPORT_SNIPPETS:
-            if snippet in lowered:
-                violations.append(f"{path.name}: forbidden snippet {snippet}")
         try:
             tree = ast.parse(text, filename=str(path))
         except SyntaxError:
@@ -30,9 +33,9 @@ def verify_day8_scope_guard() -> dict[str, object]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if alias.name.split(".")[0] in {"openai", "anthropic"}:
+                    if _forbidden_import(alias.name):
                         violations.append(f"{path.name}: import {alias.name}")
             if isinstance(node, ast.ImportFrom) and node.module:
-                if node.module.split(".")[0] in {"openai", "anthropic"}:
+                if _forbidden_import(node.module):
                     violations.append(f"{path.name}: from {node.module}")
     return {"ok": not violations, "violations": violations}

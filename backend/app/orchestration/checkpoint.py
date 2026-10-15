@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from pathlib import Path
 from contextlib import contextmanager
 from typing import Any
 
@@ -45,6 +46,12 @@ def sqlite_checkpointer(db_path: str) -> Iterator[SqliteSaver]:
         conn.close()
 
 
+def _sqlite_checkpoint_path(database_path: str) -> str:
+    if database_path == ":memory:":
+        return database_path
+    return f"{database_path}.langgraph.sqlite"
+
+
 def build_managed_checkpointer(
     settings: Settings, *, memory_only: bool = False
 ) -> ManagedCheckpointer:
@@ -52,7 +59,10 @@ def build_managed_checkpointer(
         return ManagedCheckpointer(build_memory_checkpointer())
     url = settings.database_url
     if url.startswith("sqlite"):
-        path = url.split("///", 1)[-1]
+        app_path = url.split("///", 1)[-1]
+        path = _sqlite_checkpoint_path(app_path)
+        if path != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path, check_same_thread=False)
         saver = SqliteSaver(conn)
         saver.setup()

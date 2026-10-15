@@ -82,7 +82,7 @@ class _ForeignInjectingAdapter:
         self,
         delegate: AnythingLLMAdapter,
         *,
-        injected: list[tuple[str, str]],
+        injected: list[tuple[str, str, str]],
     ) -> None:
         self._delegate = delegate
         self._injected = injected
@@ -121,9 +121,8 @@ class _ForeignInjectingAdapter:
         response = self._delegate.retrieve(request)
         if not request.workspace_slugs:
             return response
-        workspace = request.workspace_slugs[0]
         hits = list(response.hits)
-        for index, (doc_source, text) in enumerate(
+        for index, (workspace, doc_source, text) in enumerate(
             self._injected, start=len(hits) + 1
         ):
             hits.append(
@@ -250,8 +249,16 @@ def build_verification_report(session: Session) -> dict[str, object]:
     service.dependencies.knowledge_service._adapter = _ForeignInjectingAdapter(
         ki_probe_adapter,
         injected=[
-            (foreign_doc_source, _OFFICIAL_TEXT + " ORG-B-MARKER"),
-            (teacher_doc_source, _OFFICIAL_TEXT + " TEACHER-B-MARKER"),
+            (
+                foreign_binding.anythingllm_workspace,
+                foreign_doc_source,
+                _OFFICIAL_TEXT + " ORG-B-MARKER",
+            ),
+            (
+                teacher_binding.anythingllm_workspace,
+                teacher_doc_source,
+                _OFFICIAL_TEXT + " TEACHER-B-MARKER",
+            ),
         ],
     )
     tenant_request = build_orchestration_request(
