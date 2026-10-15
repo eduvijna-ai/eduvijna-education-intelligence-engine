@@ -138,11 +138,14 @@ def test_anythingllm_rejects_model_settings() -> None:
 
 def test_orchestration_models_postgres_compile() -> None:
     from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
 
     from app.models.orchestration import OrchestrationGenerationCall
 
     ddl = str(
-        OrchestrationGenerationCall.__table__.compile(dialect=postgresql.dialect())
+        CreateTable(OrchestrationGenerationCall.__table__).compile(
+            dialect=postgresql.dialect()
+        )
     )
     assert "orchestration_generation_calls" in ddl
 
