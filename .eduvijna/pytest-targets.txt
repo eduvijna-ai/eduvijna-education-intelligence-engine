@@ -1,4 +1,7 @@
-# Required on implementation PRs.
-# Cursor must replace/add selectors here for the active task only.
-# Example:
-# tests/test_day7_knowledge.py
+tests/test_day7_adapter.py
+tests/test_day7_factory.py
+tests/test_day7_workspace.py
+tests/test_day7_http_adapter.py
+tests/test_day7_indexing.py
+tests/test_day7_retrieval.py
+tests/test_day7_acceptance.py

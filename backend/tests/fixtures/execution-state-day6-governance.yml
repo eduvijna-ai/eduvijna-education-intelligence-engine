@@ -1,0 +1,13 @@
+release: v1.0
+current_day: 6
+days:
+  5:
+    deferred_backlog: D5-DS01
+    deferred_issue: 16
+    deferred_backlog_status: DEFERRED_BY_FOUNDER
+  6:
+    state: ACTIVE
+    founder_approval: false
+  7:
+    state: LOCKED
+    founder_approval: false

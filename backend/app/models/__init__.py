@@ -17,6 +17,7 @@ from app.models.education_intelligence import (
 )
 from app.models.examination import ExamBlueprintRule, ExamPack, ExamSection, ExamVersion
 from app.models.framework_structure import FrameworkStructureNode, LearningOutcomeCompetencyLink
+from app.models.knowledge_intelligence import KnowledgeAuditEvent, KnowledgeSourceBinding
 from app.models.policy import PolicyRule
 from app.models.question import (
     Question,
@@ -49,6 +50,8 @@ __all__ = [
     "PolicyRegistryEntry",
     "FrameworkStructureNode",
     "Institution",
+    "KnowledgeAuditEvent",
+    "KnowledgeSourceBinding",
     "Learner",
     "LearningOutcome",
     "LearningOutcomeCompetencyLink",

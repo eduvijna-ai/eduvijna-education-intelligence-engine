@@ -17,7 +17,15 @@ builder:
   cloud_agent_on_demand_billing: disabled
   zero_overage_fallback: ChatGPT-GitHub connected implementation
 reviewer:
-  product: Codex
+  default_product: ChatGPT
+  default_mode: founder_manual_code_review
+  active_review_loop: founder_manual_chatgpt_review
+  historical:
+    codex_exact_sha_automatic_loop:
+      product: Codex
+      status: archived_superseded
+      retained_for_audit: true
+      note: "Day 6 and pre-manual Day 7 closure iterations used Codex; not the active default loop."
 source_of_truth: GitHub
 ci_repair_policy:
   max_consecutive_failed_repair_iterations: 3
@@ -42,18 +50,20 @@ ci_repair_policy:
     final_acceptance_checkpoint: one_full_regression
 review_loop_policy:
   founder_approved: true
-  approval_signal: "Approve the workflow and run pytest only for the implemented task, not all tasks every time."
+  approval_signal: "Founder manual ChatGPT review workflow; automatic Codex review loop disabled."
+  mode: founder_manual_chatgpt_review
   sequence:
-    - chatgpt_handoff_to_cursor
+    - chatgpt_requirements_handoff_to_cursor
     - cursor_implementation
-    - cursor_targeted_pytest
-    - codex_exact_sha_review
-    - cursor_targeted_repair_if_findings
-    - codex_rereview
-  iteration_definition: one_cursor_candidate_plus_one_codex_review
-  max_iterations_per_task: 3
-  on_findings_after_iteration_3: STOP_AND_ESCALATE
-  cursor_completion_marker: "EDUVIJNA_CURSOR_COMPLETE <40-char-head-sha>"
+    - founder_manually_notifies_chatgpt_cursor_complete
+    - chatgpt_manual_code_review_exact_head
+    - chatgpt_new_cursor_handoff_if_changes_required
+    - repeat_founder_notification_and_chatgpt_review_until_clean
+    - next_acceptance_or_signoff_gate_only_after_clean_review
+  codex_in_default_loop: false
+  codex_only_when: founder_explicitly_requests
+  automatic_cursor_codex_issue_comment_loop: disabled
+  automatic_three_cycle_stop: false_unless_founder_reinstates
   exact_head_review_required: true
   pytest_policy:
     implementation_iteration: impacted_task_tests_only
@@ -200,6 +210,33 @@ days:
       integration_strategy: "PR #23 supersedes PR #22 for final Day 7 integration after closure; preserve PR #22 as exhausted-loop audit history."
       auto_merge: false
       day8_unlock: false
+      automatic_codex_review_loop:
+        status: STOP_AND_ESCALATE
+        final_exact_sha_candidate: "204e8e531fd82ba6e07895d64e9fed64266202f9"
+        note: "Historical record only; superseded by Founder manual ChatGPT workflow."
+      founder_manual_follow_up:
+        workflow: founder_manual_chatgpt_review
+        founder_authorization_signal: "Founder directed manual ChatGPT review after closure Codex loop exhausted."
+        implementation_candidate: "31360cec71bbfe3061125c7bb96f3f3635259aad"
+        implementation_status: IMPLEMENTED
+        chatgpt_manual_review:
+          reviewed_candidate: "31360cec71bbfe3061125c7bb96f3f3635259aad"
+          scope: "CR-01 legacy identity on failed migration upload; CR-02 terminal legacy cleanup; CR-03 workflow governance"
+          result: CODE_CLEAN
+        governance_reconciliation:
+          develop_merge_base: "961848d9f38474d7a09641f6166b1b46d31adb64"
+          status: COMPLETE
+          reconciled_at_branch_head: "90584b57ef6b8b8064008f715a336d1166429f33"
+        final_acceptance_regression:
+          candidate: "64f0ecf5604443f18ffab14fbcae6b5d81589a2c"
+          result: NOT_GREEN_HARNESS
+          classification: historical_regression_harness_and_environment_not_day7_feature_defect
+          compose_blocked_reason: docker_unavailable_on_cursor_cloud_agent
+        acceptance_harness_repair: IMPLEMENTED
+        full_github_acceptance: PENDING_CHATGPT_READY_GATE
+        codex_required: false
+        auto_merge: false
+        day8_unlock: false
     iteration_3_scope:
       - "AnythingLLM addToWorkspaces wire format"
       - "AnythingLLM vector-hit stable document identity mapping"
