@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
+from app.adapters.anythingllm.types import (
+    AdapterRetrievalHit,
+    AdapterRetrievalRequest,
+    AdapterRetrievalResponse,
+)
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
@@ -51,6 +56,62 @@ def _resolve_candidate_sha() -> str:
     return _git_head()
 
 
+def _candidate_sha_checks() -> tuple[str, str, dict[str, bool]]:
+    candidate_sha = _resolve_candidate_sha()
+    head_sha = _git_head()
+    return (
+        candidate_sha,
+        head_sha,
+        {
+            "candidate_sha_resolved": candidate_sha not in {"", "unknown"},
+            "candidate_sha_matches_head": candidate_sha == head_sha,
+        },
+    )
+
+
+class _ForeignInjectingAdapter:
+    """Wrap the Day-7 fake and simulate a remote cross-tenant hit."""
+
+    def __init__(
+        self,
+        delegate: FakeAnythingLLMAdapter,
+        *,
+        injected: list[tuple[str, str]],
+    ) -> None:
+        self._delegate = delegate
+        self._injected = injected
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._delegate, name)
+
+    def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse:
+        response = self._delegate.retrieve(request)
+        if not request.workspace_slugs:
+            return response
+        workspace = request.workspace_slugs[0]
+        hits = list(response.hits)
+        for index, (doc_source, text) in enumerate(
+            self._injected, start=len(hits) + 1
+        ):
+            hits.append(
+                AdapterRetrievalHit(
+                    workspace_slug=workspace,
+                    document_id=doc_source,
+                    text=text,
+                    score=1.0,
+                    rank=index,
+                    metadata={
+                        "docSource": doc_source,
+                        "synthetic_foreign_injection": True,
+                    },
+                )
+            )
+        return AdapterRetrievalResponse(
+            hits=tuple(hits),
+            warnings=response.warnings,
+        )
+
+
 def build_verification_report(session: Session) -> dict[str, object]:
     scope_guard = verify_day8_scope_guard()
     ctx, service = build_day8_test_service(session)
@@ -72,10 +133,10 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
     session.commit()
-    from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
+    from app.knowledge_intelligence.contracts import KnowledgeContextPack
     from app.knowledge_intelligence.fixtures import _OFFICIAL_TEXT, _active_revision
     from app.knowledge_intelligence.indexing import index_source_revision
-    from app.models import Institution, Organization
+    from app.models import Institution, Organization, Teacher
     from app.models.enums import SourceStatus, SourceTrustTier, SourceType
     from app.models.source import Source
 
@@ -89,7 +150,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         organization_id=org_b.id,
         institution_id=inst_b.id,
         source_type=SourceType.INSTITUTION_CONTENT.value,
-        title="Synthetic foreign tenant source",
+        title="Synthetic foreign organization source",
         trust_tier=SourceTrustTier.INSTITUTION.value,
         status=SourceStatus.ACTIVE.value,
         metadata_json={"synthetic_fixture": True, "fixture_role": "foreign_tenant"},
@@ -102,53 +163,92 @@ def build_verification_report(session: Session) -> dict[str, object]:
         revision_number=1,
         checksum_suffix="fb",
     )
-    foreign_revision.metadata_json = {
-        **foreign_revision.metadata_json,
-        "tenant_marker": "org-b",
-    }
     session.add(foreign_revision)
+
+    foreign_teacher = Teacher(
+        institution_id=ctx["institution_id"],
+        external_code="foreign-teacher",
+        display_name="Synthetic Foreign Teacher",
+    )
+    session.add(foreign_teacher)
     session.flush()
+    teacher_source = Source(
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        teacher_id=foreign_teacher.id,
+        source_type=SourceType.TEACHER_CONTENT.value,
+        title="Synthetic foreign teacher source",
+        trust_tier=SourceTrustTier.TEACHER.value,
+        status=SourceStatus.ACTIVE.value,
+        metadata_json={"synthetic_fixture": True, "fixture_role": "foreign_teacher"},
+    )
+    session.add(teacher_source)
+    session.flush()
+    teacher_revision = _active_revision(
+        teacher_source.id,
+        _OFFICIAL_TEXT + " TEACHER-B-MARKER",
+        revision_number=1,
+        checksum_suffix="ft",
+    )
+    session.add(teacher_revision)
+    session.flush()
+
     ki_probe_adapter = service.dependencies.knowledge_service._adapter
-    index_source_revision(
+    foreign_binding = index_source_revision(
         session,
         ki_probe_adapter,
         foreign_revision.id,
         retrieval_profile_version=clean_request.retrieval_profile_version,
     )
+    teacher_binding = index_source_revision(
+        session,
+        ki_probe_adapter,
+        teacher_revision.id,
+        retrieval_profile_version=clean_request.retrieval_profile_version,
+    )
     session.commit()
-    ki_service = service.dependencies.knowledge_service
-    tenant_probe = ki_service.retrieve(
-        KnowledgeRetrievalRequest(
-            query_text="quadratic equations completing square",
-            retrieval_profile_version=clean_request.retrieval_profile_version,
-            organization_id=ctx["organization_id"],
-            institution_id=ctx["institution_id"],
-            curriculum_version_id=ctx["curriculum_version_id"],
-            grade_year_code="grade-8",
-            medium_code="english",
-            subject_code="mathematics",
-        )
+
+    foreign_doc_source = str(
+        foreign_binding.metadata_json.get("anythingllm_doc_source_identity") or ""
     )
-    tenant_b_probe = ki_service.retrieve(
-        KnowledgeRetrievalRequest(
-            query_text="quadratic equations completing square",
-            retrieval_profile_version=clean_request.retrieval_profile_version,
-            organization_id=org_b.id,
-            institution_id=inst_b.id,
-        )
+    teacher_doc_source = str(
+        teacher_binding.metadata_json.get("anythingllm_doc_source_identity") or ""
     )
-    foreign_visible_to_tenant_b = any(
-        item.source_revision_id == foreign_revision.id for item in tenant_b_probe.items
+    service.dependencies.knowledge_service._adapter = _ForeignInjectingAdapter(
+        ki_probe_adapter,
+        injected=[
+            (foreign_doc_source, _OFFICIAL_TEXT + " ORG-B-MARKER"),
+            (teacher_doc_source, _OFFICIAL_TEXT + " TEACHER-B-MARKER"),
+        ],
     )
-    foreign_hidden_from_tenant_a = all(
-        item.source_revision_id != foreign_revision.id for item in tenant_probe.items
+    tenant_request = build_orchestration_request(
+        ctx,
+        idempotency_key="day8-tenant-isolation-key",
     )
+    tenant_result = service.run(tenant_request)
+    tenant_snapshot = service.compiled_graph.get_state(
+        {"configurable": {"thread_id": tenant_result.run_id}}
+    )
+    tenant_context = KnowledgeContextPack.model_validate(
+        tenant_snapshot.values.get("knowledge_context") or {}
+    )
+    service.dependencies.knowledge_service._adapter = ki_probe_adapter
+    foreign_revision_ids = {foreign_revision.id, teacher_revision.id}
+    context_revision_ids = {
+        item.source_revision_id for item in tenant_context.evidence
+    }
+    drop_warnings = [
+        warning
+        for warning in tenant_context.warnings
+        if warning.startswith("dropped_foreign_tenant:")
+    ]
     foreign_tenant_scope_enforced = (
-        foreign_visible_to_tenant_b
-        and foreign_hidden_from_tenant_a
-        and (
-            tenant_probe.dropped_foreign_tenant_count > 0
-            or len(tenant_probe.items) > 0
+        tenant_result.status == OrchestrationRunStatus.COMPLETED
+        and foreign_revision_ids.isdisjoint(context_revision_ids)
+        and foreign_revision_ids.isdisjoint(set(tenant_result.source_revision_ids))
+        and all(
+            any(revision_id in warning for warning in drop_warnings)
+            for revision_id in foreign_revision_ids
         )
     )
     exhausted = service.run(
@@ -254,8 +354,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         prod_config_missing = True
 
     gateway_history = service.dependencies.gateway.call_history()
-    candidate_sha = _resolve_candidate_sha()
-    head_sha = _git_head()
+    candidate_sha, head_sha, candidate_checks = _candidate_sha_checks()
 
     checks = {
         "graph_compiles": graph is not None,
@@ -284,8 +383,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "gateway_calls_recorded": len(gateway_history) > 0,
         "no_direct_provider_path": scope_guard["ok"],
         "production_gateway_fail_closed": prod_config_missing,
-        "candidate_sha_resolved": candidate_sha not in {"", "unknown"},
-        "candidate_sha_matches_head": candidate_sha == head_sha,
+        **candidate_checks,
     }
     checks["ok"] = all(value for key, value in checks.items())
     return {

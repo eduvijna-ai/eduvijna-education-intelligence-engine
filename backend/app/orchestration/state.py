@@ -28,7 +28,7 @@ class OrchestrationGraphState(TypedDict, total=False):
     repair_instructions_by_item: dict[str, list[str]]
     node_attempts: Annotated[dict[str, int], _merge_dict]
     warnings: Annotated[list[str], operator.add]
-    errors: Annotated[list[str], operator.add]
+    errors: list[str]
     status: str
     prompt_versions: dict[str, str]
     gateway_usage: dict[str, Any]
@@ -39,6 +39,7 @@ class OrchestrationGraphState(TypedDict, total=False):
     human_revalidate: bool
     pipeline_halt: bool
     gateway_retry_required: bool
+    gateway_retry_node: str | None
     allow_gateway_retry: bool
     repair_item_ids: list[str]
     generation_call_cache: dict[str, Any]

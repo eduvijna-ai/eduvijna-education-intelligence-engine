@@ -100,7 +100,7 @@ class OrchestrationService:
         self,
         request: OrchestrationRequest,
         *,
-        resume: HumanResumeDecision | None = None,
+        resume: HumanResumeDecision | dict[str, Any] | None = None,
         allow_gateway_retry: bool = False,
     ) -> OrchestrationResult:
         self._control = open_control_session(self._session)
@@ -116,29 +116,6 @@ class OrchestrationService:
         snapshot = self._graph.get_state(config)
 
         lease_acquired = False
-        if allow_gateway_retry and snapshot.values:
-            retry_errors = {
-                "gateway_unavailable",
-                "gateway_timeout",
-                "gateway_call_ambiguous",
-            }
-            errors = [
-                error
-                for error in (snapshot.values.get("errors") or [])
-                if error not in retry_errors
-            ]
-            self._graph.update_state(
-                config,
-                {
-                    "allow_gateway_retry": True,
-                    "gateway_retry_required": False,
-                    "pipeline_halt": False,
-                    "errors": errors,
-                    "status": OrchestrationRunStatus.AUTHORING.value,
-                },
-                as_node="author",
-            )
-            snapshot = self._graph.get_state(config)
         try:
             lease_result = try_acquire_execution_lease(
                 self._control,
@@ -151,9 +128,59 @@ class OrchestrationService:
                 return self._already_in_progress_result(canonical_request, thread_id)
             lease_acquired = True
 
+            if allow_gateway_retry and snapshot.values:
+                retry_errors = {
+                    "gateway_unavailable",
+                    "gateway_timeout",
+                    "gateway_call_ambiguous",
+                }
+                errors = [
+                    error
+                    for error in (snapshot.values.get("errors") or [])
+                    if error not in retry_errors
+                ]
+                retry_target = (
+                    str(snapshot.next[0])
+                    if snapshot.next
+                    else str(snapshot.values.get("gateway_retry_node") or "")
+                )
+                retry_predecessor = {
+                    "author": "plan_generation",
+                    "solver": "author",
+                    "reviewers": "solver",
+                    "repair": "duplicate_validate",
+                }.get(retry_target)
+                if retry_predecessor is None:
+                    return self._failed_result(
+                        canonical_request,
+                        thread_id,
+                        errors=["gateway_retry_not_available"],
+                    )
+                retry_status = {
+                    "author": OrchestrationRunStatus.AUTHORING.value,
+                    "solver": OrchestrationRunStatus.SOLVING.value,
+                    "reviewers": OrchestrationRunStatus.REVIEWING.value,
+                    "repair": OrchestrationRunStatus.REPAIRING.value,
+                }[retry_target]
+                self._graph.update_state(
+                    config,
+                    {
+                        "allow_gateway_retry": True,
+                        "gateway_retry_required": False,
+                        "gateway_retry_node": None,
+                        "pipeline_halt": False,
+                        "errors": errors,
+                        "final_result": None,
+                        "status": retry_status,
+                    },
+                    as_node=retry_predecessor,
+                )
+                snapshot = self._graph.get_state(config)
+
             if resume is not None:
                 try:
-                    resume_payload = resume.model_dump(mode="json")
+                    decision = HumanResumeDecision.model_validate(resume)
+                    resume_payload = decision.model_dump(mode="json")
                     final_state = self._graph.invoke(
                         Command(resume=resume_payload), config=config
                     )

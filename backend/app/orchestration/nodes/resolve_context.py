@@ -93,6 +93,15 @@ def resolve_context_node(
             attempt=attempt,
             issue_codes=[str(exc)],
         )
+    except Exception:
+        return pipeline_failure(
+            deps,
+            state,
+            "resolve_context",
+            started,
+            "day7_service_error",
+            attempt=attempt,
+        )
     pack = deps.knowledge_service.build_context_pack(retrieval)
     scope_issues = validate_context_scope(scope, pack)
     revision_ids = [item.source_revision_id for item in pack.evidence]

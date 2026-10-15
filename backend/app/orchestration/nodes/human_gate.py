@@ -12,7 +12,15 @@ from app.orchestration.human_decision import HumanResumeDecision
 from app.orchestration.nodes._helpers import audit_node, next_attempt, timed_update
 from app.orchestration.state import OrchestrationGraphState
 
-_HUMAN_IMMUTABLE_PATCH_KEYS = frozenset({"item_id", "slot_index"})
+_HUMAN_IMMUTABLE_PATCH_KEYS = frozenset(
+    {
+        "item_id",
+        "slot_index",
+        "source_revision_ids",
+        "learning_outcome_ids",
+        "competency_codes",
+    }
+)
 
 
 def _build_interrupt_payload(state: OrchestrationGraphState) -> dict[str, Any]:
@@ -82,7 +90,7 @@ def human_gate_node(
                             "human_decision": decision.model_dump(mode="json"),
                             "status": OrchestrationRunStatus.FAILED.value,
                             "errors": list(state.get("errors") or [])
-                            + ["human_edit_identity_forbidden"],
+                            + ["human_edit_provenance_forbidden"],
                             "pipeline_halt": True,
                             "audit_refs": [audit_id],
                         },

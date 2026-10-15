@@ -6,6 +6,35 @@ import httpx
 
 from app.orchestration.gateway.types import GenerationGatewayError
 
+ORCHESTRATION_WORKSPACE_PROMPT_MARKER = "EDUVIJNA_ORCHESTRATION_V1"
+
+
+def _workspace_record(payload: dict[str, Any], workspace_slug: str) -> dict[str, Any]:
+    raw = payload.get("workspace")
+    if isinstance(raw, list):
+        if len(raw) != 1 or not isinstance(raw[0], dict):
+            raise GenerationGatewayError(
+                "gateway_configuration",
+                "Unable to verify dedicated orchestration workspace shape",
+                retryable=False,
+            )
+        workspace = raw[0]
+    elif isinstance(raw, dict):
+        workspace = raw
+    else:
+        raise GenerationGatewayError(
+            "gateway_configuration",
+            "AnythingLLM workspace response did not expose a verifiable workspace",
+            retryable=False,
+        )
+    if str(workspace.get("slug") or "").strip() != workspace_slug:
+        raise GenerationGatewayError(
+            "gateway_configuration",
+            "AnythingLLM workspace identity did not match configured orchestration workspace",
+            retryable=False,
+        )
+    return workspace
+
 
 def verify_orchestration_workspace(
     *,
@@ -14,7 +43,7 @@ def verify_orchestration_workspace(
     workspace_slug: str,
     timeout_seconds: float = 10.0,
 ) -> None:
-    """Fail closed when workspace has attached documents (untracked RAG injection risk)."""
+    """Fail closed unless the dedicated workspace proves zero documents + trusted guard."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -49,19 +78,31 @@ def verify_orchestration_workspace(
         raise GenerationGatewayError(
             "gateway_invalid_json", "Workspace contract response is not JSON"
         ) from exc
-    workspace = payload.get("workspace") if isinstance(payload.get("workspace"), dict) else payload
-    documents = workspace.get("documents") if isinstance(workspace, dict) else None
-    if documents is None and isinstance(workspace, dict):
-        documents = workspace.get("documentCount")
-    if isinstance(documents, list) and len(documents) > 0:
+
+    workspace = _workspace_record(payload, workspace_slug)
+    documents = workspace.get("documents")
+    document_count = workspace.get("documentCount")
+    zero_documents_verified = (
+        isinstance(documents, list) and len(documents) == 0
+    ) or (
+        isinstance(document_count, int)
+        and not isinstance(document_count, bool)
+        and document_count == 0
+    )
+    if not zero_documents_verified:
         raise GenerationGatewayError(
             "gateway_configuration",
-            "Orchestration workspace must have zero attached documents",
+            "Orchestration workspace must prove zero attached documents",
             retryable=False,
         )
-    if isinstance(documents, int) and documents > 0:
+
+    system_prompt = workspace.get("openAiPrompt")
+    if (
+        not isinstance(system_prompt, str)
+        or ORCHESTRATION_WORKSPACE_PROMPT_MARKER not in system_prompt
+    ):
         raise GenerationGatewayError(
             "gateway_configuration",
-            "Orchestration workspace must have zero attached documents",
+            "Orchestration workspace trusted system-prompt marker is missing",
             retryable=False,
         )

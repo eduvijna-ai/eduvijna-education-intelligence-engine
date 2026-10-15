@@ -33,7 +33,7 @@ class AnythingLLMGenerationGateway:
         self._timeout = timeout_seconds
         self._workspace_slug = workspace_slug
         self._history: list[GenerationResponse] = []
-        self._workspace_verified = False
+        self._workspace_verified_slug: str | None = None
 
     def call_history(self) -> list[GenerationResponse]:
         return list(self._history)
@@ -62,19 +62,26 @@ class AnythingLLMGenerationGateway:
                 "Per-call model_settings are not supported by AnythingLLM workspace chat",
                 retryable=False,
             )
-        workspace = request.workspace_slug or self._workspace_slug
+        requested_workspace = (request.workspace_slug or "").strip()
+        if requested_workspace and requested_workspace != self._workspace_slug:
+            raise GenerationGatewayError(
+                "gateway_configuration",
+                "Per-call orchestration workspace overrides are not allowed",
+                retryable=False,
+            )
+        workspace = self._workspace_slug
         if not workspace:
             raise GenerationGatewayError(
                 "gateway_configuration", "orchestration workspace slug is required", retryable=False
             )
-        if not self._workspace_verified:
+        if self._workspace_verified_slug != workspace:
             verify_orchestration_workspace(
                 base_url=self._base_url,
                 api_key=self._api_key,
                 workspace_slug=workspace,
                 timeout_seconds=min(self._timeout, 15.0),
             )
-            self._workspace_verified = True
+            self._workspace_verified_slug = workspace
         started = time.perf_counter()
         body: dict[str, Any] = {
             "message": self._build_message(request),

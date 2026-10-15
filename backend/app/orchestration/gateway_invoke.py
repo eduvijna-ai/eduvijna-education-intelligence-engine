@@ -10,7 +10,7 @@ from app.orchestration.gateway.types import (
     GenerationResponse,
 )
 from app.orchestration.generation_call_store import (
-    abandon_generation_call,
+    authorize_generation_call_retry,
     claim_generation_call_start,
     complete_generation_call,
     load_call_status,
@@ -70,9 +70,26 @@ def invoke_generation(
 
     status = load_call_status(control, run_id=run_id, cache_key=key)
     allow_retry = bool(state.get("allow_gateway_retry"))
+    call_claimed = False
+    retry_audit_refs: list[str] = []
     if status in {"started", "ambiguous"}:
-        if allow_retry and status == "started":
-            abandon_generation_call(control, run_id=run_id, cache_key=key, commit=True)
+        if allow_retry and authorize_generation_call_retry(
+            control, run_id=run_id, cache_key=key, commit=True
+        ):
+            call_claimed = True
+            retry_audit_refs.append(
+                audit_node(
+                    deps,
+                    state,
+                    node_name,
+                    "retry_authorized",
+                    attempt=attempt,
+                    prompt_version=request.prompt_version,
+                    issue_codes=["gateway_retry_authorized"],
+                    input_hash=key,
+                    payload={"item_id": item_id, "prior_status": status},
+                )
+            )
         else:
             audit_id = audit_node(
                 deps,
@@ -106,7 +123,9 @@ def invoke_generation(
         )
         return cached, {"audit_refs": [audit_id], "cache_hit": True}
 
-    if not claim_generation_call_start(control, run_id=run_id, cache_key=key, commit=True):
+    if not call_claimed and not claim_generation_call_start(
+        control, run_id=run_id, cache_key=key, commit=True
+    ):
         audit_id = audit_node(
             deps,
             state,
@@ -156,7 +175,7 @@ def invoke_generation(
             "error_code": exc.code,
             "retryable": exc.retryable,
             "input_hash": key,
-            "audit_refs": [audit_id],
+            "audit_refs": retry_audit_refs + [audit_id],
         }
 
     try:
@@ -179,7 +198,7 @@ def invoke_generation(
             "error_code": exc.code,
             "retryable": False,
             "input_hash": key,
-            "audit_refs": [audit_id],
+            "audit_refs": retry_audit_refs + [audit_id],
         }
 
     safe_response = GenerationResponse(
@@ -217,5 +236,5 @@ def invoke_generation(
         "cache": state_cache_update,
         "response": safe_response,
         "input_hash": key,
-        "audit_refs": [audit_id],
+        "audit_refs": retry_audit_refs + [audit_id],
     }

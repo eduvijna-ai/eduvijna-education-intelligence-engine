@@ -145,7 +145,11 @@ def build_orchestration_graph(
             "whole_output": "whole_output",
         },
     )
-    graph.add_edge("repair", "author")
+    graph.add_conditional_edges(
+        "repair",
+        _continue_or_output,
+        {"continue": "author", "whole_output": "whole_output"},
+    )
     graph.add_conditional_edges(
         "human_gate",
         route_after_human,

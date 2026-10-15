@@ -38,7 +38,7 @@ def audit_node(
     if input_hash:
         merged_payload["input_hash"] = input_hash
     event = persist_audit_event(
-        deps.session,
+        deps.control_session,
         run_id=state["run_id"],
         request_hash=state.get("request_hash", ""),
         node_name=node_name,
@@ -87,6 +87,9 @@ def pipeline_failure(
     }
     if retryable:
         update["gateway_retry_required"] = True
+        update["gateway_retry_node"] = (
+            "repair" if node_name == "repair_planner" else node_name
+        )
     return timed_update(
         state,
         node_name,

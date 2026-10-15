@@ -81,6 +81,21 @@ def abandon_generation_call(
         commit_control(session)
 
 
+def authorize_generation_call_retry(
+    session: Session, *, run_id: str, cache_key: str, commit: bool = True
+) -> bool:
+    """Explicitly transition a started/ambiguous call into one authorized retry attempt."""
+    record = _record(session, run_id=run_id, cache_key=cache_key)
+    if record is None or record.status not in {"started", "ambiguous"}:
+        return False
+    record.status = "started"
+    record.response_json = None
+    session.flush()
+    if commit:
+        commit_control(session)
+    return True
+
+
 def mark_generation_call_ambiguous(
     session: Session, *, run_id: str, cache_key: str, commit: bool = True
 ) -> None:

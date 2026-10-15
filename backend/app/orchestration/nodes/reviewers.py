@@ -45,7 +45,8 @@ def reviewers_node(
     verdict_map: dict[tuple[str, str], dict[str, Any]] = {}
     for raw in state.get("review_verdicts") or []:
         parsed = ReviewVerdict.model_validate(raw)
-        verdict_map[(parsed.item_id, parsed.reviewer)] = raw
+        if parsed.item_id not in targets:
+            verdict_map[(parsed.item_id, parsed.reviewer)] = raw
     gateway_usage = dict(state.get("gateway_usage") or {})
     call_cache = dict(state.get("generation_call_cache") or {})
     prompt_versions = dict(state.get("prompt_versions") or {})
@@ -118,8 +119,34 @@ def reviewers_node(
                     "model_identity_mismatch",
                     attempt=attempt,
                 )
+            if verdict.reviewer != role.value:
+                return pipeline_failure(
+                    deps,
+                    state,
+                    "reviewers",
+                    started,
+                    "model_reviewer_identity_mismatch",
+                    attempt=attempt,
+                )
             verdict_map[(verdict.item_id, verdict.reviewer)] = verdict.model_dump(mode="json")
             prompt_versions[prompt_name] = prompt.version
+
+    required_roles = {role.value for role, _ in roles}
+    for item_id in targets:
+        item_roles = {
+            reviewer
+            for (verdict_item_id, reviewer) in verdict_map
+            if verdict_item_id == item_id
+        }
+        if item_roles != required_roles:
+            return pipeline_failure(
+                deps,
+                state,
+                "reviewers",
+                started,
+                "reviewer_cardinality_invalid",
+                attempt=attempt,
+            )
 
     return timed_update(
         state,
