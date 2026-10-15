@@ -15,11 +15,20 @@ from sqlalchemy.orm import Session
 import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-from app.diagnostic_intelligence.fixtures import run_positive_fixture_validation
+from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
+from app.diagnostic_intelligence.contracts import (
+    DiagnosticAuthoringRequest,
+    DistractorDiagnosticResult,
+)
+from app.diagnostic_intelligence.fixtures import (
+    build_fixture_mcq_item,
+    build_fixture_tags,
+    run_positive_fixture_validation,
+)
 from app.diagnostic_intelligence.scope_guard import verify_day9_scope_guard
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.diagnostic_intelligence.taxonomy_registry import load_taxonomy
-from app.models.orchestration import OrchestrationIdempotencyRecord
+from app.models.orchestration import OrchestrationAuditEvent, OrchestrationIdempotencyRecord
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.exceptions import IdempotencyConflictError
 from app.orchestration.fixtures import (
@@ -62,12 +71,63 @@ def _candidate_sha_checks() -> tuple[str, str, dict[str, bool]]:
     )
 
 
+def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
+    item = build_fixture_mcq_item()
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    codes = {c.misconception_code for c in resolve_misconception_candidates(request)}
+    tags = build_fixture_tags(item)
+    tags[0] = tags[0].model_copy(
+        update={
+            "diagnostic_signal": "fake-signal-only",
+            "metadata_json": {"option_text": "unrelated distractor text"},
+        }
+    )
+    bad_signal = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+        ),
+        candidate_codes=codes,
+    )
+    dup_tags = build_fixture_tags(item)
+    dup_tags[2] = dup_tags[2].model_copy(
+        update={
+            "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            "diagnostic_signal": "off-by-one-low",
+        }
+    )
+    dup_tags[2].metadata_json["option_text"] = "11 off-by-one-low"
+    duplicate = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=dup_tags,
+        ),
+        candidate_codes=codes,
+    )
+    return {
+        "signal_mismatch_rejected": "signal_text_mismatch" in bad_signal.issue_codes,
+        "distinctness_enforced": "duplicate_misconception" in duplicate.issue_codes,
+    }
+
+
 def build_verification_report(session: Session) -> dict[str, object]:
     scope_guard = verify_day9_scope_guard()
     day8_scope = verify_day8_scope_guard()
     taxonomy = load_taxonomy()
     service = DiagnosticIntelligenceService()
     run_positive_fixture_validation(service, allowed_refs=["[CIT-1]"])
+    service_proofs = _service_proofs(service)
 
     ctx, orchestration = build_day8_test_service(session)
     clean = orchestration.run(
@@ -103,6 +163,14 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
     session.commit()
+    foreign = orchestration.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_forged_evidence",
+            idempotency_key="day9-foreign-evidence-key",
+        )
+    )
+    session.commit()
     replay = orchestration.run(
         build_diagnostic_orchestration_request(
             ctx,
@@ -129,6 +197,10 @@ def build_verification_report(session: Session) -> dict[str, object]:
     correct_protected = all(
         not tag.get("misconception_code") for tag in option_tags if tag.get("is_correct")
     )
+    first_result = diagnostic_results[0] if diagnostic_results else {}
+    audit_refs = first_result.get("audit_refs") or []
+    audit_ref = audit_refs[0] if audit_refs else None
+    audit_event = session.get(OrchestrationAuditEvent, audit_ref) if audit_ref else None
 
     candidate_sha, head_sha, sha_checks = _candidate_sha_checks()
     checks = {
@@ -138,12 +210,17 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "option_tags_produced": bool(option_tags),
         "correct_option_protected": correct_protected,
         "day6_authority_survives": blocked.status == OrchestrationRunStatus.FAILED,
-        "tenant_isolation_path_available": True,
+        "foreign_evidence_rejected": foreign.status == OrchestrationRunStatus.FAILED,
         "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED,
         "unknown_code_rejected": unknown.status == OrchestrationRunStatus.FAILED,
         "idempotent_replay": replay.run_id == clean.run_id,
         "idempotency_conflict_guard": idem_conflict_ok,
-        "no_second_orchestration_runtime": True,
+        "diagnostic_audit_persisted": audit_event is not None
+        and audit_event.payload_json.get("diagnostic") is True,
+        "single_orchestration_graph": "diagnostic_repair" in str(
+            orchestration.compiled_graph.get_graph().nodes
+        ),
+        **service_proofs,
         **sha_checks,
     }
     ok = all(checks.values())

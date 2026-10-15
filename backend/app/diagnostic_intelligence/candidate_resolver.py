@@ -8,6 +8,17 @@ from app.diagnostic_intelligence.enums import MisconceptionStatus
 from app.diagnostic_intelligence.taxonomy_registry import load_taxonomy
 
 
+def _candidate_filter_aligned(
+    request_values: list[str],
+    entry_values: list[str],
+) -> bool:
+    if not request_values:
+        return True
+    if not entry_values:
+        return True
+    return bool(set(request_values).intersection(entry_values))
+
+
 def resolve_misconception_candidates(
     request: DiagnosticAuthoringRequest,
 ) -> list[MisconceptionDefinition]:
@@ -25,14 +36,15 @@ def resolve_misconception_candidates(
         if request.grade_year_code and entry.grade_year_code:
             if entry.grade_year_code != request.grade_year_code:
                 continue
-        if request.topic_codes and entry.topic_codes:
-            if not set(request.topic_codes).intersection(entry.topic_codes):
-                continue
-        if request.concept_codes and entry.concept_codes:
-            if not set(request.concept_codes).intersection(entry.concept_codes):
-                continue
-        if request.learning_outcome_ids and entry.learning_outcome_ids:
-            if not set(request.learning_outcome_ids).intersection(entry.learning_outcome_ids):
-                continue
+        if not _candidate_filter_aligned(request.topic_codes, entry.topic_codes):
+            continue
+        if not _candidate_filter_aligned(request.concept_codes, entry.concept_codes):
+            continue
+        if not _candidate_filter_aligned(request.competency_codes, entry.competency_codes):
+            continue
+        if not _candidate_filter_aligned(
+            request.learning_outcome_ids, entry.learning_outcome_ids
+        ):
+            continue
         candidates.append(entry)
     return candidates

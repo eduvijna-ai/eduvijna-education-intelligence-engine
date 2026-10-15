@@ -65,13 +65,17 @@ def build_diagnostic_orchestration_request(
         requested_count=requested_count,
         max_repairs=max_repairs,
     )
+    metadata = {
+        **request.metadata_json,
+        "diagnostic_enrichment_enabled": True,
+        "diagnostic_fixture_scenario": diagnostic_scenario,
+    }
+    if requested_count >= 2:
+        metadata["diagnostic_fixture_by_item"] = {}
     return request.model_copy(
         update={
-            "metadata_json": {
-                **request.metadata_json,
-                "diagnostic_enrichment_enabled": True,
-                "diagnostic_fixture_scenario": diagnostic_scenario,
-            }
+            "requested_count": requested_count,
+            "metadata_json": metadata,
         }
     )
 

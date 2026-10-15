@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
     DiagnosticQuestionItem,
@@ -85,6 +86,11 @@ def run_positive_fixture_validation(
         taxonomy_version=DEFAULT_TAXONOMY_VERSION,
         source_revision_ids=item.source_revision_ids,
     )
-    verdict = service.validate_result(request, result)
+    candidate_codes = {
+        c.misconception_code for c in resolve_misconception_candidates(request)
+    }
+    verdict = service.validate_result(
+        request, result, candidate_codes=candidate_codes
+    )
     assert verdict.status.value == "pass"
     return request

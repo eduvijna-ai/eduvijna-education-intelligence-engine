@@ -99,8 +99,13 @@ class DiagnosticAuthoringRequest(BaseModel):
     concept_codes: list[str] = Field(default_factory=list)
     learning_outcome_ids: list[str] = Field(default_factory=list)
     competency_codes: list[str] = Field(default_factory=list)
+    curriculum_version_id: str | None = None
+    exam_version_id: str | None = None
+    medium_code: str | None = None
     organization_id: str | None = None
     institution_id: str | None = None
+    teacher_id: str | None = None
+    actor_id: str | None = None
     allowed_source_revision_ids: list[str] = Field(default_factory=list)
     allowed_evidence_refs: list[str] = Field(default_factory=list)
     coverage_policy: str = "distinct_misconceptions"

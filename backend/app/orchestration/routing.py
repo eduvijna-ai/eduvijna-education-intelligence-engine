@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.diagnostic_intelligence.repair_policy import diagnostic_repair_is_tag_only
 from app.orchestration.contracts import OrchestrationRequest
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.state import OrchestrationGraphState
@@ -88,12 +89,15 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
         return "whole_output"
 
     if repairable:
-        for summary in diagnostic:
-            if not summary.get("repairable"):
-                continue
+        repairable_summaries = [s for s in diagnostic if s.get("repairable")]
+        tag_only = all(
+            diagnostic_repair_is_tag_only(list(summary.get("issue_codes") or []))
+            for summary in repairable_summaries
+        )
+        for summary in repairable_summaries:
             item_id = str(summary.get("item_id"))
             if repair_counts.get(item_id, 0) < max_repairs:
-                return "repair"
+                return "diagnostic_repair" if tag_only else "repair"
         if review_required or any(
             repair_counts.get(str(summary.get("item_id")), 0) >= max_repairs
             for summary in diagnostic

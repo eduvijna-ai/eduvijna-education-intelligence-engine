@@ -52,17 +52,28 @@ def build_diagnostic_verdict(
             "tenant_evidence_mismatch",
             "day6_blocking",
             "nonsensical_distractor",
+            "non_candidate_misconception",
         }
         for code in all_codes
     )
     repairable = any(code in repairable_codes for code in all_codes) and not blocking
-    review_required = bool(all_codes) and not blocking and not repairable
+    review_only = {
+        "factual_unverified",
+        "no_misconception_candidates",
+    }
+    if any(code in review_only for code in all_codes):
+        review_required = True
+        repairable = False
+    else:
+        review_required = bool(all_codes) and not blocking and not repairable
     if not all_codes:
         aggregate = DiagnosticValidationStatus.PASS
     elif blocking:
         aggregate = DiagnosticValidationStatus.REJECT
     elif repairable:
         aggregate = DiagnosticValidationStatus.REPAIR
+    elif review_required:
+        aggregate = DiagnosticValidationStatus.REVIEW_REQUIRED
     else:
         aggregate = DiagnosticValidationStatus.REVIEW_REQUIRED
     repair_instructions = []

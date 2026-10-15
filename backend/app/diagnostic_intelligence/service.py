@@ -20,7 +20,7 @@ from app.diagnostic_intelligence.validators import (
 )
 from app.diagnostic_intelligence.verdict import build_diagnostic_verdict
 from app.education_intelligence.service import EducationIntelligenceValidationService
-from app.orchestration.contracts import DraftQuestionItem, ResolvedScope
+from app.orchestration.contracts import DraftQuestionItem, ResolvedScope, SolverResult
 
 
 class DiagnosticIntelligenceService:
@@ -40,7 +40,10 @@ class DiagnosticIntelligenceService:
         scope: ResolvedScope | None = None,
         request_marks: float | None = None,
         draft_item: DraftQuestionItem | None = None,
+        candidate_codes: set[str] | None = None,
+        solver: SolverResult | None = None,
     ) -> DiagnosticVerdict:
+        allowed_codes = candidate_codes or set()
         eligible, status, _reason = diagnostic_eligibility(request.item)
         if not eligible:
             return DiagnosticVerdict(
@@ -64,17 +67,23 @@ class DiagnosticIntelligenceService:
             )
 
         option_issues: dict[str, list[str]] = {}
-        option_text = {
-            o.option_key: o.text for o in request.item.options
-        }
+        option_text = {o.option_key: o.text for o in request.item.options}
         for tag in result.option_tags:
             codes: list[str] = []
             text = str(tag.metadata_json.get("option_text") or option_text.get(tag.option_key, ""))
-            codes.extend(validate_curriculum_scope(request, tag))
+            codes.extend(
+                validate_curriculum_scope(
+                    request, tag, allowed_candidate_codes=allowed_codes
+                )
+            )
             codes.extend(validate_evidence_refs(request, tag))
-            codes.extend(validate_signal_alignment(tag, text))
+            codes.extend(validate_signal_alignment(tag, text, stem_text=request.item.stem_text))
             codes.extend(validate_plausibility(tag, text))
-            codes.extend(validate_factual_incorrectness(request.item, tag, text))
+            codes.extend(
+                validate_factual_incorrectness(
+                    request.item, tag, text, solver=solver
+                )
+            )
             if not tag.is_correct and not tag.misconception_code:
                 codes.append("missing_diagnostic_tag")
             option_issues.setdefault(tag.option_key, []).extend(codes)
@@ -101,6 +110,8 @@ class DiagnosticIntelligenceService:
                     DiagnosticValidationStatus.REPAIR
                     if verdict.repairable
                     else DiagnosticValidationStatus.REJECT
+                    if verdict.blocking
+                    else DiagnosticValidationStatus.REVIEW_REQUIRED
                 )
             updated_tags.append(
                 tag.model_copy(

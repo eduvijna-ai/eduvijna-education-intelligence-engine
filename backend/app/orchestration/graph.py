@@ -10,6 +10,7 @@ from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.nodes._helpers import pipeline_failure
 from app.orchestration.nodes.author import author_node
 from app.orchestration.nodes.diagnostic import diagnostic_enrich_node
+from app.orchestration.nodes.diagnostic_repair import diagnostic_repair_node
 from app.orchestration.nodes.duplicate_validate import duplicate_validate_node
 from app.orchestration.nodes.human_gate import human_gate_node
 from app.orchestration.nodes.plan import plan_generation_node
@@ -106,6 +107,10 @@ def build_orchestration_graph(
         "diagnostic_enrich",
         _bind(diagnostic_enrich_node, deps, node_name="diagnostic_enrich"),
     )  # type: ignore[call-overload]
+    graph.add_node(
+        "diagnostic_repair",
+        _bind(diagnostic_repair_node, deps, node_name="diagnostic_repair"),
+    )  # type: ignore[call-overload]
     graph.add_node("repair", _bind(repair_planner_node, deps, node_name="repair"))  # type: ignore[call-overload]
     graph.add_node("human_gate", _bind_raw(human_gate_node, deps))  # type: ignore[call-overload]
     graph.add_node("whole_output", _bind(whole_output_node, deps, node_name="whole_output"))  # type: ignore[call-overload]
@@ -157,10 +162,12 @@ def build_orchestration_graph(
         route_after_diagnostic,
         {
             "repair": "repair",
+            "diagnostic_repair": "diagnostic_repair",
             "human_gate": "human_gate",
             "whole_output": "whole_output",
         },
     )
+    graph.add_edge("diagnostic_repair", "diagnostic_enrich")
     graph.add_conditional_edges(
         "repair",
         _continue_or_output,

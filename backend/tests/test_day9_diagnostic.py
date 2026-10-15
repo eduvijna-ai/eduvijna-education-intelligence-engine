@@ -43,7 +43,10 @@ def test_correct_option_cannot_carry_misconception() -> None:
         question_type=item.question_type,
         option_tags=tags,
     )
-    verdict = service.validate_result(request, result)
+    from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
+
+    codes = {c.misconception_code for c in resolve_misconception_candidates(request)}
+    verdict = service.validate_result(request, result, candidate_codes=codes)
     assert verdict.blocking is True
     assert "correct_option_mislabeled" in verdict.issue_codes
 

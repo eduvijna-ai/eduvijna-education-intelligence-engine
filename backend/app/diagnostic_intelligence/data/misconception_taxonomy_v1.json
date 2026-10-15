@@ -74,6 +74,24 @@
       "metadata_json": {}
     },
     {
+      "misconception_code": "MATH.ADD.ALGEBRA_TOPIC_ONLY",
+      "version": "1",
+      "title": "Algebra-topic scoped misconception for scope tests",
+      "description": "Must not tag whole-number items.",
+      "domain": "mathematics",
+      "subject_code": "mathematics",
+      "grade_year_code": "grade-8",
+      "topic_codes": ["algebra"],
+      "concept_codes": ["algebra-basics"],
+      "learning_outcome_ids": [],
+      "competency_codes": ["application"],
+      "error_pattern": "algebra confusion",
+      "diagnostic_signal": "algebra",
+      "evidence_source_revision_ids": [],
+      "status": "active",
+      "metadata_json": {}
+    },
+    {
       "misconception_code": "SCI.PHYS.FORCE.WRONG_SUBJECT",
       "version": "1",
       "title": "Cross-subject leakage test misconception",

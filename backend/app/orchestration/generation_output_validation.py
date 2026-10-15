@@ -13,11 +13,23 @@ class RepairPlan(BaseModel):
     repair_instructions: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class DiagnosticOptionTagOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    option_key: str
+    misconception_code: str | None = None
+    diagnostic_signal: str | None = None
+    error_pattern: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    is_correct: bool | None = None
+
+
 class DiagnosticEnrichmentOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: str
-    option_tags: list[dict[str, Any]] = Field(default_factory=list)
+    option_tags: list[DiagnosticOptionTagOutput] = Field(default_factory=list)
 
 
 class GenerationOutputValidationError(Exception):

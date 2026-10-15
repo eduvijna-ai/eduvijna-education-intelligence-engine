@@ -1,7 +1,12 @@
 tests/test_day9_diagnostic.py
 tests/test_day9_adversarial.py
+tests/test_day9_audit.py
 tests/test_day9_batch.py
+tests/test_day9_granular_repair.py
 tests/test_day9_idempotency.py
+tests/test_day9_preflight.py
+tests/test_day9_restart.py
+tests/test_day9_scope.py
 tests/test_day8_orchestration.py
 tests/test_day8_adversarial.py
 tests/test_day8_extended.py

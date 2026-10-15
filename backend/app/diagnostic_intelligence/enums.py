@@ -33,6 +33,9 @@ class DiagnosticIssueCode(StrEnum):
     MALFORMED_MODEL_OUTPUT = "malformed_model_output"
     MISSING_DIAGNOSTIC_TAG = "missing_diagnostic_tag"
     UNSUPPORTED_QUESTION_TYPE = "unsupported_question_type"
+    NON_CANDIDATE_MISCONCEPTION = "non_candidate_misconception"
+    FACTUAL_UNVERIFIED = "factual_unverified"
+    NO_MISCONCEPTION_CANDIDATES = "no_misconception_candidates"
 
 
 DEFAULT_TAXONOMY_VERSION = "misconception-taxonomy@v1"

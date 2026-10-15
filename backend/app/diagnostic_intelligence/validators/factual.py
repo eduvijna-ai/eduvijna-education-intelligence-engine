@@ -4,6 +4,7 @@ import re
 
 from app.diagnostic_intelligence.contracts import DiagnosticQuestionItem, OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode
+from app.orchestration.contracts import SolverResult
 
 
 def _extract_addition(stem: str) -> tuple[int, int] | None:
@@ -14,18 +15,28 @@ def _extract_addition(stem: str) -> tuple[int, int] | None:
 
 
 def validate_factual_incorrectness(
-    item: DiagnosticQuestionItem, tag: OptionDiagnosticTag, option_text: str
+    item: DiagnosticQuestionItem,
+    tag: OptionDiagnosticTag,
+    option_text: str,
+    *,
+    solver: SolverResult | None = None,
 ) -> list[str]:
     if tag.is_correct:
         return []
     pair = _extract_addition(item.stem_text)
-    if pair is None:
+    if pair is not None:
+        expected = pair[0] + pair[1]
+        digits = re.findall(r"\d+", option_text)
+        for value in digits:
+            if int(value) == expected:
+                return [DiagnosticIssueCode.SECOND_CORRECT_DISTRACTOR.value]
         return []
-    expected = pair[0] + pair[1]
-    digits = re.findall(r"\d+", option_text)
-    if not digits:
-        return []
-    for value in digits:
-        if int(value) == expected:
+
+    if solver is not None and solver.proposed_answer_key == tag.option_key:
+        if solver.agrees_with_author is False or solver.check_status in {
+            "mismatch",
+            "second_correct",
+        }:
             return [DiagnosticIssueCode.SECOND_CORRECT_DISTRACTOR.value]
-    return []
+
+    return [DiagnosticIssueCode.FACTUAL_UNVERIFIED.value]
