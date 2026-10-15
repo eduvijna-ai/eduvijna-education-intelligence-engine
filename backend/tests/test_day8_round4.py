@@ -41,8 +41,8 @@ from app.orchestration.generation_call_store import (
     claim_generation_call_start,
     mark_generation_call_ambiguous,
 )
-from app.orchestration.model_calls import call_cache_key
 from app.orchestration.human_decision import HumanResumeDecision
+from app.orchestration.model_calls import call_cache_key
 
 
 def _session() -> Session:
