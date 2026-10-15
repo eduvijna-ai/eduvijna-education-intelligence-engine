@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from app.orchestration.audit import persist_audit_event
+from app.orchestration.control_session import commit_control
 from app.orchestration.contracts import OrchestrationRequest
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.state import OrchestrationGraphState
@@ -50,6 +51,7 @@ def audit_node(
         gateway_request_id=gateway_request_id,
         payload=merged_payload,
     )
+    commit_control(deps.control_session)
     return str(event.id)
 
 
