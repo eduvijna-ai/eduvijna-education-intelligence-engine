@@ -489,7 +489,21 @@ class _CrashOnSecondAuthorGateway(FakeGenerationGateway):
             self.author_calls += 1
             if self.author_calls == 2:
                 raise SystemExit("synthetic crash between model calls")
-        return super().generate(request)
+        response = super().generate(request)
+        if request.role != GenerationNodeRole.AUTHOR:
+            return response
+        parsed = dict(response.parsed)
+        parsed["stem_text"] = (
+            f"{parsed['stem_text']} [{request.user_payload.get('item_id', 'item')}]"
+        )
+        return response.__class__(
+            parsed=parsed,
+            raw_text=response.raw_text,
+            latency_ms=response.latency_ms,
+            gateway_request_id=response.gateway_request_id,
+            usage=response.usage,
+            call_context=response.call_context,
+        )
 
 
 def test_multicall_crash_restart_reuses_completed_call(tmp_path: Path) -> None:
