@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import Table, create_engine
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
@@ -15,7 +15,7 @@ from app.models.orchestration import (
     OrchestrationIdempotencyRecord,
 )
 
-_CONTROL_TABLES = (
+_CONTROL_TABLES: tuple[Table, ...] = (
     OrchestrationAuditEvent.__table__,
     OrchestrationIdempotencyRecord.__table__,
     OrchestrationGenerationCall.__table__,
