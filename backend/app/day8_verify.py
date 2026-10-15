@@ -13,10 +13,16 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
+from app.adapters.anythingllm.protocol import AnythingLLMAdapter
 from app.adapters.anythingllm.types import (
+    AdapterDocumentRef,
     AdapterRetrievalHit,
     AdapterRetrievalRequest,
     AdapterRetrievalResponse,
+    AdapterUploadedDocument,
+    GatewayProbeResult,
+    IndexDocumentPayload,
+    WorkspaceKey,
 )
 from app.core.config import Settings
 from app.db.base import Base
@@ -70,19 +76,46 @@ def _candidate_sha_checks() -> tuple[str, str, dict[str, bool]]:
 
 
 class _ForeignInjectingAdapter:
-    """Wrap the Day-7 fake and simulate a remote cross-tenant hit."""
+    """Wrap a Day-7 adapter and simulate a remote cross-tenant hit."""
 
     def __init__(
         self,
-        delegate: FakeAnythingLLMAdapter,
+        delegate: AnythingLLMAdapter,
         *,
         injected: list[tuple[str, str]],
     ) -> None:
         self._delegate = delegate
         self._injected = injected
 
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._delegate, name)
+    def probe(self) -> GatewayProbeResult:
+        return self._delegate.probe()
+
+    def resolve_workspace(self, key: WorkspaceKey) -> str:
+        return self._delegate.resolve_workspace(key)
+
+    def ensure_workspace(self, key: WorkspaceKey) -> str:
+        return self._delegate.ensure_workspace(key)
+
+    def upload_document(
+        self,
+        workspace_slug: str,
+        payload: IndexDocumentPayload,
+        *,
+        idempotency_key: str,
+    ) -> AdapterUploadedDocument:
+        return self._delegate.upload_document(
+            workspace_slug,
+            payload,
+            idempotency_key=idempotency_key,
+        )
+
+    def remove_document(self, workspace_slug: str, document_id: str) -> None:
+        self._delegate.remove_document(workspace_slug, document_id)
+
+    def lookup_document(
+        self, workspace_slug: str, document_id: str
+    ) -> AdapterDocumentRef | None:
+        return self._delegate.lookup_document(workspace_slug, document_id)
 
     def retrieve(self, request: AdapterRetrievalRequest) -> AdapterRetrievalResponse:
         response = self._delegate.retrieve(request)
