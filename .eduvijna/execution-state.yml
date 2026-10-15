@@ -308,11 +308,14 @@ days:
     state: ACTIVE
     founder_approval: false
     activation_signal: "Founder approved Day 8 and authorized proceed after D8-36 completed green."
-    tasklist_status: PENDING_FOUNDER_APPROVAL
+    tasklist_status: APPROVED
+    tasklist_approval_signal: "Approved Day 9 D9-01…D9-36 task list. Authorize implementation."
     tasklist_spec: "docs/execution/D09-DIAGNOSTIC-DISTRACTOR-INTELLIGENCE.md"
-    approved_scope: null
-    implementation_authorized: false
-    implementation_status: NOT_STARTED
+    approved_scope: D9-01..D9-36
+    implementation_authorized: true
+    implementation_status: AUTHORIZED_PENDING_HANDOFF
+    implementation_branch: "feature/day9-diagnostic-distractor-intelligence"
+    implementation_issue: 26
     review_workflow: founder_manual_chatgpt_review
     codex_required: false
     auto_merge: false
