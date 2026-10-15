@@ -290,13 +290,14 @@ days:
     targeted_ci_run: 38679112028
     targeted_ci_status: RED_MYPY
     chatgpt_manual_review:
-      status: FINDINGS_ISSUED_ROUND_2
-      reviewed_candidate: "a17b5da604022cecc9243f5c1e82f2f1d8f14edf"
-      prior_reviewed_candidate: "35d9bac0fb5716f2db85f66515321633cfe425f7"
-      prior_repair_handoff_comment_id: 6184236280
-      targeted_ci_run: 38681322942
-      targeted_ci_status: GREEN
-      repair_handoff_comment_id: 6184459287
+      status: FINDINGS_ISSUED_ROUND_3
+      reviewed_candidate: "31215e6d2f977a2a706ce7813e5fa713d1f16abf"
+      prior_reviewed_candidate: "a17b5da604022cecc9243f5c1e82f2f1d8f14edf"
+      prior_repair_handoff_comment_id: 6184459287
+      targeted_ci_run: 38682308633
+      targeted_ci_status: GREEN_PARTIAL_TARGETS
+      targeted_ci_note: "GitHub CI only executed test_day8_orchestration.py and test_day8_adversarial.py; extended/round2 repair modules were not listed in pytest-targets."
+      repair_handoff_comment_id: 6184630465
       next_action: CURSOR_REPAIR
     review_workflow: founder_manual_chatgpt_review
     codex_required: false
