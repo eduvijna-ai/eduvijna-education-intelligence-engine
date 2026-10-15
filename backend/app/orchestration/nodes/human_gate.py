@@ -19,6 +19,7 @@ _HUMAN_IMMUTABLE_PATCH_KEYS = frozenset(
         "source_revision_ids",
         "learning_outcome_ids",
         "competency_codes",
+        "marks",
     }
 )
 

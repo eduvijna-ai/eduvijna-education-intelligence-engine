@@ -57,6 +57,7 @@ def test_redundant_distractor_uses_canonical_text_without_metadata() -> None:
         competency_codes=["application"],
         learning_outcome_ids=["lo-fixture-1"],
         allowed_evidence_refs=["[CIT-1]"],
+        allowed_source_revision_ids=item.source_revision_ids,
     )
     tags = [
         OptionDiagnosticTag(

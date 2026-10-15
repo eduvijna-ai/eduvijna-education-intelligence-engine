@@ -35,7 +35,10 @@ def validate_result_integrity(
             issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
             issues.append("result_source_revision_mismatch")
     allowed_sources = set(request.allowed_source_revision_ids)
-    if allowed_sources:
+    if canonical_item_sources and not allowed_sources:
+        issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
+        issues.append("source_authorization_unresolved")
+    elif allowed_sources:
         claimed = canonical_item_sources | result_sources
         if claimed - allowed_sources:
             issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)

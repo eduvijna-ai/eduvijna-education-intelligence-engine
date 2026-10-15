@@ -12,7 +12,11 @@ from app.diagnostic_intelligence.contracts import (
     OptionDiagnosticTag,
 )
 from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
-from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
+from app.diagnostic_intelligence.fixtures import (
+    build_fixture_mcq_item,
+    build_fixture_result,
+    build_fixture_tags,
+)
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.diagnostic_intelligence.validators.signal import validate_signal_alignment
 from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
@@ -32,10 +36,12 @@ def _session() -> Session:
 
 def test_foreign_injection_metadata_does_not_bypass_day7_retrieval() -> None:
     session = _session()
-    ctx, service = build_day8_test_service(session)
+    gateway = FakeGenerationGateway()
+    ctx, service = build_day8_test_service(session, gateway=gateway)
     from app.orchestration.day9_tenant_fixtures import seed_day9_foreign_tenant_revisions
 
     foreign = seed_day9_foreign_tenant_revisions(session, ctx)
+    foreign_id = foreign.foreign_organization_revision_id
     malicious = build_orchestration_request(
         ctx,
         scenario="injection_evidence",
@@ -45,19 +51,22 @@ def test_foreign_injection_metadata_does_not_bypass_day7_retrieval() -> None:
         update={
             "metadata_json": {
                 **malicious.metadata_json,
-                "injection_revision_id": foreign.foreign_organization_revision_id,
+                "injection_revision_id": foreign_id,
             },
         }
     )
     result = service.run(malicious)
-    payload = result.metadata_json.get("interrupt_payload") or {}
-    revision_ids = set(payload.get("source_revision_ids") or [])
-    assert foreign.foreign_organization_revision_id not in revision_ids
-    if result.status == OrchestrationRunStatus.REVIEW_REQUIRED:
-        det = payload.get("deterministic_validation") or []
-        assert any(
-            "injection_evidence_control" in (d.get("issue_codes") or []) for d in det
-        ) or result.status != OrchestrationRunStatus.COMPLETED
+    state = service.compiled_graph.get_state(
+        {"configurable": {"thread_id": result.run_id}}
+    )
+    knowledge = state.values.get("knowledge_context") or {}
+    evidence_ids = {
+        str(entry.get("source_revision_id"))
+        for entry in knowledge.get("evidence") or []
+        if entry.get("source_revision_id")
+    }
+    assert foreign_id not in evidence_ids
+    assert foreign_id not in str(knowledge.get("bounded_text") or "")
     session.close()
 
 
@@ -144,6 +153,14 @@ def test_result_source_provenance_fail_closed() -> None:
         candidate_codes=codes,
     )
     assert "result_source_revision_mismatch" in mismatch.issue_codes
+
+    empty_allowed_request = request.model_copy(update={"allowed_source_revision_ids": []})
+    verdict_empty = service.validate_result(
+        empty_allowed_request,
+        build_fixture_result(item, tags),
+        candidate_codes=codes,
+    )
+    assert "source_authorization_unresolved" in verdict_empty.issue_codes
 
     ok = service.validate_result(
         request,

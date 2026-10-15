@@ -67,7 +67,23 @@ def whole_output_node(
 
     approved_items: list[DraftQuestionItem] = []
     if status == OrchestrationRunStatus.COMPLETED:
-        approved_items = drafts
+        if request.marks is not None:
+            for draft in drafts:
+                if draft.marks is not None and draft.marks != request.marks:
+                    status = OrchestrationRunStatus.FAILED
+                    errors.append("marks_invariant_violation")
+                    break
+        if status == OrchestrationRunStatus.COMPLETED:
+            approved_items = (
+                [
+                    draft.model_copy(update={"marks": request.marks})
+                    if request.marks is not None
+                    else draft
+                    for draft in drafts
+                ]
+                if request.marks is not None
+                else list(drafts)
+            )
 
     if (
         status == OrchestrationRunStatus.COMPLETED

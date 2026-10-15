@@ -23,6 +23,7 @@ from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
     DistractorDiagnosticResult,
 )
+from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
 from app.diagnostic_intelligence.fixtures import (
     build_fixture_mcq_item,
     build_fixture_tags,
@@ -86,7 +87,7 @@ def _tenant_issue_codes(result: object) -> list[str]:
 
 def _tenant_isolation_proof(
     orchestration: object, ctx: dict[str, str], session: Session
-) -> bool:
+) -> tuple[bool, str]:
     foreign = seed_day9_foreign_tenant_revisions(session, ctx)
     cases = [
         (foreign.foreign_organization_revision_id, "day9-tenant-org-proof"),
@@ -103,8 +104,8 @@ def _tenant_isolation_proof(
             )
         )
         if "tenant_evidence_mismatch" not in _tenant_issue_codes(result):
-            return False
-    return True
+            return False, foreign.foreign_organization_revision_id
+    return True, foreign.foreign_organization_revision_id
 
 
 def _hitl_diagnostic_review_proof(orchestration: object, ctx: dict[str, str]) -> bool:
@@ -180,6 +181,7 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         competency_codes=["application"],
         learning_outcome_ids=["lo-fixture-1"],
         allowed_evidence_refs=["[CIT-1]"],
+        allowed_source_revision_ids=item.source_revision_ids,
     )
     codes = {c.misconception_code for c in resolve_misconception_candidates(request)}
     tags = build_fixture_tags(item)
@@ -267,6 +269,44 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         ),
         candidate_codes=codes,
     )
+    empty_auth_request = request.model_copy(update={"allowed_source_revision_ids": []})
+    empty_auth = service.validate_result(
+        empty_auth_request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=request.taxonomy_version,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes=codes,
+    )
+    stem_item = build_fixture_mcq_item(item_id="arith-mismatch-proof").model_copy(
+        update={"stem_text": "Synthetic fixture: What is 8 + 5?"}
+    )
+    stem_request = DiagnosticAuthoringRequest(
+        item=stem_item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=stem_item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    stem_tags = build_fixture_tags(stem_item)
+    stem_verdict = service.validate_result(
+        stem_request,
+        DistractorDiagnosticResult(
+            item_id=stem_item.item_id,
+            question_type=stem_item.question_type,
+            option_tags=stem_tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=stem_item.source_revision_ids,
+        ),
+        candidate_codes={
+            c.misconception_code for c in resolve_misconception_candidates(stem_request)
+        },
+    )
     return {
         "signal_mismatch_rejected": "signal_text_mismatch" in bad_signal.issue_codes,
         "distinctness_enforced": "duplicate_misconception" in duplicate.issue_codes,
@@ -276,7 +316,78 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "redundant_canonical_text_enforced": "redundant_distractor" in redundant.issue_codes,
         "result_source_provenance_required": "result_source_revision_missing"
         in missing_sources.issue_codes,
+        "source_authorization_empty_rejected": "source_authorization_unresolved"
+        in empty_auth.issue_codes,
+        "arithmetic_operand_context_mismatch": "signal_text_mismatch" in stem_verdict.issue_codes
+        and stem_verdict.status.value != "pass",
     }
+
+
+def _marks_edit_forbidden_proof(orchestration: object, ctx: dict[str, str]) -> bool:
+    from app.orchestration.fixtures import build_orchestration_request
+    from app.orchestration.human_decision import HumanResumeDecision
+
+    request = build_orchestration_request(
+        ctx, scenario="human_review", idempotency_key="day9-marks-forbidden-proof"
+    )
+    paused = orchestration.run(request)  # type: ignore[attr-defined]
+    if paused.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+        return False
+    item_id = paused.metadata_json["interrupt_payload"]["item_ids"][0]
+    failed = orchestration.run(  # type: ignore[attr-defined]
+        request,
+        resume=HumanResumeDecision(action="edit", item_patches={item_id: {"marks": 99.0}}),
+    )
+    return bool(
+        failed.status == OrchestrationRunStatus.FAILED
+        and "human_edit_provenance_forbidden" in failed.errors
+    )
+
+
+def _foreign_injection_context_proof(
+    orchestration: object, ctx: dict[str, str], foreign_revision_id: str
+) -> bool:
+    import json
+
+    from app.orchestration.enums import GenerationNodeRole
+    from app.orchestration.fixtures import build_orchestration_request
+
+    foreign_id = foreign_revision_id
+    gateway = getattr(getattr(orchestration, "dependencies", None), "gateway", None)
+    if gateway is None:
+        return False
+    malicious = build_orchestration_request(
+        ctx,
+        scenario="injection_evidence",
+        idempotency_key="day9-foreign-context-proof",
+    )
+    malicious = malicious.model_copy(
+        update={
+            "metadata_json": {
+                **malicious.metadata_json,
+                "injection_revision_id": foreign_id,
+            },
+        }
+    )
+    result = orchestration.run(malicious)  # type: ignore[attr-defined]
+    state = orchestration.compiled_graph.get_state(  # type: ignore[attr-defined]
+        {"configurable": {"thread_id": result.run_id}}
+    )
+    knowledge = state.values.get("knowledge_context") or {}
+    evidence_ids = {
+        str(entry.get("source_revision_id"))
+        for entry in knowledge.get("evidence") or []
+        if entry.get("source_revision_id")
+    }
+    if foreign_id in evidence_ids:
+        return False
+    if foreign_id in str(knowledge.get("bounded_text") or ""):
+        return False
+    for call in gateway.call_history():
+        if call.call_context and call.call_context.role == GenerationNodeRole.AUTHOR:
+            if foreign_id in json.dumps(call.parsed, default=str):
+                return False
+    return True
 
 
 def _hitl_diagnostic_edit_revalidates(orchestration: object, ctx: dict[str, str]) -> bool:
@@ -401,9 +512,15 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
     session.commit()
-    tenant_isolation_ok = _tenant_isolation_proof(orchestration, ctx, session)
+    tenant_isolation_ok, foreign_org_revision_id = _tenant_isolation_proof(
+        orchestration, ctx, session
+    )
     hitl_diagnostic_review_ok = _hitl_diagnostic_review_proof(orchestration, ctx)
     hitl_diagnostic_edit_ok = _hitl_diagnostic_edit_revalidates(orchestration, ctx)
+    marks_edit_forbidden_ok = _marks_edit_forbidden_proof(orchestration, ctx)
+    foreign_injection_context_ok = _foreign_injection_context_proof(
+        orchestration, ctx, foreign_org_revision_id
+    )
     injection_evidence_ok = _injection_evidence_proof(orchestration, ctx)
     checkpoint_restart_ok = prove_interrupted_diagnostic_checkpoint_restart()
     replay = orchestration.run(
@@ -449,6 +566,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "tenant_isolation_enforced": tenant_isolation_ok,
         "hitl_diagnostic_review_proof": hitl_diagnostic_review_ok,
         "hitl_diagnostic_edit_revalidates": hitl_diagnostic_edit_ok,
+        "marks_edit_forbidden": marks_edit_forbidden_ok,
+        "foreign_injection_not_in_context": foreign_injection_context_ok,
         "injection_evidence_bounded": injection_evidence_ok,
         "checkpoint_explicit_retry_proof": checkpoint_restart_ok,
         "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED
