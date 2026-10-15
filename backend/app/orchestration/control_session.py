@@ -88,8 +88,5 @@ def open_control_session(domain_session: Session) -> Session:
 
 
 def commit_control(session: Session) -> None:
-    bind = session.get_bind()
-    if bind is not None and _sqlite_memory_database(bind):
-        session.flush()
-        return
+    """Commit the control transaction/savepoint without committing caller domain work."""
     session.commit()
