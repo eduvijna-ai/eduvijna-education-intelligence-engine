@@ -258,7 +258,6 @@ def test_orchestration_tenant_foreign_revisions_rejected() -> None:
                 ctx,
                 diagnostic_scenario="diagnostic_foreign_revision",
                 diagnostic_foreign_revision_id=revision_id,
-                diagnostic_blocked_tenant_revision_ids=[revision_id],
                 idempotency_key=key,
             )
         )
@@ -295,10 +294,18 @@ def test_orchestration_injection_and_second_correct() -> None:
             max_repairs=0,
         )
     )
-    assert injection.status in {
-        OrchestrationRunStatus.REVIEW_REQUIRED,
-        OrchestrationRunStatus.COMPLETED,
-    }
+    injection_rev = ctx["injection_revision_id"]
+    if injection.status == OrchestrationRunStatus.COMPLETED:
+        assert all(item.marks == 1.0 for item in injection.items)
+        for item in injection.items:
+            assert injection_rev in item.source_revision_ids
+            assert "ignore previous instructions" not in item.stem_text.lower()
+    else:
+        payload = injection.metadata_json.get("interrupt_payload") or {}
+        deterministic = payload.get("deterministic_validation") or []
+        assert any(
+            "injection_evidence_control" in (d.get("issue_codes") or []) for d in deterministic
+        )
     assert second.status in {
         OrchestrationRunStatus.FAILED,
         OrchestrationRunStatus.REVIEW_REQUIRED,

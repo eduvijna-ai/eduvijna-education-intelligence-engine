@@ -6,6 +6,7 @@ from app.diagnostic_intelligence.contracts import (
     DistractorDiagnosticResult,
 )
 from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
+from app.diagnostic_intelligence.integration.revision_tenancy import RevisionTenantRecord
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 
 
@@ -117,9 +118,16 @@ def test_fake_signal_not_in_taxonomy_rejected() -> None:
 def test_tenant_revision_evidence_rejected() -> None:
     service = DiagnosticIntelligenceService()
     foreign_revision = "00000000-0000-0000-0000-000000000099"
-    request = _request(allowed_source_revision_ids=["00000000-0000-0000-0000-000000000001"])
-    request = request.model_copy(
-        update={"blocked_tenant_revision_ids": [foreign_revision]}
+    request = _request(
+        allowed_source_revision_ids=["00000000-0000-0000-0000-000000000001"],
+        organization_id="org-a",
+        institution_id="inst-a",
+        revision_tenant_records={
+            foreign_revision: RevisionTenantRecord(
+                organization_id="org-b",
+                institution_id="inst-b",
+            ),
+        },
     )
     candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
     tags = build_fixture_tags(request.item)

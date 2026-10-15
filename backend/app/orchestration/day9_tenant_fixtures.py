@@ -22,12 +22,20 @@ class Day9ForeignTenantContext:
 def seed_day9_foreign_tenant_revisions(
     session: Session, tenant_a_ctx: dict[str, str]
 ) -> Day9ForeignTenantContext:
-    """Seed real revisions owned by foreign org/institution/teacher (tenant B)."""
+    """Seed real revisions for org / institution / teacher isolation proofs."""
     org_b = Organization(code="day9-org-b", name="Day9 Org B")
     session.add(org_b)
     session.flush()
     inst_b = Institution(organization_id=org_b.id, code="day9-inst-b", name="Day9 Inst B")
     session.add(inst_b)
+    session.flush()
+
+    inst_a_other = Institution(
+        organization_id=tenant_a_ctx["organization_id"],
+        code="day9-inst-a-other",
+        name="Day9 Inst A Other",
+    )
+    session.add(inst_a_other)
     session.flush()
 
     foreign_org_source = Source(
@@ -40,8 +48,8 @@ def seed_day9_foreign_tenant_revisions(
         metadata_json={"synthetic_fixture": True, "fixture_role": "day9_foreign_org"},
     )
     foreign_inst_source = Source(
-        organization_id=org_b.id,
-        institution_id=inst_b.id,
+        organization_id=tenant_a_ctx["organization_id"],
+        institution_id=inst_a_other.id,
         source_type=SourceType.INSTITUTION_CONTENT.value,
         title="Day9 foreign institution source",
         trust_tier=SourceTrustTier.INSTITUTION.value,

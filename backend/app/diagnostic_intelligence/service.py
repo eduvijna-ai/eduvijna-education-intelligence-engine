@@ -20,6 +20,7 @@ from app.diagnostic_intelligence.validators import (
 )
 from app.diagnostic_intelligence.validators.result_integrity import (
     canonical_option_text,
+    canonical_text_by_option_key,
     validate_result_integrity,
 )
 from app.diagnostic_intelligence.verdict import build_diagnostic_verdict
@@ -88,7 +89,14 @@ class DiagnosticIntelligenceService:
                 )
             )
             codes.extend(validate_evidence_refs(request, tag))
-            codes.extend(validate_signal_alignment(tag, text, stem_text=request.item.stem_text))
+            codes.extend(
+                validate_signal_alignment(
+                    tag,
+                    text,
+                    stem_text=request.item.stem_text,
+                    taxonomy_version=request.taxonomy_version,
+                )
+            )
             codes.extend(validate_plausibility(tag, text))
             codes.extend(
                 validate_factual_incorrectness(
@@ -99,7 +107,11 @@ class DiagnosticIntelligenceService:
                 codes.append("missing_diagnostic_tag")
             option_issues.setdefault(tag.option_key, []).extend(codes)
 
-        distinct_issues, coverage = validate_distinctness(request.item.item_id, result.option_tags)
+        distinct_issues, coverage = validate_distinctness(
+            request.item.item_id,
+            result.option_tags,
+            canonical_text_by_key=canonical_text_by_option_key(request),
+        )
         item_level.extend(distinct_issues)
         result.coverage_summary = coverage
 

@@ -39,6 +39,12 @@ def seed_day8_fixtures(
         knowledge.official_revision_id,
         retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
     )
+    index_source_revision(
+        session,
+        ki_adapter,
+        knowledge.injection_revision_id,
+        retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+    )
     session.commit()
     return {
         "curriculum_version_id": curriculum["curriculum_version_id"],
@@ -46,6 +52,7 @@ def seed_day8_fixtures(
         "organization_id": knowledge.organization_id,
         "institution_id": knowledge.institution_id,
         "official_revision_id": knowledge.official_revision_id,
+        "injection_revision_id": knowledge.injection_revision_id,
     }
 
 
@@ -118,6 +125,11 @@ def build_orchestration_request(
         metadata_json={
             "fixture_scenario": scenario,
             "learning_outcome_ids": [ctx["learning_outcome_id"]],
+            **(
+                {"injection_revision_id": ctx["injection_revision_id"]}
+                if scenario == "injection_evidence" and ctx.get("injection_revision_id")
+                else {}
+            ),
         },
     )
 

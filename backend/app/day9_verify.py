@@ -75,28 +75,98 @@ def _candidate_sha_checks() -> tuple[str, str, dict[str, bool]]:
     )
 
 
+def _tenant_issue_codes(result: object) -> list[str]:
+    issue_codes: list[str] = []
+    metadata = getattr(result, "metadata_json", {}) or {}
+    for entry in metadata.get("diagnostic_results") or []:
+        for tag in entry.get("option_tags") or []:
+            issue_codes.extend(list(tag.get("issue_codes") or []))
+    return issue_codes
+
+
 def _tenant_isolation_proof(
     orchestration: object, ctx: dict[str, str], session: Session
 ) -> bool:
     foreign = seed_day9_foreign_tenant_revisions(session, ctx)
-    revision_id = foreign.foreign_organization_revision_id
+    cases = [
+        (foreign.foreign_organization_revision_id, "day9-tenant-org-proof"),
+        (foreign.foreign_institution_revision_id, "day9-tenant-inst-proof"),
+        (foreign.foreign_teacher_revision_id, "day9-tenant-teacher-proof"),
+    ]
+    for revision_id, key in cases:
+        result = orchestration.run(  # type: ignore[attr-defined]
+            build_diagnostic_orchestration_request(
+                ctx,
+                diagnostic_scenario="diagnostic_foreign_revision",
+                diagnostic_foreign_revision_id=revision_id,
+                idempotency_key=key,
+            )
+        )
+        if "tenant_evidence_mismatch" not in _tenant_issue_codes(result):
+            return False
+    return True
+
+
+def _hitl_diagnostic_review_proof(orchestration: object, ctx: dict[str, str]) -> bool:
+    from app.orchestration.fixtures import build_orchestration_request
+    from app.orchestration.human_decision import HumanResumeDecision
+
+    request = build_orchestration_request(
+        ctx,
+        scenario="non_arithmetic_diagnostic_review",
+        idempotency_key="day9-hitl-review-proof",
+        max_repairs=0,
+    )
+    request = request.model_copy(
+        update={
+            "metadata_json": {
+                **request.metadata_json,
+                "diagnostic_enrichment_enabled": True,
+                "diagnostic_fixture_scenario": "diagnostic_clean_pass",
+            },
+        }
+    )
+    paused = orchestration.run(request)  # type: ignore[attr-defined]
+    if paused.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+        return False
+    mid = orchestration.run(  # type: ignore[attr-defined]
+        request, resume=HumanResumeDecision(action="approve")
+    )
+    if mid.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+        return False
+    payload = mid.metadata_json.get("interrupt_payload") or {}
+    if not payload.get("diagnostic_results"):
+        return False
+    if not any(
+        entry.get("review_required") for entry in (payload.get("diagnostic_validation") or [])
+    ):
+        return False
+    approved = orchestration.run(  # type: ignore[attr-defined]
+        request, resume=HumanResumeDecision(action="approve")
+    )
+    return bool(approved.status == OrchestrationRunStatus.COMPLETED)
+
+
+def _injection_evidence_proof(orchestration: object, ctx: dict[str, str]) -> bool:
+    from app.orchestration.fixtures import build_diagnostic_orchestration_request
+
     result = orchestration.run(  # type: ignore[attr-defined]
         build_diagnostic_orchestration_request(
             ctx,
-            diagnostic_scenario="diagnostic_foreign_revision",
-            diagnostic_foreign_revision_id=revision_id,
-            diagnostic_blocked_tenant_revision_ids=[revision_id],
-            idempotency_key="day9-tenant-isolation-proof",
+            scenario="injection_evidence",
+            idempotency_key="day9-injection-proof",
         )
     )
-    issue_codes: list[str] = []
-    for entry in result.metadata_json.get("diagnostic_results") or []:
-        for tag in entry.get("option_tags") or []:
-            issue_codes.extend(list(tag.get("issue_codes") or []))
-    return (
-        result.status == OrchestrationRunStatus.FAILED
-        and "tenant_evidence_mismatch" in issue_codes
-    )
+    injection_rev = ctx["injection_revision_id"]
+    if result.status == OrchestrationRunStatus.COMPLETED:
+        return bool(result.items) and all(item.marks == 1.0 for item in result.items) and all(
+            injection_rev in item.source_revision_ids for item in result.items
+        )
+    if result.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+        return False
+    payload = result.metadata_json.get("interrupt_payload") or {}
+    deterministic = payload.get("deterministic_validation") or []
+    return any("injection_evidence_control" in (d.get("issue_codes") or []) for d in deterministic)
 
 
 def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
@@ -126,6 +196,8 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
             item_id=item.item_id,
             question_type=item.question_type,
             option_tags=tags,
+            taxonomy_version=request.taxonomy_version,
+            source_revision_ids=item.source_revision_ids,
         ),
         candidate_codes=codes,
     )
@@ -143,6 +215,8 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
             item_id=item.item_id,
             question_type=item.question_type,
             option_tags=dup_tags,
+            taxonomy_version=request.taxonomy_version,
+            source_revision_ids=item.source_revision_ids,
         ),
         candidate_codes=codes,
     )
@@ -152,6 +226,33 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
             item_id=item.item_id,
             question_type=item.question_type,
             option_tags=[],
+            taxonomy_version=request.taxonomy_version,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes=codes,
+    )
+    redundant_item = build_fixture_mcq_item(item_id="redundant-proof")
+    redundant_item = redundant_item.model_copy(
+        update={
+            "options": [
+                redundant_item.options[0].model_copy(update={"text": "dup text"}),
+                redundant_item.options[1],
+                redundant_item.options[2].model_copy(update={"text": "dup text"}),
+            ]
+        }
+    )
+    redundant_request = request.model_copy(update={"item": redundant_item})
+    redundant_tags = build_fixture_tags(redundant_item)
+    redundant_tags[0].metadata_json = {}
+    redundant_tags[2].metadata_json = {}
+    redundant = service.validate_result(
+        redundant_request,
+        DistractorDiagnosticResult(
+            item_id=redundant_item.item_id,
+            question_type=redundant_item.question_type,
+            option_tags=redundant_tags,
+            taxonomy_version=request.taxonomy_version,
+            source_revision_ids=redundant_item.source_revision_ids,
         ),
         candidate_codes=codes,
     )
@@ -161,6 +262,7 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "canonical_tag_completeness": empty.status.value != "pass",
         "canonical_option_text_integrity": "untrusted_option_text_metadata"
         in bad_signal.issue_codes,
+        "redundant_canonical_text_enforced": "redundant_distractor" in redundant.issue_codes,
     }
 
 
@@ -215,6 +317,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
     )
     session.commit()
     tenant_isolation_ok = _tenant_isolation_proof(orchestration, ctx, session)
+    hitl_diagnostic_review_ok = _hitl_diagnostic_review_proof(orchestration, ctx)
+    injection_evidence_ok = _injection_evidence_proof(orchestration, ctx)
     checkpoint_restart_ok = prove_interrupted_diagnostic_checkpoint_restart()
     replay = orchestration.run(
         build_diagnostic_orchestration_request(
@@ -257,6 +361,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "day6_authority_survives": blocked.status == OrchestrationRunStatus.FAILED,
         "forged_evidence_rejected": forged.status == OrchestrationRunStatus.FAILED,
         "tenant_isolation_enforced": tenant_isolation_ok,
+        "hitl_diagnostic_review_proof": hitl_diagnostic_review_ok,
+        "injection_evidence_bounded": injection_evidence_ok,
         "checkpoint_explicit_retry_proof": checkpoint_restart_ok,
         "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED
         and any((repaired.repair_summary or {}).values()),

@@ -71,6 +71,7 @@ def author_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
                 "marks": request.marks,
                 "bounded_context": context.bounded_text,
                 "repair_instructions": repair_instructions,
+                "injection_revision_id": request.metadata_json.get("injection_revision_id"),
             },
             output_schema_name="DraftQuestionItem",
             scenario=request.fixture_scenario(),

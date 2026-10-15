@@ -11,6 +11,10 @@ from app.diagnostic_intelligence.contracts import (
     DistractorDiagnosticResult,
 )
 from app.diagnostic_intelligence.enrichment import build_gateway_user_payload
+from app.diagnostic_intelligence.integration.revision_tenancy import (
+    load_revision_tenant_records,
+    normalize_revision_ref,
+)
 from app.diagnostic_intelligence.mapping import draft_to_diagnostic_item
 from app.diagnostic_intelligence.output_validation import (
     DiagnosticOutputValidationError,
@@ -42,6 +46,23 @@ def _diagnostic_service(deps: OrchestrationDependencies) -> DiagnosticIntelligen
     return DiagnosticIntelligenceService(education_service=deps.education_service)
 
 
+def _with_revision_tenant_records(
+    deps: OrchestrationDependencies,
+    authoring: DiagnosticAuthoringRequest,
+    *,
+    extra_revision_refs: set[str] | None = None,
+) -> DiagnosticAuthoringRequest:
+    revision_ids = set(authoring.allowed_source_revision_ids)
+    revision_ids.update(authoring.item.source_revision_ids)
+    for ref in extra_revision_refs or set():
+        revision_ids.add(normalize_revision_ref(ref))
+    loaded = load_revision_tenant_records(deps.session, revision_ids)
+    if not loaded:
+        return authoring
+    merged = {**authoring.revision_tenant_records, **loaded}
+    return authoring.model_copy(update={"revision_tenant_records": merged})
+
+
 def _scope_metadata(request: DiagnosticAuthoringRequest) -> dict[str, Any]:
     return {
         "curriculum_version_id": request.curriculum_version_id,
@@ -64,7 +85,6 @@ def _build_authoring(
     allowed_revision_ids: list[str],
     allowed_evidence_refs: list[str],
     *,
-    blocked_tenant_revision_ids: list[str] | None = None,
     foreign_revision_id: str | None = None,
 ) -> DiagnosticAuthoringRequest:
     diagnostic_item = draft_to_diagnostic_item(draft)
@@ -94,7 +114,6 @@ def _build_authoring(
         actor_id=scope.actor_id or request.actor_id,
         allowed_source_revision_ids=allowed_revision_ids,
         allowed_evidence_refs=allowed_evidence_refs,
-        blocked_tenant_revision_ids=list(blocked_tenant_revision_ids or []),
         fixture_scenario=request.diagnostic_fixture_scenario(),
     )
 
@@ -153,9 +172,6 @@ def diagnostic_enrich_node(
         if target_ids and draft.item_id not in target_ids:
             continue
 
-        blocked_ids = list(
-            request.metadata_json.get("diagnostic_blocked_tenant_revision_ids") or []
-        )
         foreign_revision_id = str(
             request.metadata_json.get("diagnostic_foreign_revision_id") or ""
         ).strip() or None
@@ -169,9 +185,9 @@ def diagnostic_enrich_node(
             list(lo_ids) if isinstance(lo_ids, list) else [],
             allowed_revision_ids,
             allowed_evidence_refs,
-            blocked_tenant_revision_ids=blocked_ids,
             foreign_revision_id=foreign_revision_id,
         )
+        authoring = _with_revision_tenant_records(deps, authoring)
         if taxonomy_override:
             authoring = authoring.model_copy(update={"taxonomy_version": taxonomy_override})
         preflight = run_diagnostic_preflight(authoring)
@@ -278,6 +294,10 @@ def diagnostic_enrich_node(
                 attempt=attempt,
             )
 
+        evidence_refs = {ref for tag in option_tags for ref in tag.evidence_refs}
+        authoring = _with_revision_tenant_records(
+            deps, authoring, extra_revision_refs=evidence_refs
+        )
         parsed = DistractorDiagnosticResult(
             item_id=draft.item_id,
             question_type=draft.question_type,

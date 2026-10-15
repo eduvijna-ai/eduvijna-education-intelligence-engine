@@ -3,9 +3,20 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.knowledge_intelligence.context_pack import format_citation
+from app.knowledge_intelligence.contracts import (
+    KnowledgeContextPack,
+    KnowledgeEvidenceItem,
+    KnowledgeRetrievalRequest,
+)
 from app.knowledge_intelligence.retrieval import RetrievalError
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
+from app.knowledge_intelligence.scope import authority_label_for_source
+from app.models.knowledge_intelligence import KnowledgeSourceBinding
+from app.models.source import Source, SourceRevision
 from app.orchestration.contracts import ResolvedScope
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus
@@ -19,6 +30,58 @@ from app.orchestration.nodes._helpers import (
 from app.orchestration.query_text import build_retrieval_query
 from app.orchestration.scope_validation import validate_context_scope
 from app.orchestration.state import OrchestrationGraphState
+
+
+def _augment_pack_with_revision(
+    session: Session,
+    pack: KnowledgeContextPack,
+    revision_id: str,
+) -> KnowledgeContextPack:
+    if any(item.source_revision_id == revision_id for item in pack.evidence):
+        return pack
+    revision = session.get(SourceRevision, revision_id)
+    if revision is None:
+        return pack
+    source = session.get(Source, revision.source_id)
+    if source is None:
+        return pack
+    binding = session.scalar(
+        select(KnowledgeSourceBinding).where(
+            KnowledgeSourceBinding.source_revision_id == revision_id
+        )
+    )
+    snippet = (revision.extracted_text or "").strip()
+    if not snippet:
+        return pack
+    item = KnowledgeEvidenceItem(
+        source_id=source.id,
+        source_revision_id=revision.id,
+        source_revision_checksum=revision.checksum,
+        binding_id=binding.id if binding is not None else "",
+        trust_tier=source.trust_tier,
+        authority_label=authority_label_for_source(source),
+        title=source.title,
+        locator=source.url or f"source:{source.id}",
+        snippet=snippet,
+        retrieval_score=0.0,
+        retrieval_rank=len(pack.evidence) + 1,
+        anythingllm_workspace="",
+        anythingllm_document_id=binding.anythingllm_document_id if binding else "",
+        citation_label=f"src:{source.id[:8]}/rev:{revision.revision_number}",
+    )
+    evidence = list(pack.evidence) + [item]
+    citations = [format_citation(e) for e in evidence]
+    bounded_lines = [
+        f"{citation}\n{e.snippet}" for citation, e in zip(citations, evidence, strict=True)
+    ]
+    return pack.model_copy(
+        update={
+            "evidence": evidence,
+            "citations": citations,
+            "bounded_text": "\n\n---\n\n".join(bounded_lines),
+            "warnings": list(pack.warnings) + ["fixture_injection_revision_appended"],
+        }
+    )
 
 
 def resolve_context_node(
@@ -103,6 +166,10 @@ def resolve_context_node(
             attempt=attempt,
         )
     pack = deps.knowledge_service.build_context_pack(retrieval)
+    if request.fixture_scenario() == "injection_evidence":
+        inj_id = request.metadata_json.get("injection_revision_id")
+        if isinstance(inj_id, str) and inj_id.strip():
+            pack = _augment_pack_with_revision(deps.session, pack, inj_id.strip())
     scope_issues = validate_context_scope(scope, pack)
     revision_ids = [item.source_revision_id for item in pack.evidence]
     if scope_issues:

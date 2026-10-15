@@ -7,7 +7,10 @@ from app.diagnostic_intelligence.enums import DiagnosticIssueCode
 
 
 def validate_distinctness(
-    item_id: str, tags: list[OptionDiagnosticTag]
+    item_id: str,
+    tags: list[OptionDiagnosticTag],
+    *,
+    canonical_text_by_key: dict[str, str] | None = None,
 ) -> tuple[list[str], DiagnosticCoverageSummary]:
     wrong_tags = [t for t in tags if not t.is_correct and t.misconception_code]
     codes = [t.misconception_code for t in wrong_tags if t.misconception_code]
@@ -16,9 +19,15 @@ def validate_distinctness(
     issues: list[str] = []
     if duplicate_codes:
         issues.append(DiagnosticIssueCode.DUPLICATE_MISCONCEPTION.value)
-    texts = [t.metadata_json.get("option_text", "") for t in wrong_tags]
-    normalized = [str(t).strip().lower() for t in texts if t]
-    if len(normalized) != len(set(normalized)) and normalized:
+    canonical_map = canonical_text_by_key or {}
+    normalized: list[str] = []
+    for tag in wrong_tags:
+        text = canonical_map.get(tag.option_key, "")
+        if not text:
+            text = str(tag.metadata_json.get("option_text") or "")
+        normalized.append(str(text).strip().lower())
+    normalized = [value for value in normalized if value]
+    if len(normalized) != len(set(normalized)):
         issues.append(DiagnosticIssueCode.REDUNDANT_DISTRACTOR.value)
     missing = sum(1 for t in tags if not t.is_correct and not t.misconception_code)
     summary = DiagnosticCoverageSummary(
