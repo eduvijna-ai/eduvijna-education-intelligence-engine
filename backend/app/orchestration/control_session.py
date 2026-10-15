@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
-from sqlalchemy import Table, create_engine
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
@@ -15,7 +16,7 @@ from app.models.orchestration import (
     OrchestrationIdempotencyRecord,
 )
 
-_CONTROL_TABLES: tuple[Table, ...] = (
+_CONTROL_TABLES = (
     OrchestrationAuditEvent.__table__,
     OrchestrationIdempotencyRecord.__table__,
     OrchestrationGenerationCall.__table__,
@@ -65,7 +66,7 @@ def _open_sqlite_control_session(database_path: str) -> Session:
     with engine.begin() as connection:
         connection.exec_driver_sql("PRAGMA journal_mode=WAL")
         connection.exec_driver_sql("PRAGMA busy_timeout=30000")
-    Base.metadata.create_all(engine, tables=list(_CONTROL_TABLES))
+    Base.metadata.create_all(engine, tables=cast(Any, _CONTROL_TABLES))
     return Session(bind=engine, expire_on_commit=False)
 
 
