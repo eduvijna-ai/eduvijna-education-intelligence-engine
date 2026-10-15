@@ -32,16 +32,16 @@ from app.orchestration.fixtures import (
 from app.orchestration.gateway.anythingllm import AnythingLLMGenerationGateway
 from app.orchestration.gateway.fake import FakeGenerationGateway
 from app.orchestration.gateway.types import GenerationGatewayError, GenerationRequest
+from app.orchestration.gateway.workspace_contract import (
+    ORCHESTRATION_WORKSPACE_PROMPT_MARKER,
+    verify_orchestration_workspace,
+)
 from app.orchestration.gateway_invoke import invoke_generation
 from app.orchestration.generation_call_store import (
     claim_generation_call_start,
     mark_generation_call_ambiguous,
 )
 from app.orchestration.model_calls import call_cache_key
-from app.orchestration.gateway.workspace_contract import (
-    ORCHESTRATION_WORKSPACE_PROMPT_MARKER,
-    verify_orchestration_workspace,
-)
 from app.orchestration.human_decision import HumanResumeDecision
 
 
