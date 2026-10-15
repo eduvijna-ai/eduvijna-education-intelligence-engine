@@ -4,3 +4,4 @@ tests/test_day8_extended.py
 tests/test_day8_round2.py
 tests/test_day8_round3.py
 tests/test_day8_round4.py
+tests/test_day7_retrieval.py
