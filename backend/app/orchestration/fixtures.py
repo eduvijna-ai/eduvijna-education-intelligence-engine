@@ -49,6 +49,33 @@ def seed_day8_fixtures(
     }
 
 
+def build_diagnostic_orchestration_request(
+    ctx: dict[str, str],
+    *,
+    scenario: str = "clean_pass",
+    diagnostic_scenario: str = "diagnostic_clean_pass",
+    idempotency_key: str = "day9-fixture-key-001",
+    requested_count: int = 1,
+    max_repairs: int = 2,
+) -> OrchestrationRequest:
+    request = build_orchestration_request(
+        ctx,
+        scenario=scenario,
+        idempotency_key=idempotency_key,
+        requested_count=requested_count,
+        max_repairs=max_repairs,
+    )
+    return request.model_copy(
+        update={
+            "metadata_json": {
+                **request.metadata_json,
+                "diagnostic_enrichment_enabled": True,
+                "diagnostic_fixture_scenario": diagnostic_scenario,
+            }
+        }
+    )
+
+
 def build_orchestration_request(
     ctx: dict[str, str],
     *,

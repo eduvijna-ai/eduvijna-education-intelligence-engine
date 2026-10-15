@@ -24,6 +24,8 @@ class OrchestrationGraphState(TypedDict, total=False):
     review_verdicts: list[dict[str, Any]]
     deterministic_validation: list[dict[str, Any]]
     duplicate_validation: list[dict[str, Any]]
+    diagnostic_validation: list[dict[str, Any]]
+    diagnostic_results: list[dict[str, Any]]
     repair_count_by_item: Annotated[dict[str, int], _merge_dict]
     repair_instructions_by_item: dict[str, list[str]]
     node_attempts: Annotated[dict[str, int], _merge_dict]

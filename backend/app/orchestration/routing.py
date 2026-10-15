@@ -66,6 +66,45 @@ def route_after_validation(state: OrchestrationGraphState) -> str:
     if review_required:
         return "human_gate"
 
+    return "diagnostic_enrich"
+
+
+def route_after_diagnostic(state: OrchestrationGraphState) -> str:
+    if pipeline_halted(state):
+        return "whole_output"
+    request = OrchestrationRequest.model_validate(state["request"])
+    if not request.diagnostic_enrichment_enabled():
+        return "whole_output"
+
+    diagnostic = state.get("diagnostic_validation") or []
+    repair_counts = state.get("repair_count_by_item") or {}
+    max_repairs = request.effective_max_repairs()
+
+    blocking = any(item.get("blocking") for item in diagnostic)
+    repairable = any(item.get("repairable") for item in diagnostic)
+    review_required = any(item.get("review_required") for item in diagnostic)
+
+    if blocking and not repairable:
+        return "whole_output"
+
+    if repairable:
+        for summary in diagnostic:
+            if not summary.get("repairable"):
+                continue
+            item_id = str(summary.get("item_id"))
+            if repair_counts.get(item_id, 0) < max_repairs:
+                return "repair"
+        if review_required or any(
+            repair_counts.get(str(summary.get("item_id")), 0) >= max_repairs
+            for summary in diagnostic
+            if summary.get("repairable")
+        ):
+            return "human_gate"
+        return "whole_output"
+
+    if review_required:
+        return "human_gate"
+
     return "whole_output"
 
 

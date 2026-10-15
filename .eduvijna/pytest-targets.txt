@@ -1,3 +1,7 @@
+tests/test_day9_diagnostic.py
+tests/test_day9_adversarial.py
+tests/test_day9_batch.py
+tests/test_day9_idempotency.py
 tests/test_day8_orchestration.py
 tests/test_day8_adversarial.py
 tests/test_day8_extended.py

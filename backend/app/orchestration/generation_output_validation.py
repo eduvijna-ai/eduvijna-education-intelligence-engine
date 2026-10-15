@@ -13,6 +13,13 @@ class RepairPlan(BaseModel):
     repair_instructions: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class DiagnosticEnrichmentOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str
+    option_tags: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class GenerationOutputValidationError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -30,6 +37,8 @@ def validate_generation_output(schema_name: str, parsed: dict[str, Any]) -> dict
             return ReviewVerdict.model_validate(parsed).model_dump(mode="json")
         if schema_name == "RepairPlan":
             return RepairPlan.model_validate(parsed).model_dump(mode="json")
+        if schema_name == "DiagnosticEnrichmentOutput":
+            return DiagnosticEnrichmentOutput.model_validate(parsed).model_dump(mode="json")
     except ValidationError as exc:
         raise GenerationOutputValidationError("model_schema_invalid", str(exc)) from exc
     raise GenerationOutputValidationError(

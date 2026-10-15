@@ -45,6 +45,18 @@ def repair_planner_node(
                 + ",".join(summary.get("issue_codes") or [])
             )
 
+    diagnostic = state.get("diagnostic_validation") or []
+    for summary in diagnostic:
+        if summary.get("repairable"):
+            item_id = str(summary.get("item_id"))
+            repair_item_ids.append(item_id)
+            existing = repair_instructions.get(item_id, [])
+            if not existing:
+                repair_instructions.setdefault(item_id, []).append(
+                    "Address diagnostic validation findings: "
+                    + ",".join(summary.get("issue_codes") or [])
+                )
+
     repair_counts = dict(state.get("repair_count_by_item") or {})
     prompt = get_prompt("repair")
     gateway_usage = dict(state.get("gateway_usage") or {})

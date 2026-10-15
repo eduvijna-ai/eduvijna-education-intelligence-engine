@@ -23,15 +23,20 @@ def whole_output_node(
     request = get_request(state)
     scope = ResolvedScope.model_validate(state.get("resolved_scope") or {})
     deterministic = state.get("deterministic_validation") or []
+    diagnostic = state.get("diagnostic_validation") or []
     duplicate = state.get("duplicate_validation") or []
     drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
     errors = list(state.get("errors") or [])
 
-    blocking = any(item.get("blocking") for item in deterministic)
+    blocking = any(item.get("blocking") for item in deterministic) or any(
+        item.get("blocking") for item in diagnostic
+    )
     duplicate_block = any(item.get("is_duplicate") for item in duplicate)
     repair_counts = state.get("repair_count_by_item") or {}
     exhausted = any(count > request.effective_max_repairs() for count in repair_counts.values())
-    review_required = any(item.get("review_required") for item in deterministic)
+    review_required = any(item.get("review_required") for item in deterministic) or any(
+        item.get("review_required") for item in diagnostic
+    )
     human_approved = bool(state.get("human_approved"))
 
     if state.get("gateway_retry_required"):
@@ -98,7 +103,10 @@ def whole_output_node(
         started_at=utc_now(),
         completed_at=utc_now() if status != OrchestrationRunStatus.REVIEW_REQUIRED else None,
         gateway_usage=state.get("gateway_usage") or {},
-        metadata_json={"institution_id": scope.institution_id},
+        metadata_json={
+            "institution_id": scope.institution_id,
+            "diagnostic_results": state.get("diagnostic_results") or [],
+        },
     )
     return timed_update(
         state,
