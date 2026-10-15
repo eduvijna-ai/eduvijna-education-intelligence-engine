@@ -76,7 +76,7 @@ review_loop_policy:
       - test_infrastructure_change
   auto_merge: false
   auto_unlock_next_day: false
-current_day: 8
+current_day: 9
 
 days:
   1:
@@ -269,45 +269,54 @@ days:
     depends_on: 6
   8:
     name: LangGraph Orchestration
-    state: ACTIVE
-    founder_approval: false
+    state: COMPLETE
+    founder_approval: true
     activation_signal: "Founder signed off Day 7 and authorized Day 8 activation."
+    approval_signal: "Founder approved Day 8 after Chief AI Architect clean exact-HEAD review and green D8-36 final acceptance; Founder then authorized proceed to integration and Day 9 activation."
     tasklist_status: APPROVED
     tasklist_approval_signal: "Founder approved Day 8 D8-01..D8-36 tasklist and authorized implementation."
     approved_scope: D8-01..D8-36
     tasklist_spec: "docs/execution/D08-LANGGRAPH-ORCHESTRATION.md"
     implementation_authorized: true
-    implementation_status: HANDED_TO_CURSOR
+    implementation_status: COMPLETE
     implementation_branch: "feature/day8-langgraph-orchestration"
     implementation_issue: 24
     implementation_pr: 25
-    handoff_signal: "Founder approved Day 8 tasklist; Chief AI Architect handed D8-01..D8-36 to Cursor."
-    handoff_trigger_comment_id: 6183972373
-    cursor_ack_comment_id: 6183973239
-    cursor_agent_status: COMPLETED
-    cursor_agent_ack: "Day 8 implementation complete"
-    current_candidate: "35d9bac0fb5716f2db85f66515321633cfe425f7"
-    targeted_ci_run: 38679112028
-    targeted_ci_status: RED_MYPY
-    chatgpt_manual_review:
-      status: FINDINGS_ISSUED_ROUND_3
-      reviewed_candidate: "31215e6d2f977a2a706ce7813e5fa713d1f16abf"
-      prior_reviewed_candidate: "a17b5da604022cecc9243f5c1e82f2f1d8f14edf"
-      prior_repair_handoff_comment_id: 6184459287
-      targeted_ci_run: 38682308633
-      targeted_ci_status: GREEN_PARTIAL_TARGETS
-      targeted_ci_note: "GitHub CI only executed test_day8_orchestration.py and test_day8_adversarial.py; extended/round2 repair modules were not listed in pytest-targets."
-      repair_handoff_comment_id: 6184630465
-      next_action: CURSOR_REPAIR
+    final_candidate: "f8b422881632d39e32417650a47b32b6ee002e87"
+    final_targeted_ci_run: 38702017286
+    final_targeted_ci_status: GREEN
+    final_full_ci_run: 38702017280
+    final_full_ci_status: GREEN
+    final_full_pytest: "1715 passed"
+    final_compose_status: GREEN
+    final_migration_status: GREEN
+    final_alembic_head: "20261015_0014"
+    final_review_status: COMPLETE_CLEAN
+    final_review_comment_id: 6187308218
+    final_acceptance_comment_id: 6187883270
+    founder_signoff_comment_id: 6187502873
+    final_merge_pr: 25
+    final_merge_commit: "03717907f8118c138f1ee64ea570e27d651247d6"
+    d8_36_status: COMPLETE_GREEN
     review_workflow: founder_manual_chatgpt_review
     codex_required: false
     auto_merge: false
-    day9_unlock: false
+    day9_unlock: true
     depends_on: 7
   9:
     name: Diagnostic Distractor Intelligence
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    activation_signal: "Founder approved Day 8 and authorized proceed after D8-36 completed green."
+    tasklist_status: PENDING_FOUNDER_APPROVAL
+    tasklist_spec: "docs/execution/D09-DIAGNOSTIC-DISTRACTOR-INTELLIGENCE.md"
+    approved_scope: null
+    implementation_authorized: false
+    implementation_status: NOT_STARTED
+    review_workflow: founder_manual_chatgpt_review
+    codex_required: false
+    auto_merge: false
+    day10_unlock: false
     depends_on: 8
   10:
     name: Prerequisites and Root Cause Diagnostics
