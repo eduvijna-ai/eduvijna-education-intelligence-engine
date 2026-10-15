@@ -90,16 +90,17 @@ def validate_curriculum_hierarchy(session: Session, scope: ResolvedScope) -> lis
     if scope.medium_code:
         if scope.grade_year_code and grade_node is None:
             return errors
-        medium_node = _unique_scoped_node(
+        medium_candidates = _find_nodes(
             session,
-            _find_nodes(
-                session,
-                curriculum_version_id=cv_id,
-                code=scope.medium_code,
-                node_type=CurriculumNodeType.MEDIUM.value,
-            ),
-            ancestor_ids=[grade_node.id] if grade_node is not None else [],
+            curriculum_version_id=cv_id,
+            code=scope.medium_code,
+            node_type=CurriculumNodeType.MEDIUM.value,
         )
+        if grade_node is not None:
+            medium_candidates = [
+                node for node in medium_candidates if node.parent_id == grade_node.id
+            ]
+        medium_node = medium_candidates[0] if len(medium_candidates) == 1 else None
         if medium_node is None:
             errors.append("invalid_medium_code")
 
@@ -107,17 +108,29 @@ def validate_curriculum_hierarchy(session: Session, scope: ResolvedScope) -> lis
     if scope.subject_code:
         if scope.medium_code and medium_node is None:
             return errors
-        subject_anchor = medium_node or grade_node
-        subject_node = _unique_scoped_node(
+        subject_candidates = _find_nodes(
             session,
-            _find_nodes(
-                session,
-                curriculum_version_id=cv_id,
-                code=scope.subject_code,
-                node_type=CurriculumNodeType.SUBJECT.value,
-            ),
-            ancestor_ids=[subject_anchor.id] if subject_anchor is not None else [],
+            curriculum_version_id=cv_id,
+            code=scope.subject_code,
+            node_type=CurriculumNodeType.SUBJECT.value,
         )
+        if medium_node is not None:
+            subject_candidates = [
+                node for node in subject_candidates if node.parent_id == medium_node.id
+            ]
+            subject_node = (
+                subject_candidates[0] if len(subject_candidates) == 1 else None
+            )
+        elif grade_node is not None:
+            subject_node = _unique_scoped_node(
+                session,
+                subject_candidates,
+                ancestor_ids=[grade_node.id],
+            )
+        else:
+            subject_node = (
+                subject_candidates[0] if len(subject_candidates) == 1 else None
+            )
         if subject_node is None:
             errors.append("invalid_subject_code")
 
