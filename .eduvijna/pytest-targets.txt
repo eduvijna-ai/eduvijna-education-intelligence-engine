@@ -1,7 +1,2 @@
-tests/test_day7_adapter.py
-tests/test_day7_factory.py
-tests/test_day7_workspace.py
-tests/test_day7_http_adapter.py
-tests/test_day7_indexing.py
-tests/test_day7_retrieval.py
-tests/test_day7_acceptance.py
+tests/test_day8_orchestration.py
+tests/test_day8_adversarial.py
