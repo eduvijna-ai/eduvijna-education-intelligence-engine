@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from app.orchestration.control_session import commit_control
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.gateway.types import (
     GenerationGatewayError,
@@ -90,6 +91,7 @@ def invoke_generation(
                     payload={"item_id": item_id, "prior_status": status},
                 )
             )
+            commit_control(control)
         else:
             audit_id = audit_node(
                 deps,
