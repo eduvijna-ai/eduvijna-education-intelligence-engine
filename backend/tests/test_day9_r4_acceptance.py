@@ -224,8 +224,11 @@ def test_tenant_isolation_without_blocked_metadata_list() -> None:
     _assert_tenant_fail(foreign.foreign_institution_revision_id, "day9-r4-tenant-inst")
     _assert_tenant_fail(foreign.foreign_teacher_revision_id, "day9-r4-tenant-teacher")
 
+    allowed_item = build_fixture_mcq_item().model_copy(
+        update={"source_revision_ids": [ctx["official_revision_id"]]}
+    )
     allowed_request = DiagnosticAuthoringRequest(
-        item=build_fixture_mcq_item(),
+        item=allowed_item,
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         subject_code="mathematics",
@@ -236,20 +239,16 @@ def test_tenant_isolation_without_blocked_metadata_list() -> None:
         allowed_evidence_refs=["[CIT-1]"],
         revision_tenant_records=records,
     )
-    tags = build_fixture_tags(allowed_request.item)
+    tags = build_fixture_tags(allowed_item)
     diag_service = DiagnosticIntelligenceService()
     from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
 
     codes = {c.misconception_code for c in resolve_misconception_candidates(allowed_request)}
+    from app.diagnostic_intelligence.fixtures import build_fixture_result
+
     ok = diag_service.validate_result(
         allowed_request,
-        DistractorDiagnosticResult(
-            item_id=allowed_request.item.item_id,
-            question_type=allowed_request.item.question_type,
-            option_tags=tags,
-            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
-            source_revision_ids=allowed_request.item.source_revision_ids,
-        ),
+        build_fixture_result(allowed_request.item, tags),
         candidate_codes=codes,
     )
     assert ok.status.value == "pass"

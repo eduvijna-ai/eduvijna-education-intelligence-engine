@@ -34,19 +34,17 @@ def _text_matches_approved_signal(
     error_pattern: str,
 ) -> bool:
     haystack = option_text.lower()
+    pair = _extract_addition(stem_text)
+    reported = _reported_wrong_answer(error_pattern)
+    if pair is not None and reported is not None:
+        correct_sum = pair[0] + pair[1]
+        if int(reported) == correct_sum:
+            return False
+        return _haystack_contains_wrong_answer(haystack, reported)
     signal = definition_signal.strip().lower()
     if signal and (signal in haystack or signal.replace("-", " ") in haystack):
         return True
-    pair = _extract_addition(stem_text)
-    if pair is None:
-        return False
-    correct_sum = pair[0] + pair[1]
-    reported = _reported_wrong_answer(error_pattern)
-    if reported is None:
-        return False
-    if int(reported) == correct_sum:
-        return False
-    return _haystack_contains_wrong_answer(haystack, reported)
+    return False
 
 
 def validate_signal_alignment(

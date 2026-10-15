@@ -256,6 +256,17 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         ),
         candidate_codes=codes,
     )
+    missing_sources = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=request.taxonomy_version,
+            source_revision_ids=[],
+        ),
+        candidate_codes=codes,
+    )
     return {
         "signal_mismatch_rejected": "signal_text_mismatch" in bad_signal.issue_codes,
         "distinctness_enforced": "duplicate_misconception" in duplicate.issue_codes,
@@ -263,7 +274,81 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "canonical_option_text_integrity": "untrusted_option_text_metadata"
         in bad_signal.issue_codes,
         "redundant_canonical_text_enforced": "redundant_distractor" in redundant.issue_codes,
+        "result_source_provenance_required": "result_source_revision_missing"
+        in missing_sources.issue_codes,
     }
+
+
+def _hitl_diagnostic_edit_revalidates(orchestration: object, ctx: dict[str, str]) -> bool:
+    from app.orchestration.enums import GenerationNodeRole
+    from app.orchestration.fixtures import build_orchestration_request
+    from app.orchestration.human_decision import HumanResumeDecision
+
+    gateway = getattr(getattr(orchestration, "dependencies", None), "gateway", None)
+    if gateway is None:
+        return False
+    request = build_orchestration_request(
+        ctx,
+        scenario="non_arithmetic_diagnostic_review",
+        idempotency_key="day9-hitl-edit-proof",
+        max_repairs=0,
+    )
+    request = request.model_copy(
+        update={
+            "metadata_json": {
+                **request.metadata_json,
+                "diagnostic_enrichment_enabled": True,
+                "diagnostic_fixture_scenario": "diagnostic_clean_pass",
+            },
+        }
+    )
+    if orchestration.run(request).status != OrchestrationRunStatus.REVIEW_REQUIRED:  # type: ignore[attr-defined]
+        return False
+    mid = orchestration.run(  # type: ignore[attr-defined]
+        request, resume=HumanResumeDecision(action="approve")
+    )
+    if mid.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+        return False
+    payload = mid.metadata_json.get("interrupt_payload") or {}
+    item_ids = payload.get("item_ids") or []
+    if not item_ids:
+        return False
+    calls_before = len(
+        [
+            c
+            for c in gateway.call_history()
+            if c.call_context and c.call_context.role == GenerationNodeRole.DIAGNOSTIC
+        ]
+    )
+    edited = orchestration.run(  # type: ignore[attr-defined]
+        request,
+        resume=HumanResumeDecision(
+            action="edit",
+            item_patches={
+                str(item_ids[0]): {
+                    "stem_text": (
+                        "Synthetic number-sense fixture: choose the best edited statement."
+                    ),
+                },
+            },
+        ),
+    )
+    if edited.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+        return False
+    payload_after_edit = edited.metadata_json.get("interrupt_payload") or {}
+    if payload_after_edit.get("diagnostic_results"):
+        return False
+    orchestration.run(  # type: ignore[attr-defined]
+        request, resume=HumanResumeDecision(action="approve")
+    )
+    calls_after = len(
+        [
+            c
+            for c in gateway.call_history()
+            if c.call_context and c.call_context.role == GenerationNodeRole.DIAGNOSTIC
+        ]
+    )
+    return calls_after > calls_before
 
 
 def build_verification_report(session: Session) -> dict[str, object]:
@@ -318,6 +403,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
     session.commit()
     tenant_isolation_ok = _tenant_isolation_proof(orchestration, ctx, session)
     hitl_diagnostic_review_ok = _hitl_diagnostic_review_proof(orchestration, ctx)
+    hitl_diagnostic_edit_ok = _hitl_diagnostic_edit_revalidates(orchestration, ctx)
     injection_evidence_ok = _injection_evidence_proof(orchestration, ctx)
     checkpoint_restart_ok = prove_interrupted_diagnostic_checkpoint_restart()
     replay = orchestration.run(
@@ -362,6 +448,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "forged_evidence_rejected": forged.status == OrchestrationRunStatus.FAILED,
         "tenant_isolation_enforced": tenant_isolation_ok,
         "hitl_diagnostic_review_proof": hitl_diagnostic_review_ok,
+        "hitl_diagnostic_edit_revalidates": hitl_diagnostic_edit_ok,
         "injection_evidence_bounded": injection_evidence_ok,
         "checkpoint_explicit_retry_proof": checkpoint_restart_ok,
         "bounded_repair_works": repaired.status == OrchestrationRunStatus.COMPLETED

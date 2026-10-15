@@ -3,9 +3,12 @@ from __future__ import annotations
 from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
-    DistractorDiagnosticResult,
 )
-from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
+from app.diagnostic_intelligence.fixtures import (
+    build_fixture_mcq_item,
+    build_fixture_result,
+    build_fixture_tags,
+)
 from app.diagnostic_intelligence.integration.revision_tenancy import RevisionTenantRecord
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 
@@ -21,6 +24,7 @@ def _request(**kwargs: object) -> DiagnosticAuthoringRequest:
         competency_codes=["application"],
         learning_outcome_ids=["lo-fixture-1"],
         allowed_evidence_refs=["[CIT-1]"],
+        allowed_source_revision_ids=item.source_revision_ids,
     )
     return base.model_copy(update=kwargs)
 
@@ -31,12 +35,11 @@ def test_non_candidate_code_rejected() -> None:
     candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
     tags = build_fixture_tags(request.item)
     tags[0] = tags[0].model_copy(update={"misconception_code": "MATH.ADD.ALGEBRA_TOPIC_ONLY"})
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=candidates,
     )
-    verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert "non_candidate_misconception" in verdict.issue_codes
 
 
@@ -53,12 +56,11 @@ def test_wrong_topic_misconception_rejected() -> None:
         }
     )
     tags[0].metadata_json["option_text"] = "algebra mistake"
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=candidates,
     )
-    verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert "curriculum_scope_mismatch" in verdict.issue_codes
 
 
@@ -68,12 +70,11 @@ def test_missing_definition_topic_rejected_for_scoped_request() -> None:
     candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
     assert "MATH.ADD.WHOLE.OFF_BY_ONE_LOW" not in candidates
     tags = build_fixture_tags(request.item)
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=candidates,
     )
-    verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert verdict.review_required or verdict.blocking
 
 
@@ -106,12 +107,11 @@ def test_fake_signal_not_in_taxonomy_rejected() -> None:
             "diagnostic_signal": "successor",
         }
     )
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=candidates,
     )
-    verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert "signal_text_mismatch" in verdict.issue_codes
 
 
@@ -132,10 +132,9 @@ def test_tenant_revision_evidence_rejected() -> None:
     candidates = {c.misconception_code for c in resolve_misconception_candidates(request)}
     tags = build_fixture_tags(request.item)
     tags[0] = tags[0].model_copy(update={"evidence_refs": [foreign_revision]})
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=candidates,
     )
-    verdict = service.validate_result(request, result, candidate_codes=candidates)
     assert "tenant_evidence_mismatch" in verdict.issue_codes

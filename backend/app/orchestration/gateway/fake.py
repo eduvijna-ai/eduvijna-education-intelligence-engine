@@ -104,9 +104,13 @@ class FakeGenerationGateway:
         if scenario == "foreign_tenant":
             revision_id = str(payload.get("foreign_revision_id") or revision_id)
         if scenario == "injection_evidence":
-            inj = payload.get("injection_revision_id")
-            if inj:
-                revision_id = str(inj)
+            allowed = list(payload.get("allowed_source_revision_ids") or [])
+            bounded = str(payload.get("bounded_context") or "").lower()
+            if "ignore previous instructions" in bounded:
+                for candidate in allowed:
+                    if str(candidate) != str(revision_id):
+                        revision_id = str(candidate)
+                        break
         if scenario == "duplicate":
             stem = "SYNTHETIC DUPLICATE STEM 7+5"
         elif scenario == "repair_then_pass" and attempt == 0:

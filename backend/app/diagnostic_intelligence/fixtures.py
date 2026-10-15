@@ -63,6 +63,21 @@ def build_fixture_tags(item: DiagnosticQuestionItem) -> list[OptionDiagnosticTag
     return tags
 
 
+def build_fixture_result(
+    item: DiagnosticQuestionItem,
+    option_tags: list[OptionDiagnosticTag],
+    *,
+    source_revision_ids: list[str] | None = None,
+) -> DistractorDiagnosticResult:
+    return DistractorDiagnosticResult(
+        item_id=item.item_id,
+        question_type=item.question_type,
+        option_tags=option_tags,
+        taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+        source_revision_ids=list(source_revision_ids or item.source_revision_ids),
+    )
+
+
 def run_positive_fixture_validation(
     service: DiagnosticIntelligenceService,
     *,

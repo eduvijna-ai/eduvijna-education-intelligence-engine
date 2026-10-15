@@ -9,9 +9,12 @@ from app.db.session import enable_sqlite_foreign_keys
 from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
-    DistractorDiagnosticResult,
 )
-from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
+from app.diagnostic_intelligence.fixtures import (
+    build_fixture_mcq_item,
+    build_fixture_result,
+    build_fixture_tags,
+)
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.fixtures import (
@@ -49,12 +52,11 @@ def test_adversarial_unknown_misconception_code() -> None:
     request = _authoring()
     tags = build_fixture_tags(request.item)
     tags[0] = tags[0].model_copy(update={"misconception_code": "MATH.HALLUCINATED"})
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=_codes(request),
     )
-    verdict = service.validate_result(request, result, candidate_codes=_codes(request))
     assert verdict.blocking is True
     assert "unknown_misconception_code" in verdict.issue_codes
 
@@ -66,13 +68,12 @@ def test_adversarial_inactive_misconception() -> None:
     tags[0] = tags[0].model_copy(
         update={"misconception_code": "MATH.ADD.WHOLE.INACTIVE_SAMPLE"}
     )
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
-    )
     codes = _codes(request) | {"MATH.ADD.WHOLE.INACTIVE_SAMPLE"}
-    verdict = service.validate_result(request, result, candidate_codes=codes)
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=codes,
+    )
     assert "inactive_misconception" in verdict.issue_codes
 
 
@@ -81,12 +82,11 @@ def test_adversarial_forged_evidence_ref() -> None:
     request = _authoring("adv-2")
     tags = build_fixture_tags(request.item)
     tags[0] = tags[0].model_copy(update={"evidence_refs": ["FORGED-REF"]})
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=_codes(request),
     )
-    verdict = service.validate_result(request, result, candidate_codes=_codes(request))
     assert "forged_evidence_ref" in verdict.issue_codes
 
 
@@ -101,12 +101,11 @@ def test_adversarial_duplicate_misconception_tags() -> None:
         }
     )
     tags[2].metadata_json["option_text"] = "11 off-by-one-low"
-    result = DistractorDiagnosticResult(
-        item_id=request.item.item_id,
-        question_type=request.item.question_type,
-        option_tags=tags,
+    verdict = service.validate_result(
+        request,
+        build_fixture_result(request.item, tags),
+        candidate_codes=_codes(request),
     )
-    verdict = service.validate_result(request, result, candidate_codes=_codes(request))
     assert "duplicate_misconception" in verdict.issue_codes
 
 
@@ -185,11 +184,7 @@ def test_adversarial_scope_mismatches_on_full_tags() -> None:
     )
     verdict = service.validate_result(
         request,
-        DistractorDiagnosticResult(
-            item_id=request.item.item_id,
-            question_type=request.item.question_type,
-            option_tags=tags,
-        ),
+        build_fixture_result(request.item, tags),
         candidate_codes=_codes(request) | {"MATH.ADD.ALGEBRA_TOPIC_ONLY"},
     )
     assert "curriculum_scope_mismatch" in verdict.issue_codes
@@ -197,11 +192,7 @@ def test_adversarial_scope_mismatches_on_full_tags() -> None:
     wrong_grade = request.model_copy(update={"grade_year_code": "grade-10"})
     verdict_grade = service.validate_result(
         wrong_grade,
-        DistractorDiagnosticResult(
-            item_id=request.item.item_id,
-            question_type=request.item.question_type,
-            option_tags=build_fixture_tags(request.item),
-        ),
+        build_fixture_result(request.item, build_fixture_tags(request.item)),
         candidate_codes=_codes(wrong_grade),
     )
     assert verdict_grade.issue_codes
@@ -213,11 +204,7 @@ def test_adversarial_scope_mismatches_on_full_tags() -> None:
     )
     verdict_subject = service.validate_result(
         wrong_subject,
-        DistractorDiagnosticResult(
-            item_id=request.item.item_id,
-            question_type=request.item.question_type,
-            option_tags=tags_subject,
-        ),
+        build_fixture_result(request.item, tags_subject),
         candidate_codes=_codes(wrong_subject) | {"SCI.PHYS.FORCE.WRONG_SUBJECT"},
     )
     assert "curriculum_scope_mismatch" in verdict_subject.issue_codes
@@ -232,11 +219,7 @@ def test_adversarial_second_correct_distractor() -> None:
     )
     verdict = service.validate_result(
         request,
-        DistractorDiagnosticResult(
-            item_id=request.item.item_id,
-            question_type=request.item.question_type,
-            option_tags=tags,
-        ),
+        build_fixture_result(request.item, tags),
         candidate_codes=_codes(request),
     )
     assert (

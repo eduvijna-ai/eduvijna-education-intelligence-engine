@@ -85,9 +85,11 @@ def seed_knowledge_fixtures(session: Session) -> KnowledgeFixtureContext:
         metadata_json={"synthetic_fixture": True},
     )
     injection_source = Source(
-        source_type=SourceType.COMPETITIVE_ANALYSIS.value,
+        organization_id=org.id,
+        institution_id=inst.id,
+        source_type=SourceType.INSTITUTION_CONTENT.value,
         title="Synthetic injection sample",
-        trust_tier=SourceTrustTier.ANALYTICAL.value,
+        trust_tier=SourceTrustTier.INSTITUTION.value,
         status=SourceStatus.ACTIVE.value,
         metadata_json={"synthetic_fixture": True, "fixture_role": "injection"},
     )

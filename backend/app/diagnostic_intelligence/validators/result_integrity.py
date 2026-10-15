@@ -26,19 +26,29 @@ def validate_result_integrity(
         issues.append("result_taxonomy_version_mismatch")
 
     canonical_item_sources = set(item.source_revision_ids)
-    if result.source_revision_ids:
-        if set(result.source_revision_ids) != canonical_item_sources:
+    result_sources = set(result.source_revision_ids)
+    if canonical_item_sources:
+        if not result_sources:
+            issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
+            issues.append("result_source_revision_missing")
+        elif result_sources != canonical_item_sources:
             issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
             issues.append("result_source_revision_mismatch")
-        for revision_id in result.source_revision_ids:
-            record = request.revision_tenant_records.get(revision_id)
-            if record is not None and tenant_scope_mismatch(
-                organization_id=request.organization_id,
-                institution_id=request.institution_id,
-                teacher_id=request.teacher_id,
-                record=record,
-            ):
-                issues.append(DiagnosticIssueCode.TENANT_EVIDENCE_MISMATCH.value)
+    allowed_sources = set(request.allowed_source_revision_ids)
+    if allowed_sources:
+        claimed = canonical_item_sources | result_sources
+        if claimed - allowed_sources:
+            issues.append(DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value)
+            issues.append("unauthorized_source_revision")
+    for revision_id in result_sources:
+        record = request.revision_tenant_records.get(revision_id)
+        if record is not None and tenant_scope_mismatch(
+            organization_id=request.organization_id,
+            institution_id=request.institution_id,
+            teacher_id=request.teacher_id,
+            record=record,
+        ):
+            issues.append(DiagnosticIssueCode.TENANT_EVIDENCE_MISMATCH.value)
 
     canonical_keys = {o.option_key for o in item.options}
     canonical_correct = {o.option_key: o.is_correct for o in item.options}

@@ -22,11 +22,11 @@ def validate_distinctness(
     canonical_map = canonical_text_by_key or {}
     normalized: list[str] = []
     for tag in wrong_tags:
-        text = canonical_map.get(tag.option_key, "")
+        text = str(canonical_map.get(tag.option_key, "") or "").strip()
         if not text:
-            text = str(tag.metadata_json.get("option_text") or "")
-        normalized.append(str(text).strip().lower())
-    normalized = [value for value in normalized if value]
+            issues.append("canonical_option_text_missing")
+            continue
+        normalized.append(text.lower())
     if len(normalized) != len(set(normalized)):
         issues.append(DiagnosticIssueCode.REDUNDANT_DISTRACTOR.value)
     missing = sum(1 for t in tags if not t.is_correct and not t.misconception_code)
