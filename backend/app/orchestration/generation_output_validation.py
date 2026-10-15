@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from app.orchestration.contracts import DraftQuestionItem, ReviewVerdict, SolverResult
+
+
+class RepairPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    repair_instructions: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class GenerationOutputValidationError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def validate_generation_output(schema_name: str, parsed: dict[str, Any]) -> dict[str, Any]:
+    try:
+        if schema_name == "DraftQuestionItem":
+            return DraftQuestionItem.model_validate(parsed).model_dump(mode="json")
+        if schema_name == "SolverResult":
+            return SolverResult.model_validate(parsed).model_dump(mode="json")
+        if schema_name == "ReviewVerdict":
+            return ReviewVerdict.model_validate(parsed).model_dump(mode="json")
+        if schema_name == "RepairPlan":
+            return RepairPlan.model_validate(parsed).model_dump(mode="json")
+    except ValidationError as exc:
+        raise GenerationOutputValidationError("model_schema_invalid", str(exc)) from exc
+    raise GenerationOutputValidationError(
+        "model_schema_unknown", f"Unsupported output schema: {schema_name}"
+    )

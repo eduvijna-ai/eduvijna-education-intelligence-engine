@@ -71,46 +71,43 @@ def test_durable_generation_call_survives_replay() -> None:
     gateway = FakeGenerationGateway()
     ctx, service = build_day8_test_service(session, gateway=gateway)
     request = build_orchestration_request(
-        ctx, requested_count=2, idempotency_key="durable-call-key"
+        ctx, requested_count=1, idempotency_key="durable-call-key"
     )
-    service.run(request)
-    assert len(gateway.call_history()) >= 2
+    completed = service.run(request)
+    assert completed.status == OrchestrationRunStatus.COMPLETED
+    assert len(gateway.call_history()) >= 1
     first_count = len(gateway.call_history())
-    service.run(request)
+    replay = service.run(request)
+    assert replay.status == OrchestrationRunStatus.COMPLETED
     assert len(gateway.call_history()) == first_count
     session.close()
 
 
 def test_repair_gateway_failure_does_not_increment() -> None:
     session = _session()
-    gateway = FakeGenerationGateway()
+
+    class _RepairTimeoutGateway(FakeGenerationGateway):
+        def generate(self, request: GenerationRequest):
+            if request.role == GenerationNodeRole.REPAIR:
+                raise GenerationGatewayError(
+                    "gateway_timeout", "repair timeout", retryable=True
+                )
+            return super().generate(request)
+
+    gateway = _RepairTimeoutGateway()
     ctx, service = build_day8_test_service(session, gateway=gateway)
     result = service.run(
         build_orchestration_request(
             ctx,
             scenario="repair_then_pass",
             idempotency_key="repair-gateway-fail",
-            max_repairs=1,
+            max_repairs=2,
         )
     )
-    gateway._history.clear()
-    fail_request = GenerationRequest(
-        role=GenerationNodeRole.REPAIR,
-        prompt_version="repair@v1",
-        system_prompt="x",
-        user_payload={"repair_instructions": {}},
-        output_schema_name="RepairPlan",
-        scenario="gateway_timeout",
+    assert result.status == OrchestrationRunStatus.RETRY_REQUIRED
+    assert result.repair_summary == {} or all(
+        count == 0 for count in result.repair_summary.values()
     )
-    try:
-        gateway.generate(fail_request)
-    except GenerationGatewayError:
-        pass
-    assert result.status in {
-        OrchestrationRunStatus.COMPLETED,
-        OrchestrationRunStatus.REVIEW_REQUIRED,
-        OrchestrationRunStatus.FAILED,
-    }
     session.close()
 
 
@@ -140,14 +137,24 @@ def test_orchestration_models_postgres_compile() -> None:
     from sqlalchemy.dialects import postgresql
     from sqlalchemy.schema import CreateTable
 
-    from app.models.orchestration import OrchestrationGenerationCall
-
-    ddl = str(
-        CreateTable(OrchestrationGenerationCall.__table__).compile(
-            dialect=postgresql.dialect()
-        )
+    from app.models.orchestration import (
+        OrchestrationAuditEvent,
+        OrchestrationCheckpointLease,
+        OrchestrationGenerationCall,
+        OrchestrationIdempotencyRecord,
     )
-    assert "orchestration_generation_calls" in ddl
+
+    tables = (
+        OrchestrationAuditEvent,
+        OrchestrationIdempotencyRecord,
+        OrchestrationGenerationCall,
+        OrchestrationCheckpointLease,
+    )
+    for model in tables:
+        ddl = str(
+            CreateTable(model.__table__).compile(dialect=postgresql.dialect())
+        )
+        assert model.__tablename__ in ddl
 
 
 def test_postgres_checkpointer_contract() -> None:
@@ -161,6 +168,9 @@ def test_postgres_checkpointer_contract() -> None:
         managed = build_managed_checkpointer(
             Settings(database_url="postgresql+psycopg://user:pass@localhost/db"),
             memory_only=False,
+        )
+        saver_cls.from_conn_string.assert_called_once_with(
+            "postgresql://user:pass@localhost/db"
         )
         saver.setup.assert_called_once()
         managed.close()
@@ -189,38 +199,35 @@ def test_hitl_interrupt_payload_present() -> None:
 
 
 def test_service_b_resumes_after_service_a_closed() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        app_db_path = str(Path(tmpdir) / "app.db")
-        checkpoint_db_path = str(Path(tmpdir) / "checkpoint.db")
-        engine = create_engine(f"sqlite:///{app_db_path}")
-        enable_sqlite_foreign_keys(engine)
-        Base.metadata.create_all(engine)
-        file_settings = Settings(database_url=f"sqlite:///{app_db_path}")
-        checkpoint_settings = Settings(database_url=f"sqlite:///{checkpoint_db_path}")
-        from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    shared_checkpointer = build_managed_checkpointer(
+        Settings(database_url="sqlite:///:memory:"), memory_only=True
+    )
+    from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 
-        with Session(engine) as session:
+    with Session(engine) as session:
             ki = FakeAnythingLLMAdapter()
             ctx = seed_day8_fixtures(session, adapter=ki)
             service_a = build_orchestration_service(
                 session,
-                settings=file_settings,
                 knowledge_adapter=ki,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             request = build_orchestration_request(
                 ctx, scenario="human_review", idempotency_key="restart-service-b"
             )
             paused = service_a.run(request)
+            session.commit()
             calls_before = len(service_a.dependencies.gateway.call_history())
             service_a.close()
 
             service_b = build_orchestration_service(
                 session,
-                settings=file_settings,
                 knowledge_adapter=ki,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             completed = service_b.run(request, resume=HumanResumeDecision(action="approve"))

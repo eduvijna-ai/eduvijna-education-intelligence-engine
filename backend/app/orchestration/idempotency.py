@@ -66,17 +66,18 @@ def claim_idempotency(
             )
         return None, existing.run_id, "in_progress"
 
-    record = OrchestrationIdempotencyRecord(
-        idempotency_key=request.idempotency_key,
-        request_hash=request_hash,
-        run_id=request.run_id,
-        status="in_progress",
-        result_json={},
-        completed_at=None,
-    )
-    session.add(record)
     try:
         with session.begin_nested():
+            session.add(
+                OrchestrationIdempotencyRecord(
+                    idempotency_key=request.idempotency_key,
+                    request_hash=request_hash,
+                    run_id=request.run_id,
+                    status="in_progress",
+                    result_json={},
+                    completed_at=None,
+                )
+            )
             session.flush()
     except IntegrityError:
         raced = _load_record(session, request.idempotency_key)

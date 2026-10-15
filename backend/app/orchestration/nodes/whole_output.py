@@ -34,7 +34,9 @@ def whole_output_node(
     review_required = any(item.get("review_required") for item in deterministic)
     human_approved = bool(state.get("human_approved"))
 
-    if state.get("pipeline_halt") or state.get("status") == OrchestrationRunStatus.FAILED.value:
+    if state.get("gateway_retry_required"):
+        status = OrchestrationRunStatus.RETRY_REQUIRED
+    elif state.get("pipeline_halt") or state.get("status") == OrchestrationRunStatus.FAILED.value:
         status = OrchestrationRunStatus.FAILED
     elif duplicate_block:
         status = OrchestrationRunStatus.FAILED

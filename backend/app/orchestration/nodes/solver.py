@@ -65,7 +65,13 @@ def solver_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
         )
         if extra and "error_code" in extra:
             failure = pipeline_failure(
-                deps, state, "solver", started, extra["error_code"], attempt=attempt
+                deps,
+                state,
+                "solver",
+                started,
+                extra["error_code"],
+                attempt=attempt,
+                retryable=bool(extra.get("retryable")),
             )
             if extra.get("audit_refs"):
                 failure["audit_refs"] = list(failure.get("audit_refs") or []) + extra["audit_refs"]
@@ -79,6 +85,15 @@ def solver_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
             gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
         )
         solver = SolverResult.model_validate(response.parsed)
+        if solver.item_id != draft.item_id:
+            return pipeline_failure(
+                deps,
+                state,
+                "solver",
+                started,
+                "model_identity_mismatch",
+                attempt=attempt,
+            )
         results[draft.item_id] = solver.model_dump(mode="json")
 
     ordered = [results[d.item_id] for d in drafts if d.item_id in results]

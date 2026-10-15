@@ -62,6 +62,7 @@ def pipeline_failure(
     *,
     attempt: int,
     issue_codes: list[str] | None = None,
+    retryable: bool = False,
 ) -> dict[str, Any]:
     audit_id = audit_node(
         deps,
@@ -73,16 +74,24 @@ def pipeline_failure(
     )
     errors = list(state.get("errors") or [])
     errors.append(error_code)
+    status = (
+        OrchestrationRunStatus.RETRY_REQUIRED.value
+        if retryable
+        else OrchestrationRunStatus.FAILED.value
+    )
+    update: dict[str, Any] = {
+        "status": status,
+        "errors": errors,
+        "pipeline_halt": True,
+        "audit_refs": [audit_id],
+    }
+    if retryable:
+        update["gateway_retry_required"] = True
     return timed_update(
         state,
         node_name,
         started,
-        {
-            "status": OrchestrationRunStatus.FAILED.value,
-            "errors": errors,
-            "pipeline_halt": True,
-            "audit_refs": [audit_id],
-        },
+        update,
         attempt_map={node_name: attempt},
     )
 

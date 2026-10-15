@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 from sqlalchemy import create_engine, select
@@ -59,43 +58,99 @@ def build_verification_report(session: Session) -> dict[str, object]:
 
     clean_request = build_orchestration_request(ctx, scenario="clean_pass")
     clean = service.run(clean_request)
+    session.commit()
     repair_request = build_orchestration_request(
         ctx,
         scenario="repair_then_pass",
         idempotency_key="day8-repair-key",
     )
     repaired = service.run(repair_request)
+    session.commit()
     blocking = service.run(
         build_orchestration_request(
             ctx, scenario="blocking_day6", idempotency_key="day8-block-key"
         )
     )
-    from app.knowledge_intelligence.contracts import AppliedKnowledgeScope, KnowledgeContextPack
-    from app.orchestration.contracts import ResolvedScope
-    from app.orchestration.scope_validation import validate_context_scope
+    session.commit()
+    from app.knowledge_intelligence.contracts import KnowledgeRetrievalRequest
+    from app.knowledge_intelligence.fixtures import _OFFICIAL_TEXT, _active_revision
+    from app.knowledge_intelligence.indexing import index_source_revision
+    from app.models import Institution, Organization
+    from app.models.enums import SourceStatus, SourceTrustTier, SourceType
+    from app.models.source import Source
 
-    scope_probe = validate_context_scope(
-        ResolvedScope(
-            curriculum_version_id=ctx["curriculum_version_id"],
+    org_b = Organization(code="ki-org-b", name="KI Org B")
+    session.add(org_b)
+    session.flush()
+    inst_b = Institution(organization_id=org_b.id, code="ki-inst-b", name="KI Inst B")
+    session.add(inst_b)
+    session.flush()
+    foreign_source = Source(
+        organization_id=org_b.id,
+        institution_id=inst_b.id,
+        source_type=SourceType.INSTITUTION_CONTENT.value,
+        title="Synthetic foreign tenant source",
+        trust_tier=SourceTrustTier.INSTITUTION.value,
+        status=SourceStatus.ACTIVE.value,
+        metadata_json={"synthetic_fixture": True, "fixture_role": "foreign_tenant"},
+    )
+    session.add(foreign_source)
+    session.flush()
+    foreign_revision = _active_revision(
+        foreign_source.id,
+        _OFFICIAL_TEXT + " ORG-B-MARKER",
+        revision_number=1,
+        checksum_suffix="fb",
+    )
+    foreign_revision.metadata_json = {
+        **foreign_revision.metadata_json,
+        "tenant_marker": "org-b",
+    }
+    session.add(foreign_revision)
+    session.flush()
+    ki_probe_adapter = service.dependencies.knowledge_service._adapter
+    index_source_revision(
+        session,
+        ki_probe_adapter,
+        foreign_revision.id,
+        retrieval_profile_version=clean_request.retrieval_profile_version,
+    )
+    session.commit()
+    ki_service = service.dependencies.knowledge_service
+    tenant_probe = ki_service.retrieve(
+        KnowledgeRetrievalRequest(
+            query_text="quadratic equations completing square",
+            retrieval_profile_version=clean_request.retrieval_profile_version,
             organization_id=ctx["organization_id"],
             institution_id=ctx["institution_id"],
-        ),
-        KnowledgeContextPack(
-            query_id="probe",
-            query_text="probe",
-            retrieval_profile_version="ki-retrieval-v1",
-            evidence=[],
-            scope=AppliedKnowledgeScope(
-                organization_id=ctx["organization_id"],
-                institution_id=ctx["institution_id"],
-                curriculum_version_id=None,
-            ),
-            citations=[],
-            bounded_text="",
-            warnings=[],
-        ),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            grade_year_code="grade-8",
+            medium_code="english",
+            subject_code="mathematics",
+        )
     )
-    foreign_tenant_scope_enforced = "scope_mismatch:curriculum_version_id" in scope_probe
+    tenant_b_probe = ki_service.retrieve(
+        KnowledgeRetrievalRequest(
+            query_text="quadratic equations completing square",
+            retrieval_profile_version=clean_request.retrieval_profile_version,
+            organization_id=org_b.id,
+            institution_id=inst_b.id,
+        )
+    )
+    foreign_visible_to_tenant_b = any(
+        item.source_revision_id == foreign_revision.id for item in tenant_b_probe.items
+    )
+    foreign_hidden_from_tenant_a = all(
+        item.source_revision_id != foreign_revision.id for item in tenant_probe.items
+    )
+    foreign_tenant_scope_enforced = (
+        foreign_visible_to_tenant_b
+        and foreign_hidden_from_tenant_a
+        and (
+            tenant_probe.dropped_foreign_tenant_count > 0
+            or len(tenant_probe.items) > 0
+        )
+    )
     exhausted = service.run(
         build_orchestration_request(
             ctx,
@@ -109,8 +164,10 @@ def build_verification_report(session: Session) -> dict[str, object]:
             ctx, scenario="injection_evidence", idempotency_key="day8-injection-key"
         )
     )
+    session.commit()
 
     replay = service.run(clean_request)
+    session.commit()
     idem_count = session.scalar(select(OrchestrationIdempotencyRecord.id).limit(10))
     audit_count = session.scalar(select(OrchestrationAuditEvent.id).limit(1))
 
@@ -124,22 +181,19 @@ def build_verification_report(session: Session) -> dict[str, object]:
     except IdempotencyConflictError:
         idem_conflict_ok = True
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        app_db_path = str(Path(tmpdir) / "app.db")
-        checkpoint_db_path = str(Path(tmpdir) / "checkpoint.db")
-        file_engine = create_engine(f"sqlite:///{app_db_path}")
-        enable_sqlite_foreign_keys(file_engine)
-        Base.metadata.create_all(file_engine)
-        file_settings = Settings(database_url=f"sqlite:///{app_db_path}")
-        checkpoint_settings = Settings(database_url=f"sqlite:///{checkpoint_db_path}")
-        with Session(file_engine) as checkpoint_session:
+    shared_checkpointer = build_managed_checkpointer(
+        Settings(database_url="sqlite:///:memory:"), memory_only=True
+    )
+    resume_engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(resume_engine)
+    Base.metadata.create_all(resume_engine)
+    with Session(resume_engine) as checkpoint_session:
             resume_adapter = FakeAnythingLLMAdapter()
             resume_ctx = seed_day8_fixtures(checkpoint_session, adapter=resume_adapter)
             resume_service = build_orchestration_service(
                 checkpoint_session,
-                settings=file_settings,
                 knowledge_adapter=resume_adapter,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             resume_request = build_orchestration_request(
@@ -148,7 +202,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
                 idempotency_key="day8-resume-key",
             )
             paused_result = resume_service.run(resume_request)
-            thread_id = resume_request.run_id
+            checkpoint_session.commit()
+            thread_id = paused_result.run_id
             config = {"configurable": {"thread_id": thread_id}}
             calls_before = len(resume_service.dependencies.gateway.call_history())
             assert calls_before > 0
@@ -156,15 +211,15 @@ def build_verification_report(session: Session) -> dict[str, object]:
 
             resume_service_b = build_orchestration_service(
                 checkpoint_session,
-                settings=file_settings,
                 knowledge_adapter=resume_adapter,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             resumed = resume_service_b.run(
                 resume_request,
                 resume=HumanResumeDecision(action="approve"),
             )
+            checkpoint_session.commit()
             calls_after = len(resume_service_b.dependencies.gateway.call_history())
             resume_ok = (
                 paused_result.status == OrchestrationRunStatus.REVIEW_REQUIRED
@@ -175,9 +230,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
 
             rebuilt = build_orchestration_service(
                 checkpoint_session,
-                settings=file_settings,
                 knowledge_adapter=resume_adapter,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             try:

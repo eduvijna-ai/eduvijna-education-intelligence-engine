@@ -55,9 +55,9 @@ class FakeGenerationGateway:
         elif request.role == GenerationNodeRole.SOLVER:
             parsed = self._solver_payload(scenario, item_id, payload)
         elif request.role == GenerationNodeRole.REPAIR:
-            parsed = self._author_payload(
-                "clean_pass", item_id, primary_revision, learning_outcome_id, payload
-            )
+            parsed = {
+                "repair_instructions": dict(payload.get("repair_instructions") or {}),
+            }
         else:
             parsed = self._review_payload(request.role, scenario, item_id, payload)
 

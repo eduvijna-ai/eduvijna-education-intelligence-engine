@@ -47,7 +47,8 @@ class OrchestrationGenerationCall(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     run_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
-    response_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
+    response_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
 
 class OrchestrationCheckpointLease(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -55,4 +56,5 @@ class OrchestrationCheckpointLease(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     thread_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    holder_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

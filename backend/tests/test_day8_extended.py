@@ -92,7 +92,13 @@ def test_anythingllm_generation_wire_request_shape() -> None:
             '{"item_id":"i","stem_text":"x","question_type":"single_choice","options":[]}'
         ),
     }
-    with patch.object(httpx.Client, "post", return_value=mock_response) as post:
+    mock_workspace = MagicMock()
+    mock_workspace.status_code = 200
+    mock_workspace.json.return_value = {"workspace": {"documents": [], "slug": "orchestration-ws"}}
+    with (
+        patch.object(httpx.Client, "get", return_value=mock_workspace),
+        patch.object(httpx.Client, "post", return_value=mock_response) as post,
+    ):
         gateway.generate(
             GenerationRequest(
                 role=GenerationNodeRole.AUTHOR,
@@ -100,12 +106,16 @@ def test_anythingllm_generation_wire_request_shape() -> None:
                 system_prompt="system",
                 user_payload={"item_id": "i"},
                 output_schema_name="DraftQuestionItem",
+                chat_session_id="eduvijna-session-author",
+                chat_reset=True,
             )
         )
     body = post.call_args.kwargs.get("json") or post.call_args[1].get("json")
     assert "systemPrompt" not in body
     assert "author@v1" in body["message"]
     assert body["mode"] == "chat"
+    assert body["sessionId"] == "eduvijna-session-author"
+    assert body["reset"] is True
 
 
 def test_anythingllm_empty_response_is_gateway_failure() -> None:
@@ -117,7 +127,13 @@ def test_anythingllm_empty_response_is_gateway_failure() -> None:
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {"id": "chat-1", "textResponse": ""}
-    with patch.object(httpx.Client, "post", return_value=mock_response):
+    with (
+        patch(
+            "app.orchestration.gateway.anythingllm.verify_orchestration_workspace",
+            return_value=None,
+        ),
+        patch.object(httpx.Client, "post", return_value=mock_response),
+    ):
         try:
             gateway.generate(
                 GenerationRequest(
@@ -136,37 +152,34 @@ def test_anythingllm_empty_response_is_gateway_failure() -> None:
 
 
 def test_sqlite_checkpoint_survives_service_rebuild() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        app_db_path = str(Path(tmpdir) / "orch.db")
-        checkpoint_db_path = str(Path(tmpdir) / "checkpoint.db")
-        engine = create_engine(f"sqlite:///{app_db_path}")
-        enable_sqlite_foreign_keys(engine)
-        Base.metadata.create_all(engine)
-        file_settings = Settings(database_url=f"sqlite:///{app_db_path}")
-        checkpoint_settings = Settings(database_url=f"sqlite:///{checkpoint_db_path}")
-        with Session(engine) as session:
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    shared_checkpointer = build_managed_checkpointer(
+        Settings(database_url="sqlite:///:memory:"), memory_only=True
+    )
+    with Session(engine) as session:
             ki_adapter = FakeAnythingLLMAdapter()
             ctx = seed_day8_fixtures(session, adapter=ki_adapter)
             service = build_orchestration_service(
                 session,
-                settings=file_settings,
                 knowledge_adapter=ki_adapter,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             request = build_orchestration_request(
                 ctx, scenario="human_review", idempotency_key="persist-hitl-key"
             )
             paused = service.run(request)
+            session.commit()
             assert paused.status == OrchestrationRunStatus.REVIEW_REQUIRED
             calls_before = len(service.dependencies.gateway.call_history())
             service.close()
 
             rebuilt = build_orchestration_service(
                 session,
-                settings=file_settings,
                 knowledge_adapter=ki_adapter,
-                checkpointer=build_managed_checkpointer(checkpoint_settings, memory_only=False),
+                checkpointer=shared_checkpointer,
                 force_fake=True,
             )
             try:

@@ -12,9 +12,9 @@ from app.orchestration.gateway.types import (
     GenerationRequest,
     GenerationResponse,
 )
+from app.orchestration.gateway.workspace_contract import verify_orchestration_workspace
 
 logger = logging.getLogger("eduvijna.orchestration.anythingllm")
-
 
 
 class AnythingLLMGenerationGateway:
@@ -33,6 +33,7 @@ class AnythingLLMGenerationGateway:
         self._timeout = timeout_seconds
         self._workspace_slug = workspace_slug
         self._history: list[GenerationResponse] = []
+        self._workspace_verified = False
 
     def call_history(self) -> list[GenerationResponse]:
         return list(self._history)
@@ -66,11 +67,23 @@ class AnythingLLMGenerationGateway:
             raise GenerationGatewayError(
                 "gateway_configuration", "orchestration workspace slug is required", retryable=False
             )
+        if not self._workspace_verified:
+            verify_orchestration_workspace(
+                base_url=self._base_url,
+                api_key=self._api_key,
+                workspace_slug=workspace,
+                timeout_seconds=min(self._timeout, 15.0),
+            )
+            self._workspace_verified = True
         started = time.perf_counter()
         body: dict[str, Any] = {
             "message": self._build_message(request),
             "mode": "chat",
         }
+        if request.chat_session_id:
+            body["sessionId"] = request.chat_session_id
+        if request.chat_reset:
+            body["reset"] = True
         path = f"/api/v1/workspace/{workspace}/chat"
         try:
             with httpx.Client(timeout=self._timeout) as client:

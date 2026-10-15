@@ -87,7 +87,13 @@ def reviewers_node(
             )
             if extra and "error_code" in extra:
                 failure = pipeline_failure(
-                    deps, state, "reviewers", started, extra["error_code"], attempt=attempt
+                    deps,
+                    state,
+                    "reviewers",
+                    started,
+                    extra["error_code"],
+                    attempt=attempt,
+                    retryable=bool(extra.get("retryable")),
                 )
                 if extra.get("audit_refs"):
                     failure["audit_refs"] = list(failure.get("audit_refs") or []) + extra[
@@ -103,6 +109,15 @@ def reviewers_node(
                 gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
             )
             verdict = ReviewVerdict.model_validate(response.parsed)
+            if verdict.item_id != draft.item_id:
+                return pipeline_failure(
+                    deps,
+                    state,
+                    "reviewers",
+                    started,
+                    "model_identity_mismatch",
+                    attempt=attempt,
+                )
             verdict_map[(verdict.item_id, verdict.reviewer)] = verdict.model_dump(mode="json")
             prompt_versions[prompt_name] = prompt.version
 

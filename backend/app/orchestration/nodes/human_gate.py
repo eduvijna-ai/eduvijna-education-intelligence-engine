@@ -12,6 +12,8 @@ from app.orchestration.human_decision import HumanResumeDecision
 from app.orchestration.nodes._helpers import audit_node, next_attempt, timed_update
 from app.orchestration.state import OrchestrationGraphState
 
+_HUMAN_IMMUTABLE_PATCH_KEYS = frozenset({"item_id", "slot_index"})
+
 
 def _build_interrupt_payload(state: OrchestrationGraphState) -> dict[str, Any]:
     drafts = state.get("draft_items") or []
@@ -70,7 +72,26 @@ def human_gate_node(
         for draft in drafts:
             patch = decision.item_patches.get(draft.item_id)
             if patch:
-                patched.append(draft.model_copy(update=patch).model_dump(mode="json"))
+                forbidden = [key for key in patch if key in _HUMAN_IMMUTABLE_PATCH_KEYS]
+                if forbidden:
+                    return timed_update(
+                        state,
+                        "human_gate",
+                        started,
+                        {
+                            "human_decision": decision.model_dump(mode="json"),
+                            "status": OrchestrationRunStatus.FAILED.value,
+                            "errors": list(state.get("errors") or [])
+                            + ["human_edit_identity_forbidden"],
+                            "pipeline_halt": True,
+                            "audit_refs": [audit_id],
+                        },
+                        attempt_map=attempt_map,
+                    )
+                updated = DraftQuestionItem.model_validate(
+                    draft.model_copy(update=patch).model_dump(mode="json")
+                )
+                patched.append(updated.model_dump(mode="json"))
             else:
                 patched.append(draft.model_dump(mode="json"))
         return timed_update(

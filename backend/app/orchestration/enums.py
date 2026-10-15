@@ -10,6 +10,7 @@ class OrchestrationRunStatus(StrEnum):
     REVIEWING = "reviewing"
     REPAIRING = "repairing"
     REVIEW_REQUIRED = "review_required"
+    RETRY_REQUIRED = "retry_required"
     COMPLETED = "completed"
     FAILED = "failed"
 

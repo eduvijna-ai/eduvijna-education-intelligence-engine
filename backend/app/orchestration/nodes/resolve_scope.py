@@ -9,6 +9,7 @@ from app.models.curriculum import CurriculumVersion
 from app.models.enums import ExamStatus
 from app.models.examination import ExamVersion
 from app.orchestration.contracts import ResolvedScope
+from app.orchestration.curriculum_scope import validate_curriculum_hierarchy
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
@@ -55,6 +56,11 @@ def resolve_scope_node(
         actor_id=request.actor_id,
     )
     scope = _validate_refs(deps.session, scope)
+    hierarchy_errors = validate_curriculum_hierarchy(deps.session, scope)
+    if hierarchy_errors:
+        scope = scope.model_copy(
+            update={"scope_errors": list(scope.scope_errors) + hierarchy_errors}
+        )
     status = (
         OrchestrationRunStatus.FAILED.value
         if scope.scope_errors

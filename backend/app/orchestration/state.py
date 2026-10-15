@@ -38,6 +38,8 @@ class OrchestrationGraphState(TypedDict, total=False):
     human_approved: bool
     human_revalidate: bool
     pipeline_halt: bool
+    gateway_retry_required: bool
+    allow_gateway_retry: bool
     repair_item_ids: list[str]
     generation_call_cache: dict[str, Any]
     audit_refs: Annotated[list[str], operator.add]

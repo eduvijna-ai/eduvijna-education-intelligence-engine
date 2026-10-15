@@ -82,10 +82,17 @@ def author_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
             request=gen_request,
             run_id=request.run_id,
             item_id=slot.item_id,
+            schema_payload_merge={"slot_index": slot.slot_index},
         )
         if extra and "error_code" in extra:
             failure = pipeline_failure(
-                deps, state, "author", started, extra["error_code"], attempt=attempt
+                deps,
+                state,
+                "author",
+                started,
+                extra["error_code"],
+                attempt=attempt,
+                retryable=bool(extra.get("retryable")),
             )
             if extra.get("audit_refs"):
                 failure["audit_refs"] = list(failure.get("audit_refs") or []) + extra["audit_refs"]
@@ -98,9 +105,16 @@ def author_node(state: OrchestrationGraphState, deps: OrchestrationDependencies)
         gateway_usage = merge_gateway_usage(
             gateway_usage, response.usage, count_call=not bool(extra and extra.get("cache_hit"))
         )
-        draft = DraftQuestionItem.model_validate(
-            {**response.parsed, "slot_index": slot.slot_index}
-        )
+        draft = DraftQuestionItem.model_validate(response.parsed)
+        if draft.item_id != slot.item_id:
+            return pipeline_failure(
+                deps,
+                state,
+                "author",
+                started,
+                "model_identity_mismatch",
+                attempt=attempt,
+            )
         drafts[slot.item_id] = draft.model_dump(mode="json")
 
     ordered = []

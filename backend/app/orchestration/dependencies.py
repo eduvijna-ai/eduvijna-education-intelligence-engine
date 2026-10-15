@@ -12,6 +12,7 @@ from app.orchestration.gateway.protocol import GenerationGateway
 @dataclass(slots=True)
 class OrchestrationDependencies:
     session: Session
+    control_session: Session
     knowledge_service: KnowledgeIntelligenceService
     education_service: EducationIntelligenceValidationService
     gateway: GenerationGateway

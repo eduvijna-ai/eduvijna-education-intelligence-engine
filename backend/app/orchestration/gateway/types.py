@@ -26,6 +26,8 @@ class GenerationRequest:
     scenario: str = "clean_pass"
     workspace_slug: str | None = None
     model_settings: dict[str, Any] = field(default_factory=dict)
+    chat_session_id: str | None = None
+    chat_reset: bool = False
 
 
 @dataclass(frozen=True, slots=True)
