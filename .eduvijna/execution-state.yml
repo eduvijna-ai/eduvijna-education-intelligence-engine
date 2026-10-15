@@ -273,6 +273,8 @@ days:
     founder_approval: false
     activation_signal: "Founder signed off Day 7 and authorized Day 8 activation."
     tasklist_status: PENDING_FOUNDER_APPROVAL
+    proposed_scope: D8-01..D8-36
+    tasklist_spec: "docs/execution/D08-LANGGRAPH-ORCHESTRATION.md"
     implementation_authorized: false
     depends_on: 7
   9:
