@@ -1,93 +1,65 @@
 # Day 9 — D9-36 final acceptance evidence
 
-**Status:** Pending Founder signoff (engineering evidence collected on frozen candidate).
+## D9-36 gate summary (honest state)
+
+| Gate | Status |
+|------|--------|
+| `CODE_REVIEW_CLEAN` | **YES** — SHA `eede5d67048502211d867ba45390b43c4f820f1d` |
+| `TARGETED_CI_EXACT_HEAD_GREEN` | **YES** — PR CI **#67** / `38734032391` on HEAD `6f85faeb0690c1720e4d60e0a032733246204ce8` |
+| `FULL_PYTEST_CURSOR_REPORTED_GREEN` | **YES** (exit 0, 1784 collected, 0 failed observed) — **passed/skipped/xfail counts UNVERIFIED** (see `D09-D36-FULL-PYTEST-EVIDENCE.md`) |
+| `COMPOSE_SMOKE` | **BLOCKED** — `BLOCKED_DOCKER_UNAVAILABLE` on Cursor VM; see `D09-D36-FOUNDER-COMPOSE-SMOKE.md` |
+| `D9_36_FINAL_ACCEPTANCE` | **BLOCKED** — pending Compose evidence or Founder documented exception |
+| `DAY_10` / merge | **LOCKED** — PR #27 Draft, unmerged; `founder_approval: false` |
+
+Manual **code** review remains clean. Final engineering acceptance is **blocked on evidence**, not failed code.
 
 | Field | Value |
 |-------|--------|
 | Manual code review CLEAN SHA | `eede5d67048502211d867ba45390b43c4f820f1d` |
-| Acceptance candidate SHA (code) | `eede5d67048502211d867ba45390b43c4f820f1d` |
-| Docs evidence SHA (after scope-map) | See PR handback `git rev-parse HEAD` |
+| Frozen code acceptance candidate | `eede5d67048502211d867ba45390b43c4f820f1d` |
+| Current PR HEAD (docs/evidence) | `6f85faeb0690c1720e4d60e0a032733246204ce8` |
 | PR | #27 `feature/day9-diagnostic-distractor-intelligence` → `develop` (Draft, unmerged) |
-| Targeted CI (review SHA) | Run **#66** / `38729926335` — SUCCESS |
+| Targeted CI (latest HEAD) | Run **#67** / `38734032391` — SUCCESS |
 
 ## D9-36 checklist
 
 | Step | Result | Notes |
 |------|--------|-------|
-| Evidence map updated | See `D09-SCOPE-MAP.md` | D9-27 audit path, D9-32 restart proof, D9-36 pending Founder |
-| `EDUVIJNA_CANDIDATE_SHA` | Set to acceptance candidate | Verifiers use explicit candidate |
-| Full `pytest tests/` | See regression section below | One historical regression at frozen SHA |
-| `python -m app.day8_verify` | PASS | With candidate SHA |
-| `python -m app.day9_verify --json` | `ok: true` | Structured checks in PR handback |
-| Compose smoke | **BLOCKED** on Cloud Agent VM (`docker` not installed) | Targeted CI `compose-smoke` job when enabled on GitHub |
-| Migrations / Postgres | See persistence section | No Day-9 DDL; Alembic check + compile test |
+| Evidence map updated | `D09-SCOPE-MAP.md` | D9-36 pending Founder |
+| `EDUVIJNA_CANDIDATE_SHA` | `eede5d6…` | Verifiers on frozen code SHA |
+| Full `pytest tests/` | See `D09-D36-FULL-PYTEST-EVIDENCE.md` | One-time run; no default re-run |
+| `python -m app.day8_verify` | PASS | Targeted CI + local |
+| `python -m app.day9_verify --json` | `ok: true` | Targeted CI + local |
+| Compose smoke | **BLOCKED** | Founder checklist in `D09-D36-FOUNDER-COMPOSE-SMOKE.md` |
+| Migrations / Postgres | Green (reported) | No Day-9 DDL; Alembic check + `test_postgres_compile.py` |
 
 ## Full historical regression
 
-Command (from `backend/`):
-
-```bash
-python -m pytest tests -q --tb=no
-```
-
-Environment: Cloud Agent VM, Python 3.12, `backend/.venv`, SQLite in-memory/default test DBs.
-
-**Result:** PASS — `1784` collected, **0 failed** (exit code 0). Command output did not report skips/xfails under `-q`; treat as full pass unless a future run shows otherwise.
-
-Wall time ~28 min on Cloud Agent VM (Python 3.12, `backend/.venv`). Log: `d9-36-full-pytest.log`.
+Documented in **`docs/execution/D09-D36-FULL-PYTEST-EVIDENCE.md`** (metadata, limitations, sanitized excerpt).
 
 ## Founder verifiers (JSON)
 
-Run:
-
 ```bash
-export EDUVIJNA_CANDIDATE_SHA=<acceptance-candidate-40-char-sha>
+export EDUVIJNA_CANDIDATE_SHA=eede5d67048502211d867ba45390b43c4f820f1d
 cd backend && python -m app.day8_verify && python -m app.day9_verify --json
 ```
 
-`day9_verify` demonstrates: taxonomy resolve, option tags, correct-option protection, signal/distinctness/provenance, Day-6 block, tenant isolation (DB ownership), `RequestCapturingGateway` foreign-injection prompt proof, HITL diagnostic review/edit, marks edit forbidden, bounded repair, forged evidence reject, checkpoint explicit retry (`checkpoint_proof.py`), idempotent replay/conflict, diagnostic audit on `OrchestrationAuditEvent`, scope guards, candidate SHA match.
+## D9-29…D9-35 demonstration trace
 
-## D9-29…D9-35 demonstration trace (synthetic MCQ)
-
-Positive path (no live LLM — `FakeGenerationGateway` + fixtures):
-
-1. **Canonical item + Day 7 context** — `seed_day8_fixtures` + `resolve_context` / `KnowledgeContextPack` (`test_day9_diagnostic.py`, `day9_verify` clean pass).
-2. **Taxonomy candidates** — `resolve_misconception_candidates` (`candidate_resolver.py`).
-3. **Option-level tags** — `DiagnosticIntelligenceService` + `nodes/diagnostic.py` gateway role `DIAGNOSTIC`.
-4. **Validators** — signal, distinctness, plausibility, factual, curriculum, evidence_ref, `result_integrity` (`test_day9_r4`–`r7`, `test_day9_adversarial.py`).
-5. **Day 6 authority** — `integration/day6_authority.py`; blocked scenario `blocking_day6` → `OrchestrationRunStatus.FAILED`.
-6. **Bounded repair** — `diagnostic_repair_then_pass` scenario; `test_day9_granular_repair.py`, `test_day9_batch.py` (one-item repair in 2-item batch).
-7. **Approved result** — `diagnostic_clean_pass` → `COMPLETED` with `diagnostic_results` + audit refs.
-
-Negative cases (representative tests / verifier):
-
-| Case | Evidence |
-|------|----------|
-| Correct option mislabeled | `diagnostic_correct_mislabeled` / `test_day9_adversarial.py` |
-| Unknown / inactive code | `diagnostic_unknown_code`, `diagnostic_inactive` / verifier `unknown_code_rejected` |
-| Cross-scope / tenant refs | `test_day9_r4_acceptance.py`, `day9_tenant_fixtures`, verifier `tenant_isolation_enforced` |
-| Duplicate misconception / redundant option | `distinctness.py`, `test_day9_r7`, verifier distinctness/redundant checks |
-| Second-correct ambiguity | `diagnostic_second_correct` / factual validator |
-| Injection evidence (untrusted) | `injection_evidence` scenario + `injection_evidence_control`; foreign metadata cannot enter prompts (`RequestCapturingGateway`) |
-| Gateway timeout/error | `test_day8_*` gateway error paths; `checkpoint_proof` retry |
-| Repair bound | `max_repairs` / repair exhaustion Day 8 patterns |
-| Restart / replay | `test_day9_restart.py`, `test_day9_idempotency.py`, `checkpoint_proof.prove_interrupted_diagnostic_checkpoint_restart` |
-
-Runtime guarantee: orchestration uses `GenerationGateway` protocol only (`FakeGenerationGateway` / `AnythingLLMGenerationGateway`); no direct provider SDK in business services (`day8_verify` `no_direct_provider_path`).
+Unchanged — see prior sections in git history; scope map links tests and `day9_verify` checks.
 
 ## Persistence / compatibility (D9-33)
 
-- **New Day-9 tables:** None. Diagnostic taxonomy is versioned JSON; durable events use existing `OrchestrationAuditEvent` (`app/orchestration/diagnostic_audit.py`) and Day-8 checkpoint/idempotency tables.
-- **SQLite:** Fresh `alembic upgrade head` + `alembic check` on acceptance candidate (head `20261015_0014`).
-- **PostgreSQL:** `tests/test_postgres_compile.py` (DDL/static compile harness in CI); no live Postgres instance in this acceptance VM unless separately provisioned.
+- No new Day-9 tables; taxonomy JSON + `OrchestrationAuditEvent` / Day-8 checkpoint tables.
+- SQLite: `alembic upgrade head` + `alembic check` (head `20261015_0014`).
+- PostgreSQL: static DDL compile test only unless live instance run separately.
 
 ## Governance
 
-- PR #27 remains **Draft**; **not merged**.
-- Day 10 remains **LOCKED** in `.eduvijna/execution-state.yml`; `founder_approval` not set for Day 9.
-- D5-DS01 / issue #16 unchanged.
-- No Codex review requested.
+- PR #27 **Draft**; **not merged**.
+- Day 10 **LOCKED**; D5-DS01 / issue #16 unchanged.
+- No Codex.
 
 ## Founder acceptance
 
-Engineering status after evidence collection: **READY FOR FOUNDER ACCEPTANCE** when full regression and compose sections are green; otherwise **FAILED** or **BLOCKED** as noted in PR handback.
+**Not complete.** Do not seek Founder signoff for full D9-36 until Compose smoke is executed (or Founder explicitly accepts documented Compose risk) and regression footer counts are accepted or re-verified.
