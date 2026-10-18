@@ -5,7 +5,7 @@
 | Gate | Status |
 |------|--------|
 | `CODE_REVIEW_CLEAN` | **YES** — SHA `eede5d67048502211d867ba45390b43c4f820f1d` |
-| `TARGETED_CI_EXACT_HEAD_GREEN` | **YES** — PR CI **#67** / `38734032391` on HEAD `6f85faeb0690c1720e4d60e0a032733246204ce8` |
+| `TARGETED_CI_EXACT_HEAD_GREEN` | **YES** — last verified: PR CI **#68** / `39096557003` on `13fbd6426130e3ee46e8f056d75c339b7a685482` (see PR for newer HEAD) |
 | `FULL_PYTEST_CURSOR_REPORTED_GREEN` | **YES** (exit 0, 1784 collected, 0 failed observed) — **passed/skipped/xfail counts UNVERIFIED** (see `D09-D36-FULL-PYTEST-EVIDENCE.md`) |
 | `COMPOSE_SMOKE` | **BLOCKED** — `BLOCKED_DOCKER_UNAVAILABLE` on Cursor VM; see `D09-D36-FOUNDER-COMPOSE-SMOKE.md` |
 | `D9_36_FINAL_ACCEPTANCE` | **BLOCKED** — pending Compose evidence or Founder documented exception |
@@ -15,11 +15,11 @@ Manual **code** review remains clean. Final engineering acceptance is **blocked 
 
 | Field | Value |
 |-------|--------|
-| Manual code review CLEAN SHA | `eede5d67048502211d867ba45390b43c4f820f1d` |
+| Manual code review CLEAN SHA (application code) | `eede5d67048502211d867ba45390b43c4f820f1d` |
 | Frozen code acceptance candidate | `eede5d67048502211d867ba45390b43c4f820f1d` |
-| Current PR HEAD (docs/evidence) | `6f85faeb0690c1720e4d60e0a032733246204ce8` |
-| PR | #27 `feature/day9-diagnostic-distractor-intelligence` → `develop` (Draft, unmerged) |
-| Targeted CI (latest HEAD) | Run **#67** / `38734032391` — SUCCESS |
+| PR branch | #27 `feature/day9-diagnostic-distractor-intelligence` → `develop` (Draft, unmerged) |
+| Last independently verified docs HEAD | `13fbd6426130e3ee46e8f056d75c339b7a685482` — targeted CI **#68** / `39096557003` SUCCESS (2026-10-18) |
+| Current PR HEAD | **See GitHub PR #27** (docs-only commits may advance HEAD without re-stating here) |
 
 ## D9-36 checklist
 
@@ -37,12 +37,16 @@ Manual **code** review remains clean. Final engineering acceptance is **blocked 
 
 Documented in **`docs/execution/D09-D36-FULL-PYTEST-EVIDENCE.md`** (metadata, limitations, sanitized excerpt).
 
-## Founder verifiers (JSON)
+## Founder verifiers (JSON) — host / CI only
+
+Exact-SHA checks require a Git checkout on the **host** (or CI runner), not the backend container image. Targeted PR CI runs these at the verified commit.
 
 ```bash
-export EDUVIJNA_CANDIDATE_SHA=eede5d67048502211d867ba45390b43c4f820f1d
+export EDUVIJNA_CANDIDATE_SHA="$(git rev-parse HEAD)"   # or frozen code SHA when auditing that revision
 cd backend && python -m app.day8_verify && python -m app.day9_verify --json
 ```
+
+Compose container smoke: **`D09-D36-FOUNDER-COMPOSE-SMOKE.md`** (section B — no in-container `day8_verify` / `day9_verify`).
 
 ## D9-29…D9-35 demonstration trace
 

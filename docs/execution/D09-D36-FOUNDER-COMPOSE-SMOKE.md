@@ -2,18 +2,38 @@
 
 **Cursor status:** `BLOCKED_DOCKER_UNAVAILABLE` (Cloud Agent VM has no `docker` binary).
 
-**Do not treat skipped targeted-CI `compose-smoke` (Draft PR) or this blocker as PASS.** Founder may run the checklist below locally or authorize full `ci.yml` on a non-draft revision.
+**Do not treat skipped targeted-CI `compose-smoke` (Draft PR) or this blocker as PASS.**
 
 ## Prerequisites
 
 - Docker Engine + Compose v2
-- Repository at acceptance SHA (current docs HEAD: `6f85faeb0690c1720e4d60e0a032733246204ce8`, or frozen code SHA: `eede5d67048502211d867ba45390b43c4f820f1d`)
+- Git checkout at the SHA you intend to smoke-test (`git rev-parse HEAD`)
 - Synthetic credentials only (no real AnythingLLM keys or private curriculum)
+- **Shell:** POSIX `sh` for the pytest target stanza below; Bash is fine for other steps
 
-## Setup (matches `.github/workflows/ci.yml` `compose-smoke`)
+**Image layout:** `backend/Dockerfile` copies `backend/tests` → `/app/tests` and `.eduvijna/execution-state.yml` only. It does **not** copy `.git`, `git`, or `.eduvijna/pytest-targets.txt`. Paths in `.eduvijna/pytest-targets.txt` are relative to `backend/` (e.g. `tests/test_day9_diagnostic.py`) and match `/app/tests/...` inside the container.
+
+## A — Host: exact-SHA Founder verifiers (optional but recommended)
+
+Run on the **host** where the repository `.git` directory exists (same evidence model as targeted PR CI). **Do not** run `day8_verify` / `day9_verify` inside the backend container expecting `candidate_sha_matches_head` to pass — `_git_head()` is `"unknown"` without `.git`.
 
 ```bash
-git checkout <acceptance-sha>
+# From repository root; backend venv with dev deps installed
+export EDUVIJNA_CANDIDATE_SHA="$(git rev-parse HEAD)"
+cd backend
+python -m app.day8_verify
+python -m app.day9_verify --json
+```
+
+**Expected:** `day8_verify` OK; `day9_verify` JSON `"ok": true` and `"candidate_sha_matches_head": true`.
+
+## B — Container: Compose stack smoke (required for D9-36 Compose gate)
+
+All commands below assume **repository root** as the current working directory.
+
+### Setup (matches `.github/workflows/ci.yml` `compose-smoke`)
+
+```bash
 cp .env.development.example .env.development
 printf '\nANYTHINGLLM_BASE_URL=http://anythingllm.example\nANYTHINGLLM_API_KEY=ci-dummy-anything-key\nMCP_API_KEY=ci-dummy-mcp-key\n' >> .env.development
 
@@ -21,7 +41,7 @@ docker compose --env-file .env.development config
 docker compose --env-file .env.development up --build -d
 ```
 
-## Health and routes
+### Health and routes
 
 ```bash
 # Wait until ready (repeat up to ~60s)
@@ -33,26 +53,19 @@ curl --fail --silent http://127.0.0.1:5173/ >/dev/null
 
 **Expected:** HTTP 200 on all; JSON from `/api/v1/system/info` without secrets.
 
-## Day 8 / Day 9 verifiers and focused tests (container)
+### Focused Day 7/8/9 pytest inside backend container
 
-Align with D9-36 acceptance; extend CI compose job with Day 8/9 harnesses:
+Resolve targets on the **host** from `.eduvijna/pytest-targets.txt` (same pattern as `.github/workflows/targeted-ci.yml`), then pass them to a one-off `run --rm` backend container (working directory `/app`):
 
-```bash
-export EDUVIJNA_CANDIDATE_SHA=<acceptance-sha>
-
-docker compose exec -T backend python -m app.day8_verify
-docker compose exec -T backend python -m app.day9_verify --json
-
-# Targeted Day 9 + Day 7/8 boundary suite (same as targeted CI)
-docker compose exec -T -e EDUVIJNA_CANDIDATE_SHA backend bash -lc '
-  mapfile -t targets < <(grep -Ev "^\s*(#|$)" .eduvijna/pytest-targets.txt)
-  pytest -q "${targets[@]}"
-'
+```sh
+set -- $(grep -Ev '^[[:space:]]*(#|$)' .eduvijna/pytest-targets.txt)
+test "$#" -gt 0 || { echo 'No pytest targets configured.'; exit 1; }
+docker compose --env-file .env.development run --rm backend pytest -q "$@"
 ```
 
-**Expected:** `day8_verify` / `day9_verify` OK; pytest exit 0.
+**Expected:** pytest exit code 0. Each argument is a path like `tests/test_day9_diagnostic.py`, valid under `/app/tests/` in the image.
 
-## SQLite persistence across restart (from `ci.yml`)
+### SQLite persistence across restart (from `ci.yml`)
 
 ```bash
 docker compose exec -T backend python - <<'PY'
@@ -73,6 +86,7 @@ PY
 docker compose --env-file .env.development down
 docker compose --env-file .env.development up -d
 # wait for /ready, then:
+curl --fail --silent http://127.0.0.1:8000/ready
 docker compose exec -T backend python - <<'PY'
 from app.db.session import session_factory
 from app.models import SystemSetting
@@ -84,7 +98,7 @@ finally:
 PY
 ```
 
-## Cleanup
+### Cleanup
 
 ```bash
 docker compose --env-file .env.development down
@@ -92,7 +106,7 @@ docker compose --env-file .env.development down
 
 ## Evidence to return to PR #27
 
-- Exact `git rev-parse HEAD` tested
-- Pass/fail per step (config, up, curls, verifiers, pytest, persistence)
-- Sanitized `docker compose ps` or health curl status lines only
-- **No** real API keys, env dumps, or private source text
+- `git rev-parse HEAD` tested
+- **Section A:** host verifier pass/fail (if run)
+- **Section B:** config/up, each curl, container pytest exit code, persistence assert, teardown
+- Sanitized health/status lines only — **no** real API keys, env dumps, or private source text
