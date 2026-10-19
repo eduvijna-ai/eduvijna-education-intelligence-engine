@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import re
 
-from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest, OptionDiagnosticTag
+from app.diagnostic_intelligence.contracts import (
+    Day7DiagnosticEvidenceSnippet,
+    DiagnosticAuthoringRequest,
+    OptionDiagnosticTag,
+)
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode
 from app.diagnostic_intelligence.evidence_policy import tag_requires_approved_evidence
 from app.diagnostic_intelligence.integration.revision_tenancy import (
@@ -31,6 +35,22 @@ def _visible_revision_ids(request: DiagnosticAuthoringRequest) -> set[str]:
     }
 
 
+def _visible_snippet_for_label(
+    request: DiagnosticAuthoringRequest, label: str
+) -> Day7DiagnosticEvidenceSnippet | None:
+    for snippet in request.day7_evidence_snippets:
+        if snippet.citation_label == label and (snippet.snippet or "").strip():
+            return snippet
+    return None
+
+
+def _citation_label_has_visible_binding(
+    request: DiagnosticAuthoringRequest, label: str, bound_revision_id: str
+) -> bool:
+    snippet = _visible_snippet_for_label(request, label)
+    return snippet is not None and snippet.source_revision_id == bound_revision_id
+
+
 def _citation_revision_map(request: DiagnosticAuthoringRequest) -> dict[str, str]:
     if request.trusted_citation_revision_map:
         return dict(request.trusted_citation_revision_map)
@@ -46,18 +66,9 @@ def _ref_to_revision_id(request: DiagnosticAuthoringRequest, ref: str) -> str | 
     citations = _citation_revision_map(request)
     if ref in citations:
         bound = citations[ref]
-        if _source_backed(request):
-            visible = _visible_revision_ids(request)
-            if visible and bound not in visible:
+        if _source_backed(request) or _looks_like_citation_label(ref):
+            if not _citation_label_has_visible_binding(request, ref, bound):
                 return None
-            if request.trusted_citation_revision_map:
-                for snippet in request.day7_evidence_snippets:
-                    if (
-                        snippet.citation_label == ref
-                        and (snippet.snippet or "").strip()
-                        and snippet.source_revision_id != bound
-                    ):
-                        return None
         return bound
     if _source_backed(request):
         if _looks_like_citation_label(ref) or ref in request.allowed_evidence_refs:
@@ -88,7 +99,12 @@ def validate_evidence_refs(
         if ref in allowed_refs:
             revision_id = _ref_to_revision_id(request, ref)
             if revision_id:
-                if _source_backed(request) and revision_id not in visible_revisions:
+                if _source_backed(request) and _looks_like_citation_label(ref):
+                    if not _citation_label_has_visible_binding(request, ref, revision_id):
+                        issues.append("unbound_diagnostic_evidence")
+                    else:
+                        resolved_revisions.append(revision_id)
+                elif _source_backed(request) and revision_id not in visible_revisions:
                     issues.append("unbound_diagnostic_evidence")
                 else:
                     resolved_revisions.append(revision_id)

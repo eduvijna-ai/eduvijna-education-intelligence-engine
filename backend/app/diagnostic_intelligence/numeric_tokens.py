@@ -11,7 +11,8 @@ _UNSUPPORTED_EXPRESSION = re.compile(
     r"|\d\s*[eE]\s*[+\-]?\s*\d"
     r"|\d\s*\+\s*\d"
     r"|\d\s*-\s*\d"
-    r"|\d\s*\b[xX]\b\s*\d"
+    r"|\d\s*[xX]\s*\d"
+    r"|\d\s+times\s+\d"
     r"|\(\s*\d"
 )
 _SIMPLE_ADDITION = re.compile(r"^\s*(\d+)\s*\+\s*(\d+)\s*$")

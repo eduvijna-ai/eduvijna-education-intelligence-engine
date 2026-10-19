@@ -388,12 +388,59 @@ def _empty_trusted_map_citation_rejected(service: DiagnosticIntelligenceService)
     return verdict.blocking and "unbound_diagnostic_evidence" in verdict.issue_codes
 
 
+def _orphan_trusted_citation_label_rejected(service: DiagnosticIntelligenceService) -> bool:
+    from app.diagnostic_intelligence.contracts import Day7DiagnosticEvidenceSnippet
+    from app.diagnostic_intelligence.preflight import run_diagnostic_preflight
+
+    rev_a = "00000000-0000-0000-0000-0000000000aa"
+    item = build_fixture_mcq_item(item_id="day9-orphan-trusted-cit").model_copy(
+        update={"source_revision_ids": [rev_a]}
+    )
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=[rev_a],
+        allowed_evidence_refs=["[CIT-1]", "[CIT-X]"],
+        day7_evidence_snippets=[
+            Day7DiagnosticEvidenceSnippet(
+                citation_label="[CIT-1]",
+                source_revision_id=rev_a,
+                snippet="approved",
+            )
+        ],
+        trusted_citation_revision_map={"[CIT-1]": rev_a, "[CIT-X]": rev_a},
+        bounded_day7_context=f"[CIT-1] (revision {rev_a})",
+    )
+    preflight = run_diagnostic_preflight(request)
+    if not preflight.allow_model_call and "forged_evidence_ref" in preflight.issue_codes:
+        return True
+    tags = build_fixture_tags(item)
+    tags[0] = tags[0].model_copy(update={"evidence_refs": ["[CIT-X]"]})
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.blocking and "unbound_diagnostic_evidence" in verdict.issue_codes
+
+
 def _multiplication_expression_blocks_pass(service: DiagnosticIntelligenceService) -> bool:
     from app.diagnostic_intelligence.numeric_tokens import numeric_literal_matches_integer
 
     if numeric_literal_matches_integer("11 * 2", 11):
         return False
-    item = build_fixture_mcq_item(item_id="day9-expr-mul", wrong_a="11 * 2")
+    if numeric_literal_matches_integer("11x2", 11):
+        return False
+    item = build_fixture_mcq_item(item_id="day9-expr-mul", wrong_a="11x2")
     request = with_fixture_day7_evidence(
         DiagnosticAuthoringRequest(
             item=item,
@@ -406,7 +453,7 @@ def _multiplication_expression_blocks_pass(service: DiagnosticIntelligenceServic
         )
     )
     tags = build_fixture_tags(item)
-    tags[0].metadata_json["option_text"] = "11 * 2"
+    tags[0].metadata_json["option_text"] = "11x2"
     verdict = service.validate_result(
         request,
         DistractorDiagnosticResult(
@@ -724,6 +771,7 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "multi_source_truncation_not_unauthorized": _multi_source_truncation_not_unauthorized(),
         "unbound_citation_evidence_rejected": _unbound_citation_evidence_rejected(service),
         "empty_trusted_map_citation_rejected": _empty_trusted_map_citation_rejected(service),
+        "orphan_trusted_citation_label_rejected": _orphan_trusted_citation_label_rejected(service),
         "multiplication_expression_blocks_pass": _multiplication_expression_blocks_pass(service),
         "expression_ambiguity_blocks_pass": _expression_ambiguity_blocks_pass(service),
     }
