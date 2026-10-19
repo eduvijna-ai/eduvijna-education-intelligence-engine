@@ -39,6 +39,7 @@ class DiagnosticIssueCode(StrEnum):
     MISSING_DIAGNOSTIC_EVIDENCE = "missing_diagnostic_evidence"
     INSUFFICIENT_DIAGNOSTIC_GROUNDING = "insufficient_diagnostic_grounding"
     PLAUSIBILITY_UNVERIFIED = "plausibility_unverified"
+    TAXONOMY_EVIDENCE_UNGROUNDED = "taxonomy_evidence_ungrounded"
 
 
 DEFAULT_TAXONOMY_VERSION = "misconception-taxonomy@v1"

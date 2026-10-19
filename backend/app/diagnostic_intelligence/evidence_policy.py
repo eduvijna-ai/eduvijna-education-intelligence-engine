@@ -6,14 +6,9 @@ from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest, Op
 from app.diagnostic_intelligence.taxonomy_registry import resolve_misconception
 
 
-def is_synthetic_taxonomy_only(request: DiagnosticAuthoringRequest) -> bool:
-    if request.synthetic_taxonomy_only:
-        return True
-    if request.item.metadata_json.get("synthetic_fixture"):
-        return True
-    if not request.item.source_revision_ids:
-        return True
-    return False
+def item_claims_source_provenance(request: DiagnosticAuthoringRequest) -> bool:
+    """Trusted canonical source claims only — never model draft metadata."""
+    return bool(request.item.source_revision_ids)
 
 
 def tag_requires_approved_evidence(
@@ -21,13 +16,9 @@ def tag_requires_approved_evidence(
 ) -> bool:
     if tag.is_correct or not tag.misconception_code:
         return False
-    if is_synthetic_taxonomy_only(request):
-        return False
     definition = resolve_misconception(
         tag.misconception_code, taxonomy_version=request.taxonomy_version
     )
-    if definition is None:
-        return bool(request.item.source_revision_ids)
-    if definition.evidence_source_revision_ids:
+    if definition is not None and definition.evidence_source_revision_ids:
         return True
-    return bool(request.item.source_revision_ids)
+    return item_claims_source_provenance(request)

@@ -42,7 +42,7 @@ from app.orchestration.nodes._helpers import (
     timed_update,
 )
 from app.orchestration.state import OrchestrationGraphState
-from app.orchestration.usage import merge_gateway_usage
+from app.orchestration.usage import merge_gateway_usage, record_gateway_role_attempt
 
 
 def _diagnostic_service(deps: OrchestrationDependencies) -> DiagnosticIntelligenceService:
@@ -281,6 +281,11 @@ def diagnostic_enrich_node(
             item_id=draft.item_id,
         )
         if extra and "error_code" in extra:
+            gateway_usage = record_gateway_role_attempt(
+                gateway_usage,
+                GenerationNodeRole.DIAGNOSTIC.value,
+                succeeded=False,
+            )
             failure = pipeline_failure(
                 deps,
                 state,
@@ -292,6 +297,7 @@ def diagnostic_enrich_node(
             )
             if extra.get("audit_refs"):
                 failure["audit_refs"] = list(failure.get("audit_refs") or []) + extra["audit_refs"]
+            failure["gateway_usage"] = gateway_usage
             return failure
         assert response is not None
         gateway_usage = merge_gateway_usage(
@@ -343,12 +349,19 @@ def diagnostic_enrich_node(
             float(gateway_usage.get("diagnostic_validator_ms", 0.0)) + validator_ms
         )
         enriched = service.attach_validation_status(parsed, verdict)
+        status_by_key = {
+            entry.option_key: entry.status.value
+            for entry in verdict.items
+            if entry.option_key
+        }
         option_traces = [
             {
                 "option_key": tag.option_key,
                 "is_correct": tag.is_correct,
                 "misconception_code": tag.misconception_code,
-                "validation_status": tag.validation_status.value,
+                "validation_status": status_by_key.get(
+                    tag.option_key, verdict.status.value
+                ),
                 "issue_codes": list(tag.issue_codes),
                 "evidence_refs": list(tag.evidence_refs),
             }

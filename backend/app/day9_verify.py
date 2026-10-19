@@ -307,7 +307,40 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
             c.misconception_code for c in resolve_misconception_candidates(stem_request)
         },
     )
+    bypass_item = build_fixture_mcq_item(item_id="day9-metadata-bypass").model_copy(
+        update={
+            "metadata_json": {"synthetic_fixture": True},
+            "source_revision_ids": ["00000000-0000-0000-0000-000000000088"],
+        }
+    )
+    bypass_request = DiagnosticAuthoringRequest(
+        item=bypass_item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=bypass_item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    bypass_tags = build_fixture_tags(bypass_item)
+    bypass_tags[0] = bypass_tags[0].model_copy(update={"evidence_refs": []})
+    bypass_verdict = service.validate_result(
+        bypass_request,
+        DistractorDiagnosticResult(
+            item_id=bypass_item.item_id,
+            question_type=bypass_item.question_type,
+            option_tags=bypass_tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=bypass_item.source_revision_ids,
+        ),
+        candidate_codes={
+            c.misconception_code for c in resolve_misconception_candidates(bypass_request)
+        },
+    )
+
     return {
+        "metadata_synthetic_flag_cannot_waive_evidence": "missing_diagnostic_evidence"
+        in bypass_verdict.issue_codes,
         "signal_mismatch_rejected": "signal_text_mismatch" in bad_signal.issue_codes,
         "distinctness_enforced": "duplicate_misconception" in duplicate.issue_codes,
         "canonical_tag_completeness": empty.status.value != "pass",
@@ -351,7 +384,6 @@ def _spec_closure_proofs() -> dict[str, bool]:
         concept_codes=["addition-whole"],
         allowed_source_revision_ids=source_item.source_revision_ids,
         allowed_evidence_refs=["[CIT-1]"],
-        synthetic_taxonomy_only=False,
     )
     source_tags = build_fixture_tags(source_item)
     source_tags[0] = source_tags[0].model_copy(update={"evidence_refs": []})

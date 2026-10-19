@@ -6,6 +6,7 @@ from app.diagnostic_intelligence.candidate_resolver import resolve_misconception
 from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest
 from app.diagnostic_intelligence.eligibility import diagnostic_eligibility
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
+from app.diagnostic_intelligence.grounding import validate_diagnostic_grounding
 from app.diagnostic_intelligence.scope_policy import validate_required_diagnostic_scope
 from app.diagnostic_intelligence.taxonomy_registry import load_taxonomy
 
@@ -66,20 +67,23 @@ def run_diagnostic_preflight(request: DiagnosticAuthoringRequest) -> DiagnosticP
             review_required=True,
         )
 
-    synthetic = request.synthetic_taxonomy_only or bool(
-        request.item.metadata_json.get("synthetic_fixture")
-    )
-    if (
-        not synthetic
-        and request.allowed_source_revision_ids
-        and not request.bounded_day7_context.strip()
-    ):
-            return DiagnosticPreflightResult(
-                allow_model_call=False,
-                status=DiagnosticValidationStatus.REVIEW_REQUIRED,
-                issue_codes=["insufficient_diagnostic_grounding"],
-                review_required=True,
-            )
+    grounding_issues = validate_diagnostic_grounding(request)
+    if grounding_issues:
+        blocking = any(
+            code in {"unauthorized_source_revision", "source_authorization_unresolved"}
+            for code in grounding_issues
+        )
+        return DiagnosticPreflightResult(
+            allow_model_call=False,
+            status=(
+                DiagnosticValidationStatus.REJECT
+                if blocking
+                else DiagnosticValidationStatus.REVIEW_REQUIRED
+            ),
+            issue_codes=grounding_issues,
+            blocking=blocking,
+            review_required=not blocking,
+        )
 
     candidates = resolve_misconception_candidates(request)
     codes = {c.misconception_code for c in candidates}

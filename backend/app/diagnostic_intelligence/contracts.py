@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.diagnostic_intelligence.enums import (
     DEFAULT_TAXONOMY_VERSION,
@@ -10,6 +10,10 @@ from app.diagnostic_intelligence.enums import (
     MisconceptionStatus,
 )
 from app.diagnostic_intelligence.integration.revision_tenancy import RevisionTenantRecord
+
+MAX_DIAGNOSTIC_BOUNDED_CHARS = 4000
+MAX_DAY7_SNIPPET_CHARS = 512
+MAX_DIAGNOSTIC_AGGREGATE_CHARS = 4000
 
 
 class DiagnosticQuestionOption(BaseModel):
@@ -81,9 +85,9 @@ class OptionDiagnosticTag(BaseModel):
 class Day7DiagnosticEvidenceSnippet(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    citation_label: str
-    source_revision_id: str
-    snippet: str
+    citation_label: str = Field(max_length=256)
+    source_revision_id: str = Field(max_length=128)
+    snippet: str = Field(max_length=MAX_DAY7_SNIPPET_CHARS)
 
 
 class DiagnosticCoverageSummary(BaseModel):
@@ -121,9 +125,18 @@ class DiagnosticAuthoringRequest(BaseModel):
     revision_tenant_records: dict[str, RevisionTenantRecord] = Field(default_factory=dict)
     coverage_policy: str = "distinct_misconceptions"
     fixture_scenario: str = "diagnostic_clean_pass"
-    bounded_day7_context: str = ""
+    bounded_day7_context: str = Field(default="", max_length=MAX_DIAGNOSTIC_BOUNDED_CHARS)
     day7_evidence_snippets: list[Day7DiagnosticEvidenceSnippet] = Field(default_factory=list)
-    synthetic_taxonomy_only: bool = False
+
+    @field_validator("day7_evidence_snippets")
+    @classmethod
+    def _snippet_aggregate_budget(
+        cls, snippets: list[Day7DiagnosticEvidenceSnippet]
+    ) -> list[Day7DiagnosticEvidenceSnippet]:
+        total = sum(len(s.snippet) for s in snippets)
+        if total > MAX_DIAGNOSTIC_AGGREGATE_CHARS:
+            raise ValueError("diagnostic_evidence_budget_exceeded")
+        return snippets
 
 
 class DistractorDiagnosticResult(BaseModel):

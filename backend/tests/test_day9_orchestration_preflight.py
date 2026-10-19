@@ -178,7 +178,8 @@ def test_diagnostic_enrich_node_preflight_missing_scope_and_no_candidates() -> N
     gateway_b = FakeGenerationGateway()
     service.dependencies.gateway = gateway_b
     narrow = request.model_copy(update={"subject_code": "zz-no-misconception-subject"})
-    narrow_state = _diagnostic_node_state(ctx, narrow, draft)
+    draft_taxonomy_only = draft.model_copy(update={"source_revision_ids": []})
+    narrow_state = _diagnostic_node_state(ctx, narrow, draft_taxonomy_only)
     narrow_state["resolved_scope"]["subject_code"] = "zz-no-misconception-subject"
     update2 = diagnostic_enrich_node(narrow_state, service.dependencies)
     assert _diag_calls(gateway_b) == 0

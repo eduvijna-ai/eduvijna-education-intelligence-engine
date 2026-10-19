@@ -35,12 +35,17 @@ class _DiagnosticStageFailGateway:
         self._error_code = error_code
         self._retryable = retryable
         self._http_status = http_status
+        self._attempted: list[GenerationRequest] = []
 
     def call_history(self):
         return self._inner.call_history()
 
+    def attempted_requests(self) -> list[GenerationRequest]:
+        return list(self._attempted)
+
     def generate(self, request: GenerationRequest):
         if request.role == GenerationNodeRole.DIAGNOSTIC:
+            self._attempted.append(request)
             raise GenerationGatewayError(
                 self._error_code,
                 f"simulated {self._error_code} at diagnostic stage",
@@ -111,7 +116,6 @@ def test_source_backed_item_requires_evidence_refs() -> None:
         concept_codes=["addition-whole"],
         allowed_source_revision_ids=item.source_revision_ids,
         allowed_evidence_refs=["[CIT-1]"],
-        synthetic_taxonomy_only=False,
     )
     tags = build_fixture_tags(item)
     tags[0] = tags[0].model_copy(update={"evidence_refs": []})
@@ -245,14 +249,12 @@ def test_diagnostic_stage_gateway_timeout_retry_required() -> None:
         )
     )
     assert result.status == OrchestrationRunStatus.RETRY_REQUIRED
-    roles = [
-        c.call_context.role
-        for c in gateway.call_history()
-        if c.call_context is not None
-    ]
-    assert GenerationNodeRole.AUTHOR in roles
-    assert GenerationNodeRole.SOLVER in roles
-    assert GenerationNodeRole.DIAGNOSTIC not in roles
+    assert "gateway_timeout" in (result.errors or [])
+    attempted = gateway.attempted_requests()
+    assert any(r.role == GenerationNodeRole.DIAGNOSTIC for r in attempted)
+    usage = result.gateway_usage or {}
+    failed = (usage.get("gateway_attempts_by_role") or {}).get("diagnostic", {})
+    assert int(failed.get("failed", 0)) >= 1
     session.close()
 
 
@@ -270,12 +272,25 @@ def test_diagnostic_stage_gateway_401_failed() -> None:
         )
     )
     assert result.status == OrchestrationRunStatus.FAILED
-    diag_calls = [
-        c
-        for c in gateway.call_history()
-        if c.call_context and c.call_context.role == GenerationNodeRole.DIAGNOSTIC
-    ]
-    assert not diag_calls
+    assert any(r.role == GenerationNodeRole.DIAGNOSTIC for r in gateway.attempted_requests())
+    session.close()
+
+
+def test_diagnostic_stage_gateway_5xx_retry_required() -> None:
+    session = _session()
+    gateway = _DiagnosticStageFailGateway(
+        error_code="gateway_unavailable", retryable=True, http_status=503
+    )
+    ctx, service = build_day8_test_service(session, gateway=gateway)
+    result = service.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_clean_pass",
+            idempotency_key="day9-close-diag-5xx",
+        )
+    )
+    assert result.status == OrchestrationRunStatus.RETRY_REQUIRED
+    assert any(r.role == GenerationNodeRole.DIAGNOSTIC for r in gateway.attempted_requests())
     session.close()
 
 

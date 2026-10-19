@@ -41,8 +41,8 @@ def validate_plausibility(
             expected = expected_wrong_answer_for_code(
                 tag.misconception_code, operands, taxonomy_version=taxonomy_version
             )
-            if expected is not None and (
-                str(expected) in text or re.search(rf"\b{expected}\b", option_text)
+            if expected is not None and re.search(
+                rf"\b{re.escape(str(expected))}\b", option_text
             ):
                 return []
             for code in (
@@ -53,11 +53,13 @@ def validate_plausibility(
                 alt = expected_wrong_answer_for_code(
                     code, operands, taxonomy_version=taxonomy_version
                 )
-                if alt is not None and (
-                    str(alt) in text or re.search(rf"\b{alt}\b", option_text)
+                if alt is not None and re.search(
+                    rf"\b{re.escape(str(alt))}\b", option_text
                 ):
                     return []
             if expected is None:
                 return [DiagnosticIssueCode.PLAUSIBILITY_UNVERIFIED.value]
             return [DiagnosticIssueCode.PLAUSIBILITY_UNVERIFIED.value]
+    if tag.misconception_code and stem_text:
+        return [DiagnosticIssueCode.PLAUSIBILITY_UNVERIFIED.value]
     return []

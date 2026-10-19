@@ -7,6 +7,75 @@ from app.diagnostic_intelligence.contracts import (
 )
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode, DiagnosticValidationStatus
 
+_BLOCKING_CODES = {
+    "unknown_misconception_code",
+    "inactive_misconception",
+    "curriculum_scope_mismatch",
+    "correct_option_mislabeled",
+    "forged_evidence_ref",
+    "tenant_evidence_mismatch",
+    "taxonomy_evidence_ungrounded",
+    "day6_blocking",
+    "nonsensical_distractor",
+    "non_candidate_misconception",
+    "missing_diagnostic_evidence",
+    DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value,
+    "empty_option_tags",
+    "missing_option_tags",
+    "extra_option_tags",
+    "duplicate_option_tag_key",
+    "unknown_option_tag_key",
+    "option_correctness_mismatch",
+    "result_item_id_mismatch",
+    "result_question_type_mismatch",
+    "unauthorized_source_revision",
+    "result_source_revision_mismatch",
+}
+
+_REPAIRABLE_CODES = {
+    "duplicate_misconception",
+    "redundant_distractor",
+    "signal_text_mismatch",
+    "missing_diagnostic_tag",
+    "second_correct_distractor",
+}
+
+_REVIEW_ONLY_CODES = {
+    "factual_unverified",
+    "no_misconception_candidates",
+    "plausibility_unverified",
+    "insufficient_diagnostic_grounding",
+}
+
+
+def propagate_item_level_option_issues(
+    option_issues: dict[str, list[str]],
+    item_level_issues: list[str],
+    *,
+    wrong_option_keys: list[str],
+) -> dict[str, list[str]]:
+    propagated = {key: list(codes) for key, codes in option_issues.items()}
+    for code in item_level_issues:
+        if code not in {"duplicate_misconception", "redundant_distractor"}:
+            continue
+        for key in wrong_option_keys:
+            bucket = propagated.setdefault(key, [])
+            if code not in bucket:
+                bucket.append(code)
+    return propagated
+
+
+def status_for_issue_codes(codes: list[str]) -> DiagnosticValidationStatus:
+    if not codes:
+        return DiagnosticValidationStatus.PASS
+    if any(code in _BLOCKING_CODES for code in codes):
+        return DiagnosticValidationStatus.REJECT
+    if any(code in _REPAIRABLE_CODES for code in codes):
+        return DiagnosticValidationStatus.REPAIR
+    if any(code in _REVIEW_ONLY_CODES for code in codes):
+        return DiagnosticValidationStatus.REVIEW_REQUIRED
+    return DiagnosticValidationStatus.REJECT
+
 
 def build_diagnostic_verdict(
     item_id: str,
@@ -15,28 +84,26 @@ def build_diagnostic_verdict(
     *,
     repairable_codes: set[str] | None = None,
     tags_by_key: dict[str, OptionDiagnosticTag] | None = None,
+    wrong_option_keys: list[str] | None = None,
 ) -> DiagnosticVerdict:
-    repairable_codes = repairable_codes or {
-        "duplicate_misconception",
-        "redundant_distractor",
-        "signal_text_mismatch",
-        "missing_diagnostic_tag",
-        "second_correct_distractor",
-    }
+    repairable_codes = repairable_codes or _REPAIRABLE_CODES
+    wrong_keys = wrong_option_keys or [
+        key for key, tag in (tags_by_key or {}).items() if not tag.is_correct
+    ]
+    option_issues = propagate_item_level_option_issues(
+        option_issues, item_level_issues, wrong_option_keys=wrong_keys
+    )
+
     items: list[DiagnosticVerdictItem] = []
     all_codes: list[str] = list(item_level_issues)
     for option_key, codes in option_issues.items():
         all_codes.extend(codes)
-        status = DiagnosticValidationStatus.PASS
+        status = status_for_issue_codes(codes)
         repair_instructions: list[str] = []
-        if codes:
-            if any(c in repairable_codes for c in codes):
-                status = DiagnosticValidationStatus.REPAIR
-                repair_instructions.append(
-                    f"Repair diagnostic tags for option {option_key}: {','.join(codes)}"
-                )
-            else:
-                status = DiagnosticValidationStatus.REJECT
+        if codes and status == DiagnosticValidationStatus.REPAIR:
+            repair_instructions.append(
+                f"Repair diagnostic tags for option {option_key}: {','.join(codes)}"
+            )
         tag = (tags_by_key or {}).get(option_key)
         field_paths: list[str] = []
         misconception_code = None
@@ -47,7 +114,7 @@ def build_diagnostic_verdict(
             field_paths.append(f"option_tags.{option_key}")
             if misconception_code and not tag.is_correct:
                 field_paths.append(f"option_tags.{option_key}.misconception_code")
-            if evidence_refs and not tag.is_correct:
+            if not tag.is_correct:
                 field_paths.append(f"option_tags.{option_key}.evidence_refs")
         items.append(
             DiagnosticVerdictItem(
@@ -61,43 +128,15 @@ def build_diagnostic_verdict(
                 repair_instructions=repair_instructions,
             )
         )
-    blocking = any(
-        code
-        in {
-            "unknown_misconception_code",
-            "inactive_misconception",
-            "curriculum_scope_mismatch",
-            "correct_option_mislabeled",
-            "forged_evidence_ref",
-            "tenant_evidence_mismatch",
-            "day6_blocking",
-            "nonsensical_distractor",
-            "non_candidate_misconception",
-            "missing_diagnostic_evidence",
-            DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value,
-            "empty_option_tags",
-            "missing_option_tags",
-            "extra_option_tags",
-            "duplicate_option_tag_key",
-            "unknown_option_tag_key",
-            "option_correctness_mismatch",
-            "result_item_id_mismatch",
-            "result_question_type_mismatch",
-        }
-        for code in all_codes
-    )
+
+    blocking = any(code in _BLOCKING_CODES for code in all_codes)
     repairable = any(code in repairable_codes for code in all_codes) and not blocking
-    review_only = {
-        "factual_unverified",
-        "no_misconception_candidates",
-        "plausibility_unverified",
-        "insufficient_diagnostic_grounding",
-    }
-    if any(code in review_only for code in all_codes):
-        review_required = True
+    review_required = any(code in _REVIEW_ONLY_CODES for code in all_codes)
+    if review_required:
         repairable = False
-    else:
-        review_required = bool(all_codes) and not blocking and not repairable
+    elif all_codes and not blocking and not repairable:
+        review_required = True
+
     if not all_codes:
         aggregate = DiagnosticValidationStatus.PASS
     elif blocking:
@@ -107,7 +146,20 @@ def build_diagnostic_verdict(
     elif review_required:
         aggregate = DiagnosticValidationStatus.REVIEW_REQUIRED
     else:
-        aggregate = DiagnosticValidationStatus.REVIEW_REQUIRED
+        aggregate = DiagnosticValidationStatus.REJECT
+
+    if item_level_issues:
+        items.append(
+            DiagnosticVerdictItem(
+                item_id=item_id,
+                option_key=None,
+                status=aggregate,
+                issue_codes=list(item_level_issues),
+                field_paths=["item.diagnostic_integrity"],
+                repair_instructions=[],
+            )
+        )
+
     repair_instructions = []
     for entry in items:
         repair_instructions.extend(entry.repair_instructions)

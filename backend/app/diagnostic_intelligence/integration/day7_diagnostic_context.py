@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from app.diagnostic_intelligence.contracts import Day7DiagnosticEvidenceSnippet
+from app.diagnostic_intelligence.contracts import (
+    MAX_DAY7_SNIPPET_CHARS,
+    MAX_DIAGNOSTIC_AGGREGATE_CHARS,
+    MAX_DIAGNOSTIC_BOUNDED_CHARS,
+    Day7DiagnosticEvidenceSnippet,
+    DiagnosticAuthoringRequest,
+)
 from app.knowledge_intelligence.contracts import KnowledgeContextPack
-
-MAX_DIAGNOSTIC_BOUNDED_CHARS = 4000
 
 
 def filter_pack_for_item_sources(
@@ -25,27 +29,41 @@ def filter_pack_for_item_sources(
     return context.model_copy(update={"evidence": evidence, "bounded_text": ""})
 
 
+def diagnostic_grounding_present(request: DiagnosticAuthoringRequest) -> bool:
+    if request.day7_evidence_snippets:
+        return True
+    return bool(request.bounded_day7_context.strip())
+
+
+def aggregate_snippet_char_budget(request: DiagnosticAuthoringRequest) -> int:
+    bounded_len = len(request.bounded_day7_context or "")
+    snippet_len = sum(len(s.snippet) for s in request.day7_evidence_snippets)
+    return bounded_len + snippet_len
+
+
 def build_diagnostic_day7_payload(
     context: KnowledgeContextPack,
     *,
-    max_chars: int = MAX_DIAGNOSTIC_BOUNDED_CHARS,
+    max_chars: int = MAX_DIAGNOSTIC_AGGREGATE_CHARS,
 ) -> tuple[str, list[Day7DiagnosticEvidenceSnippet]]:
     snippets: list[Day7DiagnosticEvidenceSnippet] = []
-    lines: list[str] = []
-    used = 0
+    index_lines: list[str] = []
+    content_used = 0
     for item in context.evidence:
         label = item.citation_label
-        header = f"{label} (revision {item.source_revision_id}):"
         body = (item.snippet or "").strip()
         if not body:
             continue
-        block = f"{header}\n{body}"
-        if used + len(block) > max_chars:
-            remaining = max_chars - used
-            if remaining <= len(header) + 2:
-                break
-            body = body[: max(0, remaining - len(header) - 1)]
-            block = f"{header}\n{body}"
+        if len(body) > MAX_DAY7_SNIPPET_CHARS:
+            body = body[:MAX_DAY7_SNIPPET_CHARS]
+        snippet_budget = min(
+            MAX_DAY7_SNIPPET_CHARS,
+            max_chars - content_used,
+        )
+        if snippet_budget <= 0:
+            break
+        if len(body) > snippet_budget:
+            body = body[:snippet_budget]
         snippets.append(
             Day7DiagnosticEvidenceSnippet(
                 citation_label=label,
@@ -53,14 +71,11 @@ def build_diagnostic_day7_payload(
                 snippet=body,
             )
         )
-        lines.append(block)
-        used += len(block) + 7
-        if used >= max_chars:
+        index_lines.append(f"{label} (revision {item.source_revision_id})")
+        content_used += len(body)
+        if content_used >= max_chars:
             break
-    if context.bounded_text:
-        bounded = context.bounded_text[:max_chars]
-    else:
-        bounded = "\n\n---\n\n".join(lines)
-    if len(bounded) > max_chars:
-        bounded = bounded[:max_chars]
+    bounded = "\n".join(index_lines)
+    if len(bounded) > MAX_DIAGNOSTIC_BOUNDED_CHARS:
+        bounded = bounded[:MAX_DIAGNOSTIC_BOUNDED_CHARS]
     return bounded, snippets

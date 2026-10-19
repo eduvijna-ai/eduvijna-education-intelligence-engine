@@ -11,6 +11,29 @@ def record_node_latency(
     return merged
 
 
+def _role_bucket(merged: dict[str, Any], role: str) -> dict[str, int]:
+    attempts = dict(merged.get("gateway_attempts_by_role") or {})
+    bucket = dict(attempts.get(role) or {"succeeded": 0, "failed": 0})
+    attempts[role] = bucket
+    merged["gateway_attempts_by_role"] = attempts
+    return bucket
+
+
+def record_gateway_role_attempt(
+    existing: dict[str, Any] | None,
+    role: str,
+    *,
+    succeeded: bool,
+) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(existing or {})
+    bucket = _role_bucket(merged, role)
+    if succeeded:
+        bucket["succeeded"] = int(bucket.get("succeeded", 0)) + 1
+    else:
+        bucket["failed"] = int(bucket.get("failed", 0)) + 1
+    return merged
+
+
 def merge_gateway_usage(
     existing: dict[str, Any] | None,
     gateway_usage: dict[str, Any],
@@ -31,6 +54,13 @@ def merge_gateway_usage(
     merged["last_usage"] = gateway_usage
     tokens_in = gateway_usage.get("tokens_in")
     tokens_out = gateway_usage.get("tokens_out")
+    tokens_by_role = dict(merged.get("token_usage_reported_by_role") or {})
+    if role:
+        if tokens_in is None and tokens_out is None:
+            tokens_by_role[role] = "unknown"
+        else:
+            tokens_by_role[role] = True
+        merged["token_usage_reported_by_role"] = tokens_by_role
     if tokens_in is None and tokens_out is None:
         merged["token_usage_reported"] = False
     else:
@@ -39,4 +69,5 @@ def merge_gateway_usage(
         by_role = dict(merged.get("model_calls_by_role") or {})
         by_role[role] = int(by_role.get(role, 0)) + increment
         merged["model_calls_by_role"] = by_role
+        record_gateway_role_attempt(merged, role, succeeded=True)
     return merged

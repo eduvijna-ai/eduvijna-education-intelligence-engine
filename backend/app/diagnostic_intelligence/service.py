@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.diagnostic_intelligence.contracts import (
     DiagnosticAuthoringRequest,
+    DiagnosticCoverageSummary,
     DiagnosticVerdict,
     DistractorDiagnosticResult,
     OptionDiagnosticTag,
@@ -63,7 +64,20 @@ class DiagnosticIntelligenceService:
         item_level: list[str] = list(validate_result_integrity(request, result))
         item_level.extend(correct_option_integrity_issues(result.option_tags))
         if item_level:
-            return build_diagnostic_verdict(request.item.item_id, {}, item_level)
+            tags_by_key = {tag.option_key: tag for tag in result.option_tags}
+            wrong_keys = [t.option_key for t in result.option_tags if not t.is_correct]
+            verdict = build_diagnostic_verdict(
+                request.item.item_id,
+                {},
+                item_level,
+                tags_by_key=tags_by_key,
+                wrong_option_keys=wrong_keys,
+            )
+            result.coverage_summary = DiagnosticCoverageSummary(
+                item_id=request.item.item_id,
+                coverage_complete=False,
+            )
+            return verdict
 
         if self.education_service is not None and scope is not None and draft_item is not None:
             item_level.extend(
@@ -122,11 +136,13 @@ class DiagnosticIntelligenceService:
         )
         item_level.extend(distinct_issues)
         tags_by_key = {tag.option_key: tag for tag in result.option_tags}
+        wrong_keys = [t.option_key for t in result.option_tags if not t.is_correct]
         verdict = build_diagnostic_verdict(
             request.item.item_id,
             option_issues,
             item_level,
             tags_by_key=tags_by_key,
+            wrong_option_keys=wrong_keys,
         )
         if verdict.status != DiagnosticValidationStatus.PASS:
             coverage = coverage.model_copy(update={"coverage_complete": False})
@@ -137,21 +153,15 @@ class DiagnosticIntelligenceService:
         self, result: DistractorDiagnosticResult, verdict: DiagnosticVerdict
     ) -> DistractorDiagnosticResult:
         issue_by_option: dict[str, list[str]] = {}
+        status_by_option: dict[str, DiagnosticValidationStatus] = {}
         for item in verdict.items:
             if item.option_key:
                 issue_by_option[item.option_key] = item.issue_codes
+                status_by_option[item.option_key] = item.status
         updated_tags: list[OptionDiagnosticTag] = []
         for tag in result.option_tags:
             codes = issue_by_option.get(tag.option_key, [])
-            status = DiagnosticValidationStatus.PASS
-            if codes:
-                status = (
-                    DiagnosticValidationStatus.REPAIR
-                    if verdict.repairable
-                    else DiagnosticValidationStatus.REJECT
-                    if verdict.blocking
-                    else DiagnosticValidationStatus.REVIEW_REQUIRED
-                )
+            status = status_by_option.get(tag.option_key, DiagnosticValidationStatus.PASS)
             updated_tags.append(
                 tag.model_copy(
                     update={
