@@ -39,7 +39,7 @@ Maps D9-01…D9-36 to code, tests, and evidence. Day 10+ boundaries are guarded 
 | D9-33 | N/A (no new migration) | Taxonomy JSON + existing audit/checkpoint tables; `alembic check`; `tests/test_postgres_compile.py` |
 | D9-34 | `app/day9_verify.py`, `tests/test_day9_*.py` | `python -m app.day9_verify --json` |
 | D9-35 | `.eduvijna/pytest-targets.txt`, `.github/workflows/targeted-ci.yml` | Targeted CI run #66 on review SHA |
-| D9-36 | `docs/execution/D09-D36-ACCEPTANCE-EVIDENCE.md` | **BLOCKED** (Compose + post-closure full regression pending manual review CLEAN) |
+| D9-36 | `docs/execution/D09-D36-ACCEPTANCE-EVIDENCE.md`, `D09-D36-FULL-PYTEST-EVIDENCE.md` | **BLOCKED** on Compose only — code review CLEAN + full pytest **PASS** at `e1608dd…` (1839 passed); targeted CI #76 |
 
 ## Explicitly out of scope (Day 10+)
 
