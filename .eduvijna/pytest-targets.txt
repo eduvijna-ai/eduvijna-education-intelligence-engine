@@ -8,6 +8,7 @@ tests/test_day9_close_acceptance.py
 tests/test_day9_sc_r1_acceptance.py
 tests/test_day9_sc_r2_acceptance.py
 tests/test_day9_sc_r3_acceptance.py
+tests/test_day9_sc_r4_acceptance.py
 tests/test_day9_adversarial.py
 tests/test_day9_audit.py
 tests/test_day9_batch.py

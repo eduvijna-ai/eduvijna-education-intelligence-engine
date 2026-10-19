@@ -13,6 +13,7 @@ _BLOCKING_CODES = {
     "curriculum_scope_mismatch",
     "correct_option_mislabeled",
     "forged_evidence_ref",
+    "unbound_diagnostic_evidence",
     "tenant_evidence_mismatch",
     "taxonomy_evidence_ungrounded",
     "day6_blocking",

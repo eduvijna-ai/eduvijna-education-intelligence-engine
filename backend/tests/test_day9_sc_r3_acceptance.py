@@ -104,6 +104,8 @@ def test_numeric_parser_rejects_fraction_and_scientific() -> None:
     assert not numeric_literal_matches_integer("11/9", 11)
     assert not numeric_literal_matches_integer("11e2", 11)
     assert not numeric_literal_matches_integer("12/2", 12)
+    assert not numeric_literal_matches_integer("11 / 9", 11)
+    assert not numeric_literal_matches_integer("7+5", 7)
     assert numeric_literal_matches_integer("11", 11)
     assert numeric_literal_matches_integer("11.0", 11)
 

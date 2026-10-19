@@ -11,10 +11,24 @@ from app.diagnostic_intelligence.integration.revision_tenancy import (
 from app.diagnostic_intelligence.taxonomy_registry import resolve_misconception
 
 
+def _source_backed(request: DiagnosticAuthoringRequest) -> bool:
+    return bool([s for s in request.item.source_revision_ids if str(s).strip()])
+
+
+def _visible_revision_ids(request: DiagnosticAuthoringRequest) -> set[str]:
+    if request.trusted_citation_revision_map:
+        return set(request.trusted_citation_revision_map.values())
+    return {
+        snippet.source_revision_id
+        for snippet in request.day7_evidence_snippets
+        if (snippet.snippet or "").strip()
+    }
+
+
 def _citation_revision_map(request: DiagnosticAuthoringRequest) -> dict[str, str]:
     if request.trusted_citation_revision_map:
         return dict(request.trusted_citation_revision_map)
-    if not [s for s in request.item.source_revision_ids if str(s).strip()]:
+    if not _source_backed(request):
         return {
             snippet.citation_label: snippet.source_revision_id
             for snippet in request.day7_evidence_snippets
@@ -26,6 +40,8 @@ def _ref_to_revision_id(request: DiagnosticAuthoringRequest, ref: str) -> str | 
     citations = _citation_revision_map(request)
     if ref in citations:
         return citations[ref]
+    if _source_backed(request) and request.trusted_citation_revision_map:
+        return None
     normalized = normalize_revision_ref(ref)
     allowed = request.allowed_source_revision_ids
     if normalized in allowed or ref in allowed:
@@ -44,18 +60,32 @@ def validate_evidence_refs(
         return issues
     allowed_refs = set(request.allowed_evidence_refs)
     allowed_revisions = set(request.allowed_source_revision_ids)
+    visible_revisions = _visible_revision_ids(request)
     resolved_revisions: list[str] = []
     for ref in tag.evidence_refs:
         if ref in allowed_refs:
             revision_id = _ref_to_revision_id(request, ref)
             if revision_id:
-                resolved_revisions.append(revision_id)
-            elif request.trusted_citation_revision_map:
-                issues.append(DiagnosticIssueCode.FORGED_EVIDENCE_REF.value)
-                continue
+                if (
+                    _source_backed(request)
+                    and request.trusted_citation_revision_map
+                    and revision_id not in visible_revisions
+                ):
+                    issues.append("unbound_diagnostic_evidence")
+                else:
+                    resolved_revisions.append(revision_id)
+            else:
+                issues.append(
+                    "unbound_diagnostic_evidence"
+                    if request.trusted_citation_revision_map
+                    else DiagnosticIssueCode.FORGED_EVIDENCE_REF.value
+                )
             continue
         revision_id = normalize_revision_ref(ref)
         if revision_id in allowed_revisions or ref in allowed_revisions:
+            if _source_backed(request) and revision_id not in visible_revisions:
+                issues.append("unbound_diagnostic_evidence")
+                continue
             resolved_revisions.append(revision_id or ref)
             continue
         record = request.revision_tenant_records.get(revision_id)

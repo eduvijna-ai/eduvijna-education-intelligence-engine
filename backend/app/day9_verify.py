@@ -290,6 +290,145 @@ def _citation_revision_binding_enforced() -> bool:
     return not preflight.allow_model_call and "forged_evidence_ref" in preflight.issue_codes
 
 
+def _multi_source_truncation_not_unauthorized() -> bool:
+    import uuid
+
+    from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest
+    from app.diagnostic_intelligence.integration.day7_diagnostic_context import (
+        build_diagnostic_day7_payload,
+    )
+    from app.diagnostic_intelligence.preflight import run_diagnostic_preflight
+    from app.knowledge_intelligence.contracts import (
+        AppliedKnowledgeScope,
+        KnowledgeContextPack,
+        KnowledgeEvidenceItem,
+    )
+
+    revisions = [str(uuid.uuid4()) for _ in range(8)]
+    evidence = [
+        KnowledgeEvidenceItem(
+            source_id=f"src-{index}",
+            source_revision_id=revisions[index - 1],
+            source_revision_checksum=f"chk-{index}",
+            binding_id=f"bind-{index}",
+            trust_tier="approved",
+            authority_label="fixture",
+            title=f"t-{index}",
+            locator=f"loc-{index}",
+            snippet="x" * 512,
+            retrieval_score=1.0,
+            retrieval_rank=index,
+            anythingllm_workspace="ws",
+            anythingllm_document_id=f"doc-{index}",
+            citation_label=f"[CIT-{index}]",
+        )
+        for index in range(1, 9)
+    ]
+    pack = KnowledgeContextPack(
+        query_id="verify-multi-src",
+        query_text="probe",
+        retrieval_profile_version="ki-retrieval-v1",
+        evidence=evidence,
+        citations=[],
+        scope=AppliedKnowledgeScope(),
+        warnings=[],
+        bounded_text="",
+    )
+    bounded, snippets = build_diagnostic_day7_payload(pack)
+    request = DiagnosticAuthoringRequest(
+        item=build_fixture_mcq_item().model_copy(update={"source_revision_ids": revisions}),
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=revisions,
+        allowed_evidence_refs=[s.citation_label for s in snippets],
+        bounded_day7_context=bounded,
+        day7_evidence_snippets=snippets,
+        trusted_citation_revision_map={
+            s.citation_label: s.source_revision_id for s in snippets
+        },
+    )
+    preflight = run_diagnostic_preflight(request)
+    return (
+        "unauthorized_source_revision" not in preflight.issue_codes
+        and preflight.status.value in {"pass", "review_required"}
+    )
+
+
+def _expression_ambiguity_blocks_pass(service: DiagnosticIntelligenceService) -> bool:
+    item = build_fixture_mcq_item(item_id="day9-expr-7plus5", wrong_a="7+5")
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    tags = build_fixture_tags(item)
+    tags[0] = tags[0].model_copy(
+        update={"misconception_code": "MATH.ADD.WHOLE.DOUBLE_OPERAND"}
+    )
+    tags[0].metadata_json["option_text"] = "7+5"
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.status.value != "pass" and (
+        "second_correct_distractor" in verdict.issue_codes
+        or "signal_text_mismatch" in verdict.issue_codes
+    )
+
+
+def _unbound_citation_evidence_rejected(service: DiagnosticIntelligenceService) -> bool:
+    rev_a = "00000000-0000-0000-0000-0000000000aa"
+    item = build_fixture_mcq_item(item_id="day9-unbound-cit").model_copy(
+        update={"source_revision_ids": [rev_a]}
+    )
+    from app.diagnostic_intelligence.contracts import Day7DiagnosticEvidenceSnippet
+
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=[rev_a],
+        allowed_evidence_refs=["[CIT-A]", "[CIT-X]"],
+        day7_evidence_snippets=[
+            Day7DiagnosticEvidenceSnippet(
+                citation_label="[CIT-A]",
+                source_revision_id=rev_a,
+                snippet="visible",
+            )
+        ],
+        trusted_citation_revision_map={"[CIT-A]": rev_a},
+    )
+    tags = build_fixture_tags(item)
+    tags[0] = tags[0].model_copy(update={"evidence_refs": ["[CIT-X]"]})
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.status.value != "pass" and "unbound_diagnostic_evidence" in verdict.issue_codes
+
+
 def _strict_output_failure_preserves_usage() -> bool:
     import tempfile
 
@@ -512,6 +651,9 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "fraction_numeric_signal_rejected": _fraction_numeric_signal_rejected(service),
         "citation_revision_binding_enforced": _citation_revision_binding_enforced(),
         "strict_output_failure_preserves_usage": _strict_output_failure_preserves_usage(),
+        "multi_source_truncation_not_unauthorized": _multi_source_truncation_not_unauthorized(),
+        "unbound_citation_evidence_rejected": _unbound_citation_evidence_rejected(service),
+        "expression_ambiguity_blocks_pass": _expression_ambiguity_blocks_pass(service),
     }
 
 

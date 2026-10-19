@@ -62,6 +62,19 @@ def validate_diagnostic_grounding(request: DiagnosticAuthoringRequest) -> list[s
                 continue
         valid_snippets.append(snippet.citation_label)
 
+    visible_revisions = {
+        snippet.source_revision_id
+        for snippet in request.day7_evidence_snippets
+        if (snippet.snippet or "").strip()
+    }
+    if (
+        canonical_sources
+        and canonical_set - visible_revisions
+        and valid_snippets
+        and "unauthorized_source_revision" not in issues
+    ):
+        issues.append("insufficient_diagnostic_grounding")
+
     bounded = (request.bounded_day7_context or "").strip()
     if canonical_sources:
         if not valid_snippets:

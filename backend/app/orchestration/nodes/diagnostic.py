@@ -209,7 +209,9 @@ def diagnostic_enrich_node(
             snippet.citation_label: snippet.source_revision_id for snippet in day7_snippets
         }
         allowed_evidence_refs = list(trusted_map.keys())
-        allowed_revision_ids = list(dict.fromkeys(trusted_map.values()))
+        allowed_revision_ids = list(
+            dict.fromkeys(item.source_revision_id for item in item_pack.evidence)
+        )
         try:
             authoring = _build_authoring(
                 draft,
