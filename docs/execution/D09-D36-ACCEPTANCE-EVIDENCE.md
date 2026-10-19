@@ -9,15 +9,15 @@ Last independently verified as of **2026-10-19** (Chief Architect spec-closure C
 | `CODE_REVIEW_CLEAN` | **YES** — `e1608dd60eb0604b2d68d307e2a7e90db4afbbec` (SC-R6 round-6 repair review CLEAN) |
 | `TARGETED_CI_EXACT_CODE_SHA_GREEN` | **YES** — PR CI **#76** / run `39248106313` on `e1608dd…` (197 targeted tests reported) |
 | `FULL_PYTEST_NEW_FROZEN_SHA` | **PASS** — `1839 passed`, 0 failed, exit 0 (~35.2 min); see `D09-D36-FULL-PYTEST-EVIDENCE.md` |
-| `COMPOSE_SMOKE` | **BLOCKED** — `BLOCKED_DOCKER_UNAVAILABLE` on Cursor VM; Founder steps in `D09-D36-FOUNDER-COMPOSE-SMOKE.md` |
-| `D9_36_FINAL_ACCEPTANCE` | **BLOCKED** — full regression green on frozen SHA; pending Compose evidence or Founder documented Compose-risk exception |
-| `DAY_10` / merge | **LOCKED** — PR #27 Draft, unmerged; `founder_approval: false` |
+| `COMPOSE_SMOKE` | **DEFERRED_BY_FOUNDER_TO_FINAL_UAT — NOT EXECUTED**; original `BLOCKED_DOCKER_UNAVAILABLE` on Cursor VM. Still required at Founder UAT before production. |
+| `D9_36_FINAL_ACCEPTANCE` | **FOUNDER_SIGNED_OFF_UAT_DEFERRED** on 2026-10-19 — Founder explicitly accepts development-phase Compose risk and authorizes merge; runtime UAT is not passed or permanently waived. |
+| `DAY_10` / merge | **DAY10 TASKLIST PLANNING UNLOCKED** — implementation not authorized; PR #27 merge explicitly authorized by Founder (verify live PR for completed merge). |
 
 | Field | Value |
 |-------|--------|
 | Frozen code acceptance candidate | `e1608dd60eb0604b2d68d307e2a7e90db4afbbec` |
-| PR branch | #27 `feature/day9-diagnostic-distractor-intelligence` → `develop` (Draft, unmerged) |
-| Current PR HEAD (code + docs) | Same as frozen candidate unless docs-only commits follow (see GitHub PR #27) |
+| PR branch | #27 `feature/day9-diagnostic-distractor-intelligence` → `develop` — Founder approved merge on 2026-10-19; refer to live PR for final merge status |
+| Current PR HEAD (code + docs) | See GitHub PR #27; frozen reviewed behavior remains `e1608dd…`; later governance-only commit does not modify application code. |
 
 ## D9-36 checklist
 
@@ -28,7 +28,7 @@ Last independently verified as of **2026-10-19** (Chief Architect spec-closure C
 | Full `pytest tests/` | **PASS** | `pytest tests --tb=short -ra`; 1839 passed; log artifact `d9-36-full-pytest-e1608dd.log` |
 | `python -m app.day8_verify` | **PASS** | Host run; artifact `d9-36-day8-verify-e1608dd.txt` |
 | `python -m app.day9_verify --json` | **`ok: true`** | 52 checks; artifact `d9-36-day9-verify-e1608dd.json` |
-| Compose smoke | **BLOCKED** | No Docker on Cursor VM |
+| Compose smoke | **DEFERRED, NOT PASSED** | Founder explicitly defers localhost/Compose UAT until after all development days; still required before production |
 | Migrations / Postgres | **PASS (SQLite)** / static PG | No Day-9 DDL; `alembic upgrade head` + `check` on `migration-d936-e1608dd.db`; `test_postgres_compile.py` pass (no live Postgres) |
 
 ## Founder verifiers (host / CI)
@@ -63,11 +63,12 @@ See `D09-SCOPE-MAP.md`, `tests/test_day9_close_acceptance.py`, and targeted `.ed
 
 ## Governance
 
-- PR #27 **Draft**; **not merged**.
-- Day 9 **ACTIVE**; `founder_approval: false`; Day 10 **LOCKED**.
+- Founder signed off Day 9 engineering **2026-10-19** and authorized merging PR #27; consult GitHub for actual merged status.
+- Day 9 **COMPLETE**; `founder_approval: true`; Day 10 **TASKLIST_DRAFT**, implementation not authorized.
+- Compose runtime UAT **DEFERRED_BY_FOUNDER**, not executed; required at final Founder UAT before production.
 - D5-DS01 / issue #16 **OPEN**; unchanged.
 - No Codex.
 
 ## Founder acceptance
 
-**Not complete.** Full regression and code review are green on `e1608dd…`, but **D9_36_FINAL_ACCEPTANCE** remains **BLOCKED** until Compose smoke is executed (or Founder explicitly accepts documented Compose risk).
+**FOUNDER SIGNOFF GIVEN 2026-10-19 WITH EXPLICIT COMPOSE/LOCALHOST UAT DEFERRAL.** The Founder accepts residual development-phase Compose risk, authorizes merge, and will perform UAT after all development days. This is **not** a claim of runtime smoke PASS and does **not** waive the pre-production UAT gate. Documented full historical pytest (`1839 passed`) remains Cursor-reported: the original private log was not independently inspected. Founder signoff authority: PR #27 comment `6268052077`.
