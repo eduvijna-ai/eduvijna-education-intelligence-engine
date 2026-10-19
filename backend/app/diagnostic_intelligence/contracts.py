@@ -78,6 +78,14 @@ class OptionDiagnosticTag(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class Day7DiagnosticEvidenceSnippet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    citation_label: str
+    source_revision_id: str
+    snippet: str
+
+
 class DiagnosticCoverageSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -113,6 +121,9 @@ class DiagnosticAuthoringRequest(BaseModel):
     revision_tenant_records: dict[str, RevisionTenantRecord] = Field(default_factory=dict)
     coverage_policy: str = "distinct_misconceptions"
     fixture_scenario: str = "diagnostic_clean_pass"
+    bounded_day7_context: str = ""
+    day7_evidence_snippets: list[Day7DiagnosticEvidenceSnippet] = Field(default_factory=list)
+    synthetic_taxonomy_only: bool = False
 
 
 class DistractorDiagnosticResult(BaseModel):

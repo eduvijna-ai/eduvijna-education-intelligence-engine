@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.diagnostic_intelligence.contracts import DiagnosticVerdict, DiagnosticVerdictItem
+from app.diagnostic_intelligence.contracts import (
+    DiagnosticVerdict,
+    DiagnosticVerdictItem,
+    OptionDiagnosticTag,
+)
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode, DiagnosticValidationStatus
 
 
@@ -10,6 +14,7 @@ def build_diagnostic_verdict(
     item_level_issues: list[str],
     *,
     repairable_codes: set[str] | None = None,
+    tags_by_key: dict[str, OptionDiagnosticTag] | None = None,
 ) -> DiagnosticVerdict:
     repairable_codes = repairable_codes or {
         "duplicate_misconception",
@@ -32,12 +37,27 @@ def build_diagnostic_verdict(
                 )
             else:
                 status = DiagnosticValidationStatus.REJECT
+        tag = (tags_by_key or {}).get(option_key)
+        field_paths: list[str] = []
+        misconception_code = None
+        evidence_refs: list[str] = []
+        if tag is not None:
+            misconception_code = tag.misconception_code
+            evidence_refs = list(tag.evidence_refs)
+            field_paths.append(f"option_tags.{option_key}")
+            if misconception_code and not tag.is_correct:
+                field_paths.append(f"option_tags.{option_key}.misconception_code")
+            if evidence_refs and not tag.is_correct:
+                field_paths.append(f"option_tags.{option_key}.evidence_refs")
         items.append(
             DiagnosticVerdictItem(
                 item_id=item_id,
                 option_key=option_key,
                 status=status,
                 issue_codes=codes,
+                field_paths=field_paths,
+                misconception_code=misconception_code,
+                evidence_refs=evidence_refs,
                 repair_instructions=repair_instructions,
             )
         )
@@ -53,6 +73,7 @@ def build_diagnostic_verdict(
             "day6_blocking",
             "nonsensical_distractor",
             "non_candidate_misconception",
+            "missing_diagnostic_evidence",
             DiagnosticIssueCode.MALFORMED_MODEL_OUTPUT.value,
             "empty_option_tags",
             "missing_option_tags",
@@ -69,6 +90,8 @@ def build_diagnostic_verdict(
     review_only = {
         "factual_unverified",
         "no_misconception_candidates",
+        "plausibility_unverified",
+        "insufficient_diagnostic_grounding",
     }
     if any(code in review_only for code in all_codes):
         review_required = True

@@ -20,6 +20,7 @@ def persist_diagnostic_item_audit(
     issue_codes: list[str],
     scope_metadata: dict[str, Any],
     repair_transition: str | None = None,
+    option_traces: list[dict[str, Any]] | None = None,
 ) -> str:
     payload = {
         "diagnostic": True,
@@ -28,6 +29,7 @@ def persist_diagnostic_item_audit(
         "misconception_codes": misconception_codes,
         "scope": scope_metadata,
         "repair_transition": repair_transition,
+        "option_traces": option_traces or [],
     }
     return audit_node(
         deps,

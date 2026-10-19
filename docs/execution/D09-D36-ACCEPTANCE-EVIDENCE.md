@@ -4,14 +4,14 @@
 
 | Gate | Status |
 |------|--------|
-| `CODE_REVIEW_CLEAN` | **YES** — SHA `eede5d67048502211d867ba45390b43c4f820f1d` |
+| `CODE_REVIEW_CLEAN` | **PENDING** — prior CLEAN `eede5d6…`; spec-closure behavioral changes require new exact-HEAD review |
 | `TARGETED_CI_EXACT_HEAD_GREEN` | **YES** — last verified: PR CI **#68** / `39096557003` on `13fbd6426130e3ee46e8f056d75c339b7a685482` (see PR for newer HEAD) |
 | `FULL_PYTEST_CURSOR_REPORTED_GREEN` | **YES** (exit 0, 1784 collected, 0 failed observed) — **passed/skipped/xfail counts UNVERIFIED** (see `D09-D36-FULL-PYTEST-EVIDENCE.md`) |
 | `COMPOSE_SMOKE` | **BLOCKED** — `BLOCKED_DOCKER_UNAVAILABLE` on Cursor VM; see `D09-D36-FOUNDER-COMPOSE-SMOKE.md` |
 | `D9_36_FINAL_ACCEPTANCE` | **BLOCKED** — pending Compose evidence or Founder documented exception |
 | `DAY_10` / merge | **LOCKED** — PR #27 Draft, unmerged; `founder_approval: false` |
 
-Manual **code** review remains clean. Final engineering acceptance is **blocked on evidence**, not failed code.
+Spec-closure (D9-06/07/08/13/20/21/25/27/28/30) adds behavioral code after the last CLEAN SHA. Final engineering acceptance remains **blocked** (Compose + fresh full regression after new review CLEAN).
 
 | Field | Value |
 |-------|--------|
@@ -48,9 +48,18 @@ cd backend && python -m app.day8_verify && python -m app.day9_verify --json
 
 Compose container smoke: **`D09-D36-FOUNDER-COMPOSE-SMOKE.md`** (section B — no in-container `day8_verify` / `day9_verify`).
 
+## Spec-closure (D9-CLOSE-01…09)
+
+| Area | Evidence |
+|------|----------|
+| Bounded Day-7 on DIAGNOSTIC | `integration/day7_diagnostic_context.py`, item-filtered pack; `test_day9_close_acceptance.py`; `day9_verify` `diagnostic_bounded_day7_in_gateway` |
+| Source-backed evidence policy | `evidence_policy.py`; verifier `source_backed_missing_evidence_rejected` |
+| Coverage vs validators | `distinctness.py`; verifier `coverage_complete_tracks_validator` |
+| Verdict fields / audit / usage | `verdict.py`, `diagnostic_audit.py`, `usage.py`; close tests + verifier keys |
+
 ## D9-29…D9-35 demonstration trace
 
-Unchanged — see prior sections in git history; scope map links tests and `day9_verify` checks.
+See `D09-SCOPE-MAP.md` and `tests/test_day9_close_acceptance.py` for closure proofs; prior D9-29…35 traces unchanged.
 
 ## Persistence / compatibility (D9-33)
 

@@ -66,6 +66,34 @@ def _text_matches_approved_signal(
     return _haystack_contains_wrong_answer(haystack, str(pattern_wrong))
 
 
+def arithmetic_operands_from_stem(stem_text: str) -> tuple[int, int] | None:
+    return _extract_addition(stem_text)
+
+
+def expected_wrong_answer_for_code(
+    misconception_code: str,
+    operands: tuple[int, int],
+    *,
+    taxonomy_version: str,
+) -> int | None:
+    left, right = operands
+    rule = _ARITHMETIC_EXPECTED_WRONG.get(misconception_code)
+    if rule is not None:
+        return rule(left, right)
+    definition = resolve_misconception(misconception_code, taxonomy_version=taxonomy_version)
+    if definition is None:
+        return None
+    pattern = _WHOLE_ADD_PATTERN.search(definition.error_pattern)
+    if pattern is None:
+        return None
+    pattern_wrong = int(pattern.group(1))
+    pattern_left = int(pattern.group(2))
+    pattern_right = int(pattern.group(3))
+    if not _operands_match_pattern(left, right, pattern_left, pattern_right):
+        return None
+    return pattern_wrong
+
+
 def validate_signal_alignment(
     tag: OptionDiagnosticTag,
     option_text: str,

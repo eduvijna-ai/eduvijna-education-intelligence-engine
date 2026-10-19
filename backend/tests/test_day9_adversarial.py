@@ -212,20 +212,24 @@ def test_adversarial_scope_mismatches_on_full_tags() -> None:
 
 def test_adversarial_second_correct_distractor() -> None:
     service = DiagnosticIntelligenceService()
-    request = _authoring("adv-second-correct")
-    tags = build_fixture_tags(request.item)
-    tags[0] = tags[0].model_copy(
-        update={"misconception_code": "MATH.ADD.WHOLE.SUM_AS_NEXT", "diagnostic_signal": "12"}
+    item = build_fixture_mcq_item(item_id="adv-second-correct", wrong_a="12")
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
     )
+    tags = build_fixture_tags(item)
+    tags[0].metadata_json["option_text"] = "12"
     verdict = service.validate_result(
         request,
-        build_fixture_result(request.item, tags),
+        build_fixture_result(item, tags),
         candidate_codes=_codes(request),
     )
-    assert (
-        "second_correct_distractor" in verdict.issue_codes
-        or "signal_text_mismatch" in verdict.issue_codes
-    )
+    assert "second_correct_distractor" in verdict.issue_codes
 
 
 def test_orchestration_tenant_foreign_revisions_rejected() -> None:

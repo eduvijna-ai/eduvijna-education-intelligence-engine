@@ -81,6 +81,11 @@ def build_gateway_user_payload(request: DiagnosticAuthoringRequest) -> dict[str,
         ],
         "allowed_source_revision_ids": request.allowed_source_revision_ids,
         "allowed_evidence_refs": request.allowed_evidence_refs,
+        "bounded_day7_context": request.bounded_day7_context,
+        "day7_evidence_snippets": [
+            s.model_dump(mode="json") for s in request.day7_evidence_snippets
+        ],
+        "synthetic_taxonomy_only": request.synthetic_taxonomy_only,
         "blocked_tenant_revision_ids": list(request.blocked_tenant_revision_ids),
         "foreign_revision_id": request.item.metadata_json.get("foreign_revision_id"),
         "fixture_scenario": request.fixture_scenario,

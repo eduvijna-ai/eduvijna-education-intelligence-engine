@@ -36,6 +36,9 @@ class DiagnosticIssueCode(StrEnum):
     NON_CANDIDATE_MISCONCEPTION = "non_candidate_misconception"
     FACTUAL_UNVERIFIED = "factual_unverified"
     NO_MISCONCEPTION_CANDIDATES = "no_misconception_candidates"
+    MISSING_DIAGNOSTIC_EVIDENCE = "missing_diagnostic_evidence"
+    INSUFFICIENT_DIAGNOSTIC_GROUNDING = "insufficient_diagnostic_grounding"
+    PLAUSIBILITY_UNVERIFIED = "plausibility_unverified"
 
 
 DEFAULT_TAXONOMY_VERSION = "misconception-taxonomy@v1"

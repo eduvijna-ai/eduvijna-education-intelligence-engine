@@ -97,7 +97,14 @@ class DiagnosticIntelligenceService:
                     taxonomy_version=request.taxonomy_version,
                 )
             )
-            codes.extend(validate_plausibility(tag, text))
+            codes.extend(
+                validate_plausibility(
+                    tag,
+                    text,
+                    stem_text=request.item.stem_text,
+                    taxonomy_version=request.taxonomy_version,
+                )
+            )
             codes.extend(
                 validate_factual_incorrectness(
                     request.item, tag, text, solver=solver
@@ -111,11 +118,20 @@ class DiagnosticIntelligenceService:
             request.item.item_id,
             result.option_tags,
             canonical_text_by_key=canonical_text_by_option_key(request),
+            option_level_issues=option_issues,
         )
         item_level.extend(distinct_issues)
+        tags_by_key = {tag.option_key: tag for tag in result.option_tags}
+        verdict = build_diagnostic_verdict(
+            request.item.item_id,
+            option_issues,
+            item_level,
+            tags_by_key=tags_by_key,
+        )
+        if verdict.status != DiagnosticValidationStatus.PASS:
+            coverage = coverage.model_copy(update={"coverage_complete": False})
         result.coverage_summary = coverage
-
-        return build_diagnostic_verdict(request.item.item_id, option_issues, item_level)
+        return verdict
 
     def attach_validation_status(
         self, result: DistractorDiagnosticResult, verdict: DiagnosticVerdict

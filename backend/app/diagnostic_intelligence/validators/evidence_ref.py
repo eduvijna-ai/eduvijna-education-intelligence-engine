@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest, OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode
+from app.diagnostic_intelligence.evidence_policy import tag_requires_approved_evidence
 from app.diagnostic_intelligence.integration.revision_tenancy import (
     looks_like_revision_id,
     normalize_revision_ref,
@@ -15,6 +16,9 @@ def validate_evidence_refs(
     if tag.is_correct:
         return []
     issues: list[str] = []
+    if tag_requires_approved_evidence(request, tag) and not tag.evidence_refs:
+        issues.append(DiagnosticIssueCode.MISSING_DIAGNOSTIC_EVIDENCE.value)
+        return issues
     allowed_refs = set(request.allowed_evidence_refs)
     allowed_revisions = set(request.allowed_source_revision_ids)
     for ref in tag.evidence_refs:

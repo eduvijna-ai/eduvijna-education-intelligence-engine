@@ -66,6 +66,21 @@ def run_diagnostic_preflight(request: DiagnosticAuthoringRequest) -> DiagnosticP
             review_required=True,
         )
 
+    synthetic = request.synthetic_taxonomy_only or bool(
+        request.item.metadata_json.get("synthetic_fixture")
+    )
+    if (
+        not synthetic
+        and request.allowed_source_revision_ids
+        and not request.bounded_day7_context.strip()
+    ):
+            return DiagnosticPreflightResult(
+                allow_model_call=False,
+                status=DiagnosticValidationStatus.REVIEW_REQUIRED,
+                issue_codes=["insufficient_diagnostic_grounding"],
+                review_required=True,
+            )
+
     candidates = resolve_misconception_candidates(request)
     codes = {c.misconception_code for c in candidates}
     if not codes:

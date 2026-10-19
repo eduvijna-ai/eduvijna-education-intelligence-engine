@@ -324,6 +324,178 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
     }
 
 
+def _spec_closure_proofs() -> dict[str, bool]:
+    from sqlalchemy import create_engine
+
+    from app.orchestration.enums import GenerationNodeRole
+    from app.orchestration.gateway.fake import FakeGenerationGateway
+    from app.orchestration.gateway.request_capture import RequestCapturingGateway
+
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+
+    service = DiagnosticIntelligenceService()
+    source_item = build_fixture_mcq_item(item_id="day9-verify-source-backed").model_copy(
+        update={
+            "metadata_json": {},
+            "source_revision_ids": ["00000000-0000-0000-0000-000000000099"],
+        }
+    )
+    source_request = DiagnosticAuthoringRequest(
+        item=source_item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=source_item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+        synthetic_taxonomy_only=False,
+    )
+    source_tags = build_fixture_tags(source_item)
+    source_tags[0] = source_tags[0].model_copy(update={"evidence_refs": []})
+    missing_evidence = service.validate_result(
+        source_request,
+        DistractorDiagnosticResult(
+            item_id=source_item.item_id,
+            question_type=source_item.question_type,
+            option_tags=source_tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=source_item.source_revision_ids,
+        ),
+        candidate_codes={
+            c.misconception_code for c in resolve_misconception_candidates(source_request)
+        },
+    )
+
+    pass_item = build_fixture_mcq_item(item_id="day9-verify-verdict-fields")
+    pass_request = DiagnosticAuthoringRequest(
+        item=pass_item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=pass_item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    pass_verdict = service.validate_result(
+        pass_request,
+        DistractorDiagnosticResult(
+            item_id=pass_item.item_id,
+            question_type=pass_item.question_type,
+            option_tags=build_fixture_tags(pass_item),
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=pass_item.source_revision_ids,
+        ),
+        candidate_codes={
+            c.misconception_code for c in resolve_misconception_candidates(pass_request)
+        },
+    )
+    wrong_option = next(v for v in pass_verdict.items if v.option_key == "A")
+
+    inner = FakeGenerationGateway()
+    capturing = RequestCapturingGateway(inner)
+    ctx, orchestration = build_day8_test_service(session, gateway=capturing)
+    bounded_run = orchestration.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_clean_pass",
+            idempotency_key="day9-verify-bounded-day7",
+        )
+    )
+    diag_requests = [
+        r for r in capturing.captured_requests() if r.role == GenerationNodeRole.DIAGNOSTIC
+    ]
+    bounded_ok = False
+    if diag_requests and bounded_run.status == OrchestrationRunStatus.COMPLETED:
+        payload = diag_requests[0].user_payload
+        bounded = str(payload.get("bounded_day7_context") or "").strip()
+        bounded_ok = bool(bounded) and "ignore previous instructions" not in bounded.lower()
+
+    usage_run = orchestration.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_clean_pass",
+            idempotency_key="day9-verify-usage-batch",
+            requested_count=2,
+        )
+    )
+    usage = usage_run.gateway_usage or {}
+    by_role = usage.get("model_calls_by_role") or {}
+    usage_ok = (
+        usage_run.status == OrchestrationRunStatus.COMPLETED
+        and int(by_role.get("diagnostic", 0)) == 3
+        and float(usage.get("diagnostic_validator_ms", 0)) > 0
+    )
+
+    audit_run = orchestration.run(
+        build_diagnostic_orchestration_request(
+            ctx,
+            diagnostic_scenario="diagnostic_clean_pass",
+            idempotency_key="day9-verify-option-audit",
+        )
+    )
+    option_traces_ok = False
+    if audit_run.status == OrchestrationRunStatus.COMPLETED:
+        diag = (audit_run.metadata_json.get("diagnostic_results") or [])[0]
+        audit_ref = (diag.get("audit_refs") or [None])[0]
+        event = session.get(OrchestrationAuditEvent, audit_ref) if audit_ref else None
+        traces = (event.payload_json.get("option_traces") if event else None) or []
+        option_traces_ok = bool(traces) and any(t.get("option_key") for t in traces)
+
+    redundant_item = build_fixture_mcq_item(
+        item_id="day9-verify-coverage", wrong_a="11", wrong_b="11.0"
+    )
+    redundant_request = DiagnosticAuthoringRequest(
+        item=redundant_item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=redundant_item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    rtags = build_fixture_tags(redundant_item)
+    rtags[0].metadata_json["option_text"] = "11"
+    rtags[2].metadata_json["option_text"] = "11.0"
+    rtags[2] = rtags[2].model_copy(
+        update={
+            "misconception_code": "MATH.ADD.WHOLE.DOUBLE_OPERAND",
+            "diagnostic_signal": "double",
+        }
+    )
+    redundant_result = DistractorDiagnosticResult(
+        item_id=redundant_item.item_id,
+        question_type=redundant_item.question_type,
+        option_tags=rtags,
+        taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+        source_revision_ids=redundant_item.source_revision_ids,
+    )
+    redundant_verdict = service.validate_result(
+        redundant_request,
+        redundant_result,
+        candidate_codes={
+            c.misconception_code for c in resolve_misconception_candidates(redundant_request)
+        },
+    )
+
+    proofs = {
+        "diagnostic_bounded_day7_in_gateway": bounded_ok,
+        "source_backed_missing_evidence_rejected": "missing_diagnostic_evidence"
+        in missing_evidence.issue_codes,
+        "coverage_complete_tracks_validator": redundant_result.coverage_summary is not None
+        and not redundant_result.coverage_summary.coverage_complete
+        and "redundant_distractor" in redundant_verdict.issue_codes,
+        "verdict_option_fields_populated": bool(wrong_option.field_paths)
+        and bool(wrong_option.misconception_code),
+        "diagnostic_audit_option_traces": option_traces_ok,
+        "diagnostic_role_usage_accounting": usage_ok,
+    }
+    session.close()
+    return proofs
+
+
 def _sourceless_spoof_rejected(service: DiagnosticIntelligenceService) -> bool:
     item = build_fixture_mcq_item(item_id="day9-sourceless-spoof").model_copy(
         update={"source_revision_ids": []}
@@ -520,6 +692,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
     service = DiagnosticIntelligenceService()
     run_positive_fixture_validation(service, allowed_refs=["[CIT-1]"])
     service_proofs = _service_proofs(service)
+    closure_proofs = _spec_closure_proofs()
 
     ctx, orchestration = build_day8_test_service(session)
     clean = orchestration.run(
@@ -628,6 +801,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             orchestration.compiled_graph.get_graph().nodes
         ),
         **service_proofs,
+        **closure_proofs,
         **sha_checks,
     }
     ok = all(checks.values())

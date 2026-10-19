@@ -7,10 +7,15 @@ if TYPE_CHECKING:
     from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 
 from app.diagnostic_intelligence.contracts import (
+    Day7DiagnosticEvidenceSnippet,
     DiagnosticAuthoringRequest,
     DistractorDiagnosticResult,
 )
 from app.diagnostic_intelligence.enrichment import build_gateway_user_payload
+from app.diagnostic_intelligence.integration.day7_diagnostic_context import (
+    build_diagnostic_day7_payload,
+    filter_pack_for_item_sources,
+)
 from app.diagnostic_intelligence.integration.revision_tenancy import (
     load_revision_tenant_records,
     normalize_revision_ref,
@@ -86,6 +91,8 @@ def _build_authoring(
     allowed_evidence_refs: list[str],
     *,
     foreign_revision_id: str | None = None,
+    bounded_day7_context: str = "",
+    day7_evidence_snippets: list[Day7DiagnosticEvidenceSnippet] | None = None,
 ) -> DiagnosticAuthoringRequest:
     diagnostic_item = draft_to_diagnostic_item(draft)
     if foreign_revision_id:
@@ -115,6 +122,8 @@ def _build_authoring(
         allowed_source_revision_ids=allowed_revision_ids,
         allowed_evidence_refs=allowed_evidence_refs,
         fixture_scenario=request.diagnostic_fixture_scenario(),
+        bounded_day7_context=bounded_day7_context,
+        day7_evidence_snippets=list(day7_evidence_snippets or []),
     )
 
 
@@ -139,8 +148,11 @@ def diagnostic_enrich_node(
 
     scope = ResolvedScope.model_validate(state.get("resolved_scope") or {})
     context = KnowledgeContextPack.model_validate(state.get("knowledge_context") or {})
-    allowed_revision_ids = [item.source_revision_id for item in context.evidence]
-    allowed_evidence_refs = [item.citation_label for item in context.evidence]
+    blocked_revision_ids = {
+        str(ref).strip()
+        for ref in (request.metadata_json.get("diagnostic_blocked_tenant_revision_ids") or [])
+        if str(ref).strip()
+    }
     lo_ids = request.metadata_json.get("learning_outcome_ids", [])
     if isinstance(lo_ids, str):
         lo_ids = [lo_ids]
@@ -178,6 +190,14 @@ def diagnostic_enrich_node(
         taxonomy_override = str(
             request.metadata_json.get("diagnostic_taxonomy_version") or ""
         ).strip()
+        item_pack = filter_pack_for_item_sources(
+            context,
+            item_source_revision_ids=list(draft.source_revision_ids),
+            blocked_revision_ids=blocked_revision_ids,
+        )
+        bounded_day7_context, day7_snippets = build_diagnostic_day7_payload(item_pack)
+        allowed_revision_ids = [item.source_revision_id for item in item_pack.evidence]
+        allowed_evidence_refs = [item.citation_label for item in item_pack.evidence]
         authoring = _build_authoring(
             draft,
             scope,
@@ -186,6 +206,8 @@ def diagnostic_enrich_node(
             allowed_revision_ids,
             allowed_evidence_refs,
             foreign_revision_id=foreign_revision_id,
+            bounded_day7_context=bounded_day7_context,
+            day7_evidence_snippets=day7_snippets,
         )
         authoring = _with_revision_tenant_records(deps, authoring)
         if taxonomy_override:
@@ -276,6 +298,7 @@ def diagnostic_enrich_node(
             gateway_usage,
             response.usage,
             count_call=not bool(extra and extra.get("cache_hit")),
+            role=GenerationNodeRole.DIAGNOSTIC.value,
         )
         if extra and extra.get("cache"):
             call_cache = extra["cache"]
@@ -305,6 +328,7 @@ def diagnostic_enrich_node(
             taxonomy_version=authoring.taxonomy_version,
             source_revision_ids=list(draft.source_revision_ids),
         )
+        validate_started = time.perf_counter()
         verdict = service.validate_result(
             authoring,
             parsed,
@@ -314,7 +338,22 @@ def diagnostic_enrich_node(
             candidate_codes=preflight.candidate_codes,
             solver=solvers.get(draft.item_id),
         )
+        validator_ms = (time.perf_counter() - validate_started) * 1000
+        gateway_usage["diagnostic_validator_ms"] = (
+            float(gateway_usage.get("diagnostic_validator_ms", 0.0)) + validator_ms
+        )
         enriched = service.attach_validation_status(parsed, verdict)
+        option_traces = [
+            {
+                "option_key": tag.option_key,
+                "is_correct": tag.is_correct,
+                "misconception_code": tag.misconception_code,
+                "validation_status": tag.validation_status.value,
+                "issue_codes": list(tag.issue_codes),
+                "evidence_refs": list(tag.evidence_refs),
+            }
+            for tag in enriched.option_tags
+        ]
         audit_id = persist_diagnostic_item_audit(
             deps,
             state,
@@ -332,6 +371,7 @@ def diagnostic_enrich_node(
             repair_transition=(
                 "tag_repair" if target_ids and draft.item_id in target_ids else None
             ),
+            option_traces=option_traces,
         )
         audit_refs.append(audit_id)
         enriched.audit_refs = [audit_id]
