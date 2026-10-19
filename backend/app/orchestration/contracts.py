@@ -168,6 +168,13 @@ class OrchestrationRequest(BaseModel):
         value = self.metadata_json.get("fixture_scenario")
         return str(value) if value else "clean_pass"
 
+    def diagnostic_enrichment_enabled(self) -> bool:
+        return bool(self.metadata_json.get("diagnostic_enrichment_enabled"))
+
+    def diagnostic_fixture_scenario(self) -> str:
+        value = self.metadata_json.get("diagnostic_fixture_scenario")
+        return str(value) if value else "diagnostic_clean_pass"
+
     def effective_max_repairs(self) -> int:
         return min(self.max_repairs, HARD_MAX_REPAIRS)
 

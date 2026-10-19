@@ -19,6 +19,7 @@ _HUMAN_IMMUTABLE_PATCH_KEYS = frozenset(
         "source_revision_ids",
         "learning_outcome_ids",
         "competency_codes",
+        "marks",
     }
 )
 
@@ -30,6 +31,23 @@ def _build_interrupt_payload(state: OrchestrationGraphState) -> dict[str, Any]:
     for item in drafts:
         for revision_id in item.get("source_revision_ids") or []:
             revision_ids.append(str(revision_id))
+    diagnostic_validation = state.get("diagnostic_validation") or []
+    diagnostic_results = state.get("diagnostic_results") or []
+    diagnostic_summaries: list[dict[str, Any]] = []
+    for entry in diagnostic_results:
+        option_issues: list[str] = []
+        for tag in entry.get("option_tags") or []:
+            option_issues.extend(list(tag.get("issue_codes") or []))
+        diagnostic_summaries.append(
+            {
+                "item_id": entry.get("item_id"),
+                "question_type": entry.get("question_type"),
+                "aggregate_status": entry.get("aggregate_status"),
+                "issue_codes": sorted(set(option_issues))[:24],
+                "taxonomy_version": entry.get("taxonomy_version"),
+                "audit_refs": list(entry.get("audit_refs") or [])[:4],
+            }
+        )
     return {
         "run_id": state.get("run_id"),
         "status": state.get("status"),
@@ -37,6 +55,8 @@ def _build_interrupt_payload(state: OrchestrationGraphState) -> dict[str, Any]:
         "repair_count_by_item": state.get("repair_count_by_item") or {},
         "deterministic_validation": state.get("deterministic_validation") or [],
         "review_verdicts": state.get("review_verdicts") or [],
+        "diagnostic_validation": diagnostic_validation,
+        "diagnostic_results": diagnostic_summaries,
         "source_revision_ids": sorted(set(revision_ids)),
         "errors": state.get("errors") or [],
         "warnings": state.get("warnings") or [],
@@ -74,6 +94,14 @@ def human_gate_node(
             },
             attempt_map=attempt_map,
         )
+    diagnostic_validation = state.get("diagnostic_validation") or []
+    diagnostic_review = any(
+        item.get("review_required")
+        and not item.get("blocking")
+        and not item.get("repairable")
+        for item in diagnostic_validation
+    )
+
     if decision.action == "edit":
         drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
         patched: list[dict[str, Any]] = []
@@ -111,23 +139,31 @@ def human_gate_node(
                 "draft_items": patched,
                 "human_revalidate": True,
                 "human_approved": False,
+                "diagnostic_human_approved": False,
+                "diagnostic_validation": [],
+                "diagnostic_results": [],
+                "generation_call_cache": {},
                 "status": OrchestrationRunStatus.REVIEWING.value,
                 "interrupt_payload": payload,
                 "audit_refs": [audit_id],
             },
             attempt_map=attempt_map,
         )
+    approve_update: dict[str, Any] = {
+        "human_decision": decision.model_dump(mode="json"),
+        "human_revalidate": False,
+        "status": OrchestrationRunStatus.REVIEWING.value,
+        "interrupt_payload": payload,
+        "audit_refs": [audit_id],
+    }
+    if diagnostic_review:
+        approve_update["diagnostic_human_approved"] = True
+    else:
+        approve_update["human_approved"] = True
     return timed_update(
         state,
         "human_gate",
         started,
-        {
-            "human_decision": decision.model_dump(mode="json"),
-            "human_approved": True,
-            "human_revalidate": False,
-            "status": OrchestrationRunStatus.REVIEWING.value,
-            "interrupt_payload": payload,
-            "audit_refs": [audit_id],
-        },
+        approve_update,
         attempt_map=attempt_map,
     )

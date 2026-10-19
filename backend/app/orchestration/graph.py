@@ -9,6 +9,8 @@ from pydantic import ValidationError
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.nodes._helpers import pipeline_failure
 from app.orchestration.nodes.author import author_node
+from app.orchestration.nodes.diagnostic import diagnostic_enrich_node
+from app.orchestration.nodes.diagnostic_repair import diagnostic_repair_node
 from app.orchestration.nodes.duplicate_validate import duplicate_validate_node
 from app.orchestration.nodes.human_gate import human_gate_node
 from app.orchestration.nodes.plan import plan_generation_node
@@ -20,6 +22,7 @@ from app.orchestration.nodes.solver import solver_node
 from app.orchestration.nodes.validate import deterministic_validate_node
 from app.orchestration.nodes.whole_output import whole_output_node
 from app.orchestration.routing import (
+    route_after_diagnostic,
     route_after_fallible,
     route_after_human,
     route_after_scope,
@@ -100,6 +103,14 @@ def build_orchestration_graph(
         "duplicate_validate",
         _bind(duplicate_validate_node, deps, node_name="duplicate_validate"),
     )  # type: ignore[call-overload]
+    graph.add_node(
+        "diagnostic_enrich",
+        _bind(diagnostic_enrich_node, deps, node_name="diagnostic_enrich"),
+    )  # type: ignore[call-overload]
+    graph.add_node(
+        "diagnostic_repair",
+        _bind(diagnostic_repair_node, deps, node_name="diagnostic_repair"),
+    )  # type: ignore[call-overload]
     graph.add_node("repair", _bind(repair_planner_node, deps, node_name="repair"))  # type: ignore[call-overload]
     graph.add_node("human_gate", _bind_raw(human_gate_node, deps))  # type: ignore[call-overload]
     graph.add_node("whole_output", _bind(whole_output_node, deps, node_name="whole_output"))  # type: ignore[call-overload]
@@ -142,9 +153,21 @@ def build_orchestration_graph(
         {
             "repair": "repair",
             "human_gate": "human_gate",
+            "diagnostic_enrich": "diagnostic_enrich",
             "whole_output": "whole_output",
         },
     )
+    graph.add_conditional_edges(
+        "diagnostic_enrich",
+        route_after_diagnostic,
+        {
+            "repair": "repair",
+            "diagnostic_repair": "diagnostic_repair",
+            "human_gate": "human_gate",
+            "whole_output": "whole_output",
+        },
+    )
+    graph.add_edge("diagnostic_repair", "diagnostic_enrich")
     graph.add_conditional_edges(
         "repair",
         _continue_or_output,
@@ -153,7 +176,11 @@ def build_orchestration_graph(
     graph.add_conditional_edges(
         "human_gate",
         route_after_human,
-        {"deterministic_validate": "deterministic_validate", "whole_output": "whole_output"},
+        {
+            "deterministic_validate": "deterministic_validate",
+            "diagnostic_enrich": "diagnostic_enrich",
+            "whole_output": "whole_output",
+        },
     )
     graph.add_edge("whole_output", END)
 

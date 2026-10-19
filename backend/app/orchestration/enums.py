@@ -29,6 +29,7 @@ class GenerationNodeRole(StrEnum):
     CURRICULUM_REVIEW = "curriculum_review"
     EDUCATIONAL_REVIEW = "educational_review"
     REPAIR = "repair"
+    DIAGNOSTIC = "diagnostic"
 
 
 class OrchestrationErrorCode(StrEnum):

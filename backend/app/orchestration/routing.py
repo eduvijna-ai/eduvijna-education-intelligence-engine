@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from app.diagnostic_intelligence.repair_policy import diagnostic_repair_is_tag_only
 from app.orchestration.contracts import OrchestrationRequest
+from app.orchestration.diagnostic_routing import pending_diagnostic_enrichment
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.state import OrchestrationGraphState
 
@@ -66,6 +68,48 @@ def route_after_validation(state: OrchestrationGraphState) -> str:
     if review_required:
         return "human_gate"
 
+    return "diagnostic_enrich"
+
+
+def route_after_diagnostic(state: OrchestrationGraphState) -> str:
+    if pipeline_halted(state):
+        return "whole_output"
+    request = OrchestrationRequest.model_validate(state["request"])
+    if not request.diagnostic_enrichment_enabled():
+        return "whole_output"
+
+    diagnostic = state.get("diagnostic_validation") or []
+    repair_counts = state.get("repair_count_by_item") or {}
+    max_repairs = request.effective_max_repairs()
+
+    blocking = any(item.get("blocking") for item in diagnostic)
+    repairable = any(item.get("repairable") for item in diagnostic)
+    review_required = any(item.get("review_required") for item in diagnostic)
+
+    if blocking and not repairable:
+        return "whole_output"
+
+    if repairable:
+        repairable_summaries = [s for s in diagnostic if s.get("repairable")]
+        tag_only = all(
+            diagnostic_repair_is_tag_only(list(summary.get("issue_codes") or []))
+            for summary in repairable_summaries
+        )
+        for summary in repairable_summaries:
+            item_id = str(summary.get("item_id"))
+            if repair_counts.get(item_id, 0) < max_repairs:
+                return "diagnostic_repair" if tag_only else "repair"
+        if review_required or any(
+            repair_counts.get(str(summary.get("item_id")), 0) >= max_repairs
+            for summary in diagnostic
+            if summary.get("repairable")
+        ):
+            return "human_gate"
+        return "whole_output"
+
+    if review_required:
+        return "human_gate"
+
     return "whole_output"
 
 
@@ -75,4 +119,7 @@ def route_after_human(state: OrchestrationGraphState) -> str:
     decision = state.get("human_decision") or {}
     if state.get("human_revalidate") and decision.get("action") == "edit":
         return "deterministic_validate"
+    request = OrchestrationRequest.model_validate(state["request"])
+    if decision.get("action") == "approve" and pending_diagnostic_enrichment(state, request):
+        return "diagnostic_enrich"
     return "whole_output"

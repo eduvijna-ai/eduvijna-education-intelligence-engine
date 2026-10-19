@@ -10,6 +10,7 @@ from app.orchestration.contracts import (
     utc_now,
 )
 from app.orchestration.dependencies import OrchestrationDependencies
+from app.orchestration.diagnostic_routing import diagnostics_finished
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
 from app.orchestration.state import OrchestrationGraphState
@@ -23,16 +24,21 @@ def whole_output_node(
     request = get_request(state)
     scope = ResolvedScope.model_validate(state.get("resolved_scope") or {})
     deterministic = state.get("deterministic_validation") or []
+    diagnostic = state.get("diagnostic_validation") or []
     duplicate = state.get("duplicate_validation") or []
     drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
     errors = list(state.get("errors") or [])
 
-    blocking = any(item.get("blocking") for item in deterministic)
+    blocking = any(item.get("blocking") for item in deterministic) or any(
+        item.get("blocking") for item in diagnostic
+    )
     duplicate_block = any(item.get("is_duplicate") for item in duplicate)
     repair_counts = state.get("repair_count_by_item") or {}
     exhausted = any(count > request.effective_max_repairs() for count in repair_counts.values())
-    review_required = any(item.get("review_required") for item in deterministic)
+    deterministic_review = any(item.get("review_required") for item in deterministic)
+    diagnostic_review = any(item.get("review_required") for item in diagnostic)
     human_approved = bool(state.get("human_approved"))
+    diagnostic_human_approved = bool(state.get("diagnostic_human_approved"))
 
     if state.get("gateway_retry_required"):
         status = OrchestrationRunStatus.RETRY_REQUIRED
@@ -47,15 +53,37 @@ def whole_output_node(
     elif exhausted:
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("repair_exhausted")
-    elif review_required and not human_approved:
+    elif deterministic_review and not human_approved:
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("review_required_unresolved")
+    elif diagnostic_review and not diagnostic_human_approved:
+        status = OrchestrationRunStatus.REVIEW_REQUIRED
+        errors.append("diagnostic_review_required_unresolved")
+    elif not diagnostics_finished(state, request) and request.diagnostic_enrichment_enabled():
+        status = OrchestrationRunStatus.REVIEW_REQUIRED
+        errors.append("diagnostic_enrichment_incomplete")
     else:
         status = OrchestrationRunStatus.COMPLETED
 
     approved_items: list[DraftQuestionItem] = []
     if status == OrchestrationRunStatus.COMPLETED:
-        approved_items = drafts
+        if request.marks is not None:
+            for draft in drafts:
+                if draft.marks is not None and draft.marks != request.marks:
+                    status = OrchestrationRunStatus.FAILED
+                    errors.append("marks_invariant_violation")
+                    break
+        if status == OrchestrationRunStatus.COMPLETED:
+            approved_items = (
+                [
+                    draft.model_copy(update={"marks": request.marks})
+                    if request.marks is not None
+                    else draft
+                    for draft in drafts
+                ]
+                if request.marks is not None
+                else list(drafts)
+            )
 
     if (
         status == OrchestrationRunStatus.COMPLETED
@@ -98,7 +126,10 @@ def whole_output_node(
         started_at=utc_now(),
         completed_at=utc_now() if status != OrchestrationRunStatus.REVIEW_REQUIRED else None,
         gateway_usage=state.get("gateway_usage") or {},
-        metadata_json={"institution_id": scope.institution_id},
+        metadata_json={
+            "institution_id": scope.institution_id,
+            "diagnostic_results": state.get("diagnostic_results") or [],
+        },
     )
     return timed_update(
         state,
