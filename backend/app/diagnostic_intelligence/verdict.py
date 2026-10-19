@@ -56,7 +56,11 @@ def propagate_item_level_option_issues(
 ) -> dict[str, list[str]]:
     propagated = {key: list(codes) for key, codes in option_issues.items()}
     for code in item_level_issues:
-        if code not in {"duplicate_misconception", "redundant_distractor"}:
+        if code not in (
+            {"duplicate_misconception", "redundant_distractor"}
+            | _BLOCKING_CODES
+            | _REVIEW_ONLY_CODES
+        ):
             continue
         for key in wrong_option_keys:
             bucket = propagated.setdefault(key, [])
@@ -70,10 +74,10 @@ def status_for_issue_codes(codes: list[str]) -> DiagnosticValidationStatus:
         return DiagnosticValidationStatus.PASS
     if any(code in _BLOCKING_CODES for code in codes):
         return DiagnosticValidationStatus.REJECT
-    if any(code in _REPAIRABLE_CODES for code in codes):
-        return DiagnosticValidationStatus.REPAIR
     if any(code in _REVIEW_ONLY_CODES for code in codes):
         return DiagnosticValidationStatus.REVIEW_REQUIRED
+    if any(code in _REPAIRABLE_CODES for code in codes):
+        return DiagnosticValidationStatus.REPAIR
     return DiagnosticValidationStatus.REJECT
 
 
@@ -96,7 +100,11 @@ def build_diagnostic_verdict(
 
     items: list[DiagnosticVerdictItem] = []
     all_codes: list[str] = list(item_level_issues)
-    for option_key, codes in option_issues.items():
+    option_keys = sorted(
+        set(option_issues.keys()) | set((tags_by_key or {}).keys()),
+    )
+    for option_key in option_keys:
+        codes = option_issues.get(option_key, [])
         all_codes.extend(codes)
         status = status_for_issue_codes(codes)
         repair_instructions: list[str] = []

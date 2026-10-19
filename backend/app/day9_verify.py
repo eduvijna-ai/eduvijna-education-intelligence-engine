@@ -354,7 +354,102 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "arithmetic_operand_context_mismatch": "signal_text_mismatch" in stem_verdict.issue_codes
         and stem_verdict.status.value != "pass",
         "sourceless_result_source_spoof_rejected": _sourceless_spoof_rejected(service),
+        "foreign_grounding_preflight_rejected": _foreign_grounding_preflight_rejected(),
+        "aggregate_evidence_budget_enforced": _aggregate_evidence_budget_enforced(),
+        "decimal_wrong_answer_signal_rejected": _decimal_wrong_answer_signal_rejected(service),
     }
+
+
+def _foreign_grounding_preflight_rejected() -> bool:
+    from app.diagnostic_intelligence.contracts import Day7DiagnosticEvidenceSnippet
+    from app.diagnostic_intelligence.preflight import run_diagnostic_preflight
+
+    rev_a = "00000000-0000-0000-0000-0000000000aa"
+    rev_b = "00000000-0000-0000-0000-0000000000bb"
+    item = build_fixture_mcq_item(item_id="day9-verify-rev-ground").model_copy(
+        update={"source_revision_ids": [rev_a]}
+    )
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=[rev_a],
+        allowed_evidence_refs=["[CIT-A]"],
+        bounded_day7_context=f"[CIT-A] (revision {rev_a})",
+        day7_evidence_snippets=[
+            Day7DiagnosticEvidenceSnippet(
+                citation_label="[CIT-X]",
+                source_revision_id=rev_b,
+                snippet="FOREIGN-UNTRUSTED-MARKER",
+            )
+        ],
+    )
+    preflight = run_diagnostic_preflight(request)
+    return (
+        not preflight.allow_model_call
+        and (
+            "unauthorized_source_revision" in preflight.issue_codes
+            or "forged_evidence_ref" in preflight.issue_codes
+        )
+    )
+
+
+def _aggregate_evidence_budget_enforced() -> bool:
+    from pydantic import ValidationError
+
+    from app.diagnostic_intelligence.contracts import Day7DiagnosticEvidenceSnippet
+
+    rev_a = "REV-A"
+    try:
+        DiagnosticAuthoringRequest(
+            item=build_fixture_mcq_item().model_copy(update={"source_revision_ids": [rev_a]}),
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            allowed_source_revision_ids=[rev_a],
+            allowed_evidence_refs=["[CIT-A]"],
+            bounded_day7_context="x" * 4000,
+            day7_evidence_snippets=[
+                Day7DiagnosticEvidenceSnippet(
+                    citation_label="[CIT-A]",
+                    source_revision_id=rev_a,
+                    snippet="y" * 400,
+                )
+            ],
+        )
+    except ValidationError:
+        return True
+    return False
+
+
+def _decimal_wrong_answer_signal_rejected(service: DiagnosticIntelligenceService) -> bool:
+    item = build_fixture_mcq_item(item_id="day9-decimal-119", wrong_a="11.9")
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    tags = build_fixture_tags(item)
+    tags[0].metadata_json["option_text"] = "11.9"
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.status.value != "pass" and "signal_text_mismatch" in verdict.issue_codes
 
 
 def _spec_closure_proofs() -> dict[str, bool]:

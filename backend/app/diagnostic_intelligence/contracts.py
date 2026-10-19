@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.diagnostic_intelligence.enums import (
     DEFAULT_TAXONOMY_VERSION,
@@ -128,15 +128,15 @@ class DiagnosticAuthoringRequest(BaseModel):
     bounded_day7_context: str = Field(default="", max_length=MAX_DIAGNOSTIC_BOUNDED_CHARS)
     day7_evidence_snippets: list[Day7DiagnosticEvidenceSnippet] = Field(default_factory=list)
 
-    @field_validator("day7_evidence_snippets")
-    @classmethod
-    def _snippet_aggregate_budget(
-        cls, snippets: list[Day7DiagnosticEvidenceSnippet]
-    ) -> list[Day7DiagnosticEvidenceSnippet]:
-        total = sum(len(s.snippet) for s in snippets)
-        if total > MAX_DIAGNOSTIC_AGGREGATE_CHARS:
+    @model_validator(mode="after")
+    def _aggregate_evidence_budget(self) -> DiagnosticAuthoringRequest:
+        from app.diagnostic_intelligence.integration.day7_diagnostic_context import (
+            measure_diagnostic_evidence_payload_chars,
+        )
+
+        if measure_diagnostic_evidence_payload_chars(self) > MAX_DIAGNOSTIC_AGGREGATE_CHARS:
             raise ValueError("diagnostic_evidence_budget_exceeded")
-        return snippets
+        return self
 
 
 class DistractorDiagnosticResult(BaseModel):

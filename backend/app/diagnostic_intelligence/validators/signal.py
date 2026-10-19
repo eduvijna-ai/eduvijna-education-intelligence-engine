@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode
+from app.diagnostic_intelligence.numeric_tokens import numeric_literal_matches_integer
 from app.diagnostic_intelligence.taxonomy_registry import resolve_misconception
 
 _WHOLE_ADD_PATTERN = re.compile(
@@ -27,7 +28,11 @@ def _extract_addition(stem: str) -> tuple[int, int] | None:
 
 
 def _haystack_contains_wrong_answer(haystack: str, wrong_answer: str) -> bool:
-    return bool(re.search(rf"\b{re.escape(wrong_answer)}\b", haystack))
+    try:
+        expected = int(wrong_answer)
+    except ValueError:
+        return bool(re.search(rf"\b{re.escape(wrong_answer)}\b", haystack))
+    return numeric_literal_matches_integer(haystack, expected)
 
 
 def _operands_match_pattern(

@@ -42,7 +42,11 @@ from app.orchestration.nodes._helpers import (
     timed_update,
 )
 from app.orchestration.state import OrchestrationGraphState
-from app.orchestration.usage import merge_gateway_usage, record_gateway_role_attempt
+from app.orchestration.usage import (
+    merge_gateway_usage,
+    record_gateway_role_ambiguous,
+    record_gateway_role_attempt,
+)
 
 
 def _diagnostic_service(deps: OrchestrationDependencies) -> DiagnosticIntelligenceService:
@@ -281,11 +285,18 @@ def diagnostic_enrich_node(
             item_id=draft.item_id,
         )
         if extra and "error_code" in extra:
-            gateway_usage = record_gateway_role_attempt(
-                gateway_usage,
-                GenerationNodeRole.DIAGNOSTIC.value,
-                succeeded=False,
-            )
+            error_code = str(extra["error_code"])
+            if error_code == "gateway_call_ambiguous":
+                gateway_usage = record_gateway_role_ambiguous(
+                    gateway_usage,
+                    GenerationNodeRole.DIAGNOSTIC.value,
+                )
+            else:
+                gateway_usage = record_gateway_role_attempt(
+                    gateway_usage,
+                    GenerationNodeRole.DIAGNOSTIC.value,
+                    succeeded=False,
+                )
             failure = pipeline_failure(
                 deps,
                 state,
@@ -367,6 +378,19 @@ def diagnostic_enrich_node(
             }
             for tag in enriched.option_tags
         ]
+        item_level_entry = next(
+            (entry for entry in verdict.items if entry.option_key is None),
+            None,
+        )
+        if item_level_entry is not None:
+            option_traces.append(
+                {
+                    "option_key": None,
+                    "item_level": True,
+                    "validation_status": item_level_entry.status.value,
+                    "issue_codes": list(item_level_entry.issue_codes),
+                }
+            )
         audit_id = persist_diagnostic_item_audit(
             deps,
             state,

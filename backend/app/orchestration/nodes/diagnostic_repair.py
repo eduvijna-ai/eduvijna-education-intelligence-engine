@@ -7,6 +7,7 @@ from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.nodes._helpers import audit_node, next_attempt, timed_update
 from app.orchestration.state import OrchestrationGraphState
+from app.orchestration.usage import record_diagnostic_tag_repair
 
 
 def diagnostic_repair_node(
@@ -32,6 +33,10 @@ def diagnostic_repair_node(
         attempt=attempt,
         payload={"items": item_ids, "tag_only": True},
     )
+    gateway_usage = record_diagnostic_tag_repair(
+        state.get("gateway_usage"),
+        count=len(item_ids),
+    )
     return timed_update(
         state,
         "diagnostic_repair",
@@ -39,6 +44,7 @@ def diagnostic_repair_node(
         {
             "diagnostic_tag_repair_item_ids": item_ids,
             "repair_count_by_item": repair_counts,
+            "gateway_usage": gateway_usage,
             "status": OrchestrationRunStatus.REPAIRING.value,
             "audit_refs": [audit_id],
         },

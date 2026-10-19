@@ -10,28 +10,28 @@ Maps D9-01…D9-36 to code, tests, and evidence. Day 10+ boundaries are guarded 
 | D9-04 | `app/diagnostic_intelligence/taxonomy_registry.py` | `day9_verify` `taxonomy_resolves` |
 | D9-05 | `app/diagnostic_intelligence/contracts.py` | `OptionDiagnosticTag`; orchestration diagnostic payloads |
 | D9-06 | `validators/distinctness.py`, `service.py` | `test_day9_close_acceptance.py`; verifier `coverage_complete_tracks_validator` |
-| D9-07 | `evidence_policy.py`, `validators/evidence_ref.py` | `test_day9_close_acceptance.py`; verifier `source_backed_missing_evidence_rejected` |
-| D9-08 | `integration/day7_diagnostic_context.py`, `enrichment.py`, `nodes/diagnostic.py` | `test_day9_close_acceptance.py`; verifier `diagnostic_bounded_day7_in_gateway` |
+| D9-07 | `evidence_policy.py`, `validators/evidence_ref.py`, `grounding.py` | Close tests; SC-R2 `test_day9_sc_r2_acceptance.py`; verifier `foreign_grounding_preflight_rejected` |
+| D9-08 | `integration/day7_diagnostic_context.py`, `grounding.py`, `contracts.py` | Aggregate evidence budget; verifier `aggregate_evidence_budget_enforced` |
 | D9-09 | `app/diagnostic_intelligence/contracts.py` | `DistractorDiagnosticResult` |
 | D9-10 | `app/diagnostic_intelligence/eligibility.py` | `test_day9_diagnostic.py`, preflight |
 | D9-11 | `app/diagnostic_intelligence/correct_option_guard.py` | `test_day9_adversarial.py`; verifier `correct_option_protected` |
 | D9-12 | `app/diagnostic_intelligence/candidate_resolver.py` | Service candidate resolution; fixtures |
-| D9-13 | `integration/day7_diagnostic_context.py` | Item-authorized evidence filter + bounded snippets on DIAGNOSTIC payload |
+| D9-13 | `integration/day7_diagnostic_context.py`, `grounding.py` | Citation/revision-bound snippets; SC-R2 preflight tests |
 | D9-14 | `app/diagnostic_intelligence/integration/day6_authority.py` | Verifier `day6_authority_survives`; `blocking_day6` scenario |
 | D9-15 | `app/diagnostic_intelligence/prompts/registry.py` | Gateway diagnostic prompt versions |
 | D9-16 | `app/orchestration/nodes/diagnostic.py` | `GenerationNodeRole.DIAGNOSTIC`; `test_day9_orchestration_preflight.py` |
 | D9-17 | `app/diagnostic_intelligence/enrichment.py` | Classification helpers (deterministic validators primary) |
 | D9-18 | `app/diagnostic_intelligence/service.py` | `test_day9_service_integrity.py`, `test_day9_diagnostic.py` |
-| D9-19 | `app/diagnostic_intelligence/validators/signal.py` | `test_day9_r5_acceptance.py`, `test_day9_r6_acceptance.py`; verifier signal checks |
-| D9-20 | `validators/distinctness.py` | Numeric meaning equivalence + validator-aligned `coverage_complete`; close tests |
-| D9-21 | `validators/plausibility.py`, `validators/signal.py` | Arithmetic plausibility + `plausibility_unverified` review path; close tests |
+| D9-19 | `validators/signal.py`, `numeric_tokens.py` | SC-R2 decimal guard; verifier `decimal_wrong_answer_signal_rejected` |
+| D9-20 | `validators/distinctness.py` | Numeric meaning equivalence + `coverage_complete`; close tests |
+| D9-21 | `validators/plausibility.py`, `numeric_tokens.py` | Whole-number plausibility; SC-R2 mixed-severity tests |
 | D9-22 | `app/diagnostic_intelligence/validators/factual.py` | Second-correct / `diagnostic_second_correct` |
 | D9-23 | `app/diagnostic_intelligence/validators/curriculum_scope.py` | `diagnostic_wrong_subject` adversarial |
 | D9-24 | `app/diagnostic_intelligence/validators/evidence_ref.py` | Forged/foreign refs; `test_day9_r4_acceptance.py` |
-| D9-25 | `verdict.py` | Populated `field_paths` / codes / refs; `test_day9_close_acceptance.py` |
+| D9-25 | `verdict.py` | Severity order REVIEW>REPAIR; item-level propagation; SC-R2 verdict tests |
 | D9-26 | `app/orchestration/routing.py`, `nodes/diagnostic.py` | `test_day9_granular_repair.py`, `test_day9_routing.py`; verifier `bounded_repair_works` |
 | D9-27 | `diagnostic_audit.py` | `option_traces` in audit payload; verifier `diagnostic_audit_option_traces` |
-| D9-28 | `usage.py`, `nodes/diagnostic.py` | `model_calls_by_role`, `diagnostic_validator_ms`; verifier `diagnostic_role_usage_accounting` |
+| D9-28 | `usage.py`, `nodes/diagnostic.py`, `nodes/diagnostic_repair.py` | `token_usage_counts_by_role`, `gateway_ambiguous_by_role`, `diagnostic_tag_repair_calls`; SC-R2 usage tests |
 | D9-29 | `app/diagnostic_intelligence/fixtures.py` | `run_positive_fixture_validation`; `day9_verify` clean pass |
 | D9-30 | `tests/test_day9_adversarial.py`, `test_day9_close_acceptance.py` | DIAGNOSTIC-stage gateway failures, malformed output, canonical second-correct |
 | D9-31 | `tests/test_day9_batch.py` | Multi-item batch; sibling preservation |

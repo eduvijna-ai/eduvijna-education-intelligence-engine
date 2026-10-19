@@ -4,6 +4,7 @@ import re
 
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode
+from app.diagnostic_intelligence.numeric_tokens import numeric_literal_matches_integer
 from app.diagnostic_intelligence.validators.signal import (
     arithmetic_operands_from_stem,
     expected_wrong_answer_for_code,
@@ -41,8 +42,8 @@ def validate_plausibility(
             expected = expected_wrong_answer_for_code(
                 tag.misconception_code, operands, taxonomy_version=taxonomy_version
             )
-            if expected is not None and re.search(
-                rf"\b{re.escape(str(expected))}\b", option_text
+            if expected is not None and numeric_literal_matches_integer(
+                option_text, expected
             ):
                 return []
             for code in (
@@ -53,9 +54,7 @@ def validate_plausibility(
                 alt = expected_wrong_answer_for_code(
                     code, operands, taxonomy_version=taxonomy_version
                 )
-                if alt is not None and re.search(
-                    rf"\b{re.escape(str(alt))}\b", option_text
-                ):
+                if alt is not None and numeric_literal_matches_integer(option_text, alt):
                     return []
             if expected is None:
                 return [DiagnosticIssueCode.PLAUSIBILITY_UNVERIFIED.value]

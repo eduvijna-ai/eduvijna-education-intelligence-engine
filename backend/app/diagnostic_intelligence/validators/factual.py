@@ -4,6 +4,7 @@ import re
 
 from app.diagnostic_intelligence.contracts import DiagnosticQuestionItem, OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticIssueCode
+from app.diagnostic_intelligence.numeric_tokens import numeric_literal_equals_correct_sum
 from app.orchestration.contracts import SolverResult
 
 
@@ -26,10 +27,8 @@ def validate_factual_incorrectness(
     pair = _extract_addition(item.stem_text)
     if pair is not None:
         expected = pair[0] + pair[1]
-        digits = re.findall(r"\d+", option_text)
-        for value in digits:
-            if int(value) == expected:
-                return [DiagnosticIssueCode.SECOND_CORRECT_DISTRACTOR.value]
+        if numeric_literal_equals_correct_sum(option_text, expected):
+            return [DiagnosticIssueCode.SECOND_CORRECT_DISTRACTOR.value]
         return []
 
     if solver is not None and solver.proposed_answer_key == tag.option_key:

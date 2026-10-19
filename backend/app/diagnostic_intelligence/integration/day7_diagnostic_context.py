@@ -29,16 +29,14 @@ def filter_pack_for_item_sources(
     return context.model_copy(update={"evidence": evidence, "bounded_text": ""})
 
 
-def diagnostic_grounding_present(request: DiagnosticAuthoringRequest) -> bool:
-    if request.day7_evidence_snippets:
-        return True
-    return bool(request.bounded_day7_context.strip())
-
-
-def aggregate_snippet_char_budget(request: DiagnosticAuthoringRequest) -> int:
-    bounded_len = len(request.bounded_day7_context or "")
-    snippet_len = sum(len(s.snippet) for s in request.day7_evidence_snippets)
-    return bounded_len + snippet_len
+def measure_diagnostic_evidence_payload_chars(request: DiagnosticAuthoringRequest) -> int:
+    total = len(request.bounded_day7_context or "")
+    for snippet in request.day7_evidence_snippets:
+        total += len(snippet.citation_label)
+        total += len(snippet.source_revision_id)
+        total += len(snippet.snippet or "")
+        total += 16
+    return total
 
 
 def build_diagnostic_day7_payload(
@@ -54,14 +52,12 @@ def build_diagnostic_day7_payload(
         body = (item.snippet or "").strip()
         if not body:
             continue
-        if len(body) > MAX_DAY7_SNIPPET_CHARS:
-            body = body[:MAX_DAY7_SNIPPET_CHARS]
-        snippet_budget = min(
-            MAX_DAY7_SNIPPET_CHARS,
-            max_chars - content_used,
-        )
-        if snippet_budget <= 0:
+        index_line = f"{label} (revision {item.source_revision_id})"
+        line_cost = len(index_line) + 1
+        remaining = max_chars - content_used - line_cost
+        if remaining <= 0:
             break
+        snippet_budget = min(MAX_DAY7_SNIPPET_CHARS, remaining)
         if len(body) > snippet_budget:
             body = body[:snippet_budget]
         snippets.append(
@@ -71,8 +67,8 @@ def build_diagnostic_day7_payload(
                 snippet=body,
             )
         )
-        index_lines.append(f"{label} (revision {item.source_revision_id})")
-        content_used += len(body)
+        index_lines.append(index_line)
+        content_used += line_cost + len(body)
         if content_used >= max_chars:
             break
     bounded = "\n".join(index_lines)
