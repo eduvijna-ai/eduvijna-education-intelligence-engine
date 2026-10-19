@@ -55,6 +55,7 @@ def _rev_a_grounded_request(
     item = build_fixture_mcq_item(item_id="sc-r2-ground").model_copy(
         update={"source_revision_ids": [rev_a]}
     )
+    trusted = {s.citation_label: s.source_revision_id for s in snippets}
     return DiagnosticAuthoringRequest(
         item=item,
         subject_code="mathematics",
@@ -62,9 +63,10 @@ def _rev_a_grounded_request(
         topic_codes=["whole-numbers"],
         concept_codes=["addition-whole"],
         allowed_source_revision_ids=[rev_a],
-        allowed_evidence_refs=["[CIT-A]"],
+        allowed_evidence_refs=list(trusted.keys()) or ["[CIT-A]"],
         bounded_day7_context=bounded,
         day7_evidence_snippets=snippets,
+        trusted_citation_revision_map=trusted,
     )
 
 

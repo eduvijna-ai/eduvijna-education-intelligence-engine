@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 if TYPE_CHECKING:
     from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 
@@ -12,6 +14,7 @@ from app.diagnostic_intelligence.contracts import (
     DistractorDiagnosticResult,
 )
 from app.diagnostic_intelligence.enrichment import build_gateway_user_payload
+from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION, DiagnosticValidationStatus
 from app.diagnostic_intelligence.integration.day7_diagnostic_context import (
     build_diagnostic_day7_payload,
     filter_pack_for_item_sources,
@@ -97,6 +100,7 @@ def _build_authoring(
     foreign_revision_id: str | None = None,
     bounded_day7_context: str = "",
     day7_evidence_snippets: list[Day7DiagnosticEvidenceSnippet] | None = None,
+    trusted_citation_revision_map: dict[str, str] | None = None,
 ) -> DiagnosticAuthoringRequest:
     diagnostic_item = draft_to_diagnostic_item(draft)
     if foreign_revision_id:
@@ -128,6 +132,7 @@ def _build_authoring(
         fixture_scenario=request.diagnostic_fixture_scenario(),
         bounded_day7_context=bounded_day7_context,
         day7_evidence_snippets=list(day7_evidence_snippets or []),
+        trusted_citation_revision_map=dict(trusted_citation_revision_map or {}),
     )
 
 
@@ -200,19 +205,63 @@ def diagnostic_enrich_node(
             blocked_revision_ids=blocked_revision_ids,
         )
         bounded_day7_context, day7_snippets = build_diagnostic_day7_payload(item_pack)
-        allowed_revision_ids = [item.source_revision_id for item in item_pack.evidence]
-        allowed_evidence_refs = [item.citation_label for item in item_pack.evidence]
-        authoring = _build_authoring(
-            draft,
-            scope,
-            request,
-            list(lo_ids) if isinstance(lo_ids, list) else [],
-            allowed_revision_ids,
-            allowed_evidence_refs,
-            foreign_revision_id=foreign_revision_id,
-            bounded_day7_context=bounded_day7_context,
-            day7_evidence_snippets=day7_snippets,
-        )
+        trusted_map = {
+            snippet.citation_label: snippet.source_revision_id for snippet in day7_snippets
+        }
+        allowed_evidence_refs = list(trusted_map.keys())
+        allowed_revision_ids = list(dict.fromkeys(trusted_map.values()))
+        try:
+            authoring = _build_authoring(
+                draft,
+                scope,
+                request,
+                list(lo_ids) if isinstance(lo_ids, list) else [],
+                allowed_revision_ids,
+                allowed_evidence_refs,
+                foreign_revision_id=foreign_revision_id,
+                bounded_day7_context=bounded_day7_context,
+                day7_evidence_snippets=day7_snippets,
+                trusted_citation_revision_map=trusted_map,
+            )
+        except ValidationError:
+            tax_version = taxonomy_override or DEFAULT_TAXONOMY_VERSION
+            audit_id = persist_diagnostic_item_audit(
+                deps,
+                state,
+                item_id=draft.item_id,
+                attempt=attempt,
+                status=DiagnosticValidationStatus.REVIEW_REQUIRED.value,
+                taxonomy_version=tax_version,
+                prompt_version=prompt.version,
+                misconception_codes=[],
+                source_revision_ids=list(draft.source_revision_ids),
+                issue_codes=["diagnostic_evidence_budget_exceeded"],
+                scope_metadata={
+                    "subject_code": scope.subject_code,
+                    "grade_year_code": scope.grade_year_code,
+                    "organization_id": scope.organization_id,
+                    "institution_id": scope.institution_id,
+                },
+                repair_transition="authoring_construct_blocked",
+            )
+            audit_refs.append(audit_id)
+            summaries_by_id[draft.item_id] = {
+                "item_id": draft.item_id,
+                "blocking": False,
+                "repairable": False,
+                "review_required": True,
+                "issue_codes": ["diagnostic_evidence_budget_exceeded"],
+            }
+            results_by_id[draft.item_id] = {
+                "item_id": draft.item_id,
+                "question_type": draft.question_type,
+                "option_tags": [],
+                "aggregate_status": DiagnosticValidationStatus.REVIEW_REQUIRED.value,
+                "errors": [],
+                "warnings": ["diagnostic_evidence_budget_exceeded"],
+                "audit_refs": [audit_id],
+            }
+            continue
         authoring = _with_revision_tenant_records(deps, authoring)
         if taxonomy_override:
             authoring = authoring.model_copy(update={"taxonomy_version": taxonomy_override})
@@ -325,7 +374,7 @@ def diagnostic_enrich_node(
                 authoring.item, response.parsed, taxonomy_version=authoring.taxonomy_version
             )
         except DiagnosticOutputValidationError as exc:
-            return pipeline_failure(
+            failure = pipeline_failure(
                 deps,
                 state,
                 "diagnostic_enrich",
@@ -333,6 +382,13 @@ def diagnostic_enrich_node(
                 exc.code,
                 attempt=attempt,
             )
+            failure["gateway_usage"] = gateway_usage
+            failure["generation_call_cache"] = call_cache
+            if extra and extra.get("audit_refs"):
+                failure["audit_refs"] = list(failure.get("audit_refs") or []) + list(
+                    extra["audit_refs"]
+                )
+            return failure
 
         evidence_refs = {ref for tag in option_tags for ref in tag.evidence_refs}
         authoring = _with_revision_tenant_records(

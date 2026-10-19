@@ -358,6 +358,11 @@ class FakeGenerationGateway:
             return {"item_id": item_id, "option_tags": tags}
         if scenario == "diagnostic_malformed_output":
             return {"item_id": item_id, "option_tags": "not-a-list"}
+        if scenario == "diagnostic_duplicate_option_keys":
+            tags = clean_pass_tags()
+            if tags:
+                tags.append(dict(tags[0]))
+            return {"item_id": item_id, "option_tags": tags}
 
         return {"item_id": item_id, "option_tags": clean_pass_tags()}
 

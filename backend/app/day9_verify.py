@@ -170,6 +170,157 @@ def _injection_evidence_proof(orchestration: object, ctx: dict[str, str]) -> boo
     return any("injection_evidence_control" in (d.get("issue_codes") or []) for d in deterministic)
 
 
+def _pack_builder_aggregate_budget_safe() -> bool:
+    from app.diagnostic_intelligence.contracts import DiagnosticAuthoringRequest
+    from app.diagnostic_intelligence.integration.day7_diagnostic_context import (
+        build_diagnostic_day7_payload,
+        measure_diagnostic_evidence_payload_chars,
+    )
+    from app.knowledge_intelligence.contracts import (
+        AppliedKnowledgeScope,
+        KnowledgeContextPack,
+        KnowledgeEvidenceItem,
+    )
+
+    revision = "00000000-0000-0000-0000-000000000036"
+    evidence = [
+        KnowledgeEvidenceItem(
+            source_id=f"src-{index}",
+            source_revision_id=revision,
+            source_revision_checksum=f"chk-{index}",
+            binding_id=f"bind-{index}",
+            trust_tier="approved",
+            authority_label="fixture",
+            title=f"title-{index}",
+            locator=f"loc-{index}",
+            snippet="x" * 512,
+            retrieval_score=1.0,
+            retrieval_rank=index,
+            anythingllm_workspace="ws",
+            anythingllm_document_id=f"doc-{index}",
+            citation_label=f"[CIT-{index}]",
+        )
+        for index in range(1, 9)
+    ]
+    pack = KnowledgeContextPack(
+        query_id="verify-pack-budget",
+        query_text="probe",
+        retrieval_profile_version="ki-retrieval-v1",
+        evidence=evidence,
+        citations=[],
+        scope=AppliedKnowledgeScope(),
+        warnings=[],
+        bounded_text="",
+    )
+    bounded, snippets = build_diagnostic_day7_payload(pack)
+    if not snippets:
+        return False
+    request = DiagnosticAuthoringRequest(
+        item=build_fixture_mcq_item().model_copy(update={"source_revision_ids": [revision]}),
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=[revision],
+        allowed_evidence_refs=[s.citation_label for s in snippets],
+        bounded_day7_context=bounded,
+        day7_evidence_snippets=snippets,
+        trusted_citation_revision_map={
+            s.citation_label: s.source_revision_id for s in snippets
+        },
+    )
+    return measure_diagnostic_evidence_payload_chars(request) <= 4000
+
+
+def _fraction_numeric_signal_rejected(service: DiagnosticIntelligenceService) -> bool:
+    item = build_fixture_mcq_item(item_id="day9-frac-119", wrong_a="11/9")
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=item.source_revision_ids,
+        allowed_evidence_refs=["[CIT-1]"],
+    )
+    tags = build_fixture_tags(item)
+    tags[0].metadata_json["option_text"] = "11/9"
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.status.value != "pass" and "signal_text_mismatch" in verdict.issue_codes
+
+
+def _citation_revision_binding_enforced() -> bool:
+    from app.diagnostic_intelligence.contracts import Day7DiagnosticEvidenceSnippet
+    from app.diagnostic_intelligence.preflight import run_diagnostic_preflight
+
+    rev_a = "00000000-0000-0000-0000-0000000000aa"
+    rev_b = "00000000-0000-0000-0000-0000000000bb"
+    item = build_fixture_mcq_item(item_id="day9-cit-bind").model_copy(
+        update={"source_revision_ids": [rev_a, rev_b]}
+    )
+    request = DiagnosticAuthoringRequest(
+        item=item,
+        subject_code="mathematics",
+        grade_year_code="grade-8",
+        topic_codes=["whole-numbers"],
+        concept_codes=["addition-whole"],
+        allowed_source_revision_ids=[rev_a, rev_b],
+        allowed_evidence_refs=["[CIT-A]", "[CIT-B]"],
+        bounded_day7_context=f"[CIT-B] (revision {rev_b})",
+        day7_evidence_snippets=[
+            Day7DiagnosticEvidenceSnippet(
+                citation_label="[CIT-B]",
+                source_revision_id=rev_a,
+                snippet="wrongly attributed",
+            )
+        ],
+        trusted_citation_revision_map={"[CIT-A]": rev_a, "[CIT-B]": rev_b},
+    )
+    preflight = run_diagnostic_preflight(request)
+    return not preflight.allow_model_call and "forged_evidence_ref" in preflight.issue_codes
+
+
+def _strict_output_failure_preserves_usage() -> bool:
+    import tempfile
+
+    from app.orchestration.enums import OrchestrationRunStatus
+    from app.orchestration.fixtures import (
+        build_day8_test_service,
+        build_diagnostic_orchestration_request,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        engine = create_engine(f"sqlite:///{tmp}/usage-proof.db")
+        enable_sqlite_foreign_keys(engine)
+        Base.metadata.create_all(engine)
+        with Session(engine) as proof_session:
+            ctx, orchestration = build_day8_test_service(proof_session)
+            result = orchestration.run(
+                build_diagnostic_orchestration_request(
+                    ctx,
+                    diagnostic_scenario="diagnostic_duplicate_option_keys",
+                    idempotency_key="day9-verify-dup-keys-usage",
+                    max_repairs=0,
+                )
+            )
+            usage = result.gateway_usage or {}
+            by_role = usage.get("model_calls_by_role") or {}
+            return (
+                result.status == OrchestrationRunStatus.FAILED
+                and int(by_role.get("diagnostic", 0)) >= 1
+            )
+
+
 def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
     item = build_fixture_mcq_item()
     request = DiagnosticAuthoringRequest(
@@ -357,6 +508,10 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "foreign_grounding_preflight_rejected": _foreign_grounding_preflight_rejected(),
         "aggregate_evidence_budget_enforced": _aggregate_evidence_budget_enforced(),
         "decimal_wrong_answer_signal_rejected": _decimal_wrong_answer_signal_rejected(service),
+        "pack_builder_aggregate_budget_safe": _pack_builder_aggregate_budget_safe(),
+        "fraction_numeric_signal_rejected": _fraction_numeric_signal_rejected(service),
+        "citation_revision_binding_enforced": _citation_revision_binding_enforced(),
+        "strict_output_failure_preserves_usage": _strict_output_failure_preserves_usage(),
     }
 
 
@@ -392,6 +547,7 @@ def _foreign_grounding_preflight_rejected() -> bool:
         and (
             "unauthorized_source_revision" in preflight.issue_codes
             or "forged_evidence_ref" in preflight.issue_codes
+            or "untrusted_evidence_binding" in preflight.issue_codes
         )
     )
 

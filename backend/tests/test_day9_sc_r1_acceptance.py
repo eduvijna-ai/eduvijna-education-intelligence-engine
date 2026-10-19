@@ -63,6 +63,9 @@ def _source_backed_request(
                 snippet="approved fixture snippet",
             )
         ],
+        trusted_citation_revision_map={
+            "[CIT-1]": "00000000-0000-0000-0000-000000000099",
+        },
     )
     tags = build_fixture_tags(item)
     if evidence_refs_empty:
@@ -152,6 +155,7 @@ def test_taxonomy_authoritative_revision_must_match() -> None:
                 citation_label="[CIT-B]", source_revision_id=rev_b, snippet="b"
             ),
         ],
+        trusted_citation_revision_map={"[CIT-A]": rev_a, "[CIT-B]": rev_b},
     )
     tags = build_fixture_tags(item)
     tags[0] = tags[0].model_copy(update={"evidence_refs": ["[CIT-B]"]})

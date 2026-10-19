@@ -127,6 +127,7 @@ class DiagnosticAuthoringRequest(BaseModel):
     fixture_scenario: str = "diagnostic_clean_pass"
     bounded_day7_context: str = Field(default="", max_length=MAX_DIAGNOSTIC_BOUNDED_CHARS)
     day7_evidence_snippets: list[Day7DiagnosticEvidenceSnippet] = Field(default_factory=list)
+    trusted_citation_revision_map: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _aggregate_evidence_budget(self) -> DiagnosticAuthoringRequest:

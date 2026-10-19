@@ -11,7 +11,7 @@ Maps D9-01…D9-36 to code, tests, and evidence. Day 10+ boundaries are guarded 
 | D9-05 | `app/diagnostic_intelligence/contracts.py` | `OptionDiagnosticTag`; orchestration diagnostic payloads |
 | D9-06 | `validators/distinctness.py`, `service.py` | `test_day9_close_acceptance.py`; verifier `coverage_complete_tracks_validator` |
 | D9-07 | `evidence_policy.py`, `validators/evidence_ref.py`, `grounding.py` | Close tests; SC-R2 `test_day9_sc_r2_acceptance.py`; verifier `foreign_grounding_preflight_rejected` |
-| D9-08 | `integration/day7_diagnostic_context.py`, `grounding.py`, `contracts.py` | Aggregate evidence budget; verifier `aggregate_evidence_budget_enforced` |
+| D9-08 | `integration/day7_diagnostic_context.py`, `grounding.py`, `contracts.py` | Shared `measure_composed_evidence_chars`; SC-R3 pack builder; verifier `pack_builder_aggregate_budget_safe` |
 | D9-09 | `app/diagnostic_intelligence/contracts.py` | `DistractorDiagnosticResult` |
 | D9-10 | `app/diagnostic_intelligence/eligibility.py` | `test_day9_diagnostic.py`, preflight |
 | D9-11 | `app/diagnostic_intelligence/correct_option_guard.py` | `test_day9_adversarial.py`; verifier `correct_option_protected` |

@@ -12,10 +12,14 @@ from app.diagnostic_intelligence.taxonomy_registry import resolve_misconception
 
 
 def _citation_revision_map(request: DiagnosticAuthoringRequest) -> dict[str, str]:
-    return {
-        snippet.citation_label: snippet.source_revision_id
-        for snippet in request.day7_evidence_snippets
-    }
+    if request.trusted_citation_revision_map:
+        return dict(request.trusted_citation_revision_map)
+    if not [s for s in request.item.source_revision_ids if str(s).strip()]:
+        return {
+            snippet.citation_label: snippet.source_revision_id
+            for snippet in request.day7_evidence_snippets
+        }
+    return {}
 
 
 def _ref_to_revision_id(request: DiagnosticAuthoringRequest, ref: str) -> str | None:
@@ -46,6 +50,9 @@ def validate_evidence_refs(
             revision_id = _ref_to_revision_id(request, ref)
             if revision_id:
                 resolved_revisions.append(revision_id)
+            elif request.trusted_citation_revision_map:
+                issues.append(DiagnosticIssueCode.FORGED_EVIDENCE_REF.value)
+                continue
             continue
         revision_id = normalize_revision_ref(ref)
         if revision_id in allowed_revisions or ref in allowed_revisions:

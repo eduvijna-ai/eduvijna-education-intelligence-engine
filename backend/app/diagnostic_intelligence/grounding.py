@@ -1,4 +1,4 @@
-"""Day-7 diagnostic grounding checks for preflight (D9-08 / SC-R1/R2)."""
+"""Day-7 diagnostic grounding checks for preflight (D9-08 / SC-R1/R2/R3)."""
 
 from __future__ import annotations
 
@@ -11,16 +11,21 @@ from app.diagnostic_intelligence.integration.day7_diagnostic_context import (
 )
 
 
+def _canonical_sources(request: DiagnosticAuthoringRequest) -> list[str]:
+    return [s for s in request.item.source_revision_ids if str(s).strip()]
+
+
 def validate_diagnostic_grounding(request: DiagnosticAuthoringRequest) -> list[str]:
     issues: list[str] = []
     if measure_diagnostic_evidence_payload_chars(request) > MAX_DIAGNOSTIC_AGGREGATE_CHARS:
         issues.append("diagnostic_evidence_budget_exceeded")
 
-    canonical_sources = [s for s in request.item.source_revision_ids if str(s).strip()]
+    canonical_sources = _canonical_sources(request)
     allowed = [s for s in request.allowed_source_revision_ids if str(s).strip()]
     allowed_refs = {r for r in request.allowed_evidence_refs if str(r).strip()}
     canonical_set = set(canonical_sources)
     allowed_set = set(allowed)
+    trusted = dict(request.trusted_citation_revision_map)
 
     if canonical_sources and not allowed:
         issues.append("source_authorization_unresolved")
@@ -28,6 +33,13 @@ def validate_diagnostic_grounding(request: DiagnosticAuthoringRequest) -> list[s
 
     if canonical_sources and not canonical_set.issubset(allowed_set):
         issues.append("unauthorized_source_revision")
+
+    if canonical_sources and not trusted:
+        nonempty_snippets = any(
+            (snippet.snippet or "").strip() for snippet in request.day7_evidence_snippets
+        )
+        if nonempty_snippets:
+            issues.append("untrusted_evidence_binding")
 
     valid_snippets: list[str] = []
     for snippet in request.day7_evidence_snippets:
@@ -43,6 +55,11 @@ def validate_diagnostic_grounding(request: DiagnosticAuthoringRequest) -> list[s
         if snippet.citation_label not in allowed_refs:
             issues.append("forged_evidence_ref")
             continue
+        if trusted:
+            bound_revision = trusted.get(snippet.citation_label)
+            if bound_revision is None or bound_revision != snippet.source_revision_id:
+                issues.append("forged_evidence_ref")
+                continue
         valid_snippets.append(snippet.citation_label)
 
     bounded = (request.bounded_day7_context or "").strip()

@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import re
 
-_NUMERIC_LITERAL = re.compile(r"(?<![\d.])-?\d+(?:\.\d+)?(?![\d.])")
+# Standalone numeric literals only; reject fraction/scientific tails (11/9, 11e2).
+_NUMERIC_LITERAL = re.compile(r"(?<![\d./eE])-?(\d+)(?:\.(\d+))?(?![\d.eE/])")
 
 
 def iter_numeric_literals(text: str) -> list[str]:
-    return [match.group(0) for match in _NUMERIC_LITERAL.finditer(text)]
+    tokens: list[str] = []
+    for match in _NUMERIC_LITERAL.finditer(text):
+        fractional = match.group(2)
+        if fractional is not None and fractional != "" and int(fractional) != 0:
+            continue
+        tokens.append(match.group(0))
+    return tokens
 
 
 def numeric_literal_matches_integer(text: str, expected: int) -> bool:
@@ -21,10 +28,6 @@ def numeric_literal_matches_integer(text: str, expected: int) -> bool:
             continue
         if abs(value - target) > 1e-9:
             continue
-        if "." in token.lstrip("-"):
-            fractional = token.lstrip("-").split(".", 1)[1]
-            if fractional and int(fractional) != 0:
-                continue
         return True
     return False
 
