@@ -8,22 +8,25 @@ from app.diagnostic_intelligence.fixtures import (
     build_fixture_mcq_item,
     build_fixture_result,
     build_fixture_tags,
+    with_fixture_day7_evidence,
 )
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 
 
 def _request() -> DiagnosticAuthoringRequest:
     item = build_fixture_mcq_item(item_id="integrity-1")
-    return DiagnosticAuthoringRequest(
-        item=item,
-        subject_code="mathematics",
-        grade_year_code="grade-8",
-        topic_codes=["whole-numbers"],
-        concept_codes=["addition-whole"],
-        learning_outcome_ids=["lo-fixture-1"],
-        competency_codes=["application"],
-        allowed_evidence_refs=["[CIT-1]"],
-        allowed_source_revision_ids=item.source_revision_ids,
+    return with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            learning_outcome_ids=["lo-fixture-1"],
+            competency_codes=["application"],
+            allowed_evidence_refs=["[CIT-1]"],
+            allowed_source_revision_ids=item.source_revision_ids,
+        )
     )
 
 

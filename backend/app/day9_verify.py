@@ -28,6 +28,7 @@ from app.diagnostic_intelligence.fixtures import (
     build_fixture_mcq_item,
     build_fixture_tags,
     run_positive_fixture_validation,
+    with_fixture_day7_evidence,
 )
 from app.diagnostic_intelligence.scope_guard import verify_day9_scope_guard
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
@@ -356,16 +357,85 @@ def _multi_source_truncation_not_unauthorized() -> bool:
     )
 
 
-def _expression_ambiguity_blocks_pass(service: DiagnosticIntelligenceService) -> bool:
-    item = build_fixture_mcq_item(item_id="day9-expr-7plus5", wrong_a="7+5")
+def _empty_trusted_map_citation_rejected(service: DiagnosticIntelligenceService) -> bool:
+    rev_a = "00000000-0000-0000-0000-0000000000aa"
+    item = build_fixture_mcq_item(item_id="day9-empty-trusted-map").model_copy(
+        update={"source_revision_ids": [rev_a]}
+    )
     request = DiagnosticAuthoringRequest(
         item=item,
         subject_code="mathematics",
         grade_year_code="grade-8",
         topic_codes=["whole-numbers"],
         concept_codes=["addition-whole"],
-        allowed_source_revision_ids=item.source_revision_ids,
+        allowed_source_revision_ids=[rev_a],
         allowed_evidence_refs=["[CIT-1]"],
+        trusted_citation_revision_map={},
+        day7_evidence_snippets=[],
+    )
+    tags = build_fixture_tags(item)
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.blocking and "unbound_diagnostic_evidence" in verdict.issue_codes
+
+
+def _multiplication_expression_blocks_pass(service: DiagnosticIntelligenceService) -> bool:
+    from app.diagnostic_intelligence.numeric_tokens import numeric_literal_matches_integer
+
+    if numeric_literal_matches_integer("11 * 2", 11):
+        return False
+    item = build_fixture_mcq_item(item_id="day9-expr-mul", wrong_a="11 * 2")
+    request = with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            allowed_source_revision_ids=item.source_revision_ids,
+            allowed_evidence_refs=["[CIT-1]"],
+        )
+    )
+    tags = build_fixture_tags(item)
+    tags[0].metadata_json["option_text"] = "11 * 2"
+    verdict = service.validate_result(
+        request,
+        DistractorDiagnosticResult(
+            item_id=item.item_id,
+            question_type=item.question_type,
+            option_tags=tags,
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            source_revision_ids=item.source_revision_ids,
+        ),
+        candidate_codes={c.misconception_code for c in resolve_misconception_candidates(request)},
+    )
+    return verdict.status.value != "pass" and (
+        "signal_text_mismatch" in verdict.issue_codes
+        or "plausibility_unverified" in verdict.issue_codes
+    )
+
+
+def _expression_ambiguity_blocks_pass(service: DiagnosticIntelligenceService) -> bool:
+    item = build_fixture_mcq_item(item_id="day9-expr-7plus5", wrong_a="7+5")
+    request = with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            allowed_source_revision_ids=item.source_revision_ids,
+            allowed_evidence_refs=["[CIT-1]"],
+        )
     )
     tags = build_fixture_tags(item)
     tags[0] = tags[0].model_copy(
@@ -653,6 +723,8 @@ def _service_proofs(service: DiagnosticIntelligenceService) -> dict[str, bool]:
         "strict_output_failure_preserves_usage": _strict_output_failure_preserves_usage(),
         "multi_source_truncation_not_unauthorized": _multi_source_truncation_not_unauthorized(),
         "unbound_citation_evidence_rejected": _unbound_citation_evidence_rejected(service),
+        "empty_trusted_map_citation_rejected": _empty_trusted_map_citation_rejected(service),
+        "multiplication_expression_blocks_pass": _multiplication_expression_blocks_pass(service),
         "expression_ambiguity_blocks_pass": _expression_ambiguity_blocks_pass(service),
     }
 

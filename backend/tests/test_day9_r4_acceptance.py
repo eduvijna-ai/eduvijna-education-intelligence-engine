@@ -14,7 +14,11 @@ from app.diagnostic_intelligence.contracts import (
     OptionDiagnosticTag,
 )
 from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
-from app.diagnostic_intelligence.fixtures import build_fixture_mcq_item, build_fixture_tags
+from app.diagnostic_intelligence.fixtures import (
+    build_fixture_mcq_item,
+    build_fixture_tags,
+    with_fixture_day7_evidence,
+)
 from app.diagnostic_intelligence.integration.revision_tenancy import load_revision_tenant_records
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.diagnostic_intelligence.validators.signal import validate_signal_alignment
@@ -228,17 +232,19 @@ def test_tenant_isolation_without_blocked_metadata_list() -> None:
     allowed_item = build_fixture_mcq_item().model_copy(
         update={"source_revision_ids": [ctx["official_revision_id"]]}
     )
-    allowed_request = DiagnosticAuthoringRequest(
-        item=allowed_item,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-        subject_code="mathematics",
-        grade_year_code="grade-8",
-        topic_codes=["whole-numbers"],
-        concept_codes=["addition-whole"],
-        allowed_source_revision_ids=[ctx["official_revision_id"]],
-        allowed_evidence_refs=["[CIT-1]"],
-        revision_tenant_records=records,
+    allowed_request = with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=allowed_item,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            allowed_source_revision_ids=[ctx["official_revision_id"]],
+            allowed_evidence_refs=["[CIT-1]"],
+            revision_tenant_records=records,
+        )
     )
     tags = build_fixture_tags(allowed_item)
     diag_service = DiagnosticIntelligenceService()

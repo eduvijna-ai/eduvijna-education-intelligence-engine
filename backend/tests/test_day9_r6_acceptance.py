@@ -14,6 +14,7 @@ from app.diagnostic_intelligence.fixtures import (
     build_fixture_mcq_item,
     build_fixture_result,
     build_fixture_tags,
+    with_fixture_day7_evidence,
 )
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
@@ -32,16 +33,18 @@ def _session() -> Session:
 
 def _stem_item(stem: str, item_id: str = "arith-1") -> DiagnosticAuthoringRequest:
     item = build_fixture_mcq_item(item_id=item_id).model_copy(update={"stem_text": stem})
-    return DiagnosticAuthoringRequest(
-        item=item,
-        subject_code="mathematics",
-        grade_year_code="grade-8",
-        topic_codes=["whole-numbers"],
-        concept_codes=["addition-whole"],
-        competency_codes=["application"],
-        learning_outcome_ids=["lo-fixture-1"],
-        allowed_source_revision_ids=item.source_revision_ids,
-        allowed_evidence_refs=["[CIT-1]"],
+    return with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            competency_codes=["application"],
+            learning_outcome_ids=["lo-fixture-1"],
+            allowed_source_revision_ids=item.source_revision_ids,
+            allowed_evidence_refs=["[CIT-1]"],
+        )
     )
 
 

@@ -16,6 +16,7 @@ from app.diagnostic_intelligence.fixtures import (
     build_fixture_mcq_item,
     build_fixture_result,
     build_fixture_tags,
+    with_fixture_day7_evidence,
 )
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
 from app.diagnostic_intelligence.validators.signal import validate_signal_alignment
@@ -116,14 +117,16 @@ def test_signal_misleading_decorator_words_fail_arithmetic() -> None:
 def test_result_source_provenance_fail_closed() -> None:
     service = DiagnosticIntelligenceService()
     item = build_fixture_mcq_item(item_id="prov-r5")
-    request = DiagnosticAuthoringRequest(
-        item=item,
-        subject_code="mathematics",
-        grade_year_code="grade-8",
-        topic_codes=["whole-numbers"],
-        concept_codes=["addition-whole"],
-        allowed_source_revision_ids=item.source_revision_ids,
-        allowed_evidence_refs=["[CIT-1]"],
+    request = with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            allowed_source_revision_ids=item.source_revision_ids,
+            allowed_evidence_refs=["[CIT-1]"],
+        )
     )
     tags = build_fixture_tags(item)
     codes = {"MATH.ADD.WHOLE.OFF_BY_ONE_LOW", "MATH.ADD.WHOLE.SUM_AS_NEXT"}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.diagnostic_intelligence.candidate_resolver import resolve_misconception_candidates
 from app.diagnostic_intelligence.contracts import (
+    Day7DiagnosticEvidenceSnippet,
     DiagnosticAuthoringRequest,
     DiagnosticQuestionItem,
     DiagnosticQuestionOption,
@@ -63,6 +64,35 @@ def build_fixture_tags(item: DiagnosticQuestionItem) -> list[OptionDiagnosticTag
     return tags
 
 
+def fixture_day7_evidence_for_item(
+    item: DiagnosticQuestionItem,
+    *,
+    citation_label: str = "[CIT-1]",
+) -> dict[str, object]:
+    """Visible Day-7 bindings for source-backed positive fixture validation."""
+    if not item.source_revision_ids:
+        return {}
+    revision_id = item.source_revision_ids[0]
+    snippet = Day7DiagnosticEvidenceSnippet(
+        citation_label=citation_label,
+        source_revision_id=revision_id,
+        snippet="Synthetic fixture evidence for diagnostic validation.",
+    )
+    bounded = f"{citation_label} (revision {revision_id})\n{snippet.snippet}"
+    return {
+        "day7_evidence_snippets": [snippet],
+        "trusted_citation_revision_map": {citation_label: revision_id},
+        "bounded_day7_context": bounded,
+    }
+
+
+def with_fixture_day7_evidence(request: DiagnosticAuthoringRequest) -> DiagnosticAuthoringRequest:
+    bindings = fixture_day7_evidence_for_item(request.item)
+    if not bindings:
+        return request
+    return request.model_copy(update=bindings)
+
+
 def build_fixture_result(
     item: DiagnosticQuestionItem,
     option_tags: list[OptionDiagnosticTag],
@@ -84,16 +114,18 @@ def run_positive_fixture_validation(
     allowed_refs: list[str] | None = None,
 ) -> DiagnosticAuthoringRequest:
     item = build_fixture_mcq_item()
-    request = DiagnosticAuthoringRequest(
-        item=item,
-        subject_code="mathematics",
-        grade_year_code="grade-8",
-        topic_codes=["whole-numbers"],
-        concept_codes=["addition-whole"],
-        learning_outcome_ids=["lo-fixture-1"],
-        competency_codes=["application"],
-        allowed_source_revision_ids=item.source_revision_ids,
-        allowed_evidence_refs=allowed_refs or ["[CIT-1]"],
+    request = with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            learning_outcome_ids=["lo-fixture-1"],
+            competency_codes=["application"],
+            allowed_source_revision_ids=item.source_revision_ids,
+            allowed_evidence_refs=allowed_refs or ["[CIT-1]"],
+        )
     )
     result = DistractorDiagnosticResult(
         item_id=item.item_id,

@@ -7,7 +7,12 @@ import re
 # Standalone numeric literals only; reject fraction/scientific tails (11/9, 11e2).
 _NUMERIC_LITERAL = re.compile(r"(?<![\d./eE])-?(\d+)(?:\.(\d+))?(?![\d.eE/])")
 _UNSUPPORTED_EXPRESSION = re.compile(
-    r"\d\s*[/^]\s*\d|\d\s*[eE]\s*[+\-]?\s*\d|\d\s*\+\s*\d|\d\s*-\s*\d"
+    r"\d\s*[/^%*×÷:]\s*\d"
+    r"|\d\s*[eE]\s*[+\-]?\s*\d"
+    r"|\d\s*\+\s*\d"
+    r"|\d\s*-\s*\d"
+    r"|\d\s*\b[xX]\b\s*\d"
+    r"|\(\s*\d"
 )
 _SIMPLE_ADDITION = re.compile(r"^\s*(\d+)\s*\+\s*(\d+)\s*$")
 

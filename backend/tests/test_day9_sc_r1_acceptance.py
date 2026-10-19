@@ -23,6 +23,7 @@ from app.diagnostic_intelligence.fixtures import (
     build_fixture_mcq_item,
     build_fixture_result,
     build_fixture_tags,
+    with_fixture_day7_evidence,
 )
 from app.diagnostic_intelligence.preflight import run_diagnostic_preflight
 from app.diagnostic_intelligence.service import DiagnosticIntelligenceService
@@ -196,14 +197,16 @@ def test_taxonomy_authoritative_revision_must_match() -> None:
 def test_redundant_item_marks_wrong_options_not_all_pass() -> None:
     service = DiagnosticIntelligenceService()
     item = build_fixture_mcq_item(item_id="redundant-verdict", wrong_a="11", wrong_b="11.0")
-    request = DiagnosticAuthoringRequest(
-        item=item,
-        subject_code="mathematics",
-        grade_year_code="grade-8",
-        topic_codes=["whole-numbers"],
-        concept_codes=["addition-whole"],
-        allowed_source_revision_ids=item.source_revision_ids,
-        allowed_evidence_refs=["[CIT-1]"],
+    request = with_fixture_day7_evidence(
+        DiagnosticAuthoringRequest(
+            item=item,
+            subject_code="mathematics",
+            grade_year_code="grade-8",
+            topic_codes=["whole-numbers"],
+            concept_codes=["addition-whole"],
+            allowed_source_revision_ids=item.source_revision_ids,
+            allowed_evidence_refs=["[CIT-1]"],
+        )
     )
     tags = build_fixture_tags(item)
     tags[0].metadata_json["option_text"] = "11"
