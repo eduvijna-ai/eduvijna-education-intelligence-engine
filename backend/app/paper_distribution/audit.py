@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.models.education_intelligence import ValidationAuditRun
 from app.paper_distribution.contracts import PaperDistributionRequest, PaperDistributionResult
 
 PAPER_POLICY_VERSION = "paper-distribution@v1"
+PAPER_AUDIT_KIND = "paper_distribution"
 
 
 def persist_paper_distribution_audit(
@@ -18,19 +19,32 @@ def persist_paper_distribution_audit(
     if not fingerprint:
         raise ValueError("result_fingerprint required for paper audit persistence")
 
-    existing = session.scalar(
-        select(ValidationAuditRun).where(ValidationAuditRun.input_hash == fingerprint)
-    )
-    if existing is not None:
-        return str(existing.id)
+    institution_id = (request.metadata_json or {}).get("institution_id")
+    actor_id = (request.metadata_json or {}).get("actor_id")
+    policy_version = request.target_policy_version or PAPER_POLICY_VERSION
+
+    candidates = session.scalars(
+        select(ValidationAuditRun).where(
+            and_(
+                ValidationAuditRun.input_hash == fingerprint,
+                ValidationAuditRun.policy_version == policy_version,
+                ValidationAuditRun.institution_id == institution_id,
+            )
+        )
+    ).all()
+    for candidate in candidates:
+        if (candidate.metadata_json or {}).get("kind") == PAPER_AUDIT_KIND:
+            return str(candidate.id)
 
     record = ValidationAuditRun(
         run_id=f"paper-dist-{fingerprint[:40]}",
         input_hash=fingerprint,
         taxonomy_version=request.taxonomy_version,
-        policy_version=PAPER_POLICY_VERSION,
+        policy_version=policy_version,
         aggregate_status=result.verdict.value,
         blocking_failure=result.verdict.value == "fail",
+        institution_id=institution_id,
+        actor_id=actor_id,
         results_json=[
             {
                 "paper_id": result.paper_id,
@@ -40,10 +54,11 @@ def persist_paper_distribution_audit(
             }
         ],
         metadata_json={
-            "kind": "paper_distribution",
+            "kind": PAPER_AUDIT_KIND,
             "paper_id": request.paper_id,
             "requested_count": request.requested_count,
             "result_fingerprint": fingerprint,
+            "target_policy_version": request.target_policy_version,
         },
     )
     session.add(record)

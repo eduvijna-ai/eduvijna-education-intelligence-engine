@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
+from app.common.trust_execution import TrustExecutionMode
 from app.education_intelligence.taxonomy_registry import (
     COGNITIVE_PROGRESSION_ORDER,
     V1_TAXONOMY_VERSION,
@@ -25,6 +26,7 @@ from app.paper_distribution.enums import (
     PaperDistributionIssueCode,
     PaperDistributionVerdict,
 )
+from app.paper_distribution.trust_verify import verify_paper_day6_trust, verify_target_policy
 from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 
@@ -117,6 +119,8 @@ def evaluate_paper_distribution(
     *,
     taxonomy: TaxonomyRegistry | None = None,
     day6_trust: PaperDay6TrustContext | None = None,
+    execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
+    data_session: Session | None = None,
 ) -> PaperDistributionResult:
     taxonomy = taxonomy or TaxonomyRegistry()
     issues: list[PaperDistributionIssueCode] = []
@@ -125,6 +129,18 @@ def evaluate_paper_distribution(
     if request.taxonomy_version != V1_TAXONOMY_VERSION:
         issues.append(PaperDistributionIssueCode.UNSUPPORTED_TAXONOMY)
         field_paths.append("taxonomy_version")
+
+    trust_issues, trust_paths = verify_paper_day6_trust(
+        data_session, request, day6_trust, execution_mode=execution_mode
+    )
+    issues.extend(trust_issues)
+    field_paths.extend(trust_paths)
+
+    policy_issues, policy_paths = verify_target_policy(
+        data_session, request, execution_mode=execution_mode
+    )
+    issues.extend(policy_issues)
+    field_paths.extend(policy_paths)
 
     for index, target in enumerate(request.cognitive_targets):
         if target.dimension != "cognitive":
@@ -177,14 +193,7 @@ def evaluate_paper_distribution(
             items_missing_metadata.append(item.item_id)
             continue
 
-        if day6_trust is None:
-            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
-            field_paths.append(f"{base_path}/day6_validated")
-            items_missing_metadata.append(item.item_id)
-            continue
-        if day6_trust.trust_source == "validation_run" and not day6_trust.validation_run_id:
-            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
-            field_paths.append("day6_trust.validation_run_id")
+        if trust_issues:
             items_missing_metadata.append(item.item_id)
             continue
 
@@ -423,9 +432,16 @@ def evaluate_paper_distribution_with_session(
     request: PaperDistributionRequest,
     *,
     day6_trust: PaperDay6TrustContext | None = None,
+    execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
 ) -> PaperDistributionResult:
     taxonomy = seed_taxonomy_registry(session)
-    result = evaluate_paper_distribution(request, taxonomy=taxonomy, day6_trust=day6_trust)
+    result = evaluate_paper_distribution(
+        request,
+        taxonomy=taxonomy,
+        day6_trust=day6_trust,
+        execution_mode=execution_mode,
+        data_session=session,
+    )
     audit_ref = persist_paper_distribution_audit(session, request, result)
-    session.commit()
+    session.flush()
     return result.model_copy(update={"audit_ref": audit_ref})

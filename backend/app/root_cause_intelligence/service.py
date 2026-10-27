@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
+from app.common.trust_execution import TrustExecutionMode
 from app.prerequisite_intelligence.audit import build_graph_quality_report
 from app.prerequisite_intelligence.contracts import GraphTraversalLimits
 from app.prerequisite_intelligence.enums import (
@@ -17,6 +20,10 @@ from app.root_cause_intelligence.enums import (
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.preflight import run_root_cause_preflight
 from app.root_cause_intelligence.ranking import rank_root_cause_hypotheses
+from app.root_cause_intelligence.trust_verify import (
+    validate_graph_snapshot_attestation,
+    verify_root_cause_trusted_context,
+)
 from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
 
 
@@ -26,6 +33,8 @@ class RootCauseIntelligenceService:
         request: RootCauseDiagnosticRequest,
         *,
         trusted: RootCauseTrustedValidationContext | None = None,
+        execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
+        control_session: Session | None = None,
     ) -> RootCauseResult:
         preflight = run_root_cause_preflight(request, trusted=trusted)
         mapping = load_root_cause_mapping(DEFAULT_ROOT_CAUSE_MAPPING_VERSION)
@@ -56,11 +65,35 @@ class RootCauseIntelligenceService:
                 audit_ref=audit_ref,
             )
 
-        if preflight.blocking:
+        if trusted is not None:
+            trust_issues, trust_paths = verify_root_cause_trusted_context(
+                trusted,
+                request,
+                execution_mode=execution_mode,
+                control_session=control_session,
+            )
+            issue_codes.extend(trust_issues)
+            field_paths.extend(trust_paths)
+
+        scope_issues, scope_paths, scope_blocking = validate_graph_snapshot_attestation(request)
+        issue_codes.extend(scope_issues)
+        field_paths.extend(scope_paths)
+
+        trust_blocking = any(
+            code
+            in {
+                RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION,
+                RootCauseIssueCode.DAY9_TAG_REJECTED,
+            }
+            for code in issue_codes
+        )
+        if preflight.blocking or scope_blocking or trust_blocking:
             status = RootCauseVerdictStatus.FAIL
             if RootCauseIssueCode.CORRECT_OPTION_TAGGED in issue_codes:
                 status = RootCauseVerdictStatus.REVIEW_REQUIRED
             elif RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION in issue_codes:
+                status = RootCauseVerdictStatus.REVIEW_REQUIRED
+            elif RootCauseIssueCode.DAY9_TAG_REJECTED in issue_codes:
                 status = RootCauseVerdictStatus.REVIEW_REQUIRED
             return RootCauseResult(
                 item_id=request.item_id,
@@ -73,6 +106,7 @@ class RootCauseIntelligenceService:
                 graph_snapshot_id=request.graph_snapshot.snapshot_id,
                 graph_checksum=request.graph_snapshot.checksum,
                 audit_ref=audit_ref,
+                hypotheses=[],
             )
 
         allowed = set(request.allowed_source_revision_ids or [])
@@ -106,12 +140,39 @@ class RootCauseIntelligenceService:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
             field_paths.append("graph_snapshot.loader_issues")
 
-        if graph_report.status == GraphAuditStatus.FAIL:
+        graph_blocking = (
+            graph_report.status == GraphAuditStatus.FAIL
+            or RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF in issue_codes
+            or (has_official and not allowed)
+        )
+        if graph_blocking:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
             field_paths.append("graph_snapshot")
         elif graph_report.status == GraphAuditStatus.REVIEW_REQUIRED:
             issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
             field_paths.append("graph_snapshot")
+
+        if graph_blocking:
+            verdict = RootCauseVerdictStatus.FAIL
+            if RootCauseIssueCode.CONFLICTING_EVIDENCE in issue_codes:
+                verdict = RootCauseVerdictStatus.REVIEW_REQUIRED
+            return RootCauseResult(
+                item_id=request.item_id,
+                option_key=request.option_key,
+                misconception_code=request.misconception_code,
+                verdict_status=verdict,
+                issue_codes=issue_codes,
+                field_paths=field_paths,
+                hypotheses=[],
+                mapping_version=mapping.version,
+                graph_snapshot_id=request.graph_snapshot.snapshot_id,
+                graph_checksum=request.graph_snapshot.checksum,
+                audit_ref=audit_ref,
+                metadata_json={
+                    "graph_audit_status": graph_report.status.value,
+                    "audit_fingerprint": audit_ref,
+                },
+            )
 
         hypotheses, traversal_issues = rank_root_cause_hypotheses(
             request.graph_snapshot,

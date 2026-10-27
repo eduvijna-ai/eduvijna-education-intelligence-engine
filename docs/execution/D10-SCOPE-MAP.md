@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R4 FOCUSED REPAIR** (Chief Architect handoff R4). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R5 FOCUSED REPAIR** (Chief Architect handoff R5). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R4 deltas (vs `be3ea95`):** internal `RootCauseTrustedValidationContext` / `PaperDay6TrustContext` (removed self-asserted request booleans); per-item Day7∩draft source allowlists + `root_cause_item` audits; curriculum MEDIUM/grade ancestry in loader; paper `requested_count`, orphan-primary guard, session audit via `ei_validation_audit_runs`; medium-scope graph tests + trust orchestration tests. D10-22/32/33/36 still PARTIAL/PENDING (no full LangGraph replay matrix / D10-36).
+**R5 deltas (vs `ccb5fe4`):** `TrustExecutionMode` + DB-backed `trust_verify` for Day9 `diagnostic_item` audits and Day6 `ValidationAuditRun`; synthetic harness gated off in production; loader attestation + non-official revision tenancy; no hypothesis paths on blocking graph/trust failures; option-level citation∩source binding; paper audit tenant-scoped idempotency + `target_policy_version`. D10-22/32/33/36 still PARTIAL/PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

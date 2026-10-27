@@ -53,17 +53,28 @@ def _resolve_scope_from_ancestry(node: CurriculumNode) -> dict[str, Any]:
     if meta.get("subject_code") and subject_code and meta.get("subject_code") != subject_code:
         conflicts.append("subject_code")
 
+    is_fixture = False
+    if node.curriculum_version is not None:
+        is_fixture = bool((node.curriculum_version.metadata_json or {}).get("fixture"))
+    metadata_only = bool(
+        not is_fixture
+        and (
+            (not medium_code and meta.get("medium_code"))
+            or (not grade_year_code and meta.get("grade_year_code"))
+        )
+    )
     return {
         "grade_year_code": grade_year_code or meta.get("grade_year_code"),
         "subject_code": subject_code or meta.get("subject_code"),
         "medium_code": medium_code if medium_code else meta.get("medium_code"),
         "scope_conflicts": conflicts,
+        "scope_metadata_only": metadata_only,
     }
 
 
 def _node_scope_metadata(node: CurriculumNode) -> dict[str, Any]:
     resolved = _resolve_scope_from_ancestry(node)
-    if resolved.get("scope_conflicts"):
+    if resolved.get("scope_conflicts") or resolved.get("scope_metadata_only"):
         return {**resolved, "excluded": True}
     return resolved
 
@@ -151,6 +162,22 @@ def _classify_edge_provenance(
         return EdgeProvenanceClass.SYNTHETIC, revision_id, locator, issues, True
 
     provenance = EdgeProvenanceClass(raw_claim)
+    if revision_id:
+        record = authority.revisions.get(str(revision_id))
+        if record is None:
+            record = load_revision_record(session, str(revision_id))
+        if record is None or not revision_is_authorized_for_scope(
+            record, scope, authority.curriculum_version_id
+        ):
+            issues.append(
+                GraphIssue(
+                    code=GraphIssueCode.UNAUTHORIZED_PROVENANCE,
+                    severity="error",
+                    field_path=f"edges/{edge_id}/source_revision_id",
+                    detail={"edge_id": edge_id, "source_revision_id": revision_id},
+                )
+            )
+            return provenance, str(revision_id), locator, issues, False
     return provenance, revision_id, locator, issues, True
 
 
@@ -284,5 +311,15 @@ def load_prerequisite_graph_snapshot(
             "loader_issues": [issue.model_dump(mode="json") for issue in loader_issues],
             "synthetic_fixture": bool((version.metadata_json or {}).get("fixture")),
             "fixture": bool((version.metadata_json or {}).get("fixture")),
+            "loader_attested": True,
+            "loader_scope": {
+                "curriculum_version_id": scope.curriculum_version_id,
+                "organization_id": scope.organization_id,
+                "institution_id": scope.institution_id,
+                "teacher_id": scope.teacher_id,
+                "medium_code": scope.medium_code,
+                "subject_code": scope.subject_code,
+                "grade_year_code": scope.grade_year_code,
+            },
         },
     )

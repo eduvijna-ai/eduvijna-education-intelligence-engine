@@ -15,7 +15,6 @@ from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode
 from app.root_cause_intelligence.trusted_validation import (
     RootCauseTrustedValidationContext,
-    synthetic_harness_allowed,
     trusted_context_matches_request,
 )
 
@@ -84,11 +83,6 @@ def run_root_cause_preflight(
     ):
         issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
         paths.append("trusted_validation.identity")
-    elif trusted.trust_source == "synthetic_fixture_harness":
-        if not synthetic_harness_allowed(request.graph_snapshot):
-            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
-            paths.append("trusted_validation.synthetic_harness")
-
     try:
         load_taxonomy(request.taxonomy_version)
     except TaxonomyRegistryError:

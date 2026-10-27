@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
+from app.common.trust_execution import TrustExecutionMode
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
@@ -103,6 +104,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
             taxonomy_version="misconception-taxonomy@v1",
         ),
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
     correct_block = service.analyze(
         RootCauseDiagnosticRequest(
@@ -126,12 +128,16 @@ def build_verification_report(session: Session) -> dict[str, object]:
     demo_paper = build_demo_ten_question_paper()
     paper_trust = PaperDay6TrustContext.synthetic_fixture_harness()
     paper_pass = evaluate_paper_distribution(
-        demo_paper, taxonomy=TaxonomyRegistry(), day6_trust=paper_trust
+        demo_paper,
+        taxonomy=TaxonomyRegistry(),
+        day6_trust=paper_trust,
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
     paper_fail = evaluate_paper_distribution(
         build_mismatched_target_paper(demo_paper),
         taxonomy=TaxonomyRegistry(),
         day6_trust=paper_trust,
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
 
     forged_tax = service.analyze(
@@ -158,6 +164,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
             taxonomy_version="forged-taxonomy",
         ),
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
 
     edge = session.scalars(

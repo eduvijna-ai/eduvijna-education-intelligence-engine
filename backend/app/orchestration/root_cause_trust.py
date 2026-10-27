@@ -7,9 +7,10 @@ from app.knowledge_intelligence.contracts import KnowledgeContextPack
 from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
 
 
-def item_allowed_source_revision_ids(
+def option_allowed_source_revision_ids(
     draft_item: dict[str, Any],
     context: KnowledgeContextPack,
+    tag_data: dict[str, Any],
 ) -> list[str]:
     draft_sources = {
         str(revision_id)
@@ -21,7 +22,24 @@ def item_allowed_source_revision_ids(
         for item in context.evidence
         if item.source_revision_id
     }
-    return sorted(draft_sources & pack_sources)
+    base = draft_sources & pack_sources
+    evidence_refs = list(tag_data.get("evidence_refs") or [])
+    if not evidence_refs:
+        return sorted(base)
+
+    citation_to_revision = {
+        str(item.citation_label): str(item.source_revision_id)
+        for item in context.evidence
+        if item.citation_label and item.source_revision_id
+    }
+    cited_revisions = {
+        citation_to_revision[ref]
+        for ref in evidence_refs
+        if ref in citation_to_revision
+    }
+    if not cited_revisions:
+        return []
+    return sorted(base & cited_revisions)
 
 
 def build_trusted_validation_from_state(
@@ -32,13 +50,12 @@ def build_trusted_validation_from_state(
     taxonomy_version: str,
     diagnostic_validation: list[dict[str, Any]],
     diagnostic_results: list[dict[str, Any]],
-    diagnostic_audit_refs: list[str],
 ) -> RootCauseTrustedValidationContext | None:
     summary = next(
         (entry for entry in diagnostic_validation if str(entry.get("item_id")) == item_id),
         None,
     )
-    if summary is None or summary.get("blocking"):
+    if summary is None or summary.get("blocking") or summary.get("review_required"):
         return None
 
     enriched = next(
@@ -68,7 +85,11 @@ def build_trusted_validation_from_state(
     if str(enriched.get("taxonomy_version") or "") != taxonomy_version:
         return None
 
-    audit_ref = diagnostic_audit_refs[-1] if diagnostic_audit_refs else None
+    audit_refs = list(enriched.get("audit_refs") or [])
+    audit_ref = audit_refs[0] if audit_refs else None
+    if not audit_ref:
+        return None
+
     return RootCauseTrustedValidationContext.from_day9_accepted(
         item_id=item_id,
         option_key=option_key,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from app.common.trust_execution import TrustExecutionMode
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.knowledge_intelligence.contracts import KnowledgeContextPack
 from app.orchestration.contracts import ResolvedScope
@@ -10,7 +11,7 @@ from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
 from app.orchestration.root_cause_trust import (
     build_trusted_validation_from_state,
-    item_allowed_source_revision_ids,
+    option_allowed_source_revision_ids,
 )
 from app.orchestration.state import OrchestrationGraphState
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
@@ -63,7 +64,6 @@ def root_cause_enrich_node(
     snapshot = load_prerequisite_graph_snapshot(deps.session, graph_scope)
     context = KnowledgeContextPack.model_validate(state.get("knowledge_context") or {})
     diagnostic_validation = list(state.get("diagnostic_validation") or [])
-    diagnostic_audit_refs = list(state.get("audit_refs") or [])
     deterministic_by_item = {
         str(entry.get("item_id")): entry
         for entry in (state.get("deterministic_validation") or [])
@@ -95,7 +95,8 @@ def root_cause_enrich_node(
                     "validation_status": validation_status,
                 }
             )
-            det = deterministic_by_item.get(item_id) or {}
+            det = deterministic_by_item.get(item_id)
+            day6_blocking = det is None or bool(det.get("blocking"))
             draft = draft_by_item.get(item_id) or {}
             draft_meta = draft.get("metadata_json") or {}
             concept_codes = list(
@@ -117,9 +118,8 @@ def root_cause_enrich_node(
                 taxonomy_version=taxonomy_version,
                 diagnostic_validation=diagnostic_validation,
                 diagnostic_results=diagnostic_results,
-                diagnostic_audit_refs=diagnostic_audit_refs,
             )
-            allowed_sources = item_allowed_source_revision_ids(draft, context)
+            allowed_sources = option_allowed_source_revision_ids(draft, context, tag_data)
             analysis = service.analyze(
                 RootCauseDiagnosticRequest(
                     item_id=item_id,
@@ -134,9 +134,11 @@ def root_cause_enrich_node(
                     institution_id=graph_scope.institution_id,
                     teacher_id=graph_scope.teacher_id,
                     allowed_source_revision_ids=allowed_sources,
-                    day6_blocking=bool(det.get("blocking")),
+                    day6_blocking=day6_blocking,
                 ),
                 trusted=trusted,
+                execution_mode=TrustExecutionMode.PRODUCTION,
+                control_session=deps.control_session,
             )
             item_audit = audit_node(
                 deps,

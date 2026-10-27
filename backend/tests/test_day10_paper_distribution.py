@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
+from app.common.trust_execution import TrustExecutionMode
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.education_intelligence.taxonomy_registry import TaxonomyRegistry
@@ -31,12 +32,14 @@ from app.paper_distribution.fixtures import (
 from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 
 _HARNESS = PaperDay6TrustContext.synthetic_fixture_harness()
+_SYNTHETIC = TrustExecutionMode.SYNTHETIC_FIXTURE
 
 
 def test_demo_paper_matches_20_20_40_10_10() -> None:
     request = build_demo_ten_question_paper()
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.verdict == PaperDistributionVerdict.PASS
     assert result.item_count == 10
@@ -59,7 +62,8 @@ def test_single_partial_cognitive_target_passes() -> None:
         }
     )
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.verdict == PaperDistributionVerdict.PASS
     assert result.cognitive_summary.status.value == "pass"
@@ -83,7 +87,8 @@ def test_competency_target_mismatch_fails() -> None:
         }
     )
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.verdict == PaperDistributionVerdict.FAIL
     assert result.competency_summary.status.value != "pass"
@@ -97,6 +102,7 @@ def test_create_level_rejected() -> None:
         request.model_copy(update={"items": items}),
         taxonomy=TaxonomyRegistry(),
         day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert PaperDistributionIssueCode.CREATE_LEVEL_REJECTED in result.issue_codes
 
@@ -118,7 +124,8 @@ def test_fractional_multi_label_conserves_denominator() -> None:
         }
     )
     result = evaluate_paper_distribution(
-        updated, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        updated, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.competency_summary.fractional_counts.get("knowledge") == 0.5
     assert result.competency_summary.fractional_counts.get("application") == 0.5
@@ -138,7 +145,8 @@ def test_misplaced_target_dimension_fails() -> None:
         }
     )
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.verdict == PaperDistributionVerdict.FAIL
     assert PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION in result.issue_codes
@@ -160,7 +168,8 @@ def test_count_only_without_marks_attributes_items() -> None:
         ],
     )
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.verdict == PaperDistributionVerdict.PASS
     assert result.cognitive_summary.fractional_counts.get("remember") == 1.0
@@ -194,8 +203,12 @@ def test_distinct_fingerprints_for_different_targets() -> None:
             ]
         }
     )
-    first = evaluate_paper_distribution(base, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS)
-    second = evaluate_paper_distribution(other, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS)
+    first = evaluate_paper_distribution(
+        base, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS, execution_mode=_SYNTHETIC
+    )
+    second = evaluate_paper_distribution(
+        other, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS, execution_mode=_SYNTHETIC
+    )
     assert first.result_fingerprint != second.result_fingerprint
 
 
@@ -215,7 +228,8 @@ def test_fractional_exact_count_uses_float_shares() -> None:
         }
     )
     result = evaluate_paper_distribution(
-        updated, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        updated, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert result.verdict == PaperDistributionVerdict.FAIL
     assert PaperDistributionIssueCode.TARGET_MISMATCH in result.issue_codes
@@ -235,7 +249,8 @@ def test_primary_only_orphan_primary_fails() -> None:
         ],
     )
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert PaperDistributionIssueCode.MISSING_COMPETENCY in result.issue_codes
     assert result.verdict != PaperDistributionVerdict.PASS
@@ -244,7 +259,8 @@ def test_primary_only_orphan_primary_fails() -> None:
 def test_requested_count_mismatch_fails() -> None:
     request = build_demo_ten_question_paper().model_copy(update={"requested_count": 9})
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert PaperDistributionIssueCode.REQUESTED_COUNT_MISMATCH in result.issue_codes
     assert result.verdict == PaperDistributionVerdict.FAIL
@@ -257,16 +273,55 @@ def test_session_audit_persisted_idempotent(tmp_path: Path) -> None:
     session = Session(engine)
     request = build_demo_ten_question_paper()
     first = evaluate_paper_distribution_with_session(
-        session, request, day6_trust=_HARNESS
+        session, request, day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     second = evaluate_paper_distribution_with_session(
-        session, request, day6_trust=_HARNESS
+        session, request, day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert first.audit_ref is not None
     assert first.audit_ref == second.audit_ref
     record = session.get(ValidationAuditRun, first.audit_ref)
     assert record is not None
     assert record.metadata_json.get("kind") == "paper_distribution"
+    session.commit()
+    session.close()
+
+
+def test_fake_validation_run_id_not_pass() -> None:
+    request = build_demo_ten_question_paper()
+    trust = PaperDay6TrustContext.from_validation_run("not-a-real-run")
+    result = evaluate_paper_distribution(
+        request,
+        taxonomy=TaxonomyRegistry(),
+        day6_trust=trust,
+        execution_mode=TrustExecutionMode.PRODUCTION,
+    )
+    assert PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION in result.issue_codes
+
+
+def test_paper_audit_isolated_by_institution(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'paper-tenant.db'}")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    base = build_demo_ten_question_paper()
+    inst_a = base.model_copy(
+        update={"paper_id": "inst-a", "metadata_json": {"institution_id": "inst-a"}}
+    )
+    inst_b = base.model_copy(
+        update={"paper_id": "inst-b", "metadata_json": {"institution_id": "inst-b"}}
+    )
+    ref_a = evaluate_paper_distribution_with_session(
+        session, inst_a, day6_trust=_HARNESS, execution_mode=_SYNTHETIC
+    ).audit_ref
+    ref_b = evaluate_paper_distribution_with_session(
+        session, inst_b, day6_trust=_HARNESS, execution_mode=_SYNTHETIC
+    ).audit_ref
+    session.commit()
+    assert ref_a is not None and ref_b is not None
+    assert ref_a != ref_b
     session.close()
 
 
@@ -285,6 +340,7 @@ def test_impossible_min_max_target_infeasible() -> None:
         }
     )
     result = evaluate_paper_distribution(
-        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS
+        request, taxonomy=TaxonomyRegistry(), day6_trust=_HARNESS,
+        execution_mode=_SYNTHETIC,
     )
     assert PaperDistributionIssueCode.TARGET_INFEASIBLE in result.issue_codes

@@ -41,6 +41,7 @@ class PaperDistributionRequest(BaseModel):
 
     paper_id: str
     taxonomy_version: str = V1_TAXONOMY_VERSION
+    target_policy_version: str | None = None
     requested_count: int | None = Field(default=None, ge=0)
     items: list[PaperItemInput]
     cognitive_targets: list[DistributionTarget] = Field(default_factory=list)
