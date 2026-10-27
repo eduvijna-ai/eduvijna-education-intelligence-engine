@@ -30,7 +30,6 @@ from app.paper_distribution.target_policy_registry import (
     PAPER_TARGET_POLICY_VERSION,
     PAPER_TARGET_REGISTRY_KEY,
     ensure_paper_target_policy_configured,
-    merge_mandatory_distribution_targets,
 )
 from app.paper_distribution.trusted_validation import (
     PaperDay6ItemBinding,
@@ -281,7 +280,8 @@ def test_mandatory_range_overlays_weaker_request(tmp_path: Path) -> None:
         ],
         items=[],
     )
-    cognitive, _ = merge_mandatory_distribution_targets(request, row.payload_json)
-    remember = next(target for target in cognitive if target.key == "remember")
-    assert remember.min_percent == 40.0
-    assert remember.max_percent == 30.0
+    from app.paper_distribution.target_policy_registry import paper_targets_authorized
+
+    ok, path = paper_targets_authorized(session, request, version=PAPER_TARGET_POLICY_VERSION)
+    assert ok is False
+    assert path is not None and "range" in path

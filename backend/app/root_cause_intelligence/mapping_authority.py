@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.enums import SourceRevisionStatus
-from app.prerequisite_intelligence.authority import load_revision_record
+from app.prerequisite_intelligence.authority import (
+    load_revision_record,
+    revision_is_authorized_for_scope,
+)
+from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
 from app.root_cause_intelligence.mapping_registry import (
     MisconceptionConceptMapping,
     RootCauseMappingRegistry,
@@ -51,11 +55,16 @@ def apply_mapping_authority_overlay(
         if not code or code not in by_code:
             continue
         base = by_code[code]
-        source_ids = [str(item) for item in raw.get("source_revision_ids") or []]
+        source_ids = [str(item) for item in raw.get("source_revision_ids") or [] if item]
+        if not source_ids:
+            continue
+        synthetic_flag = bool(raw.get("synthetic", False))
+        if synthetic_flag:
+            continue
         by_code[code] = base.model_copy(
             update={
-                "source_revision_ids": source_ids or list(base.source_revision_ids),
-                "synthetic": bool(raw.get("synthetic", False)),
+                "source_revision_ids": source_ids,
+                "synthetic": False,
             }
         )
     return RootCauseMappingRegistry(
@@ -67,17 +76,40 @@ def apply_mapping_authority_overlay(
 def mapping_entry_production_authorized(
     session: Session | None,
     entry: MisconceptionConceptMapping,
+    *,
+    graph_scope: PrerequisiteGraphScope,
+    allowed_option_revision_ids: set[str] | None = None,
 ) -> bool:
     if session is None:
         return False
-    if entry.synthetic and not entry.source_revision_ids:
+    if entry.synthetic:
         return False
     if not entry.source_revision_ids:
-        return not entry.synthetic
+        return False
+    curriculum_version_id = graph_scope.curriculum_version_id
     for revision_id in entry.source_revision_ids:
-        record = load_revision_record(session, revision_id)
+        revision_key = str(revision_id)
+        record = load_revision_record(session, revision_key)
         if record is None:
             return False
         if record.status != SourceRevisionStatus.ACTIVE.value:
             return False
+        if not revision_is_authorized_for_scope(record, graph_scope, curriculum_version_id):
+            return False
+        if (
+            allowed_option_revision_ids is not None
+            and revision_key not in allowed_option_revision_ids
+        ):
+            return False
     return True
+
+
+def authorized_mapping_revision_ids(
+    entry: MisconceptionConceptMapping,
+    allowed_option_revision_ids: set[str],
+) -> list[str]:
+    return sorted(
+        str(revision_id)
+        for revision_id in entry.source_revision_ids
+        if str(revision_id) in allowed_option_revision_ids
+    )

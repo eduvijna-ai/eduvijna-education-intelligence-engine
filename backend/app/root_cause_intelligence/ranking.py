@@ -46,7 +46,11 @@ def project_hypothesis_authorized_paths(
     if not authorized_paths:
         return None
     path_evidence = _evidence_revision_ids_from_paths(snapshot, authorized_paths)
-    mapping_evidence = [str(rev) for rev in mapping_source_revision_ids if rev]
+    mapping_evidence = [
+        str(revision_id)
+        for revision_id in mapping_source_revision_ids
+        if revision_id and str(revision_id) in allowed
+    ]
     evidence_ids = sorted(set(path_evidence + mapping_evidence))
     support = hypothesis.support_score
     if len(authorized_paths) < len(hypothesis.paths):

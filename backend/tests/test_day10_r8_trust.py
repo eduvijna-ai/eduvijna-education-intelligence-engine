@@ -26,6 +26,7 @@ from app.models.education_intelligence import ValidationAuditRun
 from app.models.enums import (
     CurriculumNodeType,
     CurriculumStatus,
+    SourceStatus,
     SourceTrustTier,
     SourceType,
 )
@@ -82,6 +83,7 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
         source_type=SourceType.OFFICIAL_SYLLABUS.value,
         title="R8 official prerequisite source",
         trust_tier=SourceTrustTier.OFFICIAL_PRIMARY.value,
+        status=SourceStatus.ACTIVE.value,
     )
     framework = EducationFramework(code="r8-fw", name="R8 Framework", country="IN")
     pack = CurriculumPack(code="r8-pack", name="R8 Pack", country="IN", framework=framework)
@@ -97,23 +99,40 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
         code="mathematics",
         title="Mathematics",
     )
-    counting = CurriculumNode(
+    grade = CurriculumNode(
         curriculum_version=version,
         parent=subject,
+        node_type=CurriculumNodeType.GRADE_YEAR.value,
+        code="grade-4",
+        title="Grade 4",
+    )
+    counting = CurriculumNode(
+        curriculum_version=version,
+        parent=grade,
         node_type=CurriculumNodeType.CONCEPT.value,
         code="counting-sequence",
         title="Counting",
-        metadata_json={"grade_year_code": "grade-2", "subject_code": "mathematics"},
+        metadata_json={"grade_year_code": "grade-4", "subject_code": "mathematics"},
+    )
+    whole_add = CurriculumNode(
+        curriculum_version=version,
+        parent=grade,
+        node_type=CurriculumNodeType.CONCEPT.value,
+        code="whole-number-addition",
+        title="Whole-number addition",
+        metadata_json={"grade_year_code": "grade-4", "subject_code": "mathematics"},
     )
     multi_add = CurriculumNode(
         curriculum_version=version,
-        parent=subject,
+        parent=grade,
         node_type=CurriculumNodeType.CONCEPT.value,
         code="multi-step-addition",
         title="Multi-step addition",
         metadata_json={"grade_year_code": "grade-4", "subject_code": "mathematics"},
     )
-    session.add_all([source, framework, pack, version, subject, counting, multi_add])
+    session.add_all(
+        [source, framework, pack, version, subject, grade, counting, whole_add, multi_add]
+    )
     session.flush()
     revision = SourceRevision(
         source_id=source.id,
@@ -147,10 +166,12 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
             },
         )
 
-    session.add(official_edge(counting, multi_add))
+    session.add(official_edge(counting, whole_add))
+    session.add(official_edge(whole_add, multi_add))
     session.flush()
     return {
         "curriculum_version_id": version.id,
+        "source_id": source.id,
         "source_revision_id": revision.id,
         "multi_add_concept_id": multi_add.id,
         "organization_id": ORG_A,
@@ -486,10 +507,10 @@ def test_mandatory_policy_percent_still_enforced(tmp_path: Path) -> None:
 
     cognitive, _ = merge_mandatory_distribution_targets(request, row.payload_json)
     remember = next(target for target in cognitive if target.key == "remember")
-    assert remember.exact_percent == 20.0
+    assert remember.exact_percent == 30.0
     ok, path = paper_targets_authorized(session, request, version=PAPER_TARGET_POLICY_VERSION)
-    assert ok is True
-    assert path is None
+    assert ok is False
+    assert path is not None and "exact_percent" in path
 
 
 def test_missing_day6_scope_metadata_fails_production(tmp_path: Path) -> None:

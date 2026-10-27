@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R10 FOCUSED REPAIR** (Chief Architect handoff R10). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R11 FOCUSED REPAIR** (Chief Architect handoff R11). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R10 deltas (vs `ba70ea0`):** per-item Day6 `PaperDay6TrustContext.from_item_bindings`; reconciled exact-percent acceptance; per-path hypothesis projection; OFFICIAL requires official trust tier; `mapping_authority` policy overlay; mandatory range intersection; skip enrich audit when no new work; `test_day10_r10_trust.py`. D10-22/32/33 PARTIAL; D10-29 PARTIAL; D10-36 PENDING.
+**R11 deltas (vs `edf243b`):** production mapping overlay requires nonempty scoped source revisions; mapping evidence filtered to option allowlist; post-projection rank/ID recompute; mandatory target conflict detection (no silent overwrite); strict 100% reconcile gate; `test_day10_r11_trust.py` + orchestration replay audit idempotency. D10-22/32/33 PARTIAL; D10-29 PARTIAL; D10-36 PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

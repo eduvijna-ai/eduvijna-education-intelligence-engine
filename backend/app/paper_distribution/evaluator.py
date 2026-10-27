@@ -52,7 +52,7 @@ def reconcile_exact_counts(
     if not percent_targets:
         return {}
     total_percent = sum(target.exact_percent or 0.0 for target in percent_targets)
-    if abs(total_percent - 100.0) > 0.51:
+    if abs(total_percent - 100.0) > 0.01:
         return {}
     raw_shares = [
         (target.key, (target.exact_percent or 0.0) * item_count / 100.0)

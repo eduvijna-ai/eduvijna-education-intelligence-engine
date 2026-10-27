@@ -10,7 +10,7 @@ from app.prerequisite_intelligence.enums import (
     GraphAuditStatus,
     GraphIssueCode,
 )
-from app.prerequisite_intelligence.stable_ids import stable_audit_ref
+from app.prerequisite_intelligence.stable_ids import stable_audit_ref, stable_hypothesis_id
 from app.root_cause_intelligence.contracts import (
     RootCauseDiagnosticRequest,
     RootCauseHypothesis,
@@ -23,6 +23,7 @@ from app.root_cause_intelligence.enums import (
 )
 from app.root_cause_intelligence.mapping_authority import (
     apply_mapping_authority_overlay,
+    authorized_mapping_revision_ids,
     mapping_entry_production_authorized,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
@@ -127,26 +128,6 @@ class RootCauseIntelligenceService:
                 hypotheses=[],
             )
 
-        production_mapping_ok = mapping_entry_production_authorized(
-            control_session, mapping_entry
-        )
-        if execution_mode == TrustExecutionMode.PRODUCTION and not production_mapping_ok:
-            issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
-            field_paths.append("mapping.synthetic")
-            return RootCauseResult(
-                item_id=request.item_id,
-                option_key=request.option_key,
-                misconception_code=request.misconception_code,
-                verdict_status=RootCauseVerdictStatus.INSUFFICIENT_EVIDENCE,
-                issue_codes=issue_codes,
-                field_paths=field_paths,
-                mapping_version=mapping.version,
-                graph_snapshot_id=request.graph_snapshot.snapshot_id,
-                graph_checksum=request.graph_snapshot.checksum,
-                audit_ref=audit_ref,
-                hypotheses=[],
-            )
-
         allowed = set(request.allowed_source_revision_ids or [])
         snapshot_allow = set(
             request.graph_snapshot.metadata_json.get("authorized_revision_ids") or []
@@ -164,6 +145,29 @@ class RootCauseIntelligenceService:
         if has_sourced_edge and not allowed:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
             field_paths.append("allowed_source_revision_ids")
+
+        production_mapping_ok = mapping_entry_production_authorized(
+            control_session,
+            mapping_entry,
+            graph_scope=request.graph_snapshot.scope,
+            allowed_option_revision_ids=allowed,
+        )
+        if execution_mode == TrustExecutionMode.PRODUCTION and not production_mapping_ok:
+            issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
+            field_paths.append("mapping.synthetic")
+            return RootCauseResult(
+                item_id=request.item_id,
+                option_key=request.option_key,
+                misconception_code=request.misconception_code,
+                verdict_status=RootCauseVerdictStatus.INSUFFICIENT_EVIDENCE,
+                issue_codes=issue_codes,
+                field_paths=field_paths,
+                mapping_version=mapping.version,
+                graph_snapshot_id=request.graph_snapshot.snapshot_id,
+                graph_checksum=request.graph_snapshot.checksum,
+                audit_ref=audit_ref,
+                hypotheses=[],
+            )
 
         graph_report = build_graph_quality_report(request.graph_snapshot)
         loader_error_codes = {
@@ -217,19 +221,36 @@ class RootCauseIntelligenceService:
             target_concept_code=request.target_concept_code,
             limits=GraphTraversalLimits(max_depth=8, max_paths=8, max_nodes=48),
         )
+        mapping_sources = authorized_mapping_revision_ids(mapping_entry, allowed)
         supported: list[RootCauseHypothesis] = []
         for hypothesis in hypotheses:
             projected = project_hypothesis_authorized_paths(
                 request.graph_snapshot,
                 hypothesis,
                 allowed,
-                mapping_entry.source_revision_ids,
+                mapping_sources,
             )
             if projected is not None:
                 supported.append(projected)
         supported.sort(
             key=lambda item: (-item.support_score, item.rank, item.concept_code)
         )
+        reranked_supported: list[RootCauseHypothesis] = []
+        for index, hypothesis in enumerate(supported, start=1):
+            reranked_supported.append(
+                hypothesis.model_copy(
+                    update={
+                        "rank": index,
+                        "hypothesis_id": stable_hypothesis_id(
+                            request.graph_snapshot.checksum,
+                            request.misconception_code,
+                            hypothesis.concept_code,
+                            index,
+                        ),
+                    }
+                )
+            )
+        supported = reranked_supported
 
         path_budget_hit = any(
             item.code == GraphIssueCode.PATH_BUDGET_EXHAUSTED for item in traversal_issues

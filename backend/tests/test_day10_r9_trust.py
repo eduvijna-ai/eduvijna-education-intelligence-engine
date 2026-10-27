@@ -269,9 +269,10 @@ def test_mandatory_target_enforced_when_omitted_from_request(tmp_path: Path) -> 
     )
     cognitive, _ = merge_mandatory_distribution_targets(paper, row.payload_json)
     remember = next(target for target in cognitive if target.key == "remember")
-    assert remember.exact_percent == 100.0
+    assert remember.exact_percent == 50.0
     ok, path = paper_targets_authorized(session, paper, version=PAPER_TARGET_POLICY_VERSION)
-    assert ok is True
+    assert ok is False
+    assert path is not None and "exact_percent" in path
 
 
 def test_root_cause_replay_guard_runs_when_feature_enabled(tmp_path: Path) -> None:

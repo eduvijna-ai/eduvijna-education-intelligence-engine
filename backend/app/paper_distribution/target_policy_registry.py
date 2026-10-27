@@ -104,11 +104,92 @@ def _overlay_mandatory_range(
         update={
             "min_percent": new_min,
             "max_percent": new_max,
-            "exact_count": mandatory_count if mandatory_count is not None else existing.exact_count,
         }
     )
     index = targets.index(existing)
     targets[index] = updated
+
+
+def mandatory_target_conflicts(
+    request: PaperDistributionRequest,
+    policy_payload: dict[str, Any],
+) -> list[str]:
+    conflicts: list[str] = []
+
+    def _exact_percent_conflicts(
+        targets: list[DistributionTarget],
+        mandatory_map: dict[Any, Any],
+        prefix: str,
+    ) -> None:
+        for key, mandatory_value in mandatory_map.items():
+            key_str = str(key)
+            mandatory = float(mandatory_value)
+            for index, target in enumerate(targets):
+                if target.key != key_str:
+                    continue
+                if target.exact_percent is not None:
+                    delta = abs(target.exact_percent - mandatory)
+                    if delta > 0.01:
+                        conflicts.append(f"{prefix}[{index}]/exact_percent")
+
+    def _range_conflicts(
+        targets: list[DistributionTarget],
+        mandatory_ranges: list[Any],
+        prefix: str,
+    ) -> None:
+        for entry in mandatory_ranges:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("key") or "")
+            if not key:
+                continue
+            mandatory_min = entry.get("min_percent")
+            mandatory_max = entry.get("max_percent")
+            mandatory_count = entry.get("exact_count")
+            for index, target in enumerate(targets):
+                if target.key != key:
+                    continue
+                if target.exact_percent is not None:
+                    pct = target.exact_percent
+                    if mandatory_min is not None and pct < float(mandatory_min) - 0.01:
+                        conflicts.append(f"{prefix}[{index}]/exact_percent")
+                    if mandatory_max is not None and pct > float(mandatory_max) + 0.01:
+                        conflicts.append(f"{prefix}[{index}]/exact_percent")
+                if mandatory_count is not None and target.exact_count is not None:
+                    if int(mandatory_count) != int(target.exact_count):
+                        conflicts.append(f"{prefix}[{index}]/exact_count")
+                if (
+                    target.min_percent is not None
+                    and target.max_percent is not None
+                    and mandatory_min is not None
+                    and mandatory_max is not None
+                ):
+                    tightened_min = max(float(target.min_percent), float(mandatory_min))
+                    tightened_max = min(float(target.max_percent), float(mandatory_max))
+                    if tightened_min > tightened_max + 0.01:
+                        conflicts.append(f"{prefix}[{index}]/range")
+
+    _exact_percent_conflicts(
+        list(request.cognitive_targets),
+        policy_payload.get("mandatory_cognitive_exact_percent") or {},
+        "cognitive_targets",
+    )
+    _exact_percent_conflicts(
+        list(request.competency_targets),
+        policy_payload.get("mandatory_competency_exact_percent") or {},
+        "competency_targets",
+    )
+    _range_conflicts(
+        list(request.cognitive_targets),
+        policy_payload.get("mandatory_cognitive_ranges") or [],
+        "cognitive_targets",
+    )
+    _range_conflicts(
+        list(request.competency_targets),
+        policy_payload.get("mandatory_competency_ranges") or [],
+        "competency_targets",
+    )
+    return conflicts
 
 
 def merge_mandatory_distribution_targets(
@@ -122,38 +203,28 @@ def merge_mandatory_distribution_targets(
 
     for key, approved in (policy_payload.get("mandatory_cognitive_exact_percent") or {}).items():
         key_str = str(key)
-        existing = next((target for target in cognitive if target.key == key_str), None)
-        if existing is None:
-            cognitive.append(
-                DistributionTarget(
-                    dimension="cognitive",
-                    key=key_str,
-                    exact_percent=float(approved),
-                )
+        if key_str in cognitive_keys:
+            continue
+        cognitive.append(
+            DistributionTarget(
+                dimension="cognitive",
+                key=key_str,
+                exact_percent=float(approved),
             )
-        else:
-            index = cognitive.index(existing)
-            cognitive[index] = existing.model_copy(
-                update={"exact_percent": float(approved)}
-            )
+        )
         cognitive_keys.add(key_str)
 
     for key, approved in (policy_payload.get("mandatory_competency_exact_percent") or {}).items():
         key_str = str(key)
-        existing = next((target for target in competency if target.key == key_str), None)
-        if existing is None:
-            competency.append(
-                DistributionTarget(
-                    dimension="competency",
-                    key=key_str,
-                    exact_percent=float(approved),
-                )
+        if key_str in competency_keys:
+            continue
+        competency.append(
+            DistributionTarget(
+                dimension="competency",
+                key=key_str,
+                exact_percent=float(approved),
             )
-        else:
-            index = competency.index(existing)
-            competency[index] = existing.model_copy(
-                update={"exact_percent": float(approved)}
-            )
+        )
         competency_keys.add(key_str)
 
     for entry in policy_payload.get("mandatory_cognitive_ranges") or []:
@@ -187,6 +258,10 @@ def paper_targets_authorized(
         payload = load_active_paper_target_policy(session, version)
     except RegistryVersionNotFound:
         return False, "target_policy_version"
+
+    conflict_paths = mandatory_target_conflicts(request, payload)
+    if conflict_paths:
+        return False, conflict_paths[0]
 
     cognitive, competency = merge_mandatory_distribution_targets(request, payload)
     if not cognitive and not competency:
