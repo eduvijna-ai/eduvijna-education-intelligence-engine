@@ -8,6 +8,10 @@ from app.knowledge_intelligence.contracts import KnowledgeContextPack
 from app.orchestration.contracts import ResolvedScope
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
+from app.orchestration.root_cause_trust import (
+    build_trusted_validation_from_state,
+    item_allowed_source_revision_ids,
+)
 from app.orchestration.state import OrchestrationGraphState
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
 from app.prerequisite_intelligence.loader import load_prerequisite_graph_snapshot
@@ -58,13 +62,8 @@ def root_cause_enrich_node(
     )
     snapshot = load_prerequisite_graph_snapshot(deps.session, graph_scope)
     context = KnowledgeContextPack.model_validate(state.get("knowledge_context") or {})
-    allowed_sources = sorted(
-        {
-            item.source_revision_id
-            for item in context.evidence
-            if item.source_revision_id
-        }
-    )
+    diagnostic_validation = list(state.get("diagnostic_validation") or [])
+    diagnostic_audit_refs = list(state.get("audit_refs") or [])
     deterministic_by_item = {
         str(entry.get("item_id")): entry
         for entry in (state.get("deterministic_validation") or [])
@@ -108,26 +107,58 @@ def root_cause_enrich_node(
             target_concept = concept_codes[0] if concept_codes else ""
             if not target_concept:
                 continue
+            taxonomy_version = str(
+                tag_data.get("taxonomy_version") or "misconception-taxonomy@v1"
+            )
+            trusted = build_trusted_validation_from_state(
+                item_id=item_id,
+                option_key=str(tag_data.get("option_key")),
+                misconception_code=str(misconception),
+                taxonomy_version=taxonomy_version,
+                diagnostic_validation=diagnostic_validation,
+                diagnostic_results=diagnostic_results,
+                diagnostic_audit_refs=diagnostic_audit_refs,
+            )
+            allowed_sources = item_allowed_source_revision_ids(draft, context)
             analysis = service.analyze(
                 RootCauseDiagnosticRequest(
                     item_id=item_id,
                     option_key=str(tag_data.get("option_key")),
                     misconception_code=str(misconception),
-                    taxonomy_version=str(
-                        tag_data.get("taxonomy_version") or "misconception-taxonomy@v1"
-                    ),
+                    taxonomy_version=taxonomy_version,
                     tag=tag,
                     curriculum_version_id=curriculum_version_id,
                     graph_snapshot=snapshot,
                     target_concept_code=target_concept,
                     organization_id=graph_scope.organization_id,
                     institution_id=graph_scope.institution_id,
+                    teacher_id=graph_scope.teacher_id,
                     allowed_source_revision_ids=allowed_sources,
                     day6_blocking=bool(det.get("blocking")),
-                    tag_validation_trusted=True,
-                )
+                ),
+                trusted=trusted,
             )
-            results.append(analysis.model_dump(mode="json"))
+            item_audit = audit_node(
+                deps,
+                state,
+                "root_cause_item",
+                analysis.verdict_status.value,
+                attempt=attempt,
+                issue_codes=[code.value for code in analysis.issue_codes],
+                source_revision_ids=allowed_sources,
+                payload={
+                    "item_id": item_id,
+                    "option_key": str(tag_data.get("option_key")),
+                    "misconception_code": str(misconception),
+                    "verdict_status": analysis.verdict_status.value,
+                    "audit_ref": analysis.audit_ref,
+                    "allowed_source_revision_ids": allowed_sources,
+                    "trusted": trusted is not None,
+                },
+            )
+            dumped = analysis.model_dump(mode="json")
+            dumped["orchestration_audit_ref"] = item_audit
+            results.append(dumped)
 
     audit_id = audit_node(
         deps,
@@ -138,6 +169,11 @@ def root_cause_enrich_node(
         payload={
             "result_count": len(results),
             "eligible_tag_count": eligible_tags,
+            "item_audit_refs": [
+                entry.get("orchestration_audit_ref")
+                for entry in results
+                if entry.get("orchestration_audit_ref")
+            ],
         },
     )
     return timed_update(

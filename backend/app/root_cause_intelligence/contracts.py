@@ -25,7 +25,6 @@ class RootCauseDiagnosticRequest(BaseModel):
     teacher_id: str | None = None
     allowed_source_revision_ids: list[str] = Field(default_factory=list)
     day6_blocking: bool = False
-    tag_validation_trusted: bool = False
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 

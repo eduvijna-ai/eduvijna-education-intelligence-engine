@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R3 FOCUSED REPAIR** (Chief Architect handoff R3; push pending new HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R4 FOCUSED REPAIR** (Chief Architect handoff R4). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R3 deltas (vs `d09bc15`):** whole-output root-cause completion; taxonomy registry enforcement; private-source tenant scope; paper count/marks split + `day6_items_trusted` + `result_fingerprint`; orchestration whole-output tests. D10-22/32/33/36 still PARTIAL/PENDING.
+**R4 deltas (vs `be3ea95`):** internal `RootCauseTrustedValidationContext` / `PaperDay6TrustContext` (removed self-asserted request booleans); per-item Day7∩draft source allowlists + `root_cause_item` audits; curriculum MEDIUM/grade ancestry in loader; paper `requested_count`, orphan-primary guard, session audit via `ei_validation_audit_runs`; medium-scope graph tests + trust orchestration tests. D10-22/32/33/36 still PARTIAL/PENDING (no full LangGraph replay matrix / D10-36).
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -12,7 +12,7 @@ Status: **R3 FOCUSED REPAIR** (Chief Architect handoff R3; push pending new HEAD
 | D10-04 | Source-backed edge provenance | `authority.py`, `loader.py`, `validators.py`, `fixtures.py` | `test_day10_adversarial.py` | IMPLEMENTED |
 | D10-05 | Edge integrity validator | `app/prerequisite_intelligence/validators.py` | `test_day10_graph.py` | IMPLEMENTED |
 | D10-06 | Cycle and progression validation | `validators.detect_cycles` | `test_day10_graph.py::test_cycle_detection_flags_error` | IMPLEMENTED |
-| D10-07 | Curriculum and tenant scope isolation | `loader.py`, `validators.validate_scope_isolation` | `test_day10_adversarial.py` | IMPLEMENTED |
+| D10-07 | Curriculum and tenant scope isolation | `loader.py` ancestry + scope conflicts | `test_day10_graph.py` medium ancestry tests | IMPLEMENTED |
 | D10-08 | Versioned graph assembly / lifecycle | `loader.load_prerequisite_graph_snapshot` | `day10_verify` checksum | IMPLEMENTED |
 | D10-09 | Bounded graph traversal | `app/prerequisite_intelligence/traversal.py` | `test_day10_graph.py` | IMPLEMENTED |
 | D10-10 | Graph quality audit | `app/prerequisite_intelligence/audit.py` | `day10_verify` graph_quality_pass | IMPLEMENTED |
@@ -24,10 +24,10 @@ Status: **R3 FOCUSED REPAIR** (Chief Architect handoff R3; push pending new HEAD
 | D10-16 | Deterministic hypothesis ranking | `ranking.rank_root_cause_hypotheses` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-17 | Alternative hypotheses | `RootCauseHypothesis.alternatives` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-18 | Contradiction / uncertainty | `service.py` verdict policy | `day10_verify` root_cause_verdict | IMPLEMENTED |
-| D10-19 | LO/competency consistency | mapping + Day9 taxonomy codes | boundary via Day9 tests in CI | PARTIAL |
+| D10-19 | LO/competency consistency | paper primary/competency guards + Day6 trust | `test_primary_only_orphan_primary_fails` | PARTIAL |
 | D10-20 | Day-7 provenance / tenant | `service.py` unauthorized source | `test_day10_adversarial.py` | IMPLEMENTED |
 | D10-21 | Structured result/verdict/audit | `RootCauseResult` | `day10_verify` | IMPLEMENTED |
-| D10-22 | Day-8/9 integration | `orchestration/nodes/root_cause.py`, routing | manual / follow-up test | PARTIAL |
+| D10-22 | Day-8/9 integration | `root_cause.py` + `root_cause_trust.py` | `test_day10_root_cause_orchestration.py`, `test_day10_orchestration.py` | PARTIAL |
 | D10-23 | Paper distribution request/result | `app/paper_distribution/contracts.py` | `test_day10_paper_distribution.py` | IMPLEMENTED |
 | D10-24 | Cognitive actual distribution | `evaluator.py` | `test_demo_paper_matches_20_20_40_10_10` | IMPLEMENTED |
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
@@ -35,7 +35,7 @@ Status: **R3 FOCUSED REPAIR** (Chief Architect handoff R3; push pending new HEAD
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
 | D10-28 | Generic target policy | `DistributionTarget` | mismatch paper test | IMPLEMENTED |
 | D10-29 | Integer target reconciliation | `_reconcile_exact_counts` | demo paper PASS | IMPLEMENTED |
-| D10-30 | Distribution audit verdict | `PaperDistributionResult` | `test_mismatched_target_fails_paper_not_items` | IMPLEMENTED |
+| D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_session_audit_persisted_idempotent` | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py` | targeted pytest | PARTIAL |
 | D10-33 | Batch/replay/SQLite-PG | SQLite tests only; no new migrations | existing portability | PARTIAL |

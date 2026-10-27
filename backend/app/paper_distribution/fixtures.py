@@ -40,8 +40,8 @@ def build_demo_ten_question_paper() -> PaperDistributionRequest:
         )
     return PaperDistributionRequest(
         paper_id="d10-demo-paper-10",
+        requested_count=10,
         items=items,
-        day6_items_trusted=True,
         cognitive_targets=[
             DistributionTarget(dimension="cognitive", key="remember", exact_percent=20.0),
             DistributionTarget(dimension="cognitive", key="understand", exact_percent=20.0),

@@ -13,6 +13,11 @@ from app.diagnostic_intelligence.taxonomy_registry import (
 )
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode
+from app.root_cause_intelligence.trusted_validation import (
+    RootCauseTrustedValidationContext,
+    synthetic_harness_allowed,
+    trusted_context_matches_request,
+)
 
 
 @dataclass(slots=True)
@@ -23,7 +28,11 @@ class RootCausePreflightResult:
     field_paths: list[str] = field(default_factory=list)
 
 
-def run_root_cause_preflight(request: RootCauseDiagnosticRequest) -> RootCausePreflightResult:
+def run_root_cause_preflight(
+    request: RootCauseDiagnosticRequest,
+    *,
+    trusted: RootCauseTrustedValidationContext | None,
+) -> RootCausePreflightResult:
     issues: list[RootCauseIssueCode] = []
     paths: list[str] = []
 
@@ -63,9 +72,22 @@ def run_root_cause_preflight(request: RootCauseDiagnosticRequest) -> RootCausePr
         issues.append(RootCauseIssueCode.MISSING_GRAPH)
         paths.append("graph_snapshot.nodes")
 
-    if not request.tag_validation_trusted:
+    if trusted is None:
         issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
-        paths.append("tag_validation_trusted")
+        paths.append("trusted_validation")
+    elif not trusted_context_matches_request(
+        request.item_id,
+        request.option_key,
+        request.misconception_code,
+        request.taxonomy_version,
+        trusted,
+    ):
+        issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+        paths.append("trusted_validation.identity")
+    elif trusted.trust_source == "synthetic_fixture_harness":
+        if not synthetic_harness_allowed(request.graph_snapshot):
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.synthetic_harness")
 
     try:
         load_taxonomy(request.taxonomy_version)

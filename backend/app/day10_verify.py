@@ -25,6 +25,7 @@ from app.paper_distribution.fixtures import (
     build_demo_ten_question_paper,
     build_mismatched_target_paper,
 )
+from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.audit import build_graph_quality_report
 from app.prerequisite_intelligence.enums import (
     EdgeProvenanceClass,
@@ -39,6 +40,7 @@ from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
+from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
 
 
 def _git_head() -> str:
@@ -94,8 +96,13 @@ def build_verification_report(session: Session) -> dict[str, object]:
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
             allowed_source_revision_ids=[ctx["source_revision_id"]],
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=RootCauseTrustedValidationContext.synthetic_fixture_harness(
+            item_id="d10-verify-item",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version="misconception-taxonomy@v1",
+        ),
     )
     correct_block = service.analyze(
         RootCauseDiagnosticRequest(
@@ -117,9 +124,14 @@ def build_verification_report(session: Session) -> dict[str, object]:
     )
 
     demo_paper = build_demo_ten_question_paper()
-    paper_pass = evaluate_paper_distribution(demo_paper, taxonomy=TaxonomyRegistry())
+    paper_trust = PaperDay6TrustContext.synthetic_fixture_harness()
+    paper_pass = evaluate_paper_distribution(
+        demo_paper, taxonomy=TaxonomyRegistry(), day6_trust=paper_trust
+    )
     paper_fail = evaluate_paper_distribution(
-        build_mismatched_target_paper(demo_paper), taxonomy=TaxonomyRegistry()
+        build_mismatched_target_paper(demo_paper),
+        taxonomy=TaxonomyRegistry(),
+        day6_trust=paper_trust,
     )
 
     forged_tax = service.analyze(
@@ -139,8 +151,13 @@ def build_verification_report(session: Session) -> dict[str, object]:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=RootCauseTrustedValidationContext.synthetic_fixture_harness(
+            item_id="d10-forged-tax",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version="forged-taxonomy",
+        ),
     )
 
     edge = session.scalars(
@@ -187,6 +204,27 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "paper_distribution_target_fail": paper_fail.verdict == PaperDistributionVerdict.FAIL,
         "forged_official_graph_audit_fail": forged_graph_fail,
         "forged_taxonomy_blocked": RootCauseIssueCode.INACTIVE_TAXONOMY in forged_tax.issue_codes,
+        "untrusted_root_cause_without_context": (
+            RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION
+            in service.analyze(
+                RootCauseDiagnosticRequest(
+                    item_id="d10-untrusted",
+                    option_key="A",
+                    misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                    taxonomy_version="misconception-taxonomy@v1",
+                    tag=OptionDiagnosticTag(
+                        item_id="d10-untrusted",
+                        option_key="A",
+                        is_correct=False,
+                        misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                        validation_status=DiagnosticValidationStatus.PASS,
+                    ),
+                    curriculum_version_id=ctx["curriculum_version_id"],
+                    graph_snapshot=snapshot,
+                    target_concept_code="multi-step-addition",
+                )
+            ).issue_codes
+        ),
     }
     ok = all(bool(value) for value in checks.values())
     return {

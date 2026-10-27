@@ -17,11 +17,17 @@ from app.root_cause_intelligence.enums import (
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.preflight import run_root_cause_preflight
 from app.root_cause_intelligence.ranking import rank_root_cause_hypotheses
+from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
 
 
 class RootCauseIntelligenceService:
-    def analyze(self, request: RootCauseDiagnosticRequest) -> RootCauseResult:
-        preflight = run_root_cause_preflight(request)
+    def analyze(
+        self,
+        request: RootCauseDiagnosticRequest,
+        *,
+        trusted: RootCauseTrustedValidationContext | None = None,
+    ) -> RootCauseResult:
+        preflight = run_root_cause_preflight(request, trusted=trusted)
         mapping = load_root_cause_mapping(DEFAULT_ROOT_CAUSE_MAPPING_VERSION)
         mapping_entry = mapping.resolve(request.misconception_code)
         issue_codes = list(preflight.issue_codes)

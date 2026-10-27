@@ -17,6 +17,7 @@ from app.prerequisite_intelligence.fixtures import (
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode, RootCauseVerdictStatus
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
+from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
 
 
 def _session(tmp_path: Path) -> Session:
@@ -24,6 +25,17 @@ def _session(tmp_path: Path) -> Session:
     enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
     return Session(engine)
+
+
+def _trusted(**kwargs) -> RootCauseTrustedValidationContext:
+    payload = {
+        "item_id": "item-1",
+        "option_key": "A",
+        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+        "taxonomy_version": DEFAULT_TAXONOMY_VERSION,
+    }
+    payload.update(kwargs)
+    return RootCauseTrustedValidationContext.synthetic_fixture_harness(**payload)
 
 
 def _tag(**kwargs) -> OptionDiagnosticTag:
@@ -56,8 +68,8 @@ def test_root_cause_returns_multiple_ranked_hypotheses(tmp_path: Path) -> None:
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
             allowed_source_revision_ids=[],
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=_trusted(),
     )
     assert result.verdict_status in {
         RootCauseVerdictStatus.PASS,
@@ -84,8 +96,8 @@ def test_correct_option_tag_is_blocked(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=_trusted(option_key="B"),
     )
     assert RootCauseIssueCode.CORRECT_OPTION_TAGGED in result.issue_codes
 
@@ -107,8 +119,8 @@ def test_zero_edge_graph_cannot_pass(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=empty,
             target_concept_code="multi-step-addition",
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=_trusted(),
     )
     assert result.verdict_status != RootCauseVerdictStatus.PASS
     assert RootCauseIssueCode.NO_PREREQUISITE_PATH in result.issue_codes
@@ -130,8 +142,7 @@ def test_untrusted_tag_requires_review(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
-            tag_validation_trusted=False,
-        )
+        ),
     )
     assert RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION in result.issue_codes
     assert result.verdict_status == RootCauseVerdictStatus.REVIEW_REQUIRED
@@ -162,8 +173,8 @@ def test_snapshot_allowlist_spoof_blocked(tmp_path: Path) -> None:
             graph_snapshot=spoofed,
             target_concept_code="multi-step-addition",
             allowed_source_revision_ids=[],
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=_trusted(),
     )
     assert RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF in result.issue_codes
     assert result.verdict_status != RootCauseVerdictStatus.PASS
@@ -186,8 +197,30 @@ def test_forged_taxonomy_blocked_even_when_trusted(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
-            tag_validation_trusted=True,
-        )
+        ),
+        trusted=_trusted(taxonomy_version=forged_version),
     )
     assert RootCauseIssueCode.INACTIVE_TAXONOMY in result.issue_codes
     assert result.verdict_status != RootCauseVerdictStatus.PASS
+
+
+def test_spoofed_pass_without_trusted_context_blocked(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    session.commit()
+    snapshot = load_day10_fixture_snapshot(session, ctx)
+    service = RootCauseIntelligenceService()
+    result = service.analyze(
+        RootCauseDiagnosticRequest(
+            item_id="item-1",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            tag=_tag(),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            graph_snapshot=snapshot,
+            target_concept_code="multi-step-addition",
+        ),
+    )
+    assert RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION in result.issue_codes
+    assert result.verdict_status == RootCauseVerdictStatus.REVIEW_REQUIRED

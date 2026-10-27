@@ -29,23 +29,43 @@ from app.prerequisite_intelligence.enums import (
 from app.prerequisite_intelligence.stable_ids import stable_snapshot_id
 
 
-def _resolve_subject_code(node: CurriculumNode) -> str | None:
+def _resolve_scope_from_ancestry(node: CurriculumNode) -> dict[str, Any]:
+    grade_year_code: str | None = None
+    medium_code: str | None = None
+    subject_code: str | None = None
     current: CurriculumNode | None = node
     while current is not None:
-        if current.node_type == CurriculumNodeType.SUBJECT.value:
-            return current.code
+        if current.node_type == CurriculumNodeType.GRADE_YEAR.value:
+            grade_year_code = current.code
+        elif current.node_type == CurriculumNodeType.MEDIUM.value:
+            medium_code = current.code
+        elif current.node_type == CurriculumNodeType.SUBJECT.value:
+            subject_code = current.code
         current = current.parent
-    meta = node.metadata_json or {}
-    return meta.get("subject_code")
+
+    meta = dict(node.metadata_json or {})
+    conflicts: list[str] = []
+    if meta.get("medium_code") and medium_code and meta.get("medium_code") != medium_code:
+        conflicts.append("medium_code")
+    meta_grade = meta.get("grade_year_code")
+    if meta_grade and grade_year_code and meta_grade != grade_year_code:
+        conflicts.append("grade_year_code")
+    if meta.get("subject_code") and subject_code and meta.get("subject_code") != subject_code:
+        conflicts.append("subject_code")
+
+    return {
+        "grade_year_code": grade_year_code or meta.get("grade_year_code"),
+        "subject_code": subject_code or meta.get("subject_code"),
+        "medium_code": medium_code if medium_code else meta.get("medium_code"),
+        "scope_conflicts": conflicts,
+    }
 
 
 def _node_scope_metadata(node: CurriculumNode) -> dict[str, Any]:
-    meta = dict(node.metadata_json or {})
-    return {
-        "grade_year_code": meta.get("grade_year_code"),
-        "subject_code": _resolve_subject_code(node),
-        "medium_code": meta.get("medium_code"),
-    }
+    resolved = _resolve_scope_from_ancestry(node)
+    if resolved.get("scope_conflicts"):
+        return {**resolved, "excluded": True}
+    return resolved
 
 
 def _classify_edge_provenance(
@@ -158,6 +178,8 @@ def load_prerequisite_graph_snapshot(
     subject_nodes: list[CurriculumNode] = []
     for node in concept_nodes:
         node_meta = _node_scope_metadata(node)
+        if node_meta.get("excluded"):
+            continue
         resolved_subject = node_meta.get("subject_code")
         if scope.subject_code and resolved_subject != scope.subject_code:
             continue
@@ -260,5 +282,7 @@ def load_prerequisite_graph_snapshot(
             "authorized_revision_ids": sorted(authority.authorized_revision_ids),
             "loader_issue_count": len(loader_issues),
             "loader_issues": [issue.model_dump(mode="json") for issue in loader_issues],
+            "synthetic_fixture": bool((version.metadata_json or {}).get("fixture")),
+            "fixture": bool((version.metadata_json or {}).get("fixture")),
         },
     )

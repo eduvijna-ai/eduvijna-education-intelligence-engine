@@ -41,12 +41,12 @@ class PaperDistributionRequest(BaseModel):
 
     paper_id: str
     taxonomy_version: str = V1_TAXONOMY_VERSION
+    requested_count: int | None = Field(default=None, ge=0)
     items: list[PaperItemInput]
     cognitive_targets: list[DistributionTarget] = Field(default_factory=list)
     competency_targets: list[DistributionTarget] = Field(default_factory=list)
     multi_label_policy: MultiLabelPolicy = MultiLabelPolicy.PRIMARY_ONLY
     include_mark_weighted: bool = True
-    day6_items_trusted: bool = False
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 

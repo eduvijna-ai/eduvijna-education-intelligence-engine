@@ -12,6 +12,7 @@ from app.education_intelligence.taxonomy_registry import (
     TaxonomyRegistry,
     seed_taxonomy_registry,
 )
+from app.paper_distribution.audit import persist_paper_distribution_audit
 from app.paper_distribution.contracts import (
     DimensionSummary,
     DistributionTarget,
@@ -24,6 +25,7 @@ from app.paper_distribution.enums import (
     PaperDistributionIssueCode,
     PaperDistributionVerdict,
 )
+from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 
 
@@ -85,6 +87,14 @@ def _evaluate_dimension_targets(
                     if status == DistributionDimensionStatus.PASS:
                         status = DistributionDimensionStatus.REVIEW_REQUIRED
 
+        if (
+            target.min_percent is not None
+            and target.max_percent is not None
+            and target.min_percent > target.max_percent
+        ):
+            issues.append(PaperDistributionIssueCode.TARGET_INFEASIBLE)
+            status = DistributionDimensionStatus.INFEASIBLE
+
         if target.min_percent is not None and observed_percent < target.min_percent:
             issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
             status = DistributionDimensionStatus.FAIL
@@ -106,6 +116,7 @@ def evaluate_paper_distribution(
     request: PaperDistributionRequest,
     *,
     taxonomy: TaxonomyRegistry | None = None,
+    day6_trust: PaperDay6TrustContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = taxonomy or TaxonomyRegistry()
     issues: list[PaperDistributionIssueCode] = []
@@ -123,6 +134,10 @@ def evaluate_paper_distribution(
         if target.dimension != "competency":
             issues.append(PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION)
             field_paths.append(f"competency_targets[{index}]/dimension")
+
+    if request.requested_count is not None and request.requested_count < 0:
+        issues.append(PaperDistributionIssueCode.REQUESTED_COUNT_MISMATCH)
+        field_paths.append("requested_count")
 
     if not request.items:
         issues.append(PaperDistributionIssueCode.EMPTY_PAPER)
@@ -162,9 +177,14 @@ def evaluate_paper_distribution(
             items_missing_metadata.append(item.item_id)
             continue
 
-        if not request.day6_items_trusted:
+        if day6_trust is None:
             issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
             field_paths.append(f"{base_path}/day6_validated")
+            items_missing_metadata.append(item.item_id)
+            continue
+        if day6_trust.trust_source == "validation_run" and not day6_trust.validation_run_id:
+            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+            field_paths.append("day6_trust.validation_run_id")
             items_missing_metadata.append(item.item_id)
             continue
 
@@ -254,11 +274,19 @@ def evaluate_paper_distribution(
                     issues.append(PaperDistributionIssueCode.PRIMARY_COMPETENCY_MISMATCH)
                     field_paths.append(f"{base_path}/primary_competency_code")
                 elif primary_resolved is not None:
-                    competency_counts[primary_resolved] += 1.0
-                    if marks > 0:
-                        competency_marks[primary_resolved] += marks
+                    if not resolved_codes:
+                        issues.append(PaperDistributionIssueCode.MISSING_COMPETENCY)
+                        field_paths.append(f"{base_path}/competency_codes")
+                        items_missing_metadata.append(item.item_id)
+                    else:
+                        competency_counts[primary_resolved] += 1.0
+                        if marks > 0:
+                            competency_marks[primary_resolved] += marks
 
     item_count = len(distinct_ids)
+    if request.requested_count is not None and request.requested_count != item_count:
+        issues.append(PaperDistributionIssueCode.REQUESTED_COUNT_MISMATCH)
+        field_paths.append("requested_count")
     count_den = float(item_count) if item_count else 1.0
     mark_den = total_marks if total_marks > 0 else 1.0
 
@@ -331,6 +359,7 @@ def evaluate_paper_distribution(
                     PaperDistributionIssueCode.TARGET_MISMATCH,
                     PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION,
                     PaperDistributionIssueCode.ZERO_ITEM_COVERAGE,
+                    PaperDistributionIssueCode.REQUESTED_COUNT_MISMATCH,
                 }
                 for code in issues
             )
@@ -390,7 +419,13 @@ def evaluate_paper_distribution(
 
 
 def evaluate_paper_distribution_with_session(
-    session: Session, request: PaperDistributionRequest
+    session: Session,
+    request: PaperDistributionRequest,
+    *,
+    day6_trust: PaperDay6TrustContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = seed_taxonomy_registry(session)
-    return evaluate_paper_distribution(request, taxonomy=taxonomy)
+    result = evaluate_paper_distribution(request, taxonomy=taxonomy, day6_trust=day6_trust)
+    audit_ref = persist_paper_distribution_audit(session, request, result)
+    session.commit()
+    return result.model_copy(update={"audit_ref": audit_ref})

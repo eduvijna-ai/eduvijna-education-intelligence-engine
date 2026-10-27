@@ -38,6 +38,7 @@ class PaperDistributionIssueCode(StrEnum):
     UNTRUSTED_DAY6_ASSERTION = "d10.paper.untrusted_day6_assertion"
     PRIMARY_COMPETENCY_MISMATCH = "d10.paper.primary_competency_mismatch"
     ZERO_ITEM_COVERAGE = "d10.paper.zero_item_coverage"
+    REQUESTED_COUNT_MISMATCH = "d10.paper.requested_count_mismatch"
 
 
 class PaperDistributionVerdict(StrEnum):
