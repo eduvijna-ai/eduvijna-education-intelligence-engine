@@ -18,7 +18,7 @@ import app.models  # noqa: F401
 from app.common.trust_execution import TrustExecutionMode
 from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.enums import SourceStatus, SourceTrustTier, SourceType
+from app.models.enums import SourceTrustTier, SourceType
 from app.models.orchestration import OrchestrationAuditEvent
 from app.models.source import Source, SourceRevision
 from app.orchestration.contracts import OrchestrationRequest
