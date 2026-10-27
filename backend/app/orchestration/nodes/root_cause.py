@@ -98,7 +98,13 @@ def root_cause_enrich_node(
             )
             det = deterministic_by_item.get(item_id) or {}
             draft = draft_by_item.get(item_id) or {}
-            concept_codes = list(draft.get("concept_codes") or scope.concept_codes or [])
+            draft_meta = draft.get("metadata_json") or {}
+            concept_codes = list(
+                draft.get("concept_codes")
+                or draft_meta.get("concept_codes")
+                or scope.concept_codes
+                or []
+            )
             target_concept = concept_codes[0] if concept_codes else ""
             if not target_concept:
                 continue

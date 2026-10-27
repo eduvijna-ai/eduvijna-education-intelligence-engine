@@ -167,3 +167,27 @@ def test_snapshot_allowlist_spoof_blocked(tmp_path: Path) -> None:
     )
     assert RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF in result.issue_codes
     assert result.verdict_status != RootCauseVerdictStatus.PASS
+
+
+def test_forged_taxonomy_blocked_even_when_trusted(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    session.commit()
+    snapshot = load_day10_fixture_snapshot(session, ctx)
+    service = RootCauseIntelligenceService()
+    forged_version = "forged-taxonomy"
+    result = service.analyze(
+        RootCauseDiagnosticRequest(
+            item_id="item-1",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version=forged_version,
+            tag=_tag(taxonomy_version=forged_version),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            graph_snapshot=snapshot,
+            target_concept_code="multi-step-addition",
+            tag_validation_trusted=True,
+        )
+    )
+    assert RootCauseIssueCode.INACTIVE_TAXONOMY in result.issue_codes
+    assert result.verdict_status != RootCauseVerdictStatus.PASS

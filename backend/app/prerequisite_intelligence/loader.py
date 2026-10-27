@@ -29,17 +29,22 @@ from app.prerequisite_intelligence.enums import (
 from app.prerequisite_intelligence.stable_ids import stable_snapshot_id
 
 
+def _resolve_subject_code(node: CurriculumNode) -> str | None:
+    current: CurriculumNode | None = node
+    while current is not None:
+        if current.node_type == CurriculumNodeType.SUBJECT.value:
+            return current.code
+        current = current.parent
+    meta = node.metadata_json or {}
+    return meta.get("subject_code")
+
+
 def _node_scope_metadata(node: CurriculumNode) -> dict[str, Any]:
     meta = dict(node.metadata_json or {})
-    parent = node.parent
-    subject_code = None
-    if parent is not None and parent.node_type == CurriculumNodeType.SUBJECT.value:
-        subject_code = parent.code
-    elif node.parent_id:
-        subject_code = meta.get("subject_code")
     return {
         "grade_year_code": meta.get("grade_year_code"),
-        "subject_code": subject_code or meta.get("subject_code"),
+        "subject_code": _resolve_subject_code(node),
+        "medium_code": meta.get("medium_code"),
     }
 
 
@@ -153,7 +158,10 @@ def load_prerequisite_graph_snapshot(
     subject_nodes: list[CurriculumNode] = []
     for node in concept_nodes:
         node_meta = _node_scope_metadata(node)
-        if scope.subject_code and node_meta.get("subject_code") != scope.subject_code:
+        resolved_subject = node_meta.get("subject_code")
+        if scope.subject_code and resolved_subject != scope.subject_code:
+            continue
+        if scope.medium_code and node_meta.get("medium_code") != scope.medium_code:
             continue
         subject_nodes.append(node)
 

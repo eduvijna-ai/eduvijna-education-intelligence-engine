@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
+from app.diagnostic_intelligence.enums import (
+    DiagnosticValidationStatus,
+    MisconceptionStatus,
+)
+from app.diagnostic_intelligence.taxonomy_registry import (
+    TaxonomyRegistryError,
+    load_taxonomy,
+    resolve_misconception,
+)
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode
 
@@ -58,6 +66,22 @@ def run_root_cause_preflight(request: RootCauseDiagnosticRequest) -> RootCausePr
     if not request.tag_validation_trusted:
         issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
         paths.append("tag_validation_trusted")
+
+    try:
+        load_taxonomy(request.taxonomy_version)
+    except TaxonomyRegistryError:
+        issues.append(RootCauseIssueCode.INACTIVE_TAXONOMY)
+        paths.append("taxonomy_version")
+
+    try:
+        definition = resolve_misconception(
+            request.misconception_code, taxonomy_version=request.taxonomy_version
+        )
+    except TaxonomyRegistryError:
+        definition = None
+    if definition is None or definition.status != MisconceptionStatus.ACTIVE:
+        issues.append(RootCauseIssueCode.INACTIVE_TAXONOMY)
+        paths.append("misconception_code")
 
     blocking = bool(issues)
     return RootCausePreflightResult(

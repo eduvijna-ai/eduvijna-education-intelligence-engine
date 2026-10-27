@@ -35,6 +35,9 @@ class PaperDistributionIssueCode(StrEnum):
     MALFORMED_TARGET_DIMENSION = "d10.paper.malformed_target_dimension"
     NON_FINITE_MARKS = "d10.paper.non_finite_marks"
     DUPLICATE_COMPETENCY_LABEL = "d10.paper.duplicate_competency_label"
+    UNTRUSTED_DAY6_ASSERTION = "d10.paper.untrusted_day6_assertion"
+    PRIMARY_COMPETENCY_MISMATCH = "d10.paper.primary_competency_mismatch"
+    ZERO_ITEM_COVERAGE = "d10.paper.zero_item_coverage"
 
 
 class PaperDistributionVerdict(StrEnum):

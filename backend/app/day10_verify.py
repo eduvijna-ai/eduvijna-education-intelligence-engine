@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import cast
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
@@ -18,6 +18,7 @@ from app.db.session import enable_sqlite_foreign_keys
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
 from app.education_intelligence.taxonomy_registry import TaxonomyRegistry
+from app.models.curriculum import ConceptPrerequisite
 from app.paper_distribution.enums import PaperDistributionVerdict
 from app.paper_distribution.evaluator import evaluate_paper_distribution
 from app.paper_distribution.fixtures import (
@@ -25,7 +26,11 @@ from app.paper_distribution.fixtures import (
     build_mismatched_target_paper,
 )
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.enums import GraphAuditStatus, GraphIssueCode
+from app.prerequisite_intelligence.enums import (
+    EdgeProvenanceClass,
+    GraphAuditStatus,
+    GraphIssueCode,
+)
 from app.prerequisite_intelligence.fixtures import (
     load_day10_fixture_snapshot,
     seed_day10_prerequisite_fixture,
@@ -117,6 +122,50 @@ def build_verification_report(session: Session) -> dict[str, object]:
         build_mismatched_target_paper(demo_paper), taxonomy=TaxonomyRegistry()
     )
 
+    forged_tax = service.analyze(
+        RootCauseDiagnosticRequest(
+            item_id="d10-forged-tax",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version="forged-taxonomy",
+            tag=OptionDiagnosticTag(
+                item_id="d10-forged-tax",
+                option_key="A",
+                is_correct=False,
+                misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                validation_status=DiagnosticValidationStatus.PASS,
+                taxonomy_version="forged-taxonomy",
+            ),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            graph_snapshot=snapshot,
+            target_concept_code="multi-step-addition",
+            tag_validation_trusted=True,
+        )
+    )
+
+    edge = session.scalars(
+        select(ConceptPrerequisite).where(
+            ConceptPrerequisite.prerequisite_concept_id == ctx["counting_concept_id"],
+            ConceptPrerequisite.target_concept_id == ctx["whole_add_concept_id"],
+        )
+    ).first()
+    forged_graph_fail = False
+    if edge is not None:
+        edge.metadata_json = {
+            "provenance_class": EdgeProvenanceClass.OFFICIAL.value,
+            "source_revision_id": "missing-revision",
+            "source_locator": "forged",
+        }
+        session.commit()
+        forged_snapshot = load_day10_fixture_snapshot(session, ctx)
+        forged_report = build_graph_quality_report(
+            forged_snapshot, allowed_source_revision_ids=set()
+        )
+        forged_graph_fail = forged_report.status == GraphAuditStatus.FAIL and any(
+            issue.code == GraphIssueCode.UNAUTHORIZED_PROVENANCE for issue in forged_report.issues
+        )
+
+    cognitive = paper_pass.cognitive_summary.count_percent
     checks: dict[str, object] = {
         **sha_checks,
         "graph_quality_pass": graph_report.status == GraphAuditStatus.PASS,
@@ -127,18 +176,17 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "correct_option_veto": (
             RootCauseIssueCode.CORRECT_OPTION_TAGGED in correct_block.issue_codes
         ),
-        "cognitive_20_20_40_10_10": all(
-            paper_pass.cognitive_summary.count_percent.get(level) is not None
-            for level in ("remember", "understand", "apply", "analyze", "evaluate")
-        )
-        and paper_pass.cognitive_summary.count_percent.get("remember") == 20.0
-        and paper_pass.cognitive_summary.count_percent.get("apply") == 40.0,
+        "cognitive_20_20_40_10_10": (
+            cognitive.get("remember") == 20.0
+            and cognitive.get("understand") == 20.0
+            and cognitive.get("apply") == 40.0
+            and cognitive.get("analyze") == 10.0
+            and cognitive.get("evaluate") == 10.0
+        ),
         "paper_distribution_pass": paper_pass.verdict == PaperDistributionVerdict.PASS,
         "paper_distribution_target_fail": paper_fail.verdict == PaperDistributionVerdict.FAIL,
-        "loader_issues_surface_in_audit": not any(
-            issue.code == GraphIssueCode.UNAUTHORIZED_PROVENANCE
-            for issue in graph_report.issues
-        ),
+        "forged_official_graph_audit_fail": forged_graph_fail,
+        "forged_taxonomy_blocked": RootCauseIssueCode.INACTIVE_TAXONOMY in forged_tax.issue_codes,
     }
     ok = all(bool(value) for value in checks.values())
     return {

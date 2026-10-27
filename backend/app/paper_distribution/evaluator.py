@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 
@@ -24,6 +25,11 @@ from app.paper_distribution.enums import (
     PaperDistributionVerdict,
 )
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
+
+
+def _result_fingerprint(request: PaperDistributionRequest) -> str:
+    encoded = json.dumps(request.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return stable_audit_ref("paper-fingerprint", encoded)
 
 
 def _evaluate_dimension_targets(
@@ -139,6 +145,7 @@ def evaluate_paper_distribution(
     competency_counts: dict[str, float] = defaultdict(float)
     competency_marks: dict[str, float] = defaultdict(float)
     total_marks = 0.0
+    items_missing_metadata: list[str] = []
 
     for index, item in enumerate(request.items):
         base_path = f"items[{index}]"
@@ -152,6 +159,13 @@ def evaluate_paper_distribution(
         if not item.day6_validated:
             issues.append(PaperDistributionIssueCode.MISSING_COGNITIVE)
             field_paths.append(f"{base_path}/day6_validated")
+            items_missing_metadata.append(item.item_id)
+            continue
+
+        if not request.day6_items_trusted:
+            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+            field_paths.append(f"{base_path}/day6_validated")
+            items_missing_metadata.append(item.item_id)
             continue
 
         if item.marks is None:
@@ -189,28 +203,35 @@ def evaluate_paper_distribution(
                 if resolved is None:
                     issues.append(PaperDistributionIssueCode.INVALID_COGNITIVE)
                     field_paths.append(f"{base_path}/cognitive_level")
-                elif marks > 0:
+                else:
                     cognitive_counts[resolved] += 1.0
-                    cognitive_marks[resolved] += marks
+                    if marks > 0:
+                        cognitive_marks[resolved] += marks
 
         if request.multi_label_policy == MultiLabelPolicy.FRACTIONAL_SPLIT:
             comp_codes = list(item.competency_codes)
             if not comp_codes:
                 issues.append(PaperDistributionIssueCode.MISSING_COMPETENCY)
                 field_paths.append(f"{base_path}/competency_codes")
-            elif marks > 0:
-                if len(set(comp_codes)) != len(comp_codes):
-                    issues.append(PaperDistributionIssueCode.DUPLICATE_COMPETENCY_LABEL)
-                    field_paths.append(f"{base_path}/competency_codes")
-                share = 1.0 / len(comp_codes)
+                items_missing_metadata.append(item.item_id)
+            else:
+                normalized: list[str] = []
                 for code in comp_codes:
                     resolved, _ = taxonomy.resolve_competency(code)
                     if resolved is None:
                         issues.append(PaperDistributionIssueCode.INVALID_COMPETENCY)
                         field_paths.append(f"{base_path}/competency_codes")
                     else:
+                        normalized.append(resolved)
+                if len(set(normalized)) != len(normalized):
+                    issues.append(PaperDistributionIssueCode.DUPLICATE_COMPETENCY_LABEL)
+                    field_paths.append(f"{base_path}/competency_codes")
+                if normalized:
+                    share = 1.0 / len(normalized)
+                    for resolved in normalized:
                         competency_counts[resolved] += share
-                        competency_marks[resolved] += marks * share
+                        if marks > 0:
+                            competency_marks[resolved] += marks * share
         else:
             primary = item.primary_competency_code or (
                 item.competency_codes[0] if item.competency_codes else None
@@ -218,14 +239,24 @@ def evaluate_paper_distribution(
             if not primary:
                 issues.append(PaperDistributionIssueCode.MISSING_COMPETENCY)
                 field_paths.append(f"{base_path}/competency_codes")
-            elif marks > 0:
-                resolved, _ = taxonomy.resolve_competency(primary)
-                if resolved is None:
+                items_missing_metadata.append(item.item_id)
+            else:
+                resolved_codes: list[str] = []
+                for code in item.competency_codes:
+                    resolved, _ = taxonomy.resolve_competency(code)
+                    if resolved is not None:
+                        resolved_codes.append(resolved)
+                primary_resolved, _ = taxonomy.resolve_competency(primary)
+                if primary_resolved is None:
                     issues.append(PaperDistributionIssueCode.INVALID_COMPETENCY)
                     field_paths.append(f"{base_path}/competency_codes")
-                else:
-                    competency_counts[resolved] += 1.0
-                    competency_marks[resolved] += marks
+                elif resolved_codes and primary_resolved not in resolved_codes:
+                    issues.append(PaperDistributionIssueCode.PRIMARY_COMPETENCY_MISMATCH)
+                    field_paths.append(f"{base_path}/primary_competency_code")
+                elif primary_resolved is not None:
+                    competency_counts[primary_resolved] += 1.0
+                    if marks > 0:
+                        competency_marks[primary_resolved] += marks
 
     item_count = len(distinct_ids)
     count_den = float(item_count) if item_count else 1.0
@@ -272,17 +303,15 @@ def evaluate_paper_distribution(
     issues.extend(cognitive_target_issues)
     issues.extend(competency_target_issues)
 
+    if item_count > 0 and sum(cognitive_counts.values()) < 1e-6:
+        issues.append(PaperDistributionIssueCode.ZERO_ITEM_COVERAGE)
+        field_paths.append("items")
+
     missing_cognitive = [
         key for key in COGNITIVE_PROGRESSION_ORDER if cognitive_counts.get(key, 0.0) == 0.0
     ]
 
-    item_id_digest = stable_audit_ref(
-        "paper-items",
-        request.paper_id,
-        ",".join(sorted(distinct_ids)),
-        str(len(request.cognitive_targets)),
-        str(len(request.competency_targets)),
-    )
+    fingerprint = _result_fingerprint(request)
 
     verdict = PaperDistributionVerdict.PASS
     if issues:
@@ -301,6 +330,7 @@ def evaluate_paper_distribution(
                     PaperDistributionIssueCode.EMPTY_PAPER,
                     PaperDistributionIssueCode.TARGET_MISMATCH,
                     PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION,
+                    PaperDistributionIssueCode.ZERO_ITEM_COVERAGE,
                 }
                 for code in issues
             )
@@ -308,6 +338,11 @@ def evaluate_paper_distribution(
             verdict = PaperDistributionVerdict.FAIL
         else:
             verdict = PaperDistributionVerdict.REVIEW_REQUIRED
+
+    if issues and cognitive_status == DistributionDimensionStatus.PASS:
+        cognitive_status = DistributionDimensionStatus.REVIEW_REQUIRED
+    if issues and competency_status == DistributionDimensionStatus.PASS:
+        competency_status = DistributionDimensionStatus.REVIEW_REQUIRED
 
     return PaperDistributionResult(
         paper_id=request.paper_id,
@@ -344,15 +379,12 @@ def evaluate_paper_distribution(
         ),
         issue_codes=list(dict.fromkeys(issues)),
         field_paths=field_paths,
-        audit_ref=stable_audit_ref(
-            request.paper_id,
-            str(item_count),
-            request.taxonomy_version,
-            item_id_digest,
-        ),
+        audit_ref=None,
+        result_fingerprint=fingerprint,
         metadata_json={
             "multi_label_policy": request.multi_label_policy.value,
             "total_marks": total_marks,
+            "items_missing_metadata": items_missing_metadata,
         },
     )
 

@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R2 FOCUSED REPAIR** (Chief Architect handoff R2; push pending new HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R3 FOCUSED REPAIR** (Chief Architect handoff R3; push pending new HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R2 deltas (vs `102be05`):** exclude failed-official edges (no synthetic laundering); loader issues in graph audit; global official tenancy policy; `tag_validation_trusted` + no snapshot allowlist spoof; orchestration concept scope + enrichment incomplete gate; paper malformed targets + fractional exact_count + audit fingerprint. **19** `test_day10_*` tests. D10-22/32/33/36 still PARTIAL/PENDING.
+**R3 deltas (vs `d09bc15`):** whole-output root-cause completion; taxonomy registry enforcement; private-source tenant scope; paper count/marks split + `day6_items_trusted` + `result_fingerprint`; orchestration whole-output tests. D10-22/32/33/36 still PARTIAL/PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

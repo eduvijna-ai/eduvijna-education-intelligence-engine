@@ -115,7 +115,10 @@ class RootCauseIntelligenceService:
         )
         supported = [hypothesis for hypothesis in hypotheses if hypothesis.paths]
 
-        if any(item.code == GraphIssueCode.PATH_BUDGET_EXHAUSTED for item in traversal_issues):
+        path_budget_hit = any(
+            item.code == GraphIssueCode.PATH_BUDGET_EXHAUSTED for item in traversal_issues
+        )
+        if path_budget_hit:
             issue_codes.append(RootCauseIssueCode.PATH_BUDGET_EXHAUSTED)
             field_paths.append("graph_snapshot.traversal")
 
@@ -125,6 +128,8 @@ class RootCauseIntelligenceService:
             verdict = RootCauseVerdictStatus.INSUFFICIENT_EVIDENCE
         elif len(supported) >= 2 and supported[0].support_score == supported[1].support_score:
             issue_codes.append(RootCauseIssueCode.AMBIGUOUS_PATH)
+            verdict = RootCauseVerdictStatus.REVIEW_REQUIRED
+        elif path_budget_hit:
             verdict = RootCauseVerdictStatus.REVIEW_REQUIRED
         elif issue_codes:
             verdict = RootCauseVerdictStatus.REVIEW_REQUIRED

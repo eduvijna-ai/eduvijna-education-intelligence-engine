@@ -46,6 +46,7 @@ class PaperDistributionRequest(BaseModel):
     competency_targets: list[DistributionTarget] = Field(default_factory=list)
     multi_label_policy: MultiLabelPolicy = MultiLabelPolicy.PRIMARY_ONLY
     include_mark_weighted: bool = True
+    day6_items_trusted: bool = False
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -74,4 +75,5 @@ class PaperDistributionResult(BaseModel):
     issue_codes: list[PaperDistributionIssueCode] = Field(default_factory=list)
     field_paths: list[str] = Field(default_factory=list)
     audit_ref: str | None = None
+    result_fingerprint: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)

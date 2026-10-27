@@ -128,13 +128,16 @@ def detect_cycles(
     for edge in edges:
         adjacency[edge.prerequisite_concept_id].append((edge.target_concept_id, edge.edge_id))
 
-    node_ids = [node.concept_id for node in nodes]
-    for start in node_ids:
-        stack: list[tuple[str, int, int]] = [(start, 0, 0)]
-        visiting: set[str] = set()
-        path_edges: list[str] = []
+    color: dict[str, int] = {}
+    stack: list[tuple[str, int, int]] = []
+
+    def begin(node_id: str) -> None:
+        if color.get(node_id, 0) != 0:
+            return
+        stack.append((node_id, 0, 0))
+        color[node_id] = 1
         while stack:
-            node_id, edge_index, depth = stack[-1]
+            node_id, child_index, depth = stack[-1]
             if depth > max_depth:
                 issues.append(
                     GraphIssue(
@@ -143,20 +146,18 @@ def detect_cycles(
                         field_path=f"concepts/{node_id}",
                     )
                 )
+                color[node_id] = 2
                 stack.pop()
-                if path_edges:
-                    path_edges.pop()
                 continue
             children = adjacency.get(node_id, [])
-            if edge_index >= len(children):
+            if child_index >= len(children):
+                color[node_id] = 2
                 stack.pop()
-                if path_edges:
-                    path_edges.pop()
-                visiting.discard(node_id)
                 continue
-            target_id, edge_id = children[edge_index]
-            stack[-1] = (node_id, edge_index + 1, depth)
-            if target_id in visiting:
+            target_id, edge_id = children[child_index]
+            stack[-1] = (node_id, child_index + 1, depth)
+            state = color.get(target_id, 0)
+            if state == 1:
                 issues.append(
                     GraphIssue(
                         code=GraphIssueCode.CYCLE_DETECTED,
@@ -166,9 +167,12 @@ def detect_cycles(
                 )
                 cycle_edge_ids.append(edge_id)
                 continue
-            visiting.add(node_id)
-            path_edges.append(edge_id)
-            stack.append((target_id, 0, depth + 1))
+            if state == 0:
+                color[target_id] = 1
+                stack.append((target_id, 0, depth + 1))
+
+    for node in nodes:
+        begin(node.concept_id)
 
     return issues, list(dict.fromkeys(cycle_edge_ids))
 

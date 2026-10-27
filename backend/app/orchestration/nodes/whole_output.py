@@ -62,21 +62,24 @@ def whole_output_node(
     elif not diagnostics_finished(state, request) and request.diagnostic_enrichment_enabled():
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("diagnostic_enrichment_incomplete")
-    elif request.root_cause_enrichment_enabled() and any(
-        str(entry.get("verdict_status")) != "pass"
-        for entry in (state.get("root_cause_results") or [])
-    ):
-        status = OrchestrationRunStatus.REVIEW_REQUIRED
-        errors.append("root_cause_review_required")
     elif request.root_cause_enrichment_enabled():
         eligible_raw = state.get("root_cause_eligible_tag_count")
         eligible = int(eligible_raw) if isinstance(eligible_raw, int) else 0
         produced = len(state.get("root_cause_results") or [])
-        if eligible > 0 and produced < eligible:
+        root_cause_results = state.get("root_cause_results") or []
+        rc_non_pass = any(
+            str(entry.get("verdict_status")) != "pass" for entry in root_cause_results
+        )
+        if rc_non_pass:
+            status = OrchestrationRunStatus.REVIEW_REQUIRED
+            errors.append("root_cause_review_required")
+        elif eligible > 0 and produced < eligible:
             status = OrchestrationRunStatus.REVIEW_REQUIRED
             errors.append("root_cause_enrichment_incomplete")
         elif eligible == 0 and produced == 0:
-            errors.append("root_cause_not_applicable")
+            status = OrchestrationRunStatus.COMPLETED
+        else:
+            status = OrchestrationRunStatus.COMPLETED
     else:
         status = OrchestrationRunStatus.COMPLETED
 
@@ -114,6 +117,11 @@ def whole_output_node(
     for item in approved_items:
         revision_ids.extend(item.source_revision_ids)
 
+    eligible_for_meta = state.get("root_cause_eligible_tag_count")
+    eligible_count_meta = (
+        eligible_for_meta if isinstance(eligible_for_meta, int) else 0
+    )
+
     audit_id = audit_node(
         deps,
         state,
@@ -145,6 +153,11 @@ def whole_output_node(
             "institution_id": scope.institution_id,
             "diagnostic_results": state.get("diagnostic_results") or [],
             "root_cause_results": state.get("root_cause_results") or [],
+            "root_cause_not_applicable": (
+                request.root_cause_enrichment_enabled()
+                and eligible_count_meta == 0
+                and len(state.get("root_cause_results") or []) == 0
+            ),
         },
     )
     return timed_update(

@@ -140,20 +140,24 @@ def revision_is_authorized_for_scope(
         return True
 
     if source_type == SourceType.INSTITUTION_CONTENT.value:
-        if scope.organization_id and record.organization_id != scope.organization_id:
+        if not scope.organization_id or not scope.institution_id:
             return False
-        if scope.institution_id and record.institution_id != scope.institution_id:
+        if record.organization_id != scope.organization_id:
             return False
-        return bool(record.institution_id)
+        if record.institution_id != scope.institution_id:
+            return False
+        return True
 
     if source_type == SourceType.TEACHER_CONTENT.value:
-        if scope.organization_id and record.organization_id != scope.organization_id:
+        if not scope.organization_id or not scope.institution_id or not scope.teacher_id:
             return False
-        if scope.institution_id and record.institution_id != scope.institution_id:
+        if record.organization_id != scope.organization_id:
             return False
-        if scope.teacher_id and record.teacher_id != scope.teacher_id:
+        if record.institution_id != scope.institution_id:
             return False
-        return bool(record.teacher_id)
+        if record.teacher_id != scope.teacher_id:
+            return False
+        return True
 
     if scope.organization_id and record.organization_id != scope.organization_id:
         return False
