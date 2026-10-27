@@ -200,6 +200,16 @@ def _classify_edge_provenance(
         return EdgeProvenanceClass.SYNTHETIC, revision_id, locator, issues, True
 
     provenance = EdgeProvenanceClass(raw_claim)
+    if provenance == EdgeProvenanceClass.SYNTHETIC and authority.production_graph:
+        issues.append(
+            GraphIssue(
+                code=GraphIssueCode.UNAUTHORIZED_PROVENANCE,
+                severity="error",
+                field_path=f"edges/{edge_id}/metadata_json/provenance_class",
+                detail={"edge_id": edge_id, "provenance": provenance.value},
+            )
+        )
+        return provenance, revision_id, locator, issues, False
     non_official = {EdgeProvenanceClass.SYNTHETIC, EdgeProvenanceClass.INFERRED}
     if provenance in non_official and not revision_id:
         if authority.production_graph:

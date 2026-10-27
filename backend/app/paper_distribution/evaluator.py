@@ -112,6 +112,7 @@ def _evaluate_dimension_targets(
     *,
     include_mark_weighted: bool,
     valid_keys: set[str],
+    fractional_attribution: bool = False,
 ) -> tuple[list[PaperDistributionIssueCode], DistributionDimensionStatus, dict[str, float]]:
     issues: list[PaperDistributionIssueCode] = []
     status = DistributionDimensionStatus.PASS
@@ -122,9 +123,15 @@ def _evaluate_dimension_targets(
     if not scoped:
         return issues, status, variance
 
-    reconciled = reconcile_exact_counts(item_count, scoped)
+    reconciled = (
+        reconcile_exact_counts(item_count, scoped) if not fractional_attribution else {}
+    )
     percent_targets = [target for target in scoped if target.exact_percent is not None]
-    uses_reconciled = bool(reconciled) and len(reconciled) == len(percent_targets)
+    uses_reconciled = (
+        bool(reconciled)
+        and len(reconciled) == len(percent_targets)
+        and not fractional_attribution
+    )
 
     for target in scoped:
         if target.key in seen_keys:
@@ -140,10 +147,12 @@ def _evaluate_dimension_targets(
         observed_percent = count_percent.get(target.key, 0.0)
 
         if target.exact_count is not None:
-            if abs(observed_count - float(target.exact_count)) > 1e-6:
+            expected = float(target.exact_count)
+            tolerance = 0.01 if fractional_attribution else 1e-6
+            if abs(observed_count - expected) > tolerance:
                 issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
                 status = DistributionDimensionStatus.FAIL
-            variance[target.key] = round(observed_count - float(target.exact_count), 2)
+            variance[target.key] = round(observed_count - expected, 2)
 
         if target.exact_percent is not None:
             variance[target.key] = round(observed_percent - target.exact_percent, 2)
@@ -408,6 +417,9 @@ def evaluate_paper_distribution(
         include_mark_weighted=request.include_mark_weighted,
         valid_keys=set(COGNITIVE_PROGRESSION_ORDER),
     )
+    competency_fractional = (
+        request.multi_label_policy == MultiLabelPolicy.FRACTIONAL_SPLIT
+    )
     competency_target_issues, competency_status, competency_variance = _evaluate_dimension_targets(
         "competency",
         request.competency_targets,
@@ -417,6 +429,7 @@ def evaluate_paper_distribution(
         item_count,
         include_mark_weighted=request.include_mark_weighted,
         valid_keys=set(competency_keys),
+        fractional_attribution=competency_fractional,
     )
     issues.extend(cognitive_target_issues)
     issues.extend(competency_target_issues)

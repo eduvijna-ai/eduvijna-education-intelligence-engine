@@ -47,7 +47,7 @@ from app.prerequisite_intelligence.contracts import (
 from app.prerequisite_intelligence.enums import EdgeProvenanceClass, GraphLifecycleStatus
 from app.prerequisite_intelligence.fixtures import seed_day10_prerequisite_fixture
 from app.root_cause_intelligence.contracts import RootCauseHypothesis
-from app.root_cause_intelligence.enums import RootCauseIssueCode, RootCauseVerdictStatus
+from app.root_cause_intelligence.enums import RootCauseVerdictStatus
 from app.root_cause_intelligence.mapping_authority import (
     ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
     ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
@@ -58,6 +58,16 @@ from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.ranking import project_hypothesis_authorized_paths
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
 from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
+
+_APPROVED_MAPPING_OVERLAY_BASE = {
+    "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+    "mapping_registry_version": "root-cause-mapping@v1",
+    "candidate_concept_codes": ["whole-number-addition", "multi-step-addition"],
+}
+
+
+def _approved_mapping_overlay(**updates: object) -> dict[str, object]:
+    return {**_APPROVED_MAPPING_OVERLAY_BASE, **updates}
 
 
 def test_unsourced_mapping_overlay_does_not_authorize_production(tmp_path: Path) -> None:
@@ -119,10 +129,9 @@ def test_source_backed_mapping_overlay_production_positive(tmp_path: Path) -> No
             status="active",
             payload_json={
                 "overlays": [
-                    {
-                        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-                        "source_revision_ids": [ctx["source_revision_id"]],
-                    }
+                    _approved_mapping_overlay(
+                        source_revision_ids=[ctx["source_revision_id"]],
+                    )
                 ]
             },
         )
@@ -281,10 +290,9 @@ def test_hypothesis_rerank_after_projection_matches_order(tmp_path: Path) -> Non
             status="active",
             payload_json={
                 "overlays": [
-                    {
-                        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
-                        "source_revision_ids": [ctx["source_revision_id"]],
-                    }
+                    _approved_mapping_overlay(
+                        source_revision_ids=[ctx["source_revision_id"]],
+                    )
                 ]
             },
         )

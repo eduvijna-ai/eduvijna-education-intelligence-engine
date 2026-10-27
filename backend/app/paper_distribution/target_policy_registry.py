@@ -100,12 +100,13 @@ def _overlay_mandatory_range(
     if mandatory_max is not None:
         baseline_max = new_max if new_max is not None else mandatory_max
         new_max = min(float(mandatory_max), float(baseline_max))
-    updated = existing.model_copy(
-        update={
-            "min_percent": new_min,
-            "max_percent": new_max,
-        }
-    )
+    update_fields: dict[str, Any] = {
+        "min_percent": new_min,
+        "max_percent": new_max,
+    }
+    if mandatory_count is not None:
+        update_fields["exact_count"] = int(mandatory_count)
+    updated = existing.model_copy(update=update_fields)
     index = targets.index(existing)
     targets[index] = updated
 
@@ -114,6 +115,7 @@ def mandatory_target_conflicts(
     request: PaperDistributionRequest,
     policy_payload: dict[str, Any],
 ) -> list[str]:
+    item_count = len(request.items) if request.items else (request.requested_count or 0)
     conflicts: list[str] = []
 
     def _exact_percent_conflicts(
@@ -155,9 +157,23 @@ def mandatory_target_conflicts(
                         conflicts.append(f"{prefix}[{index}]/exact_percent")
                     if mandatory_max is not None and pct > float(mandatory_max) + 0.01:
                         conflicts.append(f"{prefix}[{index}]/exact_percent")
-                if mandatory_count is not None and target.exact_count is not None:
-                    if int(mandatory_count) != int(target.exact_count):
+                if mandatory_count is not None:
+                    mandatory_int = int(mandatory_count)
+                    if target.exact_count is not None and int(target.exact_count) != mandatory_int:
                         conflicts.append(f"{prefix}[{index}]/exact_count")
+                    if (
+                        item_count > 0
+                        and target.exact_percent is not None
+                        and abs(target.exact_percent - 100.0) < 0.01
+                        and mandatory_int != item_count
+                    ):
+                        conflicts.append(f"{prefix}[{index}]/exact_count")
+                    elif item_count > 0 and target.exact_percent is not None:
+                        implied = int(
+                            round(item_count * float(target.exact_percent) / 100.0)
+                        )
+                        if implied != mandatory_int:
+                            conflicts.append(f"{prefix}[{index}]/exact_count")
                 if (
                     target.min_percent is not None
                     and target.max_percent is not None
