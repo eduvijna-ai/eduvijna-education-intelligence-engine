@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.enums import SourceRevisionStatus
+from app.models.enums import SourceRevisionStatus, SourceStatus
 from app.prerequisite_intelligence.authority import (
+    RevisionAuthorityRecord,
     load_revision_record,
     revision_is_authorized_for_scope,
 )
@@ -41,12 +42,22 @@ def _normalized_codes(codes: list[str]) -> tuple[str, ...]:
     return tuple(sorted(str(code) for code in codes if code))
 
 
+def source_content_checksum(record: RevisionAuthorityRecord) -> str | None:
+    if record.validated_checksum:
+        return str(record.validated_checksum)
+    if record.extracted_checksum:
+        return str(record.extracted_checksum)
+    return None
+
+
 def mapping_evidence_checksum(
     *,
     misconception_code: str,
     candidate_concept_codes: list[str],
     source_locator: str,
     mapping_registry_version: str,
+    source_revision_id: str,
+    source_content_checksum: str,
 ) -> str:
     payload = json.dumps(
         {
@@ -54,6 +65,8 @@ def mapping_evidence_checksum(
             "candidate_concept_codes": sorted(str(code) for code in candidate_concept_codes),
             "source_locator": source_locator.strip(),
             "mapping_registry_version": mapping_registry_version,
+            "source_revision_id": source_revision_id,
+            "source_content_checksum": source_content_checksum,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -62,24 +75,36 @@ def mapping_evidence_checksum(
 
 
 def _revision_supports_mapping_binding(
-    record_metadata: dict[str, Any],
+    record: RevisionAuthorityRecord,
     entry: MisconceptionConceptMapping,
     overlay: dict[str, Any],
     *,
     registry_version: str,
 ) -> bool:
     locator = str(overlay.get("source_locator") or "").strip()
-    expected_checksum = str(overlay.get("mapping_evidence_checksum") or "").strip()
-    if not locator or not expected_checksum:
+    if not locator:
         return False
-    if expected_checksum != mapping_evidence_checksum(
+    content_checksum = source_content_checksum(record)
+    if not content_checksum:
+        return False
+    if not record.approval_fingerprint or not record.approved_by:
+        return False
+    if record.source_status != SourceStatus.ACTIVE.value:
+        return False
+
+    expected_checksum = mapping_evidence_checksum(
         misconception_code=entry.misconception_code,
         candidate_concept_codes=entry.candidate_concept_codes,
         source_locator=locator,
         mapping_registry_version=registry_version,
-    ):
+        source_revision_id=record.revision_id,
+        source_content_checksum=content_checksum,
+    )
+    overlay_checksum = str(overlay.get("mapping_evidence_checksum") or "").strip()
+    if overlay_checksum != expected_checksum:
         return False
-    bindings_raw = record_metadata.get("root_cause_mapping_bindings") or []
+
+    bindings_raw = record.metadata_json.get("root_cause_mapping_bindings") or []
     if not isinstance(bindings_raw, list):
         return False
     for raw in bindings_raw:
@@ -95,9 +120,19 @@ def _revision_supports_mapping_binding(
             continue
         if str(raw.get("mapping_registry_version") or "") != registry_version:
             continue
+        if str(raw.get("source_revision_id") or "") != record.revision_id:
+            continue
+        if str(raw.get("source_content_checksum") or "") != content_checksum:
+            continue
         if str(raw.get("mapping_evidence_checksum") or "") != expected_checksum:
             continue
-        if str(raw.get("approval_status") or "active").lower() not in {"active", "approved"}:
+        if str(raw.get("approval_fingerprint") or "") != str(record.approval_fingerprint):
+            continue
+        approval_status = str(raw.get("approval_status") or "").lower()
+        if approval_status != "active":
+            continue
+        approved_by = str(raw.get("approved_by") or "").strip()
+        if not approved_by or approved_by != str(record.approved_by):
             continue
         return True
     return False
@@ -129,15 +164,9 @@ def _overlay_matches_entry(
     if bool(raw.get("synthetic", False)):
         return False
     locator = str(raw.get("source_locator") or "").strip()
-    checksum = str(raw.get("mapping_evidence_checksum") or "").strip()
-    if not locator or not checksum:
+    if not locator:
         return False
-    if checksum != mapping_evidence_checksum(
-        misconception_code=base.misconception_code,
-        candidate_concept_codes=base.candidate_concept_codes,
-        source_locator=locator,
-        mapping_registry_version=registry_version,
-    ):
+    if not str(raw.get("mapping_evidence_checksum") or "").strip():
         return False
     return True
 
@@ -237,7 +266,7 @@ def mapping_entry_production_authorized(
         ):
             return False
         if not _revision_supports_mapping_binding(
-            record.metadata_json or {},
+            record,
             entry,
             approved_overlay,
             registry_version=mapping_registry_version,

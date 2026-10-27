@@ -190,12 +190,20 @@ def _load_snapshot(session: Session, ctx: dict[str, str]) -> object:
     return load_prerequisite_graph_snapshot(session, scope)
 
 
-def _day9_audit(session: Session, ctx: dict[str, str], *, audit_id: str) -> None:
+def _day9_audit(
+    session: Session,
+    ctx: dict[str, str],
+    *,
+    audit_id: str,
+    run_id: str = "run-r8",
+    request_hash: str = "hash-r8",
+    evidence_refs: list[str] | None = None,
+) -> None:
     session.add(
         OrchestrationAuditEvent(
             id=audit_id,
-            run_id="run-r8",
-            request_hash="hash-r8",
+            run_id=run_id,
+            request_hash=request_hash,
             node_name="diagnostic_item",
             status="pass",
             attempt=1,
@@ -212,7 +220,7 @@ def _day9_audit(session: Session, ctx: dict[str, str], *, audit_id: str) -> None
                         "option_key": "A",
                         "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
                         "validation_status": DiagnosticValidationStatus.PASS.value,
-                        "evidence_refs": [],
+                        "evidence_refs": list(evidence_refs or []),
                     }
                 ],
             },

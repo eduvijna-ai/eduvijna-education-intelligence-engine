@@ -19,10 +19,7 @@ from test_day10_r10_trust import (
 from test_day10_r10_trust import (
     _session as _paper_session,
 )
-from test_day10_r11_trust import (
-    _approved_mapping_overlay,
-    _persist_mapping_binding_on_revision,
-)
+from test_day10_r11_trust import _approve_revision_mapping_binding
 
 import app.models  # noqa: F401
 from app.common.trust_execution import TrustExecutionMode
@@ -60,19 +57,13 @@ from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValid
 def test_tampered_loader_issues_blocks_production_root_cause(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    _persist_mapping_binding_on_revision(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
             version=ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
             status="active",
-            payload_json={
-                "overlays": [
-                    _approved_mapping_overlay(
-                        source_revision_ids=[ctx["source_revision_id"]],
-                    )
-                ]
-            },
+            payload_json={"overlays": [mapping_overlay]},
         )
     )
     multi_add = session.scalar(
@@ -180,9 +171,14 @@ def test_unrelated_revision_without_mapping_binding_rejected(tmp_path: Path) -> 
             status="active",
             payload_json={
                 "overlays": [
-                    _approved_mapping_overlay(
-                        source_revision_ids=[ctx["source_revision_id"]],
-                    )
+                    {
+                        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                        "mapping_registry_version": "root-cause-mapping@v1",
+                        "candidate_concept_codes": ["whole-number-addition", "multi-step-addition"],
+                        "source_revision_ids": [ctx["source_revision_id"]],
+                        "source_locator": "forged/locator",
+                        "mapping_evidence_checksum": "forged-checksum",
+                    }
                 ]
             },
         )
@@ -270,23 +266,24 @@ def test_root_cause_enrich_node_persists_item_audit(tmp_path: Path) -> None:
 
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    _persist_mapping_binding_on_revision(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
             version=ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
             status="active",
-            payload_json={
-                "overlays": [
-                    _approved_mapping_overlay(
-                        source_revision_ids=[ctx["source_revision_id"]],
-                    )
-                ]
-            },
+            payload_json={"overlays": [mapping_overlay]},
         )
     )
     audit_id = "00000000-0000-4000-8000-000000000015"
-    _day9_audit(session, ctx, audit_id=audit_id)
+    _day9_audit(
+        session,
+        ctx,
+        audit_id=audit_id,
+        run_id="run-r13-rc",
+        request_hash="hash-r13-rc",
+        evidence_refs=["cite-r13"],
+    )
     session.commit()
     deps = MagicMock()
     deps.session = session
@@ -379,4 +376,8 @@ def test_root_cause_enrich_node_persists_item_audit(tmp_path: Path) -> None:
         )
     )
     assert after > before
-    assert len(update.get("root_cause_results") or []) >= 1
+    results = update.get("root_cause_results") or []
+    assert len(results) == 1
+    entry = results[0]
+    assert entry.get("verdict_status") == RootCauseVerdictStatus.PASS.value
+    assert entry.get("hypotheses")

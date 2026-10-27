@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R13 FOCUSED REPAIR** (Chief Architect handoff R13). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R14 FOCUSED REPAIR** (Chief Architect handoff R14). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R13 deltas (vs `d82c014`):** canonical loader-issue metadata attestation; mandatory target conflict verified before merge; mapping evidence checksum + revision binding; `test_day10_r13_trust.py` HITL orchestration audits. D10-22/32/33 PARTIAL; D10-28/29 PARTIAL; D10-35 PARTIAL (no live PG); D10-36 PENDING.
+**R14 deltas (vs `9e5c156`):** mapping evidence tied to revision content checksum + approval_fingerprint/approved_by; Day9 org scope fail-closed; aligned root-cause enrich positive/mismatch tests; Alembic head + PG DDL compile in `test_day10_r14_trust.py`. D10-22/32/33 PARTIAL; D10-28/29 PARTIAL; D10-35 PARTIAL (live PG untested); D10-36 PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -40,5 +40,5 @@ Status: **R13 FOCUSED REPAIR** (Chief Architect handoff R13). Source: `docs/exec
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |
 | D10-33 | Batch / replay / HITL | per-item replay skip in `root_cause_enrich_node` | `test_day10_r8_trust.py` (partial) | PARTIAL |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
-| D10-35 | SQLite / Alembic portability | existing migrations unchanged | CI backend-targeted (static; live PG untested) | PARTIAL |
+| D10-35 | SQLite / Alembic portability | existing migrations unchanged | `test_day10_r14_trust.py` Alembic head + PG DDL compile (live PG untested) | PARTIAL |
 | D10-36 | Founder acceptance evidence | — | — | PENDING |

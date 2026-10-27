@@ -99,7 +99,11 @@ def verify_root_cause_trusted_context(
             if payload_val and not req_val:
                 issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
                 paths.append(f"trusted_validation.day9_scope.{scope_field}")
-            if req_val and not payload_val and scope_field in ("institution_id", "teacher_id"):
+            if req_val and not payload_val and scope_field in (
+                "organization_id",
+                "institution_id",
+                "teacher_id",
+            ):
                 issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
                 paths.append(f"trusted_validation.day9_scope.{scope_field}")
 

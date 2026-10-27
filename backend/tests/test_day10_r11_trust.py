@@ -47,6 +47,7 @@ from app.prerequisite_intelligence.contracts import (
 )
 from app.prerequisite_intelligence.enums import EdgeProvenanceClass, GraphLifecycleStatus
 from app.prerequisite_intelligence.fixtures import seed_day10_prerequisite_fixture
+from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.root_cause_intelligence.contracts import RootCauseHypothesis
 from app.root_cause_intelligence.enums import RootCauseVerdictStatus
 from app.root_cause_intelligence.mapping_authority import (
@@ -71,39 +72,53 @@ _MAPPING_SOURCE_LOCATOR = (
 )
 
 
-def _approved_mapping_overlay(**updates: object) -> dict[str, object]:
-    checksum = mapping_evidence_checksum(
+def _approve_revision_mapping_binding(
+    session: Session, revision_id: str
+) -> dict[str, object]:
+    revision = session.get(SourceRevision, revision_id)
+    assert revision is not None
+    content_checksum = revision.validated_checksum or revision.extracted_checksum or ("a" * 64)
+    revision.validated_checksum = content_checksum
+    revision.approval_fingerprint = stable_audit_ref(
+        "root-cause-mapping-approval",
+        revision_id,
+        content_checksum,
+    )
+    revision.approved_by = "educational-curator-r8-fixture"
+    revision.approved_at = datetime.now(UTC)
+    evidence_checksum = mapping_evidence_checksum(
         misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
         candidate_concept_codes=["whole-number-addition", "multi-step-addition"],
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
+        source_revision_id=revision_id,
+        source_content_checksum=content_checksum,
     )
-    return {
+    overlay: dict[str, object] = {
         **_APPROVED_MAPPING_OVERLAY_BASE,
         "source_locator": _MAPPING_SOURCE_LOCATOR,
-        "mapping_evidence_checksum": checksum,
-        **updates,
+        "source_revision_ids": [revision_id],
+        "mapping_evidence_checksum": evidence_checksum,
     }
-
-
-def _persist_mapping_binding_on_revision(session: Session, revision_id: str) -> None:
-    overlay = _approved_mapping_overlay()
-    revision = session.get(SourceRevision, revision_id)
-    assert revision is not None
     metadata = dict(revision.metadata_json or {})
     bindings = list(metadata.get("root_cause_mapping_bindings") or [])
     bindings.append(
         {
             "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
             "candidate_concept_codes": ["whole-number-addition", "multi-step-addition"],
-            "source_locator": overlay["source_locator"],
+            "source_locator": _MAPPING_SOURCE_LOCATOR,
             "mapping_registry_version": "root-cause-mapping@v1",
-            "mapping_evidence_checksum": overlay["mapping_evidence_checksum"],
+            "source_revision_id": revision_id,
+            "source_content_checksum": content_checksum,
+            "mapping_evidence_checksum": evidence_checksum,
             "approval_status": "active",
+            "approval_fingerprint": revision.approval_fingerprint,
+            "approved_by": revision.approved_by,
         }
     )
     revision.metadata_json = {**metadata, "root_cause_mapping_bindings": bindings}
     session.flush()
+    return overlay
 
 
 def test_unsourced_mapping_overlay_does_not_authorize_production(tmp_path: Path) -> None:
@@ -158,19 +173,13 @@ def test_unsourced_mapping_overlay_does_not_authorize_production(tmp_path: Path)
 def test_source_backed_mapping_overlay_production_positive(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    _persist_mapping_binding_on_revision(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
             version=ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
             status="active",
-            payload_json={
-                "overlays": [
-                    _approved_mapping_overlay(
-                        source_revision_ids=[ctx["source_revision_id"]],
-                    )
-                ]
-            },
+            payload_json={"overlays": [mapping_overlay]},
         )
     )
     audit_id = "00000000-0000-4000-8000-000000000012"
@@ -320,18 +329,13 @@ def test_mapping_revision_not_leaked_outside_option_allowlist() -> None:
 def test_hypothesis_rerank_after_projection_matches_order(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
+    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
             version=ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
             status="active",
-            payload_json={
-                "overlays": [
-                    _approved_mapping_overlay(
-                        source_revision_ids=[ctx["source_revision_id"]],
-                    )
-                ]
-            },
+            payload_json={"overlays": [mapping_overlay]},
         )
     )
     audit_id = "00000000-0000-4000-8000-000000000013"

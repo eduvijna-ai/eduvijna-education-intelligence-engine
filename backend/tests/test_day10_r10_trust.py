@@ -246,6 +246,10 @@ def test_sample_paper_analytical_trust_tier_not_official() -> None:
         institution_id=None,
         teacher_id=None,
         bound_curriculum_version_ids=set(),
+        validated_checksum=None,
+        extracted_checksum=None,
+        approval_fingerprint=None,
+        approved_by=None,
         metadata_json={},
     )
     assert not revision_permits_official_authority(record)

@@ -31,6 +31,10 @@ class RevisionAuthorityRecord:
     institution_id: str | None
     teacher_id: str | None
     bound_curriculum_version_ids: set[str]
+    validated_checksum: str | None
+    extracted_checksum: str | None
+    approval_fingerprint: str | None
+    approved_by: str | None
     metadata_json: dict[str, Any]
 
 
@@ -59,6 +63,10 @@ def _revision_record(revision: SourceRevision) -> RevisionAuthorityRecord:
         institution_id=source.institution_id if source is not None else None,
         teacher_id=source.teacher_id if source is not None else None,
         bound_curriculum_version_ids=bound,
+        validated_checksum=revision.validated_checksum,
+        extracted_checksum=revision.extracted_checksum,
+        approval_fingerprint=revision.approval_fingerprint,
+        approved_by=revision.approved_by,
         metadata_json=dict(revision.metadata_json or {}),
     )
 

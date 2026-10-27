@@ -11,10 +11,7 @@ from test_day10_r8_trust import (
     _seed_production_institution_graph,
     _session,
 )
-from test_day10_r11_trust import (
-    _approved_mapping_overlay,
-    _persist_mapping_binding_on_revision,
-)
+from test_day10_r11_trust import _approve_revision_mapping_binding
 
 import app.models  # noqa: F401
 from app.common.trust_execution import TrustExecutionMode
@@ -304,19 +301,13 @@ def test_orchestration_diagnostic_and_root_cause_stages_run(tmp_path: Path) -> N
 def test_approved_mapping_overlay_positive_production(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    _persist_mapping_binding_on_revision(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
             version=ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
             status="active",
-            payload_json={
-                "overlays": [
-                    _approved_mapping_overlay(
-                        source_revision_ids=[ctx["source_revision_id"]],
-                    )
-                ]
-            },
+            payload_json={"overlays": [mapping_overlay]},
         )
     )
     audit_id = "00000000-0000-4000-8000-000000000012"
