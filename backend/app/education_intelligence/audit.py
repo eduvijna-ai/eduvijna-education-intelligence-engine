@@ -24,9 +24,11 @@ def persist_validation_run(
         actor_id=actor_id,
         results_json=[r.model_dump(mode="json") for r in summary.results],
         metadata_json={
+            "kind": "day6_validation",
             "validator_versions": summary.validator_versions,
             "quality_rule_pack_version": summary.metadata.get("quality_rule_pack_version"),
             "safety_rules_version": summary.metadata.get("safety_rules_version"),
+            "validated_items": list(summary.metadata.get("validated_items") or []),
         },
     )
     session.add(record)

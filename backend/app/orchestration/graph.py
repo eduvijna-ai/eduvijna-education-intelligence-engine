@@ -18,6 +18,7 @@ from app.orchestration.nodes.repair import repair_planner_node
 from app.orchestration.nodes.resolve_context import resolve_context_node
 from app.orchestration.nodes.resolve_scope import resolve_scope_node
 from app.orchestration.nodes.reviewers import reviewers_node
+from app.orchestration.nodes.root_cause import root_cause_enrich_node
 from app.orchestration.nodes.solver import solver_node
 from app.orchestration.nodes.validate import deterministic_validate_node
 from app.orchestration.nodes.whole_output import whole_output_node
@@ -111,6 +112,10 @@ def build_orchestration_graph(
         "diagnostic_repair",
         _bind(diagnostic_repair_node, deps, node_name="diagnostic_repair"),
     )  # type: ignore[call-overload]
+    graph.add_node(
+        "root_cause_enrich",
+        _bind(root_cause_enrich_node, deps, node_name="root_cause_enrich"),
+    )  # type: ignore[call-overload]
     graph.add_node("repair", _bind(repair_planner_node, deps, node_name="repair"))  # type: ignore[call-overload]
     graph.add_node("human_gate", _bind_raw(human_gate_node, deps))  # type: ignore[call-overload]
     graph.add_node("whole_output", _bind(whole_output_node, deps, node_name="whole_output"))  # type: ignore[call-overload]
@@ -164,10 +169,12 @@ def build_orchestration_graph(
             "repair": "repair",
             "diagnostic_repair": "diagnostic_repair",
             "human_gate": "human_gate",
+            "root_cause_enrich": "root_cause_enrich",
             "whole_output": "whole_output",
         },
     )
     graph.add_edge("diagnostic_repair", "diagnostic_enrich")
+    graph.add_edge("root_cause_enrich", "whole_output")
     graph.add_conditional_edges(
         "repair",
         _continue_or_output,

@@ -171,6 +171,9 @@ class OrchestrationRequest(BaseModel):
     def diagnostic_enrichment_enabled(self) -> bool:
         return bool(self.metadata_json.get("diagnostic_enrichment_enabled"))
 
+    def root_cause_enrichment_enabled(self) -> bool:
+        return bool(self.metadata_json.get("root_cause_enrichment_enabled"))
+
     def diagnostic_fixture_scenario(self) -> str:
         value = self.metadata_json.get("diagnostic_fixture_scenario")
         return str(value) if value else "diagnostic_clean_pass"

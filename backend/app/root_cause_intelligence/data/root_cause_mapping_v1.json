@@ -1,0 +1,21 @@
+{
+  "version": "root-cause-mapping@v1",
+  "mappings": [
+    {
+      "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+      "version": "1",
+      "candidate_concept_codes": ["whole-number-addition", "multi-step-addition"],
+      "mechanism_notes": "Undercount may reflect weak whole-number addition or multi-step carry discipline.",
+      "source_revision_ids": [],
+      "synthetic": true
+    },
+    {
+      "misconception_code": "MATH.ADD.WHOLE.SUM_AS_NEXT",
+      "version": "1",
+      "candidate_concept_codes": ["counting-sequence", "whole-number-addition"],
+      "mechanism_notes": "Successor confusion between counting and summing.",
+      "source_revision_ids": [],
+      "synthetic": true
+    }
+  ]
+}
