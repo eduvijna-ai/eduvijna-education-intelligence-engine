@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from app.prerequisite_intelligence.authority import (
     revision_is_authorized_for_scope,
 )
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
+from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.root_cause_intelligence.enums import DEFAULT_ROOT_CAUSE_MAPPING_VERSION
 from app.root_cause_intelligence.mapping_registry import (
     MisconceptionConceptMapping,
@@ -39,6 +41,68 @@ def _normalized_codes(codes: list[str]) -> tuple[str, ...]:
     return tuple(sorted(str(code) for code in codes if code))
 
 
+def mapping_evidence_checksum(
+    *,
+    misconception_code: str,
+    candidate_concept_codes: list[str],
+    source_locator: str,
+    mapping_registry_version: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "misconception_code": misconception_code,
+            "candidate_concept_codes": sorted(str(code) for code in candidate_concept_codes),
+            "source_locator": source_locator.strip(),
+            "mapping_registry_version": mapping_registry_version,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return stable_audit_ref("root-cause-mapping-evidence", payload)
+
+
+def _revision_supports_mapping_binding(
+    record_metadata: dict[str, Any],
+    entry: MisconceptionConceptMapping,
+    overlay: dict[str, Any],
+    *,
+    registry_version: str,
+) -> bool:
+    locator = str(overlay.get("source_locator") or "").strip()
+    expected_checksum = str(overlay.get("mapping_evidence_checksum") or "").strip()
+    if not locator or not expected_checksum:
+        return False
+    if expected_checksum != mapping_evidence_checksum(
+        misconception_code=entry.misconception_code,
+        candidate_concept_codes=entry.candidate_concept_codes,
+        source_locator=locator,
+        mapping_registry_version=registry_version,
+    ):
+        return False
+    bindings_raw = record_metadata.get("root_cause_mapping_bindings") or []
+    if not isinstance(bindings_raw, list):
+        return False
+    for raw in bindings_raw:
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("misconception_code") or "") != entry.misconception_code:
+            continue
+        if _normalized_codes(list(raw.get("candidate_concept_codes") or [])) != _normalized_codes(
+            entry.candidate_concept_codes
+        ):
+            continue
+        if str(raw.get("source_locator") or "").strip() != locator:
+            continue
+        if str(raw.get("mapping_registry_version") or "") != registry_version:
+            continue
+        if str(raw.get("mapping_evidence_checksum") or "") != expected_checksum:
+            continue
+        if str(raw.get("approval_status") or "active").lower() not in {"active", "approved"}:
+            continue
+        return True
+    return False
+
+
 def _overlay_matches_entry(
     raw: dict[str, Any],
     base: MisconceptionConceptMapping,
@@ -63,6 +127,17 @@ def _overlay_matches_entry(
     if not source_ids:
         return False
     if bool(raw.get("synthetic", False)):
+        return False
+    locator = str(raw.get("source_locator") or "").strip()
+    checksum = str(raw.get("mapping_evidence_checksum") or "").strip()
+    if not locator or not checksum:
+        return False
+    if checksum != mapping_evidence_checksum(
+        misconception_code=base.misconception_code,
+        candidate_concept_codes=base.candidate_concept_codes,
+        source_locator=locator,
+        mapping_registry_version=registry_version,
+    ):
         return False
     return True
 
@@ -159,6 +234,13 @@ def mapping_entry_production_authorized(
         if (
             allowed_option_revision_ids is not None
             and revision_key not in allowed_option_revision_ids
+        ):
+            return False
+        if not _revision_supports_mapping_binding(
+            record.metadata_json or {},
+            entry,
+            approved_overlay,
+            registry_version=mapping_registry_version,
         ):
             return False
     return True

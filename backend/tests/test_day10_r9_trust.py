@@ -101,7 +101,7 @@ def test_synthetic_mapping_blocked_in_production(
     snapshot = load_day10_fixture_snapshot(session, ctx)
     monkeypatch.setattr(
         "app.root_cause_intelligence.service.validate_graph_snapshot_attestation",
-        lambda *args, **kwargs: ([], [], False),
+        lambda *args, **kwargs: ([], [], False, None),
     )
     monkeypatch.setattr(
         "app.root_cause_intelligence.service.verify_root_cause_trusted_context",

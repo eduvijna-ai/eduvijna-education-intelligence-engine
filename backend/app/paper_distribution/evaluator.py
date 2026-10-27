@@ -208,13 +208,20 @@ def evaluate_paper_distribution(
     execution_context: PaperExecutionContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = taxonomy or TaxonomyRegistry()
-    request = _with_mandatory_targets(data_session, request, execution_mode=execution_mode)
     issues: list[PaperDistributionIssueCode] = []
     field_paths: list[str] = []
 
     if request.taxonomy_version != V1_TAXONOMY_VERSION:
         issues.append(PaperDistributionIssueCode.UNSUPPORTED_TAXONOMY)
         field_paths.append("taxonomy_version")
+
+    policy_issues, policy_paths = verify_target_policy(
+        data_session, request, execution_mode=execution_mode
+    )
+    issues.extend(policy_issues)
+    field_paths.extend(policy_paths)
+
+    request = _with_mandatory_targets(data_session, request, execution_mode=execution_mode)
 
     trust_issues, trust_paths = verify_paper_day6_trust(
         data_session,
@@ -225,12 +232,6 @@ def evaluate_paper_distribution(
     )
     issues.extend(trust_issues)
     field_paths.extend(trust_paths)
-
-    policy_issues, policy_paths = verify_target_policy(
-        data_session, request, execution_mode=execution_mode
-    )
-    issues.extend(policy_issues)
-    field_paths.extend(policy_paths)
 
     for index, target in enumerate(request.cognitive_targets):
         if target.dimension != "cognitive":

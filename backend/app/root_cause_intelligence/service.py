@@ -90,11 +90,14 @@ class RootCauseIntelligenceService:
             issue_codes.extend(trust_issues)
             field_paths.extend(trust_paths)
 
-        scope_issues, scope_paths, scope_blocking = validate_graph_snapshot_attestation(
-            request,
-            execution_mode=execution_mode,
-            control_session=control_session,
+        scope_issues, scope_paths, scope_blocking, canonical_graph_snapshot = (
+            validate_graph_snapshot_attestation(
+                request,
+                execution_mode=execution_mode,
+                control_session=control_session,
+            )
         )
+        graph_snapshot = canonical_graph_snapshot or request.graph_snapshot
         issue_codes.extend(scope_issues)
         field_paths.extend(scope_paths)
 
@@ -130,7 +133,7 @@ class RootCauseIntelligenceService:
 
         allowed = set(request.allowed_source_revision_ids or [])
         snapshot_allow = set(
-            request.graph_snapshot.metadata_json.get("authorized_revision_ids") or []
+            graph_snapshot.metadata_json.get("authorized_revision_ids") or []
         )
         if not allowed and snapshot_allow:
             issue_codes.append(RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF)
@@ -140,7 +143,7 @@ class RootCauseIntelligenceService:
             edge.source_revision_id
             and edge.provenance_class
             in {EdgeProvenanceClass.OFFICIAL, EdgeProvenanceClass.INFERRED}
-            for edge in request.graph_snapshot.edges
+            for edge in graph_snapshot.edges
         )
         if has_sourced_edge and not allowed:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
@@ -149,7 +152,7 @@ class RootCauseIntelligenceService:
         production_mapping_ok = mapping_entry_production_authorized(
             control_session,
             mapping_entry,
-            graph_scope=request.graph_snapshot.scope,
+            graph_scope=graph_snapshot.scope,
             allowed_option_revision_ids=allowed,
         )
         if execution_mode == TrustExecutionMode.PRODUCTION and not production_mapping_ok:
@@ -169,7 +172,7 @@ class RootCauseIntelligenceService:
                 hypotheses=[],
             )
 
-        graph_report = build_graph_quality_report(request.graph_snapshot)
+        graph_report = build_graph_quality_report(graph_snapshot)
         loader_error_codes = {
             GraphIssueCode.UNAUTHORIZED_PROVENANCE,
             GraphIssueCode.MISSING_PROVENANCE,
@@ -216,7 +219,7 @@ class RootCauseIntelligenceService:
             )
 
         hypotheses, traversal_issues = rank_root_cause_hypotheses(
-            request.graph_snapshot,
+            graph_snapshot,
             mapping_entry,
             target_concept_code=request.target_concept_code,
             limits=GraphTraversalLimits(max_depth=8, max_paths=8, max_nodes=48),
@@ -225,7 +228,7 @@ class RootCauseIntelligenceService:
         supported: list[RootCauseHypothesis] = []
         for hypothesis in hypotheses:
             projected = project_hypothesis_authorized_paths(
-                request.graph_snapshot,
+                graph_snapshot,
                 hypothesis,
                 allowed,
                 mapping_sources,

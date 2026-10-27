@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 from test_day10_r8_trust import (
     INST_A,
     INST_B,
@@ -53,6 +54,7 @@ from app.root_cause_intelligence.mapping_authority import (
     ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
     apply_mapping_authority_overlay,
     mapping_entry_production_authorized,
+    mapping_evidence_checksum,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.ranking import project_hypothesis_authorized_paths
@@ -64,10 +66,44 @@ _APPROVED_MAPPING_OVERLAY_BASE = {
     "mapping_registry_version": "root-cause-mapping@v1",
     "candidate_concept_codes": ["whole-number-addition", "multi-step-addition"],
 }
+_MAPPING_SOURCE_LOCATOR = (
+    "official-table/MATH.ADD.WHOLE.OFF_BY_ONE_LOW/candidates/whole-number-addition"
+)
 
 
 def _approved_mapping_overlay(**updates: object) -> dict[str, object]:
-    return {**_APPROVED_MAPPING_OVERLAY_BASE, **updates}
+    checksum = mapping_evidence_checksum(
+        misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+        candidate_concept_codes=["whole-number-addition", "multi-step-addition"],
+        source_locator=_MAPPING_SOURCE_LOCATOR,
+        mapping_registry_version="root-cause-mapping@v1",
+    )
+    return {
+        **_APPROVED_MAPPING_OVERLAY_BASE,
+        "source_locator": _MAPPING_SOURCE_LOCATOR,
+        "mapping_evidence_checksum": checksum,
+        **updates,
+    }
+
+
+def _persist_mapping_binding_on_revision(session: Session, revision_id: str) -> None:
+    overlay = _approved_mapping_overlay()
+    revision = session.get(SourceRevision, revision_id)
+    assert revision is not None
+    metadata = dict(revision.metadata_json or {})
+    bindings = list(metadata.get("root_cause_mapping_bindings") or [])
+    bindings.append(
+        {
+            "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            "candidate_concept_codes": ["whole-number-addition", "multi-step-addition"],
+            "source_locator": overlay["source_locator"],
+            "mapping_registry_version": "root-cause-mapping@v1",
+            "mapping_evidence_checksum": overlay["mapping_evidence_checksum"],
+            "approval_status": "active",
+        }
+    )
+    revision.metadata_json = {**metadata, "root_cause_mapping_bindings": bindings}
+    session.flush()
 
 
 def test_unsourced_mapping_overlay_does_not_authorize_production(tmp_path: Path) -> None:
@@ -122,6 +158,7 @@ def test_unsourced_mapping_overlay_does_not_authorize_production(tmp_path: Path)
 def test_source_backed_mapping_overlay_production_positive(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
+    _persist_mapping_binding_on_revision(session, ctx["source_revision_id"])
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,

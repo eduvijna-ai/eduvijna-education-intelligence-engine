@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R12 FOCUSED REPAIR** (Chief Architect handoff R12). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R13 FOCUSED REPAIR** (Chief Architect handoff R13). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R12 deltas (vs `97cdfe5`):** mandatory `exact_count` retention/enforcement; fractional competency exact-percent evaluation; production SYNTHETIC edge exclusion; mapping overlay requires registry version + candidate concept codes; `test_day10_r12_trust.py` diagnostic+root-cause orchestration proof. D10-22/32/33 PARTIAL; D10-29 PARTIAL; D10-36 PENDING.
+**R13 deltas (vs `d82c014`):** canonical loader-issue metadata attestation; mandatory target conflict verified before merge; mapping evidence checksum + revision binding; `test_day10_r13_trust.py` HITL orchestration audits. D10-22/32/33 PARTIAL; D10-28/29 PARTIAL; D10-35 PARTIAL (no live PG); D10-36 PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -33,12 +33,12 @@ Status: **R12 FOCUSED REPAIR** (Chief Architect handoff R12). Source: `docs/exec
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
-| D10-28 | Generic target policy | `target_policy_registry.py` (no demo % default) | `test_day10_r8_trust.py` | IMPLEMENTED |
+| D10-28 | Generic target policy | `target_policy_registry.py` (no demo % default) | `test_day10_r13_trust.py` (partial authority) | PARTIAL |
 | D10-29 | Integer target reconciliation | `reconcile_exact_counts` in `evaluator.py` | `test_day10_r9_trust.py` (partial) | PARTIAL |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |
 | D10-33 | Batch / replay / HITL | per-item replay skip in `root_cause_enrich_node` | `test_day10_r8_trust.py` (partial) | PARTIAL |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
-| D10-35 | SQLite / Alembic portability | existing migrations unchanged | CI backend-targeted | IMPLEMENTED |
+| D10-35 | SQLite / Alembic portability | existing migrations unchanged | CI backend-targeted (static; live PG untested) | PARTIAL |
 | D10-36 | Founder acceptance evidence | — | — | PENDING |

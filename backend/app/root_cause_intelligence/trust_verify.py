@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.common.trust_execution import TrustExecutionMode
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
 from app.models.orchestration import OrchestrationAuditEvent
+from app.prerequisite_intelligence.contracts import PrerequisiteGraphSnapshot
 from app.prerequisite_intelligence.graph_verify import verify_production_graph_snapshot
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode
@@ -163,8 +164,13 @@ def validate_graph_snapshot_attestation(
     *,
     execution_mode: TrustExecutionMode,
     control_session: Session | None,
-) -> tuple[list[RootCauseIssueCode], list[str], bool]:
-    """Return issues, paths, and whether graph audit blocking applies."""
+) -> tuple[
+    list[RootCauseIssueCode],
+    list[str],
+    bool,
+    PrerequisiteGraphSnapshot | None,
+]:
+    """Return issues, paths, blocking flag, and canonical snapshot when attested."""
     return verify_production_graph_snapshot(
         control_session,
         request.graph_snapshot,
