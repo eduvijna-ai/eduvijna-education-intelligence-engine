@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R8 FOCUSED REPAIR** (Chief Architect handoff R8). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R9 FOCUSED REPAIR** (Chief Architect handoff R9). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R8 deltas (vs `9438fdf`):** tri-source graph tenant attestation (`snapshot.scope` vs canonical vs request; forged `loader_scope` rejected); paper audit `run_id` includes Day6 run + actor; default target policy taxonomy-only (demo 20/20/40/10/10 not global mandatory); production Day9 run/hash required + audit tenant binding; Day6 `validated_items` LO/grade/medium/subject; orchestration root-cause replay skip; `test_day10_r8_trust.py`. D10-19/22/32/33 still PARTIAL; D10-36 PENDING.
+**R9 deltas (vs `85623f7`):** OFFICIAL provenance requires official source type (institution edges downgraded); production blocks synthetic-only root-cause mappings; Day9 trust reads `payload.scope`; global graph audit separate from option path allowlist; path-sourced `evidence_revision_ids`; mandatory target merge + `reconcile_exact_counts`; `test_day10_r9_trust.py`. D10-22/32/33 still PARTIAL; D10-29 PARTIAL (reconcile added, no full board precedence); D10-36 PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -34,7 +34,7 @@ Status: **R8 FOCUSED REPAIR** (Chief Architect handoff R8). Source: `docs/execut
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
 | D10-28 | Generic target policy | `target_policy_registry.py` (no demo % default) | `test_day10_r8_trust.py` | IMPLEMENTED |
-| D10-29 | Integer target reconciliation | `_reconcile_exact_counts` | demo paper PASS | IMPLEMENTED |
+| D10-29 | Integer target reconciliation | `reconcile_exact_counts` in `evaluator.py` | `test_day10_r9_trust.py` (partial) | PARTIAL |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |

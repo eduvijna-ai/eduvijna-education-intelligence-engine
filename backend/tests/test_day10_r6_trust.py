@@ -333,6 +333,10 @@ def test_day9_evidence_ref_mismatch_blocks_trust(tmp_path: Path) -> None:
             payload_json={
                 "item_id": "item-1",
                 "taxonomy_version": DEFAULT_TAXONOMY_VERSION,
+                "scope": {
+                    "organization_id": ctx.get("organization_id"),
+                    "institution_id": ctx.get("institution_id"),
+                },
                 "option_traces": [
                     {
                         "option_key": "A",
@@ -376,6 +380,8 @@ def test_day9_evidence_ref_mismatch_blocks_trust(tmp_path: Path) -> None:
             target_concept_code="multi-step-addition",
             orchestration_run_id="run-test",
             orchestration_request_hash="hash",
+            organization_id=ctx.get("organization_id"),
+            institution_id=ctx.get("institution_id"),
         ),
         trusted=trusted,
         execution_mode=TrustExecutionMode.PRODUCTION,

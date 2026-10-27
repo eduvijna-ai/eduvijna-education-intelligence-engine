@@ -88,15 +88,19 @@ def verify_root_cause_trusted_context(
             issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
             paths.append("trusted_validation.day9_request_hash")
 
+        scope_meta = payload.get("scope") or {}
         for scope_field in ("organization_id", "institution_id", "teacher_id"):
             req_val = getattr(request, scope_field, None)
-            payload_val = payload.get(scope_field)
+            payload_val = scope_meta.get(scope_field)
             if payload_val and req_val and str(payload_val) != str(req_val):
                 issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
-                paths.append(f"trusted_validation.day9_{scope_field}")
+                paths.append(f"trusted_validation.day9_scope.{scope_field}")
             if payload_val and not req_val:
                 issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
-                paths.append(f"trusted_validation.day9_{scope_field}")
+                paths.append(f"trusted_validation.day9_scope.{scope_field}")
+            if req_val and not payload_val and scope_field in ("institution_id", "teacher_id"):
+                issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+                paths.append(f"trusted_validation.day9_scope.{scope_field}")
 
     traces = payload.get("option_traces") or []
     option_trace = next(

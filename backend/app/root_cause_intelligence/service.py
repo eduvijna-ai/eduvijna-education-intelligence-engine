@@ -136,6 +136,27 @@ class RootCauseIntelligenceService:
                 hypotheses=[],
             )
 
+        if (
+            execution_mode == TrustExecutionMode.PRODUCTION
+            and mapping_entry.synthetic
+            and not mapping_entry.source_revision_ids
+        ):
+            issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
+            field_paths.append("mapping.synthetic")
+            return RootCauseResult(
+                item_id=request.item_id,
+                option_key=request.option_key,
+                misconception_code=request.misconception_code,
+                verdict_status=RootCauseVerdictStatus.INSUFFICIENT_EVIDENCE,
+                issue_codes=issue_codes,
+                field_paths=field_paths,
+                mapping_version=mapping.version,
+                graph_snapshot_id=request.graph_snapshot.snapshot_id,
+                graph_checksum=request.graph_snapshot.checksum,
+                audit_ref=audit_ref,
+                hypotheses=[],
+            )
+
         allowed = set(request.allowed_source_revision_ids or [])
         snapshot_allow = set(
             request.graph_snapshot.metadata_json.get("authorized_revision_ids") or []
@@ -154,10 +175,7 @@ class RootCauseIntelligenceService:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
             field_paths.append("allowed_source_revision_ids")
 
-        graph_report = build_graph_quality_report(
-            request.graph_snapshot,
-            allowed_source_revision_ids=allowed,
-        )
+        graph_report = build_graph_quality_report(request.graph_snapshot)
         loader_error_codes = {
             GraphIssueCode.UNAUTHORIZED_PROVENANCE,
             GraphIssueCode.MISSING_PROVENANCE,

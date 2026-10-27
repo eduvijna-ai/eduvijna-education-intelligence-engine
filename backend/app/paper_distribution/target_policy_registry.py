@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.paper_distribution.contracts import PaperDistributionRequest
+from app.paper_distribution.contracts import DistributionTarget, PaperDistributionRequest
 
 PAPER_TARGET_POLICY_VERSION = "paper-distribution-targets@v1"
 PAPER_TARGET_REGISTRY_KEY = "paper_distribution"
@@ -70,34 +70,98 @@ def load_active_paper_target_policy(session: Session, version: str) -> dict[str,
     return dict(row.payload_json or {})
 
 
+def merge_mandatory_distribution_targets(
+    request: PaperDistributionRequest,
+    policy_payload: dict[str, Any],
+) -> tuple[list[DistributionTarget], list[DistributionTarget]]:
+    cognitive = list(request.cognitive_targets)
+    competency = list(request.competency_targets)
+    cognitive_keys = {target.key for target in cognitive}
+    competency_keys = {target.key for target in competency}
+
+    for key, approved in (policy_payload.get("mandatory_cognitive_exact_percent") or {}).items():
+        if key not in cognitive_keys:
+            cognitive.append(
+                DistributionTarget(
+                    dimension="cognitive",
+                    key=str(key),
+                    exact_percent=float(approved),
+                )
+            )
+            cognitive_keys.add(str(key))
+
+    for key, approved in (policy_payload.get("mandatory_competency_exact_percent") or {}).items():
+        if key not in competency_keys:
+            competency.append(
+                DistributionTarget(
+                    dimension="competency",
+                    key=str(key),
+                    exact_percent=float(approved),
+                )
+            )
+            competency_keys.add(str(key))
+
+    for entry in policy_payload.get("mandatory_cognitive_ranges") or []:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("key") or "")
+        if not key or key in cognitive_keys:
+            continue
+        cognitive.append(
+            DistributionTarget(
+                dimension="cognitive",
+                key=key,
+                min_percent=entry.get("min_percent"),
+                max_percent=entry.get("max_percent"),
+                exact_count=entry.get("exact_count"),
+            )
+        )
+        cognitive_keys.add(key)
+
+    return cognitive, competency
+
+
 def paper_targets_authorized(
     session: Session,
     request: PaperDistributionRequest,
     *,
     version: str,
 ) -> tuple[bool, str | None]:
-    if not request.cognitive_targets and not request.competency_targets:
-        return True, None
     try:
         payload = load_active_paper_target_policy(session, version)
     except RegistryVersionNotFound:
         return False, "target_policy_version"
+
+    cognitive, competency = merge_mandatory_distribution_targets(request, payload)
+    if not cognitive and not competency:
+        return True, None
+
     allowed_cognitive = set(payload.get("allowed_cognitive_keys") or [])
     allowed_competency = set(payload.get("allowed_competency_keys") or [])
     cognitive_quotas = payload.get("mandatory_cognitive_exact_percent") or {}
     competency_quotas = payload.get("mandatory_competency_exact_percent") or {}
-    for index, target in enumerate(request.cognitive_targets):
+
+    for index, target in enumerate(cognitive):
         if target.key not in allowed_cognitive:
             return False, f"cognitive_targets[{index}]/key"
-        if target.exact_percent is not None and cognitive_quotas:
-            approved = cognitive_quotas.get(target.key)
-            if approved is not None and abs(target.exact_percent - float(approved)) > 0.01:
+        approved = cognitive_quotas.get(target.key)
+        if approved is not None:
+            if target.exact_percent is None:
                 return False, f"cognitive_targets[{index}]/exact_percent"
-    for index, target in enumerate(request.competency_targets):
+            if abs(target.exact_percent - float(approved)) > 0.01:
+                return False, f"cognitive_targets[{index}]/exact_percent"
+        if target.min_percent is not None and target.max_percent is not None:
+            if target.min_percent > target.max_percent:
+                return False, f"cognitive_targets[{index}]/range"
+
+    for index, target in enumerate(competency):
         if target.key not in allowed_competency:
             return False, f"competency_targets[{index}]/key"
-        if target.exact_percent is not None and competency_quotas:
-            approved = competency_quotas.get(target.key)
-            if approved is not None and abs(target.exact_percent - float(approved)) > 0.01:
+        approved = competency_quotas.get(target.key)
+        if approved is not None:
+            if target.exact_percent is None:
                 return False, f"competency_targets[{index}]/exact_percent"
+            if abs(target.exact_percent - float(approved)) > 0.01:
+                return False, f"competency_targets[{index}]/exact_percent"
+
     return True, None

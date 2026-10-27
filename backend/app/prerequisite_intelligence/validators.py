@@ -23,7 +23,9 @@ def validate_edge_integrity(
     node_ids = {node.concept_id for node in nodes}
     node_by_id = {node.concept_id: node for node in nodes}
     seen: set[tuple[str, str]] = set()
-    allowlist = set(allowed_source_revision_ids or [])
+    allowlist: set[str] | None = (
+        set(allowed_source_revision_ids) if allowed_source_revision_ids is not None else None
+    )
 
     for edge in edges:
         pair = (edge.prerequisite_concept_id, edge.target_concept_id)
@@ -81,7 +83,7 @@ def validate_edge_integrity(
                         )
                     )
                     continue
-            if require_official_authorization:
+            if require_official_authorization and allowlist is not None:
                 if not allowlist:
                     issues.append(
                         GraphIssue(

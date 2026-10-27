@@ -7,6 +7,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from app.common.trust_execution import TrustExecutionMode
+from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.education_intelligence.taxonomy_registry import (
     COGNITIVE_PROGRESSION_ORDER,
     V1_TAXONOMY_VERSION,
@@ -27,10 +28,70 @@ from app.paper_distribution.enums import (
     PaperDistributionVerdict,
 )
 from app.paper_distribution.execution_context import PaperExecutionContext
-from app.paper_distribution.target_policy_registry import ensure_paper_target_policy_configured
+from app.paper_distribution.target_policy_registry import (
+    PAPER_TARGET_POLICY_VERSION,
+    ensure_paper_target_policy_configured,
+    load_active_paper_target_policy,
+    merge_mandatory_distribution_targets,
+)
 from app.paper_distribution.trust_verify import verify_paper_day6_trust, verify_target_policy
 from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
+
+
+def reconcile_exact_counts(
+    item_count: int, targets: list[DistributionTarget]
+) -> dict[str, int]:
+    """Largest-remainder integer allocation for exact_percent targets summing to 100."""
+    if item_count <= 0:
+        return {}
+    percent_targets = [target for target in targets if target.exact_percent is not None]
+    if not percent_targets:
+        return {}
+    total_percent = sum(target.exact_percent or 0.0 for target in percent_targets)
+    if abs(total_percent - 100.0) > 0.51:
+        return {}
+    raw_shares = [
+        (target.key, (target.exact_percent or 0.0) * item_count / 100.0)
+        for target in percent_targets
+    ]
+    floors = {key: int(math.floor(share)) for key, share in raw_shares}
+    assigned = sum(floors.values())
+    remainder = item_count - assigned
+    if remainder > 0:
+        ranked = sorted(
+            raw_shares,
+            key=lambda entry: (entry[1] - math.floor(entry[1])),
+            reverse=True,
+        )
+        for index in range(remainder):
+            key = ranked[index % len(ranked)][0]
+            floors[key] = floors.get(key, 0) + 1
+    return floors
+
+
+def _with_mandatory_targets(
+    session: Session | None,
+    request: PaperDistributionRequest,
+    *,
+    execution_mode: TrustExecutionMode,
+) -> PaperDistributionRequest:
+    if execution_mode != TrustExecutionMode.PRODUCTION or session is None:
+        return request
+    version = request.target_policy_version or PAPER_TARGET_POLICY_VERSION
+    try:
+        payload = load_active_paper_target_policy(session, version)
+    except RegistryVersionNotFound:
+        return request
+    cognitive, competency = merge_mandatory_distribution_targets(request, payload)
+    if (
+        cognitive == list(request.cognitive_targets)
+        and competency == list(request.competency_targets)
+    ):
+        return request
+    return request.model_copy(
+        update={"cognitive_targets": cognitive, "competency_targets": competency}
+    )
 
 
 def _result_fingerprint(request: PaperDistributionRequest) -> str:
@@ -82,6 +143,11 @@ def _evaluate_dimension_targets(
             if abs(observed_percent - target.exact_percent) > 0.01:
                 issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
                 status = DistributionDimensionStatus.FAIL
+            reconciled = reconcile_exact_counts(item_count, scoped)
+            expected_count = reconciled.get(target.key)
+            if expected_count is not None and abs(observed_count - expected_count) > 1e-6:
+                issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+                status = DistributionDimensionStatus.FAIL
             if include_mark_weighted:
                 observed_mark = mark_percent.get(target.key, 0.0)
                 if abs(observed_mark - target.exact_percent) > 0.01 and abs(
@@ -126,6 +192,7 @@ def evaluate_paper_distribution(
     execution_context: PaperExecutionContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = taxonomy or TaxonomyRegistry()
+    request = _with_mandatory_targets(data_session, request, execution_mode=execution_mode)
     issues: list[PaperDistributionIssueCode] = []
     field_paths: list[str] = []
 

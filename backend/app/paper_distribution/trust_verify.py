@@ -234,9 +234,6 @@ def verify_target_policy(
 ) -> tuple[list[PaperDistributionIssueCode], list[str]]:
     issues: list[PaperDistributionIssueCode] = []
     paths: list[str] = []
-    if not request.cognitive_targets and not request.competency_targets:
-        return issues, paths
-
     if execution_mode == TrustExecutionMode.SYNTHETIC_FIXTURE:
         return issues, paths
 

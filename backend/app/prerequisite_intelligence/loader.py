@@ -13,6 +13,7 @@ from app.prerequisite_intelligence.authority import (
     build_graph_authority_context,
     load_revision_record,
     revision_is_authorized_for_scope,
+    revision_permits_official_authority,
 )
 from app.prerequisite_intelligence.contracts import (
     GraphIssue,
@@ -141,6 +142,23 @@ def _classify_edge_provenance(
                 )
             )
             return EdgeProvenanceClass.OFFICIAL, str(revision_id), locator, issues, False
+
+        if not revision_permits_official_authority(record):
+            provenance = EdgeProvenanceClass.INFERRED
+            if authority.production_graph:
+                issues.append(
+                    GraphIssue(
+                        code=GraphIssueCode.MISSING_PROVENANCE,
+                        severity="warning",
+                        field_path=f"edges/{edge_id}/metadata_json/provenance_class",
+                        detail={
+                            "edge_id": edge_id,
+                            "downgraded_from": EdgeProvenanceClass.OFFICIAL.value,
+                            "source_type": record.source_type,
+                        },
+                    )
+                )
+            return provenance, str(revision_id), locator, issues, True
 
         return EdgeProvenanceClass.OFFICIAL, str(revision_id), locator, issues, True
 

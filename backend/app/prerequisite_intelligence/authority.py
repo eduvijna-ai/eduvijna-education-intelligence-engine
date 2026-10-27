@@ -128,6 +128,13 @@ def _is_global_public_source(source_type: str) -> bool:
     return source_type in Source.official_type_values()
 
 
+def revision_permits_official_authority(record: RevisionAuthorityRecord) -> bool:
+    """Only globally official source types may carry OFFICIAL edge provenance."""
+    if record.metadata_json.get("synthetic") or record.metadata_json.get("synthetic_fixture"):
+        return False
+    return record.source_type in Source.official_type_values()
+
+
 def revision_is_authorized_for_scope(
     record: RevisionAuthorityRecord,
     scope: PrerequisiteGraphScope,

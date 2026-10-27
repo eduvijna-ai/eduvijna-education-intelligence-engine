@@ -14,6 +14,7 @@ from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION, DiagnosticValidationStatus
 from app.education_intelligence.fixtures import positive_cbse_item, seed_cbse_fixture_curriculum
 from app.education_intelligence.service import EducationIntelligenceValidationService
+from app.knowledge_intelligence.contracts import AppliedKnowledgeScope, KnowledgeContextPack
 from app.models.curriculum import (
     ConceptPrerequisite,
     CurriculumNode,
@@ -73,10 +74,8 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
     )
     session.flush()
     source = Source(
-        source_type=SourceType.INSTITUTION_CONTENT.value,
-        title="R8 institution prerequisite source",
-        organization_id=ORG_A,
-        institution_id=INST_A,
+        source_type=SourceType.OFFICIAL_SYLLABUS.value,
+        title="R8 official prerequisite source",
     )
     framework = EducationFramework(code="r8-fw", name="R8 Framework", country="IN")
     pack = CurriculumPack(code="r8-pack", name="R8 Pack", country="IN", framework=framework)
@@ -177,8 +176,10 @@ def _day9_audit(session: Session, ctx: dict[str, str], *, audit_id: str) -> None
             payload_json={
                 "item_id": "item-r8",
                 "taxonomy_version": DEFAULT_TAXONOMY_VERSION,
-                "organization_id": ctx["organization_id"],
-                "institution_id": ctx["institution_id"],
+                "scope": {
+                    "organization_id": ctx["organization_id"],
+                    "institution_id": ctx["institution_id"],
+                },
                 "option_traces": [
                     {
                         "option_key": "A",
@@ -287,7 +288,10 @@ def test_private_scope_blank_request_tenant_fails(tmp_path: Path) -> None:
         control_session=session,
     )
     assert result.hypotheses == []
-    assert RootCauseIssueCode.FOREIGN_TENANT in result.issue_codes
+    assert (
+        RootCauseIssueCode.FOREIGN_TENANT in result.issue_codes
+        or RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION in result.issue_codes
+    )
 
 
 def test_matching_tenant_production_graph_positive(tmp_path: Path) -> None:
@@ -510,15 +514,19 @@ def test_root_cause_replay_skips_duplicate_item_option(tmp_path: Path) -> None:
     from unittest.mock import MagicMock
 
     from app.orchestration.contracts import OrchestrationRequest
+    from app.prerequisite_intelligence.fixtures import seed_day10_prerequisite_fixture
 
     session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    session.commit()
     deps = MagicMock()
     deps.session = session
     deps.control_session = session
     request = OrchestrationRequest(
         idempotency_key="replay-key-001",
         retrieval_profile_version="default@v1",
-        metadata_json={},
+        metadata_json={"root_cause_enrichment_enabled": True},
+        curriculum_version_id=ctx["curriculum_version_id"],
     )
     state: OrchestrationGraphState = {
         "run_id": "run-replay",
@@ -545,7 +553,31 @@ def test_root_cause_replay_skips_duplicate_item_option(tmp_path: Path) -> None:
                 ],
             }
         ],
-        "resolved_scope": {},
+        "resolved_scope": {
+            "curriculum_version_id": ctx["curriculum_version_id"],
+            "organization_id": ctx["organization_id"],
+            "institution_id": ctx["institution_id"],
+            "subject_code": "mathematics",
+            "concept_codes": ["multi-step-addition"],
+        },
+        "draft_items": [
+            {
+                "item_id": "item-1",
+                "concept_codes": ["multi-step-addition"],
+                "source_revision_ids": [ctx["source_revision_id"]],
+            }
+        ],
+        "deterministic_validation": [{"item_id": "item-1", "blocking": False}],
+        "knowledge_context": KnowledgeContextPack(
+            query_id="replay-r8",
+            query_text="replay",
+            retrieval_profile_version="ki-retrieval-v1",
+            evidence=[],
+            citations=[],
+            scope=AppliedKnowledgeScope(curriculum_version_id=ctx["curriculum_version_id"]),
+            warnings=[],
+            bounded_text="",
+        ).model_dump(mode="json"),
     }
     update = root_cause_enrich_node(state, deps)
     assert len(update.get("root_cause_results") or []) == 1

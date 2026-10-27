@@ -3,12 +3,27 @@ from __future__ import annotations
 from app.prerequisite_intelligence.contracts import (
     GraphIssue,
     GraphTraversalLimits,
+    PrerequisiteGraphPath,
     PrerequisiteGraphSnapshot,
 )
 from app.prerequisite_intelligence.stable_ids import stable_hypothesis_id
 from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 from app.root_cause_intelligence.contracts import RootCauseHypothesis
 from app.root_cause_intelligence.mapping_registry import MisconceptionConceptMapping
+
+
+def _evidence_revision_ids_from_paths(
+    snapshot: PrerequisiteGraphSnapshot,
+    paths: list[PrerequisiteGraphPath],
+) -> list[str]:
+    edge_by_id = {edge.edge_id: edge for edge in snapshot.edges}
+    revision_ids: list[str] = []
+    for path in paths:
+        for edge_id in path.edge_ids:
+            edge = edge_by_id.get(edge_id)
+            if edge is not None and edge.source_revision_id:
+                revision_ids.append(str(edge.source_revision_id))
+    return sorted(set(revision_ids))
 
 
 def rank_root_cause_hypotheses(
@@ -43,6 +58,10 @@ def rank_root_cause_hypotheses(
         alternatives = [
             code for code in mapping.candidate_concept_codes if code != concept_code
         ]
+        path_slice = matching_paths[: limits.max_paths]
+        path_evidence = _evidence_revision_ids_from_paths(snapshot, path_slice)
+        mapping_evidence = [str(rev) for rev in mapping.source_revision_ids if rev]
+        evidence_ids = sorted(set(path_evidence + mapping_evidence))
         hypotheses.append(
             RootCauseHypothesis(
                 hypothesis_id=stable_hypothesis_id(
@@ -52,8 +71,8 @@ def rank_root_cause_hypotheses(
                 concept_id=concept_id,
                 concept_code=concept_code,
                 support_score=round(support, 4),
-                paths=matching_paths[: limits.max_paths],
-                evidence_revision_ids=list(mapping.source_revision_ids),
+                paths=path_slice,
+                evidence_revision_ids=evidence_ids,
                 alternatives=alternatives,
                 uncertainty_notes=(
                     "Possible prerequisite mechanism; not demonstrated learner mastery."
