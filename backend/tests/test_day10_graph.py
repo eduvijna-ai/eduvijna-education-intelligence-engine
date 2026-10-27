@@ -14,10 +14,12 @@ from app.prerequisite_intelligence.enums import (
     GraphAuditStatus,
     GraphIssueCode,
 )
+from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
 from app.prerequisite_intelligence.fixtures import (
     load_day10_fixture_snapshot,
     seed_day10_prerequisite_fixture,
 )
+from app.prerequisite_intelligence.loader import load_prerequisite_graph_snapshot
 from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 
 
@@ -59,3 +61,22 @@ def test_cycle_detection_flags_error(tmp_path: Path) -> None:
     report = build_graph_quality_report(snapshot)
     codes = {issue.code for issue in report.issues}
     assert GraphIssueCode.CYCLE_DETECTED in codes
+
+
+def test_grade_scope_keeps_cross_grade_prerequisite_nodes(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    session.commit()
+    scope = PrerequisiteGraphScope(
+        curriculum_version_id=ctx["curriculum_version_id"],
+        grade_year_code="grade-4",
+        subject_code="mathematics",
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
+    snapshot = load_prerequisite_graph_snapshot(session, scope)
+    codes = {node.concept_code for node in snapshot.nodes}
+    assert "multi-step-addition" in codes
+    assert "counting-sequence" in codes
+    paths, _ = bounded_ancestor_paths(snapshot, ctx["multi_add_concept_id"])
+    assert len(paths) >= 1

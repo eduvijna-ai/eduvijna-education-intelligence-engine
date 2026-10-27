@@ -70,7 +70,11 @@ def root_cause_enrich_node(
         for entry in (state.get("deterministic_validation") or [])
     }
 
+    draft_by_item = {
+        str(item.get("item_id")): item for item in (state.get("draft_items") or [])
+    }
     diagnostic_results = state.get("diagnostic_results") or []
+    eligible_tags = 0
     for entry in diagnostic_results:
         item_id = str(entry.get("item_id"))
         for tag_data in entry.get("option_tags") or []:
@@ -82,6 +86,9 @@ def root_cause_enrich_node(
             validation_status = tag_data.get("validation_status")
             if validation_status is None:
                 continue
+            if str(validation_status) != "pass":
+                continue
+            eligible_tags += 1
             tag = OptionDiagnosticTag.model_validate(
                 {
                     **tag_data,
@@ -90,6 +97,11 @@ def root_cause_enrich_node(
                 }
             )
             det = deterministic_by_item.get(item_id) or {}
+            draft = draft_by_item.get(item_id) or {}
+            concept_codes = list(draft.get("concept_codes") or scope.concept_codes or [])
+            target_concept = concept_codes[0] if concept_codes else ""
+            if not target_concept:
+                continue
             analysis = service.analyze(
                 RootCauseDiagnosticRequest(
                     item_id=item_id,
@@ -101,11 +113,12 @@ def root_cause_enrich_node(
                     tag=tag,
                     curriculum_version_id=curriculum_version_id,
                     graph_snapshot=snapshot,
-                    target_concept_code="multi-step-addition",
+                    target_concept_code=target_concept,
                     organization_id=graph_scope.organization_id,
                     institution_id=graph_scope.institution_id,
                     allowed_source_revision_ids=allowed_sources,
                     day6_blocking=bool(det.get("blocking")),
+                    tag_validation_trusted=True,
                 )
             )
             results.append(analysis.model_dump(mode="json"))
@@ -116,7 +129,10 @@ def root_cause_enrich_node(
         "root_cause_enrich",
         "completed",
         attempt=attempt,
-        payload={"result_count": len(results)},
+        payload={
+            "result_count": len(results),
+            "eligible_tag_count": eligible_tags,
+        },
     )
     return timed_update(
         state,
@@ -124,6 +140,7 @@ def root_cause_enrich_node(
         started,
         {
             "root_cause_results": results,
+            "root_cause_eligible_tag_count": eligible_tags,
             "audit_refs": [audit_id],
         },
         attempt_map=attempt_map,

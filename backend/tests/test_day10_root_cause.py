@@ -56,6 +56,7 @@ def test_root_cause_returns_multiple_ranked_hypotheses(tmp_path: Path) -> None:
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
             allowed_source_revision_ids=[],
+            tag_validation_trusted=True,
         )
     )
     assert result.verdict_status in {
@@ -83,6 +84,7 @@ def test_correct_option_tag_is_blocked(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
+            tag_validation_trusted=True,
         )
     )
     assert RootCauseIssueCode.CORRECT_OPTION_TAGGED in result.issue_codes
@@ -105,7 +107,63 @@ def test_zero_edge_graph_cannot_pass(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=empty,
             target_concept_code="multi-step-addition",
+            tag_validation_trusted=True,
         )
     )
     assert result.verdict_status != RootCauseVerdictStatus.PASS
     assert RootCauseIssueCode.NO_PREREQUISITE_PATH in result.issue_codes
+
+
+def test_untrusted_tag_requires_review(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    session.commit()
+    snapshot = load_day10_fixture_snapshot(session, ctx)
+    service = RootCauseIntelligenceService()
+    result = service.analyze(
+        RootCauseDiagnosticRequest(
+            item_id="item-1",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            tag=_tag(),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            graph_snapshot=snapshot,
+            target_concept_code="multi-step-addition",
+            tag_validation_trusted=False,
+        )
+    )
+    assert RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION in result.issue_codes
+    assert result.verdict_status == RootCauseVerdictStatus.REVIEW_REQUIRED
+
+
+def test_snapshot_allowlist_spoof_blocked(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    session.commit()
+    snapshot = load_day10_fixture_snapshot(session, ctx)
+    spoofed = snapshot.model_copy(
+        update={
+            "metadata_json": {
+                **snapshot.metadata_json,
+                "authorized_revision_ids": ["forged-revision"],
+            }
+        }
+    )
+    service = RootCauseIntelligenceService()
+    result = service.analyze(
+        RootCauseDiagnosticRequest(
+            item_id="item-1",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            tag=_tag(),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            graph_snapshot=spoofed,
+            target_concept_code="multi-step-addition",
+            allowed_source_revision_ids=[],
+            tag_validation_trusted=True,
+        )
+    )
+    assert RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF in result.issue_codes
+    assert result.verdict_status != RootCauseVerdictStatus.PASS

@@ -18,7 +18,11 @@ from app.paper_distribution.contracts import (
 from app.paper_distribution.enums import PaperDistributionIssueCode, PaperDistributionVerdict
 from app.paper_distribution.evaluator import evaluate_paper_distribution
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.enums import EdgeProvenanceClass
+from app.prerequisite_intelligence.enums import (
+    EdgeProvenanceClass,
+    GraphAuditStatus,
+    GraphIssueCode,
+)
 from app.prerequisite_intelligence.fixtures import (
     load_day10_fixture_snapshot,
     seed_day10_prerequisite_fixture,
@@ -51,8 +55,9 @@ def test_official_edge_without_allowlist_fails_audit(tmp_path: Path) -> None:
     snapshot = load_day10_fixture_snapshot(session, ctx)
     assert all(edge.provenance_class != EdgeProvenanceClass.OFFICIAL for edge in snapshot.edges)
     report = build_graph_quality_report(snapshot, allowed_source_revision_ids=set())
-    loader_issues = int(snapshot.metadata_json.get("loader_issue_count", 0))
-    assert report.status.value != "pass" or loader_issues > 0
+    assert report.status == GraphAuditStatus.FAIL
+    assert any(issue.code == GraphIssueCode.UNAUTHORIZED_PROVENANCE for issue in report.issues)
+    assert all(edge.provenance_class != EdgeProvenanceClass.OFFICIAL for edge in snapshot.edges)
 
 
 def test_duplicate_items_and_impossible_targets() -> None:

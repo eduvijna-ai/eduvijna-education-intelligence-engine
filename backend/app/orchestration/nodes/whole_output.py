@@ -68,6 +68,15 @@ def whole_output_node(
     ):
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("root_cause_review_required")
+    elif request.root_cause_enrichment_enabled():
+        eligible_raw = state.get("root_cause_eligible_tag_count")
+        eligible = int(eligible_raw) if isinstance(eligible_raw, int) else 0
+        produced = len(state.get("root_cause_results") or [])
+        if eligible > 0 and produced < eligible:
+            status = OrchestrationRunStatus.REVIEW_REQUIRED
+            errors.append("root_cause_enrichment_incomplete")
+        elif eligible == 0 and produced == 0:
+            errors.append("root_cause_not_applicable")
     else:
         status = OrchestrationRunStatus.COMPLETED
 

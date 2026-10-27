@@ -128,44 +128,47 @@ def detect_cycles(
     for edge in edges:
         adjacency[edge.prerequisite_concept_id].append((edge.target_concept_id, edge.edge_id))
 
-    visiting: set[str] = set()
-    visited: set[str] = set()
-    stack_edges: list[str] = []
-
-    def visit(node_id: str, depth: int) -> None:
-        if depth > max_depth:
-            issues.append(
-                GraphIssue(
-                    code=GraphIssueCode.DEPTH_LIMIT_EXCEEDED,
-                    severity="error",
-                    field_path=f"concepts/{node_id}",
+    node_ids = [node.concept_id for node in nodes]
+    for start in node_ids:
+        stack: list[tuple[str, int, int]] = [(start, 0, 0)]
+        visiting: set[str] = set()
+        path_edges: list[str] = []
+        while stack:
+            node_id, edge_index, depth = stack[-1]
+            if depth > max_depth:
+                issues.append(
+                    GraphIssue(
+                        code=GraphIssueCode.DEPTH_LIMIT_EXCEEDED,
+                        severity="error",
+                        field_path=f"concepts/{node_id}",
+                    )
                 )
-            )
-            return
-        if node_id in visiting:
-            issues.append(
-                GraphIssue(
-                    code=GraphIssueCode.CYCLE_DETECTED,
-                    severity="error",
-                    field_path=f"concepts/{node_id}",
+                stack.pop()
+                if path_edges:
+                    path_edges.pop()
+                continue
+            children = adjacency.get(node_id, [])
+            if edge_index >= len(children):
+                stack.pop()
+                if path_edges:
+                    path_edges.pop()
+                visiting.discard(node_id)
+                continue
+            target_id, edge_id = children[edge_index]
+            stack[-1] = (node_id, edge_index + 1, depth)
+            if target_id in visiting:
+                issues.append(
+                    GraphIssue(
+                        code=GraphIssueCode.CYCLE_DETECTED,
+                        severity="error",
+                        field_path=f"concepts/{target_id}",
+                    )
                 )
-            )
-            if stack_edges:
-                cycle_edge_ids.append(stack_edges[-1])
-            return
-        if node_id in visited:
-            return
-        visiting.add(node_id)
-        for target_id, edge_id in adjacency.get(node_id, []):
-            stack_edges.append(edge_id)
-            visit(target_id, depth + 1)
-            stack_edges.pop()
-        visiting.remove(node_id)
-        visited.add(node_id)
-
-    for node in nodes:
-        if node.concept_id not in visited:
-            visit(node.concept_id, 0)
+                cycle_edge_ids.append(edge_id)
+                continue
+            visiting.add(node_id)
+            path_edges.append(edge_id)
+            stack.append((target_id, 0, depth + 1))
 
     return issues, list(dict.fromkeys(cycle_edge_ids))
 

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from app.prerequisite_intelligence.audit import build_graph_quality_report
 from app.prerequisite_intelligence.contracts import GraphTraversalLimits
-from app.prerequisite_intelligence.enums import EdgeProvenanceClass, GraphAuditStatus
+from app.prerequisite_intelligence.enums import (
+    EdgeProvenanceClass,
+    GraphAuditStatus,
+    GraphIssueCode,
+)
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest, RootCauseResult
 from app.root_cause_intelligence.enums import (
@@ -50,6 +54,8 @@ class RootCauseIntelligenceService:
             status = RootCauseVerdictStatus.FAIL
             if RootCauseIssueCode.CORRECT_OPTION_TAGGED in issue_codes:
                 status = RootCauseVerdictStatus.REVIEW_REQUIRED
+            elif RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION in issue_codes:
+                status = RootCauseVerdictStatus.REVIEW_REQUIRED
             return RootCauseResult(
                 item_id=request.item_id,
                 option_key=request.option_key,
@@ -64,8 +70,12 @@ class RootCauseIntelligenceService:
             )
 
         allowed = set(request.allowed_source_revision_ids or [])
-        if not allowed:
-            allowed = set(request.graph_snapshot.metadata_json.get("authorized_revision_ids") or [])
+        snapshot_allow = set(
+            request.graph_snapshot.metadata_json.get("authorized_revision_ids") or []
+        )
+        if not allowed and snapshot_allow:
+            issue_codes.append(RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF)
+            field_paths.append("graph_snapshot.metadata_json.authorized_revision_ids")
 
         has_official = any(
             edge.provenance_class == EdgeProvenanceClass.OFFICIAL
@@ -79,6 +89,17 @@ class RootCauseIntelligenceService:
             request.graph_snapshot,
             allowed_source_revision_ids=allowed,
         )
+        loader_error_codes = {
+            GraphIssueCode.UNAUTHORIZED_PROVENANCE,
+            GraphIssueCode.MISSING_PROVENANCE,
+        }
+        if any(
+            item.code in loader_error_codes and item.severity == "error"
+            for item in graph_report.issues
+        ):
+            issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
+            field_paths.append("graph_snapshot.loader_issues")
+
         if graph_report.status == GraphAuditStatus.FAIL:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
             field_paths.append("graph_snapshot")
@@ -86,13 +107,17 @@ class RootCauseIntelligenceService:
             issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
             field_paths.append("graph_snapshot")
 
-        hypotheses = rank_root_cause_hypotheses(
+        hypotheses, traversal_issues = rank_root_cause_hypotheses(
             request.graph_snapshot,
             mapping_entry,
             target_concept_code=request.target_concept_code,
             limits=GraphTraversalLimits(max_depth=8, max_paths=8, max_nodes=48),
         )
         supported = [hypothesis for hypothesis in hypotheses if hypothesis.paths]
+
+        if any(item.code == GraphIssueCode.PATH_BUDGET_EXHAUSTED for item in traversal_issues):
+            issue_codes.append(RootCauseIssueCode.PATH_BUDGET_EXHAUSTED)
+            field_paths.append("graph_snapshot.traversal")
 
         if not supported:
             issue_codes.append(RootCauseIssueCode.NO_PREREQUISITE_PATH)
@@ -124,5 +149,6 @@ class RootCauseIntelligenceService:
                     "not demonstrated learner mastery."
                 ),
                 "graph_audit_status": graph_report.status.value,
+                "audit_fingerprint": audit_ref,
             },
         )

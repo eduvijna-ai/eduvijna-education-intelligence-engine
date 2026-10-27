@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.prerequisite_intelligence.contracts import GraphTraversalLimits, PrerequisiteGraphSnapshot
+from app.prerequisite_intelligence.contracts import (
+    GraphIssue,
+    GraphTraversalLimits,
+    PrerequisiteGraphSnapshot,
+)
 from app.prerequisite_intelligence.stable_ids import stable_hypothesis_id
 from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 from app.root_cause_intelligence.contracts import RootCauseHypothesis
@@ -13,14 +17,14 @@ def rank_root_cause_hypotheses(
     *,
     target_concept_code: str,
     limits: GraphTraversalLimits | None = None,
-) -> list[RootCauseHypothesis]:
+) -> tuple[list[RootCauseHypothesis], list[GraphIssue]]:
     limits = limits or GraphTraversalLimits(max_depth=6, max_paths=8, max_nodes=32)
     code_to_id = {node.concept_code: node.concept_id for node in snapshot.nodes}
     target_id = code_to_id.get(target_concept_code)
     if target_id is None:
-        return []
+        return [], []
 
-    all_paths, _ = bounded_ancestor_paths(snapshot, target_id, limits)
+    all_paths, traversal_issues = bounded_ancestor_paths(snapshot, target_id, limits)
     hypotheses: list[RootCauseHypothesis] = []
     for rank, concept_code in enumerate(mapping.candidate_concept_codes, start=1):
         concept_id = code_to_id.get(concept_code)
@@ -73,4 +77,4 @@ def rank_root_cause_hypotheses(
                 }
             )
         )
-    return reranked
+    return reranked, traversal_issues

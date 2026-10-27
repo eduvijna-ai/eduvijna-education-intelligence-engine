@@ -95,3 +95,40 @@ def test_fractional_multi_label_conserves_denominator() -> None:
     assert result.competency_summary.fractional_counts.get("knowledge") == 0.5
     assert result.competency_summary.fractional_counts.get("application") == 0.5
     assert sum(result.competency_summary.fractional_counts.values()) == 1.0
+    assert result.competency_summary.counts.get("knowledge") is None
+    assert result.competency_summary.fractional_counts.get("knowledge") == 0.5
+
+
+def test_misplaced_target_dimension_fails() -> None:
+    request = build_demo_ten_question_paper()
+    request = request.model_copy(
+        update={
+            "cognitive_targets": [
+                DistributionTarget(dimension="competency", key="knowledge", exact_percent=100.0),
+            ],
+            "competency_targets": [],
+        }
+    )
+    result = evaluate_paper_distribution(request, taxonomy=TaxonomyRegistry())
+    assert result.verdict == PaperDistributionVerdict.FAIL
+    assert PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION in result.issue_codes
+
+
+def test_fractional_exact_count_uses_float_shares() -> None:
+    request = build_demo_ten_question_paper()
+    item = request.items[0].model_copy(
+        update={"competency_codes": ["knowledge", "application"], "primary_competency_code": None}
+    )
+    updated = request.model_copy(
+        update={
+            "items": [item],
+            "multi_label_policy": MultiLabelPolicy.FRACTIONAL_SPLIT,
+            "cognitive_targets": [],
+            "competency_targets": [
+                DistributionTarget(dimension="competency", key="knowledge", exact_count=0),
+            ],
+        }
+    )
+    result = evaluate_paper_distribution(updated, taxonomy=TaxonomyRegistry())
+    assert result.verdict == PaperDistributionVerdict.FAIL
+    assert PaperDistributionIssueCode.TARGET_MISMATCH in result.issue_codes

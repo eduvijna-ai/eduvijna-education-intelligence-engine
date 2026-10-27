@@ -12,15 +12,27 @@ from app.prerequisite_intelligence.validators import (
 )
 
 
+def _loader_issues_from_snapshot(snapshot: PrerequisiteGraphSnapshot) -> list[GraphIssue]:
+    raw = snapshot.metadata_json.get("loader_issues") or []
+    parsed: list[GraphIssue] = []
+    for entry in raw:
+        if isinstance(entry, dict):
+            parsed.append(GraphIssue.model_validate(entry))
+    return parsed
+
+
 def build_graph_quality_report(
     snapshot: PrerequisiteGraphSnapshot,
     *,
     allowed_source_revision_ids: set[str] | None = None,
 ) -> GraphQualityReport:
-    issues = validate_edge_integrity(
-        snapshot.nodes,
-        snapshot.edges,
-        allowed_source_revision_ids=allowed_source_revision_ids,
+    issues = list(_loader_issues_from_snapshot(snapshot))
+    issues.extend(
+        validate_edge_integrity(
+            snapshot.nodes,
+            snapshot.edges,
+            allowed_source_revision_ids=allowed_source_revision_ids,
+        )
     )
     cycle_issues, cycle_edge_ids = detect_cycles(snapshot.nodes, snapshot.edges)
     issues.extend(cycle_issues)

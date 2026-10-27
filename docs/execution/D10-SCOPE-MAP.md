@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R1 FOCUSED REPAIR** (Chief Architect handoff R1; push pending new HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R2 FOCUSED REPAIR** (Chief Architect handoff R2; push pending new HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R1 deltas (vs `f1a3680`):** `authority.py` fail-closed graph loading; synthetic fixture edges; root-cause path-required PASS; paper competency + partial cognitive targets + fractional counts; orchestration trusted scope + whole-output review gate. Expanded `test_day10_*` (14 tests). D10-22/32/33/36 still PARTIAL/PENDING.
+**R2 deltas (vs `102be05`):** exclude failed-official edges (no synthetic laundering); loader issues in graph audit; global official tenancy policy; `tag_validation_trusted` + no snapshot allowlist spoof; orchestration concept scope + enrichment incomplete gate; paper malformed targets + fractional exact_count + audit fingerprint. **19** `test_day10_*` tests. D10-22/32/33/36 still PARTIAL/PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

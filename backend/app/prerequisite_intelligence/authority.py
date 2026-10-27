@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.curriculum import CurriculumVersion
-from app.models.enums import CurriculumStatus, SourceRevisionStatus, SourceStatus
-from app.models.source import SourceRevision
+from app.models.enums import CurriculumStatus, SourceRevisionStatus, SourceStatus, SourceType
+from app.models.source import Source, SourceRevision
 from app.prerequisite_intelligence.contracts import GraphIssue, PrerequisiteGraphScope
 from app.prerequisite_intelligence.enums import GraphIssueCode
 
@@ -19,6 +19,8 @@ class RevisionAuthorityRecord:
     status: str
     source_id: str
     source_status: str
+    source_type: str
+    trust_tier: str
     organization_id: str | None
     institution_id: str | None
     teacher_id: str | None
@@ -43,6 +45,8 @@ def _revision_record(revision: SourceRevision) -> RevisionAuthorityRecord:
         status=revision.status,
         source_id=revision.source_id,
         source_status=source.status if source is not None else "",
+        source_type=source.source_type if source is not None else "",
+        trust_tier=source.trust_tier if source is not None else "",
         organization_id=source.organization_id if source is not None else None,
         institution_id=source.institution_id if source is not None else None,
         teacher_id=source.teacher_id if source is not None else None,
@@ -111,6 +115,10 @@ def build_graph_authority_context(
     )
 
 
+def _is_global_public_source(source_type: str) -> bool:
+    return source_type in Source.official_type_values()
+
+
 def revision_is_authorized_for_scope(
     record: RevisionAuthorityRecord,
     scope: PrerequisiteGraphScope,
@@ -122,13 +130,36 @@ def revision_is_authorized_for_scope(
         return False
     if record.source_status != SourceStatus.ACTIVE.value:
         return False
+    if record.metadata_json.get("synthetic") or record.metadata_json.get("synthetic_fixture"):
+        return False
+
+    source_type = record.source_type
+    if _is_global_public_source(source_type):
+        if record.organization_id or record.institution_id or record.teacher_id:
+            return False
+        return True
+
+    if source_type == SourceType.INSTITUTION_CONTENT.value:
+        if scope.organization_id and record.organization_id != scope.organization_id:
+            return False
+        if scope.institution_id and record.institution_id != scope.institution_id:
+            return False
+        return bool(record.institution_id)
+
+    if source_type == SourceType.TEACHER_CONTENT.value:
+        if scope.organization_id and record.organization_id != scope.organization_id:
+            return False
+        if scope.institution_id and record.institution_id != scope.institution_id:
+            return False
+        if scope.teacher_id and record.teacher_id != scope.teacher_id:
+            return False
+        return bool(record.teacher_id)
+
     if scope.organization_id and record.organization_id != scope.organization_id:
         return False
     if scope.institution_id and record.institution_id != scope.institution_id:
         return False
     if scope.teacher_id and record.teacher_id != scope.teacher_id:
-        return False
-    if record.metadata_json.get("synthetic") or record.metadata_json.get("synthetic_fixture"):
         return False
     return True
 

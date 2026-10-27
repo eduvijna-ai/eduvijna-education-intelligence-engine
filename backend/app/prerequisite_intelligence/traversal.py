@@ -86,6 +86,14 @@ def bounded_ancestor_paths(
             continue
 
         for edge in incoming:
+            if len(queue) >= max_queue:
+                issues.append(
+                    GraphIssue(
+                        code=GraphIssueCode.PATH_BUDGET_EXHAUSTED,
+                        severity="warning",
+                    )
+                )
+                break
             next_id = edge.prerequisite_concept_id
             if next_id in concept_chain:
                 continue

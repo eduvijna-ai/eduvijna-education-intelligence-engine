@@ -32,6 +32,9 @@ class PaperDistributionIssueCode(StrEnum):
     MULTI_LABEL_DOUBLE_COUNT = "d10.paper.multi_label_double_count"
     EMPTY_PAPER = "d10.paper.empty_paper"
     OVERFLOW_TOTAL = "d10.paper.overflow_total"
+    MALFORMED_TARGET_DIMENSION = "d10.paper.malformed_target_dimension"
+    NON_FINITE_MARKS = "d10.paper.non_finite_marks"
+    DUPLICATE_COMPETENCY_LABEL = "d10.paper.duplicate_competency_label"
 
 
 class PaperDistributionVerdict(StrEnum):

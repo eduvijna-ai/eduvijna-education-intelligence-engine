@@ -24,6 +24,8 @@ class RootCauseIssueCode(StrEnum):
     AMBIGUOUS_PATH = "d10.root.ambiguous_path"
     CONFLICTING_EVIDENCE = "d10.root.conflicting_evidence"
     PATH_BUDGET_EXHAUSTED = "d10.root.path_budget_exhausted"
+    UNTRUSTED_TAG_VALIDATION = "d10.root.untrusted_tag_validation"
+    SNAPSHOT_ALLOWLIST_SPOOF = "d10.root.snapshot_allowlist_spoof"
 
 
 DEFAULT_ROOT_CAUSE_MAPPING_VERSION = "root-cause-mapping@v1"

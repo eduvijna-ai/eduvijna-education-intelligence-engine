@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 from sqlalchemy.orm import Session
@@ -59,7 +60,7 @@ def _evaluate_dimension_targets(
         observed_percent = count_percent.get(target.key, 0.0)
 
         if target.exact_count is not None:
-            if int(round(observed_count)) != target.exact_count:
+            if abs(observed_count - float(target.exact_count)) > 1e-6:
                 issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
                 status = DistributionDimensionStatus.FAIL
             variance[target.key] = round(observed_count - float(target.exact_count), 2)
@@ -108,6 +109,15 @@ def evaluate_paper_distribution(
         issues.append(PaperDistributionIssueCode.UNSUPPORTED_TAXONOMY)
         field_paths.append("taxonomy_version")
 
+    for index, target in enumerate(request.cognitive_targets):
+        if target.dimension != "cognitive":
+            issues.append(PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION)
+            field_paths.append(f"cognitive_targets[{index}]/dimension")
+    for index, target in enumerate(request.competency_targets):
+        if target.dimension != "competency":
+            issues.append(PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION)
+            field_paths.append(f"competency_targets[{index}]/dimension")
+
     if not request.items:
         issues.append(PaperDistributionIssueCode.EMPTY_PAPER)
         return PaperDistributionResult(
@@ -152,6 +162,11 @@ def evaluate_paper_distribution(
         else:
             marks = float(item.marks)
 
+        if item.marks is not None and not math.isfinite(item.marks):
+            issues.append(PaperDistributionIssueCode.NON_FINITE_MARKS)
+            field_paths.append(f"{base_path}/marks")
+            marks = 0.0
+
         if item.marks is not None and item.marks < 0:
             issues.append(PaperDistributionIssueCode.NEGATIVE_MARKS)
             field_paths.append(f"{base_path}/marks")
@@ -184,6 +199,9 @@ def evaluate_paper_distribution(
                 issues.append(PaperDistributionIssueCode.MISSING_COMPETENCY)
                 field_paths.append(f"{base_path}/competency_codes")
             elif marks > 0:
+                if len(set(comp_codes)) != len(comp_codes):
+                    issues.append(PaperDistributionIssueCode.DUPLICATE_COMPETENCY_LABEL)
+                    field_paths.append(f"{base_path}/competency_codes")
                 share = 1.0 / len(comp_codes)
                 for code in comp_codes:
                     resolved, _ = taxonomy.resolve_competency(code)
@@ -258,6 +276,14 @@ def evaluate_paper_distribution(
         key for key in COGNITIVE_PROGRESSION_ORDER if cognitive_counts.get(key, 0.0) == 0.0
     ]
 
+    item_id_digest = stable_audit_ref(
+        "paper-items",
+        request.paper_id,
+        ",".join(sorted(distinct_ids)),
+        str(len(request.cognitive_targets)),
+        str(len(request.competency_targets)),
+    )
+
     verdict = PaperDistributionVerdict.PASS
     if issues:
         fail_statuses = {
@@ -274,6 +300,7 @@ def evaluate_paper_distribution(
                     PaperDistributionIssueCode.CREATE_LEVEL_REJECTED,
                     PaperDistributionIssueCode.EMPTY_PAPER,
                     PaperDistributionIssueCode.TARGET_MISMATCH,
+                    PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION,
                 }
                 for code in issues
             )
@@ -289,7 +316,11 @@ def evaluate_paper_distribution(
         distinct_item_ids=distinct_ids,
         cognitive_summary=DimensionSummary(
             dimension="cognitive",
-            counts={k: int(cognitive_counts.get(k, 0)) for k in COGNITIVE_PROGRESSION_ORDER},
+            counts={
+                k: int(v)
+                for k, v in cognitive_counts.items()
+                if abs(v - round(v)) < 1e-6
+            },
             fractional_counts=dict(cognitive_counts),
             count_percent=cognitive_percent,
             mark_weighted_percent=cognitive_mark_percent,
@@ -299,7 +330,11 @@ def evaluate_paper_distribution(
         ),
         competency_summary=DimensionSummary(
             dimension="competency",
-            counts={k: int(competency_counts.get(k, 0)) for k in competency_keys},
+            counts={
+                k: int(v)
+                for k, v in competency_counts.items()
+                if abs(v - round(v)) < 1e-6
+            },
             fractional_counts=dict(competency_counts),
             count_percent=competency_percent,
             mark_weighted_percent=competency_mark_percent,
@@ -309,7 +344,12 @@ def evaluate_paper_distribution(
         ),
         issue_codes=list(dict.fromkeys(issues)),
         field_paths=field_paths,
-        audit_ref=stable_audit_ref(request.paper_id, str(item_count), request.taxonomy_version),
+        audit_ref=stable_audit_ref(
+            request.paper_id,
+            str(item_count),
+            request.taxonomy_version,
+            item_id_digest,
+        ),
         metadata_json={
             "multi_label_policy": request.multi_label_policy.value,
             "total_marks": total_marks,

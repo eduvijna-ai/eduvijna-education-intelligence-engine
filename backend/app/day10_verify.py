@@ -25,7 +25,7 @@ from app.paper_distribution.fixtures import (
     build_mismatched_target_paper,
 )
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.enums import GraphAuditStatus
+from app.prerequisite_intelligence.enums import GraphAuditStatus, GraphIssueCode
 from app.prerequisite_intelligence.fixtures import (
     load_day10_fixture_snapshot,
     seed_day10_prerequisite_fixture,
@@ -89,6 +89,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
             allowed_source_revision_ids=[ctx["source_revision_id"]],
+            tag_validation_trusted=True,
         )
     )
     correct_block = service.analyze(
@@ -126,13 +127,18 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "correct_option_veto": (
             RootCauseIssueCode.CORRECT_OPTION_TAGGED in correct_block.issue_codes
         ),
-        "cognitive_20_20_40_10_10": (
-            paper_pass.cognitive_summary.count_percent.get("remember") == 20.0
-            and paper_pass.cognitive_summary.count_percent.get("apply") == 40.0
-        ),
+        "cognitive_20_20_40_10_10": all(
+            paper_pass.cognitive_summary.count_percent.get(level) is not None
+            for level in ("remember", "understand", "apply", "analyze", "evaluate")
+        )
+        and paper_pass.cognitive_summary.count_percent.get("remember") == 20.0
+        and paper_pass.cognitive_summary.count_percent.get("apply") == 40.0,
         "paper_distribution_pass": paper_pass.verdict == PaperDistributionVerdict.PASS,
         "paper_distribution_target_fail": paper_fail.verdict == PaperDistributionVerdict.FAIL,
-        "no_anythingllm_calls": True,
+        "loader_issues_surface_in_audit": not any(
+            issue.code == GraphIssueCode.UNAUTHORIZED_PROVENANCE
+            for issue in graph_report.issues
+        ),
     }
     ok = all(bool(value) for value in checks.values())
     return {

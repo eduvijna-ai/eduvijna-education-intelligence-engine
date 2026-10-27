@@ -55,6 +55,10 @@ def run_root_cause_preflight(request: RootCauseDiagnosticRequest) -> RootCausePr
         issues.append(RootCauseIssueCode.MISSING_GRAPH)
         paths.append("graph_snapshot.nodes")
 
+    if not request.tag_validation_trusted:
+        issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+        paths.append("tag_validation_trusted")
+
     blocking = bool(issues)
     return RootCausePreflightResult(
         allow_inference=not blocking,
