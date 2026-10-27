@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from sqlalchemy import select
@@ -14,8 +13,14 @@ from app.prerequisite_intelligence.authority import (
     revision_is_authorized_for_scope,
 )
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
-from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.root_cause_intelligence.enums import DEFAULT_ROOT_CAUSE_MAPPING_VERSION
+from app.root_cause_intelligence.mapping_claim_authority import (
+    mapping_claim_authorized_for_overlay,
+)
+from app.root_cause_intelligence.mapping_evidence import (  # noqa: F401
+    mapping_evidence_checksum,
+    source_content_checksum,
+)
 from app.root_cause_intelligence.mapping_registry import (
     MisconceptionConceptMapping,
     RootCauseMappingRegistry,
@@ -42,100 +47,23 @@ def _normalized_codes(codes: list[str]) -> tuple[str, ...]:
     return tuple(sorted(str(code) for code in codes if code))
 
 
-def source_content_checksum(record: RevisionAuthorityRecord) -> str | None:
-    if record.validated_checksum:
-        return str(record.validated_checksum)
-    if record.extracted_checksum:
-        return str(record.extracted_checksum)
-    return None
-
-
-def mapping_evidence_checksum(
-    *,
-    misconception_code: str,
-    candidate_concept_codes: list[str],
-    source_locator: str,
-    mapping_registry_version: str,
-    source_revision_id: str,
-    source_content_checksum: str,
-) -> str:
-    payload = json.dumps(
-        {
-            "misconception_code": misconception_code,
-            "candidate_concept_codes": sorted(str(code) for code in candidate_concept_codes),
-            "source_locator": source_locator.strip(),
-            "mapping_registry_version": mapping_registry_version,
-            "source_revision_id": source_revision_id,
-            "source_content_checksum": source_content_checksum,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return stable_audit_ref("root-cause-mapping-evidence", payload)
-
-
 def _revision_supports_mapping_binding(
+    session: Session,
     record: RevisionAuthorityRecord,
     entry: MisconceptionConceptMapping,
     overlay: dict[str, Any],
     *,
     registry_version: str,
 ) -> bool:
-    locator = str(overlay.get("source_locator") or "").strip()
-    if not locator:
-        return False
-    content_checksum = source_content_checksum(record)
-    if not content_checksum:
-        return False
-    if not record.approval_fingerprint or not record.approved_by:
-        return False
     if record.source_status != SourceStatus.ACTIVE.value:
         return False
-
-    expected_checksum = mapping_evidence_checksum(
-        misconception_code=entry.misconception_code,
-        candidate_concept_codes=entry.candidate_concept_codes,
-        source_locator=locator,
-        mapping_registry_version=registry_version,
-        source_revision_id=record.revision_id,
-        source_content_checksum=content_checksum,
+    return mapping_claim_authorized_for_overlay(
+        session,
+        record,
+        entry,
+        overlay,
+        registry_version=registry_version,
     )
-    overlay_checksum = str(overlay.get("mapping_evidence_checksum") or "").strip()
-    if overlay_checksum != expected_checksum:
-        return False
-
-    bindings_raw = record.metadata_json.get("root_cause_mapping_bindings") or []
-    if not isinstance(bindings_raw, list):
-        return False
-    for raw in bindings_raw:
-        if not isinstance(raw, dict):
-            continue
-        if str(raw.get("misconception_code") or "") != entry.misconception_code:
-            continue
-        if _normalized_codes(list(raw.get("candidate_concept_codes") or [])) != _normalized_codes(
-            entry.candidate_concept_codes
-        ):
-            continue
-        if str(raw.get("source_locator") or "").strip() != locator:
-            continue
-        if str(raw.get("mapping_registry_version") or "") != registry_version:
-            continue
-        if str(raw.get("source_revision_id") or "") != record.revision_id:
-            continue
-        if str(raw.get("source_content_checksum") or "") != content_checksum:
-            continue
-        if str(raw.get("mapping_evidence_checksum") or "") != expected_checksum:
-            continue
-        if str(raw.get("approval_fingerprint") or "") != str(record.approval_fingerprint):
-            continue
-        approval_status = str(raw.get("approval_status") or "").lower()
-        if approval_status != "active":
-            continue
-        approved_by = str(raw.get("approved_by") or "").strip()
-        if not approved_by or approved_by != str(record.approved_by):
-            continue
-        return True
-    return False
 
 
 def _overlay_matches_entry(
@@ -266,6 +194,7 @@ def mapping_entry_production_authorized(
         ):
             return False
         if not _revision_supports_mapping_binding(
+            session,
             record,
             entry,
             approved_overlay,

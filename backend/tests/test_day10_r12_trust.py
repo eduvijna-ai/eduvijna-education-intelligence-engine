@@ -301,7 +301,9 @@ def test_orchestration_diagnostic_and_root_cause_stages_run(tmp_path: Path) -> N
 def test_approved_mapping_overlay_positive_production(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(
+        session, tmp_path, ctx["source_revision_id"]
+    )
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,

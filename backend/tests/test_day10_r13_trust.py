@@ -57,7 +57,9 @@ from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValid
 def test_tampered_loader_issues_blocks_production_root_cause(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(
+        session, tmp_path, ctx["source_revision_id"]
+    )
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
@@ -266,7 +268,9 @@ def test_root_cause_enrich_node_persists_item_audit(tmp_path: Path) -> None:
 
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    mapping_overlay = _approve_revision_mapping_binding(session, ctx["source_revision_id"])
+    mapping_overlay = _approve_revision_mapping_binding(
+        session, tmp_path, ctx["source_revision_id"]
+    )
     session.add(
         PolicyRegistryEntry(
             registry_key=ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
