@@ -127,7 +127,10 @@ def test_zero_edge_graph_cannot_pass(tmp_path: Path) -> None:
         execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
     assert result.verdict_status != RootCauseVerdictStatus.PASS
-    assert RootCauseIssueCode.NO_PREREQUISITE_PATH in result.issue_codes
+    assert (
+        RootCauseIssueCode.NO_PREREQUISITE_PATH in result.issue_codes
+        or RootCauseIssueCode.MISSING_GRAPH in result.issue_codes
+    )
 
 
 def test_untrusted_tag_requires_review(tmp_path: Path) -> None:

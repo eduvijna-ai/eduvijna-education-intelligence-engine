@@ -152,7 +152,10 @@ def load_policy_registry(
         return reg
     if version:
         row = session.scalar(
-            select(PolicyRegistryEntry).where(PolicyRegistryEntry.version == version)
+            select(PolicyRegistryEntry).where(
+                PolicyRegistryEntry.version == version,
+                PolicyRegistryEntry.status == "active",
+            )
         )
         if row is None:
             raise RegistryVersionNotFound("policy", version)

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.common.trust_execution import TrustExecutionMode
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
 from app.models.orchestration import OrchestrationAuditEvent
+from app.prerequisite_intelligence.graph_verify import verify_production_graph_snapshot
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode
 from app.root_cause_intelligence.trusted_validation import (
@@ -99,35 +100,40 @@ def verify_root_cause_trusted_context(
         issues.append(RootCauseIssueCode.DAY9_TAG_REJECTED)
         paths.append("trusted_validation.day9_taxonomy")
 
+    persisted_refs = list(option_trace.get("evidence_refs") or [])
+    requested_refs = list(request.tag.evidence_refs or [])
+    if persisted_refs or requested_refs:
+        if sorted(persisted_refs) != sorted(requested_refs):
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.day9_option_evidence_refs")
+
+    raw_sources = event.source_revision_ids_json or {}
+    if isinstance(raw_sources, dict):
+        source_id_list = raw_sources.get("ids") or []
+    else:
+        source_id_list = raw_sources
+    event_sources = {str(revision_id) for revision_id in source_id_list if revision_id}
+    if event_sources and request.allowed_source_revision_ids:
+        allowed = set(request.allowed_source_revision_ids)
+        if not allowed.issubset(event_sources):
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.day9_audit_sources")
+
     return issues, paths
 
 
 def validate_graph_snapshot_attestation(
     request: RootCauseDiagnosticRequest,
+    *,
+    execution_mode: TrustExecutionMode,
+    control_session: Session | None,
 ) -> tuple[list[RootCauseIssueCode], list[str], bool]:
     """Return issues, paths, and whether graph audit blocking applies."""
-    issues: list[RootCauseIssueCode] = []
-    paths: list[str] = []
-    meta = request.graph_snapshot.metadata_json or {}
-    if not meta.get("loader_attested"):
-        issues.append(RootCauseIssueCode.MISSING_GRAPH)
-        paths.append("graph_snapshot.loader_attested")
-        return issues, paths, True
-
-    loader_scope = meta.get("loader_scope") or {}
-    scope = request.graph_snapshot.scope
-
-    def _mismatch(field: str, request_value: str | None, loader_value: str | None) -> None:
-        if request_value and loader_value and request_value != loader_value:
-            issues.append(RootCauseIssueCode.FOREIGN_TENANT)
-            paths.append(f"graph_snapshot.scope.{field}")
-
-    _mismatch("organization_id", request.organization_id, loader_scope.get("organization_id"))
-    _mismatch("institution_id", request.institution_id, loader_scope.get("institution_id"))
-    _mismatch("teacher_id", request.teacher_id, loader_scope.get("teacher_id"))
-    _mismatch("medium_code", scope.medium_code, loader_scope.get("medium_code"))
-    _mismatch("subject_code", scope.subject_code, loader_scope.get("subject_code"))
-    _mismatch("grade_year_code", scope.grade_year_code, loader_scope.get("grade_year_code"))
-
-    blocking = bool(issues)
-    return issues, paths, blocking
+    return verify_production_graph_snapshot(
+        control_session,
+        request.graph_snapshot,
+        organization_id=request.organization_id,
+        institution_id=request.institution_id,
+        teacher_id=request.teacher_id,
+        execution_mode=execution_mode,
+    )

@@ -75,7 +75,11 @@ class RootCauseIntelligenceService:
             issue_codes.extend(trust_issues)
             field_paths.extend(trust_paths)
 
-        scope_issues, scope_paths, scope_blocking = validate_graph_snapshot_attestation(request)
+        scope_issues, scope_paths, scope_blocking = validate_graph_snapshot_attestation(
+            request,
+            execution_mode=execution_mode,
+            control_session=control_session,
+        )
         issue_codes.extend(scope_issues)
         field_paths.extend(scope_paths)
 

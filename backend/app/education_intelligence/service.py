@@ -54,6 +54,23 @@ class EducationIntelligenceValidationService:
         if institution_overrides:
             ctx.policy = load_policy_registry(self.session, institution_overrides)
         summary = run_validation(item, ctx, self.registry, validator_ids=validator_ids)
+        summary = summary.model_copy(
+            update={
+                "metadata": {
+                    **summary.metadata,
+                    "validated_items": [
+                        {
+                            "item_id": item.item_id,
+                            "input_hash": summary.input_hash,
+                            "declared_cognitive_level": item.declared_cognitive_level,
+                            "competency_codes": list(item.competency_codes),
+                            "institution_id": item.institution_id,
+                            "curriculum_version_id": item.curriculum_version_id,
+                        }
+                    ],
+                }
+            }
+        )
         if persist and self.session is not None:
             persist_validation_run(
                 self.session,

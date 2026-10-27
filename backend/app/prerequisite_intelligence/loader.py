@@ -148,6 +148,16 @@ def _classify_edge_provenance(
         meta.get("synthetic") or meta.get("synthetic_fixture") or meta.get("fixture")
     )
     if force_synthetic:
+        if authority.production_graph:
+            issues.append(
+                GraphIssue(
+                    code=GraphIssueCode.UNAUTHORIZED_PROVENANCE,
+                    severity="error",
+                    field_path=f"edges/{edge_id}/metadata_json/synthetic",
+                    detail={"edge_id": edge_id},
+                )
+            )
+            return EdgeProvenanceClass.SYNTHETIC, revision_id, locator, issues, False
         return EdgeProvenanceClass.SYNTHETIC, revision_id, locator, issues, True
 
     if raw_claim not in {item.value for item in EdgeProvenanceClass}:
@@ -159,9 +169,31 @@ def _classify_edge_provenance(
                 detail={"edge_id": edge_id},
             )
         )
+        if authority.production_graph:
+            issues.append(
+                GraphIssue(
+                    code=GraphIssueCode.MISSING_PROVENANCE,
+                    severity="error",
+                    field_path=f"edges/{edge_id}/metadata_json/provenance_class",
+                    detail={"edge_id": edge_id},
+                )
+            )
+            return EdgeProvenanceClass.SYNTHETIC, revision_id, locator, issues, False
         return EdgeProvenanceClass.SYNTHETIC, revision_id, locator, issues, True
 
     provenance = EdgeProvenanceClass(raw_claim)
+    non_official = {EdgeProvenanceClass.SYNTHETIC, EdgeProvenanceClass.INFERRED}
+    if provenance in non_official and not revision_id:
+        if authority.production_graph:
+            issues.append(
+                GraphIssue(
+                    code=GraphIssueCode.MISSING_PROVENANCE,
+                    severity="error",
+                    field_path=f"edges/{edge_id}/source_revision_id",
+                    detail={"edge_id": edge_id, "provenance": provenance.value},
+                )
+            )
+            return provenance, revision_id, locator, issues, False
     if revision_id:
         record = authority.revisions.get(str(revision_id))
         if record is None:

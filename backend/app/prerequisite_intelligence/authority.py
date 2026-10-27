@@ -35,6 +35,8 @@ class GraphAuthorityContext:
     authorized_revision_ids: set[str] = field(default_factory=set)
     revisions: dict[str, RevisionAuthorityRecord] = field(default_factory=dict)
     issues: list[GraphIssue] = field(default_factory=list)
+    fixture_curriculum: bool = False
+    production_graph: bool = False
 
 
 def _revision_record(revision: SourceRevision) -> RevisionAuthorityRecord:
@@ -72,6 +74,8 @@ def build_graph_authority_context(
             curriculum_version_id=scope.curriculum_version_id,
             curriculum_version_status="missing",
             issues=issues,
+            fixture_curriculum=False,
+            production_graph=True,
         )
 
     if version.status != CurriculumStatus.ACTIVE.value:
@@ -83,6 +87,9 @@ def build_graph_authority_context(
                 detail={"status": version.status},
             )
         )
+
+    fixture_curriculum = bool((version.metadata_json or {}).get("fixture"))
+    production_graph = not fixture_curriculum
 
     revision_ids: set[str] = set()
     if version.source_revision_id:
@@ -112,6 +119,8 @@ def build_graph_authority_context(
         authorized_revision_ids=authorized,
         revisions=records,
         issues=issues,
+        fixture_curriculum=fixture_curriculum,
+        production_graph=production_graph,
     )
 
 

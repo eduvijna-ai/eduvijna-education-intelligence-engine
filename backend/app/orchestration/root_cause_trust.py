@@ -25,18 +25,17 @@ def option_allowed_source_revision_ids(
     base = draft_sources & pack_sources
     evidence_refs = list(tag_data.get("evidence_refs") or [])
     if not evidence_refs:
-        return sorted(base)
+        return []
 
     citation_to_revision = {
         str(item.citation_label): str(item.source_revision_id)
         for item in context.evidence
         if item.citation_label and item.source_revision_id
     }
-    cited_revisions = {
-        citation_to_revision[ref]
-        for ref in evidence_refs
-        if ref in citation_to_revision
-    }
+    unknown = [ref for ref in evidence_refs if ref not in citation_to_revision]
+    if unknown:
+        return []
+    cited_revisions = {citation_to_revision[ref] for ref in evidence_refs}
     if not cited_revisions:
         return []
     return sorted(base & cited_revisions)

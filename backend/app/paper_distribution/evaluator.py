@@ -26,6 +26,8 @@ from app.paper_distribution.enums import (
     PaperDistributionIssueCode,
     PaperDistributionVerdict,
 )
+from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.target_policy_registry import seed_paper_target_policy_registry
 from app.paper_distribution.trust_verify import verify_paper_day6_trust, verify_target_policy
 from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
@@ -121,6 +123,7 @@ def evaluate_paper_distribution(
     day6_trust: PaperDay6TrustContext | None = None,
     execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
     data_session: Session | None = None,
+    execution_context: PaperExecutionContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = taxonomy or TaxonomyRegistry()
     issues: list[PaperDistributionIssueCode] = []
@@ -131,7 +134,11 @@ def evaluate_paper_distribution(
         field_paths.append("taxonomy_version")
 
     trust_issues, trust_paths = verify_paper_day6_trust(
-        data_session, request, day6_trust, execution_mode=execution_mode
+        data_session,
+        request,
+        day6_trust,
+        execution_mode=execution_mode,
+        execution_context=execution_context,
     )
     issues.extend(trust_issues)
     field_paths.extend(trust_paths)
@@ -433,15 +440,20 @@ def evaluate_paper_distribution_with_session(
     *,
     day6_trust: PaperDay6TrustContext | None = None,
     execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
+    execution_context: PaperExecutionContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = seed_taxonomy_registry(session)
+    seed_paper_target_policy_registry(session)
     result = evaluate_paper_distribution(
         request,
         taxonomy=taxonomy,
         day6_trust=day6_trust,
         execution_mode=execution_mode,
         data_session=session,
+        execution_context=execution_context,
     )
-    audit_ref = persist_paper_distribution_audit(session, request, result)
+    audit_ref = persist_paper_distribution_audit(
+        session, request, result, execution_context=execution_context
+    )
     session.flush()
     return result.model_copy(update={"audit_ref": audit_ref})
