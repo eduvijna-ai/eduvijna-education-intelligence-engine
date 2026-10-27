@@ -336,11 +336,26 @@ days:
     depends_on: 8
   10:
     name: Prerequisites and Root Cause Diagnostics
-    state: TASKLIST_DRAFT
+    state: ACTIVE
     founder_approval: false
-    tasklist_status: PENDING_FOUNDER_APPROVAL
-    implementation_authorized: false
-    scope_note: "Prerequisite graph, root-cause reasoning and paper-level cognitive/competency distribution; exam-specific blueprint engine deferred to Days 11-14"
+    activation_signal: "Founder approved Day 9 and authorized Day 10 tasklist planning after Day9 merged."
+    tasklist_status: APPROVED
+    tasklist_approval_date: "2026-10-27"
+    tasklist_approval_signal: "Approved and authorized implementation."
+    tasklist_spec: "docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md"
+    approved_scope: D10-01..D10-36
+    implementation_authorized: true
+    implementation_status: HANDED_TO_CURSOR
+    implementation_branch: "feature/day10-prerequisites-root-cause-diagnostics"
+    implementation_issue: 28
+    implementation_pr: PENDING_DRAFT_PR
+    review_workflow: founder_manual_chatgpt_review
+    required_cursor_model: "Composer 2.5 (standard; not Fast)"
+    codex_required: false
+    auto_merge: false
+    day11_unlock: false
+    founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
+    scope_note: "Prerequisite graph, root-cause hypotheses and paper-level cognitive/competency distribution; exam-specific blueprint engine deferred to Days 11-14"
     depends_on: 9
   11:
     name: JEE Main
