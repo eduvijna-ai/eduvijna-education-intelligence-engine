@@ -13,8 +13,22 @@ PAPER_POLICY_VERSION = "paper-distribution@v1"
 PAPER_AUDIT_KIND = "paper_distribution"
 
 
-def _paper_audit_run_id(institution_id: str | None, fingerprint: str) -> str:
-    return stable_digest("paper-dist", institution_id or "global", fingerprint)[:64]
+def _paper_audit_run_id(
+    *,
+    institution_id: str | None,
+    actor_id: str | None,
+    day6_validation_run_id: str | None,
+    policy_version: str,
+    fingerprint: str,
+) -> str:
+    return stable_digest(
+        "paper-dist",
+        institution_id or "global",
+        actor_id or "",
+        day6_validation_run_id or "",
+        policy_version,
+        fingerprint,
+    )[:64]
 
 
 def persist_paper_distribution_audit(
@@ -59,10 +73,18 @@ def persist_paper_distribution_audit(
             continue
         if sorted(meta.get("validated_item_ids") or []) != item_ids:
             continue
+        if (candidate.actor_id or None) != (actor_id or None):
+            continue
         return str(candidate.id)
 
     record = ValidationAuditRun(
-        run_id=_paper_audit_run_id(institution_id, fingerprint),
+        run_id=_paper_audit_run_id(
+            institution_id=institution_id,
+            actor_id=actor_id,
+            day6_validation_run_id=day6_validation_run_id,
+            policy_version=policy_version,
+            fingerprint=fingerprint,
+        ),
         input_hash=fingerprint,
         taxonomy_version=request.taxonomy_version,
         policy_version=policy_version,

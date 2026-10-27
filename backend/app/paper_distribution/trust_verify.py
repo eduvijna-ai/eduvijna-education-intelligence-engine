@@ -177,11 +177,45 @@ def verify_paper_day6_trust(
                 issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
                 paths.append(f"{base_path}/competency_codes")
 
-        validated_curriculum = validated.get("curriculum_version_id")
-        paper_curriculum = (item.metadata_json or {}).get("curriculum_version_id")
-        if validated_curriculum and paper_curriculum and validated_curriculum != paper_curriculum:
-            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
-            paths.append(f"{base_path}/metadata_json.curriculum_version_id")
+        if execution_mode == TrustExecutionMode.PRODUCTION:
+            scope_fields = (
+                ("curriculum_version_id", "curriculum_version_id"),
+                ("grade_year_code", "grade_year_code"),
+                ("medium_code", "medium_code"),
+                ("subject_code", "subject_code"),
+            )
+            for validated_key, meta_key in scope_fields:
+                validated_val = validated.get(validated_key)
+                if not validated_val:
+                    issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                    paths.append(f"{base_path}/day6.{validated_key}")
+                    continue
+                paper_val = (item.metadata_json or {}).get(meta_key)
+                if not paper_val or str(paper_val) != str(validated_val):
+                    issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                    paths.append(f"{base_path}/metadata_json.{meta_key}")
+
+            validated_lo = list(validated.get("learning_outcome_ids") or [])
+            if not validated_lo:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/day6.learning_outcome_ids")
+            else:
+                paper_lo = (item.metadata_json or {}).get("learning_outcome_ids")
+                if not paper_lo or sorted(str(x) for x in paper_lo) != sorted(
+                    str(x) for x in validated_lo
+                ):
+                    issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                    paths.append(f"{base_path}/metadata_json.learning_outcome_ids")
+        else:
+            validated_curriculum = validated.get("curriculum_version_id")
+            paper_curriculum = (item.metadata_json or {}).get("curriculum_version_id")
+            if (
+                validated_curriculum
+                and paper_curriculum
+                and validated_curriculum != paper_curriculum
+            ):
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/metadata_json.curriculum_version_id")
 
         validated_institution = validated.get("institution_id")
         if execution_mode == TrustExecutionMode.PRODUCTION and trusted_institution:

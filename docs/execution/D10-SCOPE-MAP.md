@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R7 FOCUSED REPAIR** (Chief Architect handoff R7). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R8 FOCUSED REPAIR** (Chief Architect handoff R8). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R7 deltas (vs `c12e215`):** fail-closed Day6 trust (required hash/cognitive/competency, `blocking_failure`, production `PaperExecutionContext`); fixture curriculum rejected in production graph verify; INFERRED edge allowlist + path filtering; policy seed only on first configure (revocation sticks); audit `run_id` ≤64 chars + Day6/item idempotency; Day9 run/request hash binding; `test_day10_r7_trust.py`. D10-22/32/33/36 still PARTIAL/PENDING.
+**R8 deltas (vs `9438fdf`):** tri-source graph tenant attestation (`snapshot.scope` vs canonical vs request; forged `loader_scope` rejected); paper audit `run_id` includes Day6 run + actor; default target policy taxonomy-only (demo 20/20/40/10/10 not global mandatory); production Day9 run/hash required + audit tenant binding; Day6 `validated_items` LO/grade/medium/subject; orchestration root-cause replay skip; `test_day10_r8_trust.py`. D10-19/22/32/33 still PARTIAL; D10-36 PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -24,7 +24,7 @@ Status: **R7 FOCUSED REPAIR** (Chief Architect handoff R7). Source: `docs/execut
 | D10-16 | Deterministic hypothesis ranking | `ranking.rank_root_cause_hypotheses` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-17 | Alternative hypotheses | `RootCauseHypothesis.alternatives` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-18 | Contradiction / uncertainty | `service.py` verdict policy | `day10_verify` root_cause_verdict | IMPLEMENTED |
-| D10-19 | LO/competency consistency | Day6 per-item trust + paper guards | `test_day10_r6_trust.py` | PARTIAL |
+| D10-19 | LO/competency consistency | Day6 per-item trust + scope metadata | `test_day10_r8_trust.py` | PARTIAL |
 | D10-20 | Day-7 provenance / tenant | `root_cause_trust.py` citation binding | `test_day10_r6_trust.py` | IMPLEMENTED |
 | D10-21 | Structured result/verdict/audit | `RootCauseResult` | `day10_verify` | IMPLEMENTED |
 | D10-22 | Day-8/9 integration | `root_cause.py` + graph compile | `test_day10_orchestration.py`, `test_day10_r6_trust.py` | PARTIAL |
@@ -33,12 +33,12 @@ Status: **R7 FOCUSED REPAIR** (Chief Architect handoff R7). Source: `docs/execut
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
-| D10-28 | Generic target policy | `target_policy_registry.py` | `test_day10_r6_trust.py` | IMPLEMENTED |
+| D10-28 | Generic target policy | `target_policy_registry.py` (no demo % default) | `test_day10_r8_trust.py` | IMPLEMENTED |
 | D10-29 | Integer target reconciliation | `_reconcile_exact_counts` | demo paper PASS | IMPLEMENTED |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |
-| D10-33 | Batch / replay / HITL | orchestration idempotency (Day8) only | `test_day10_r6_trust.py` graph compile | PARTIAL |
+| D10-33 | Batch / replay / HITL | per-item replay skip in `root_cause_enrich_node` | `test_day10_r8_trust.py` (partial) | PARTIAL |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
 | D10-35 | SQLite / Alembic portability | existing migrations unchanged | CI backend-targeted | IMPLEMENTED |
 | D10-36 | Founder acceptance evidence | — | — | PENDING |

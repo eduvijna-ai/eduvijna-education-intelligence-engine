@@ -100,7 +100,14 @@ def test_blocking_day6_run_rejected(tmp_path: Path) -> None:
                 cognitive_level=str(validated.get("declared_cognitive_level")),
                 competency_codes=list(validated.get("competency_codes") or []),
                 day6_validated=True,
-                metadata_json={"day6_input_hash": validated["input_hash"]},
+                metadata_json={
+                    "day6_input_hash": validated["input_hash"],
+                    "curriculum_version_id": validated.get("curriculum_version_id"),
+                    "grade_year_code": validated.get("grade_year_code"),
+                    "medium_code": validated.get("medium_code"),
+                    "subject_code": validated.get("subject_code"),
+                    "learning_outcome_ids": list(validated.get("learning_outcome_ids") or []),
+                },
             )
         ],
     )
@@ -138,7 +145,14 @@ def test_revoked_target_policy_stays_revoked(tmp_path: Path) -> None:
                 cognitive_level=str(validated.get("declared_cognitive_level")),
                 competency_codes=list(validated.get("competency_codes") or []),
                 day6_validated=True,
-                metadata_json={"day6_input_hash": validated["input_hash"]},
+                metadata_json={
+                    "day6_input_hash": validated["input_hash"],
+                    "curriculum_version_id": validated.get("curriculum_version_id"),
+                    "grade_year_code": validated.get("grade_year_code"),
+                    "medium_code": validated.get("medium_code"),
+                    "subject_code": validated.get("subject_code"),
+                    "learning_outcome_ids": list(validated.get("learning_outcome_ids") or []),
+                },
             )
         ],
         cognitive_targets=[

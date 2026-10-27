@@ -143,6 +143,10 @@ def test_day6_validated_item_positive_with_matching_tags(tmp_path: Path) -> None
                 metadata_json={
                     "day6_input_hash": validated["input_hash"],
                     "curriculum_version_id": validated.get("curriculum_version_id"),
+                    "grade_year_code": validated.get("grade_year_code"),
+                    "medium_code": validated.get("medium_code"),
+                    "subject_code": validated.get("subject_code"),
+                    "learning_outcome_ids": list(validated.get("learning_outcome_ids") or []),
                 },
             )
         ],
@@ -370,6 +374,8 @@ def test_day9_evidence_ref_mismatch_blocks_trust(tmp_path: Path) -> None:
             curriculum_version_id=ctx["curriculum_version_id"],
             graph_snapshot=snapshot,
             target_concept_code="multi-step-addition",
+            orchestration_run_id="run-test",
+            orchestration_request_hash="hash",
         ),
         trusted=trusted,
         execution_mode=TrustExecutionMode.PRODUCTION,

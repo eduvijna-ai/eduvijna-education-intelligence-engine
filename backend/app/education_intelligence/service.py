@@ -66,6 +66,10 @@ class EducationIntelligenceValidationService:
                             "competency_codes": list(item.competency_codes),
                             "institution_id": item.institution_id,
                             "curriculum_version_id": item.curriculum_version_id,
+                            "learning_outcome_ids": list(item.learning_outcome_ids),
+                            "grade_year_code": item.grade_year_code,
+                            "medium_code": item.medium_code,
+                            "subject_code": item.subject_code,
                         }
                     ],
                 }

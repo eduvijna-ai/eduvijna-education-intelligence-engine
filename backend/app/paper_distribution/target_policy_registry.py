@@ -28,13 +28,6 @@ _DEFAULT_PAYLOAD: dict[str, Any] = {
         "problem_solving",
         "hots",
     ],
-    "cognitive_exact_percent": {
-        "remember": 20.0,
-        "understand": 20.0,
-        "apply": 40.0,
-        "analyze": 10.0,
-        "evaluate": 10.0,
-    },
 }
 
 
@@ -91,8 +84,8 @@ def paper_targets_authorized(
         return False, "target_policy_version"
     allowed_cognitive = set(payload.get("allowed_cognitive_keys") or [])
     allowed_competency = set(payload.get("allowed_competency_keys") or [])
-    cognitive_quotas = payload.get("cognitive_exact_percent") or {}
-    competency_quotas = payload.get("competency_exact_percent") or {}
+    cognitive_quotas = payload.get("mandatory_cognitive_exact_percent") or {}
+    competency_quotas = payload.get("mandatory_competency_exact_percent") or {}
     for index, target in enumerate(request.cognitive_targets):
         if target.key not in allowed_cognitive:
             return False, f"cognitive_targets[{index}]/key"

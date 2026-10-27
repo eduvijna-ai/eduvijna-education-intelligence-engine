@@ -27,6 +27,11 @@ def root_cause_enrich_node(
     attempt, attempt_map = next_attempt(state, "root_cause_enrich")
     request = get_request(state)
     results: list[dict[str, Any]] = list(state.get("root_cause_results") or [])
+    processed_option_keys: set[tuple[str, str]] = {
+        (str(entry.get("item_id")), str(entry.get("option_key")))
+        for entry in results
+        if entry.get("item_id") and entry.get("option_key")
+    }
 
     if not request.root_cause_enrichment_enabled():
         return timed_update(
@@ -86,6 +91,9 @@ def root_cause_enrich_node(
             if validation_status is None:
                 continue
             if str(validation_status) != "pass":
+                continue
+            option_key = str(tag_data.get("option_key"))
+            if (item_id, option_key) in processed_option_keys:
                 continue
             eligible_tags += 1
             tag = OptionDiagnosticTag.model_validate(
@@ -163,8 +171,11 @@ def root_cause_enrich_node(
                 },
             )
             dumped = analysis.model_dump(mode="json")
+            dumped["item_id"] = item_id
+            dumped["option_key"] = option_key
             dumped["orchestration_audit_ref"] = item_audit
             results.append(dumped)
+            processed_option_keys.add((item_id, option_key))
 
     audit_id = audit_node(
         deps,

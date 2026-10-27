@@ -73,15 +73,30 @@ def verify_root_cause_trusted_context(
         paths.append("trusted_validation.day9_audit_item")
 
     if execution_mode == TrustExecutionMode.PRODUCTION:
-        if request.orchestration_run_id and event.run_id != request.orchestration_run_id:
+        run_id = (request.orchestration_run_id or "").strip()
+        request_hash = (request.orchestration_request_hash or "").strip()
+        if not run_id:
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.orchestration_run_id")
+        elif event.run_id != run_id:
             issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
             paths.append("trusted_validation.day9_run_id")
-        if (
-            request.orchestration_request_hash
-            and event.request_hash != request.orchestration_request_hash
-        ):
+        if not request_hash:
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.orchestration_request_hash")
+        elif event.request_hash != request_hash:
             issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
             paths.append("trusted_validation.day9_request_hash")
+
+        for scope_field in ("organization_id", "institution_id", "teacher_id"):
+            req_val = getattr(request, scope_field, None)
+            payload_val = payload.get(scope_field)
+            if payload_val and req_val and str(payload_val) != str(req_val):
+                issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+                paths.append(f"trusted_validation.day9_{scope_field}")
+            if payload_val and not req_val:
+                issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+                paths.append(f"trusted_validation.day9_{scope_field}")
 
     traces = payload.get("option_traces") or []
     option_trace = next(
