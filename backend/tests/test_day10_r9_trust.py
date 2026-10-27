@@ -27,6 +27,8 @@ from app.paper_distribution.contracts import PaperDistributionRequest, PaperItem
 from app.paper_distribution.target_policy_registry import (
     PAPER_TARGET_POLICY_VERSION,
     ensure_paper_target_policy_configured,
+    merge_mandatory_distribution_targets,
+    paper_targets_authorized,
 )
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode, RootCauseVerdictStatus
@@ -232,7 +234,6 @@ def test_mandatory_target_enforced_when_omitted_from_request(tmp_path: Path) -> 
     from sqlalchemy import select
 
     from app.models.education_intelligence import PolicyRegistryEntry
-    from app.paper_distribution.target_policy_registry import paper_targets_authorized
 
     session = _session(tmp_path)
     ensure_paper_target_policy_configured(session)
@@ -266,9 +267,11 @@ def test_mandatory_target_enforced_when_omitted_from_request(tmp_path: Path) -> 
             )
         ],
     )
+    cognitive, _ = merge_mandatory_distribution_targets(paper, row.payload_json)
+    remember = next(target for target in cognitive if target.key == "remember")
+    assert remember.exact_percent == 100.0
     ok, path = paper_targets_authorized(session, paper, version=PAPER_TARGET_POLICY_VERSION)
-    assert ok is False
-    assert path is not None
+    assert ok is True
 
 
 def test_root_cause_replay_guard_runs_when_feature_enabled(tmp_path: Path) -> None:

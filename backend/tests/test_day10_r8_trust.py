@@ -23,7 +23,12 @@ from app.models.curriculum import (
     EducationFramework,
 )
 from app.models.education_intelligence import ValidationAuditRun
-from app.models.enums import CurriculumNodeType, CurriculumStatus, SourceType
+from app.models.enums import (
+    CurriculumNodeType,
+    CurriculumStatus,
+    SourceTrustTier,
+    SourceType,
+)
 from app.models.orchestration import OrchestrationAuditEvent
 from app.models.source import Source, SourceRevision
 from app.models.tenancy import Institution, Organization
@@ -76,6 +81,7 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
     source = Source(
         source_type=SourceType.OFFICIAL_SYLLABUS.value,
         title="R8 official prerequisite source",
+        trust_tier=SourceTrustTier.OFFICIAL_PRIMARY.value,
     )
     framework = EducationFramework(code="r8-fw", name="R8 Framework", country="IN")
     pack = CurriculumPack(code="r8-pack", name="R8 Pack", country="IN", framework=framework)
@@ -476,9 +482,14 @@ def test_mandatory_policy_percent_still_enforced(tmp_path: Path) -> None:
             )
         ],
     )
+    from app.paper_distribution.target_policy_registry import merge_mandatory_distribution_targets
+
+    cognitive, _ = merge_mandatory_distribution_targets(request, row.payload_json)
+    remember = next(target for target in cognitive if target.key == "remember")
+    assert remember.exact_percent == 20.0
     ok, path = paper_targets_authorized(session, request, version=PAPER_TARGET_POLICY_VERSION)
-    assert ok is False
-    assert path is not None
+    assert ok is True
+    assert path is None
 
 
 def test_missing_day6_scope_metadata_fails_production(tmp_path: Path) -> None:

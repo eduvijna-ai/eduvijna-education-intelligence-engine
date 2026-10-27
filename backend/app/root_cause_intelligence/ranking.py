@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.prerequisite_intelligence.contracts import (
     GraphIssue,
     GraphTraversalLimits,
+    PrerequisiteGraphEdge,
     PrerequisiteGraphPath,
     PrerequisiteGraphSnapshot,
 )
@@ -10,6 +11,53 @@ from app.prerequisite_intelligence.stable_ids import stable_hypothesis_id
 from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 from app.root_cause_intelligence.contracts import RootCauseHypothesis
 from app.root_cause_intelligence.mapping_registry import MisconceptionConceptMapping
+
+
+def _path_authorized_for_option(
+    snapshot_edges: list[PrerequisiteGraphEdge],
+    path: PrerequisiteGraphPath,
+    allowed: set[str],
+) -> bool:
+    edge_by_id = {edge.edge_id: edge for edge in snapshot_edges}
+    sourced_revision_ids: list[str] = []
+    for edge_id in path.edge_ids:
+        edge = edge_by_id.get(edge_id)
+        if edge is None or not edge.source_revision_id:
+            continue
+        sourced_revision_ids.append(str(edge.source_revision_id))
+    if not sourced_revision_ids:
+        return True
+    if not allowed:
+        return False
+    return all(revision_id in allowed for revision_id in sourced_revision_ids)
+
+
+def project_hypothesis_authorized_paths(
+    snapshot: PrerequisiteGraphSnapshot,
+    hypothesis: RootCauseHypothesis,
+    allowed: set[str],
+    mapping_source_revision_ids: list[str],
+) -> RootCauseHypothesis | None:
+    authorized_paths = [
+        path
+        for path in hypothesis.paths
+        if _path_authorized_for_option(snapshot.edges, path, allowed)
+    ]
+    if not authorized_paths:
+        return None
+    path_evidence = _evidence_revision_ids_from_paths(snapshot, authorized_paths)
+    mapping_evidence = [str(rev) for rev in mapping_source_revision_ids if rev]
+    evidence_ids = sorted(set(path_evidence + mapping_evidence))
+    support = hypothesis.support_score
+    if len(authorized_paths) < len(hypothesis.paths):
+        support = round(max(0.1, support * len(authorized_paths) / len(hypothesis.paths)), 4)
+    return hypothesis.model_copy(
+        update={
+            "paths": authorized_paths,
+            "evidence_revision_ids": evidence_ids,
+            "support_score": support,
+        }
+    )
 
 
 def _evidence_revision_ids_from_paths(

@@ -79,6 +79,7 @@ def root_cause_enrich_node(
     }
     diagnostic_results = state.get("diagnostic_results") or []
     eligible_tags = 0
+    newly_processed = 0
     for entry in diagnostic_results:
         item_id = str(entry.get("item_id"))
         for tag_data in entry.get("option_tags") or []:
@@ -176,23 +177,28 @@ def root_cause_enrich_node(
             dumped["orchestration_audit_ref"] = item_audit
             results.append(dumped)
             processed_option_keys.add((item_id, option_key))
+            newly_processed += 1
 
-    audit_id = audit_node(
-        deps,
-        state,
-        "root_cause_enrich",
-        "completed",
-        attempt=attempt,
-        payload={
-            "result_count": len(results),
-            "eligible_tag_count": eligible_tags,
-            "item_audit_refs": [
-                entry.get("orchestration_audit_ref")
-                for entry in results
-                if entry.get("orchestration_audit_ref")
-            ],
-        },
-    )
+    audit_refs: list[str] = []
+    if newly_processed > 0:
+        audit_id = audit_node(
+            deps,
+            state,
+            "root_cause_enrich",
+            "completed",
+            attempt=attempt,
+            payload={
+                "result_count": len(results),
+                "eligible_tag_count": eligible_tags,
+                "newly_processed_count": newly_processed,
+                "item_audit_refs": [
+                    entry.get("orchestration_audit_ref")
+                    for entry in results
+                    if entry.get("orchestration_audit_ref")
+                ],
+            },
+        )
+        audit_refs = [audit_id]
     return timed_update(
         state,
         "root_cause_enrich",
@@ -200,7 +206,7 @@ def root_cause_enrich_node(
         {
             "root_cause_results": results,
             "root_cause_eligible_tag_count": eligible_tags,
-            "audit_refs": [audit_id],
+            "audit_refs": audit_refs,
         },
         attempt_map=attempt_map,
     )

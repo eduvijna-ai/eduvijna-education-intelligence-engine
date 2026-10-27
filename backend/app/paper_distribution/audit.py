@@ -17,7 +17,7 @@ def _paper_audit_run_id(
     *,
     institution_id: str | None,
     actor_id: str | None,
-    day6_validation_run_id: str | None,
+    day6_validation_identity: str | None,
     policy_version: str,
     fingerprint: str,
 ) -> str:
@@ -25,7 +25,7 @@ def _paper_audit_run_id(
         "paper-dist",
         institution_id or "global",
         actor_id or "",
-        day6_validation_run_id or "",
+        day6_validation_identity or "",
         policy_version,
         fingerprint,
     )[:64]
@@ -38,7 +38,7 @@ def persist_paper_distribution_audit(
     *,
     execution_context: PaperExecutionContext | None = None,
     execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
-    day6_validation_run_id: str | None = None,
+    day6_validation_identity: str | None = None,
 ) -> str:
     fingerprint = result.result_fingerprint or ""
     if not fingerprint:
@@ -69,7 +69,7 @@ def persist_paper_distribution_audit(
         meta = candidate.metadata_json or {}
         if meta.get("kind") != PAPER_AUDIT_KIND:
             continue
-        if meta.get("day6_validation_run_id") != day6_validation_run_id:
+        if meta.get("day6_validation_identity") != day6_validation_identity:
             continue
         if sorted(meta.get("validated_item_ids") or []) != item_ids:
             continue
@@ -81,7 +81,7 @@ def persist_paper_distribution_audit(
         run_id=_paper_audit_run_id(
             institution_id=institution_id,
             actor_id=actor_id,
-            day6_validation_run_id=day6_validation_run_id,
+            day6_validation_identity=day6_validation_identity,
             policy_version=policy_version,
             fingerprint=fingerprint,
         ),
@@ -106,7 +106,7 @@ def persist_paper_distribution_audit(
             "requested_count": request.requested_count,
             "result_fingerprint": fingerprint,
             "target_policy_version": request.target_policy_version,
-            "day6_validation_run_id": day6_validation_run_id,
+            "day6_validation_identity": day6_validation_identity,
             "validated_item_ids": item_ids,
         },
     )

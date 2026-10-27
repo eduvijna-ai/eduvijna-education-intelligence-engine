@@ -7,7 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.curriculum import CurriculumVersion
-from app.models.enums import CurriculumStatus, SourceRevisionStatus, SourceStatus, SourceType
+from app.models.enums import (
+    CurriculumStatus,
+    SourceRevisionStatus,
+    SourceStatus,
+    SourceTrustTier,
+    SourceType,
+)
 from app.models.source import Source, SourceRevision
 from app.prerequisite_intelligence.contracts import GraphIssue, PrerequisiteGraphScope
 from app.prerequisite_intelligence.enums import GraphIssueCode
@@ -128,11 +134,19 @@ def _is_global_public_source(source_type: str) -> bool:
     return source_type in Source.official_type_values()
 
 
+_OFFICIAL_TRUST_TIERS = {
+    SourceTrustTier.OFFICIAL_PRIMARY.value,
+    SourceTrustTier.OFFICIAL_SUPPORTING.value,
+}
+
+
 def revision_permits_official_authority(record: RevisionAuthorityRecord) -> bool:
-    """Only globally official source types may carry OFFICIAL edge provenance."""
+    """Only official source types with official trust tier may carry OFFICIAL provenance."""
     if record.metadata_json.get("synthetic") or record.metadata_json.get("synthetic_fixture"):
         return False
-    return record.source_type in Source.official_type_values()
+    if record.source_type not in Source.official_type_values():
+        return False
+    return record.trust_tier in _OFFICIAL_TRUST_TIERS
 
 
 def revision_is_authorized_for_scope(

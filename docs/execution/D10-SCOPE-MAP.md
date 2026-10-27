@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R9 FOCUSED REPAIR** (Chief Architect handoff R9). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R10 FOCUSED REPAIR** (Chief Architect handoff R10). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R9 deltas (vs `85623f7`):** OFFICIAL provenance requires official source type (institution edges downgraded); production blocks synthetic-only root-cause mappings; Day9 trust reads `payload.scope`; global graph audit separate from option path allowlist; path-sourced `evidence_revision_ids`; mandatory target merge + `reconcile_exact_counts`; `test_day10_r9_trust.py`. D10-22/32/33 still PARTIAL; D10-29 PARTIAL (reconcile added, no full board precedence); D10-36 PENDING.
+**R10 deltas (vs `ba70ea0`):** per-item Day6 `PaperDay6TrustContext.from_item_bindings`; reconciled exact-percent acceptance; per-path hypothesis projection; OFFICIAL requires official trust tier; `mapping_authority` policy overlay; mandatory range intersection; skip enrich audit when no new work; `test_day10_r10_trust.py`. D10-22/32/33 PARTIAL; D10-29 PARTIAL; D10-36 PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

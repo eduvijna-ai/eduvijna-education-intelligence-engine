@@ -45,7 +45,10 @@ def reconcile_exact_counts(
     """Largest-remainder integer allocation for exact_percent targets summing to 100."""
     if item_count <= 0:
         return {}
-    percent_targets = [target for target in targets if target.exact_percent is not None]
+    percent_targets = sorted(
+        [target for target in targets if target.exact_percent is not None],
+        key=lambda target: target.key,
+    )
     if not percent_targets:
         return {}
     total_percent = sum(target.exact_percent or 0.0 for target in percent_targets)
@@ -119,6 +122,10 @@ def _evaluate_dimension_targets(
     if not scoped:
         return issues, status, variance
 
+    reconciled = reconcile_exact_counts(item_count, scoped)
+    percent_targets = [target for target in scoped if target.exact_percent is not None]
+    uses_reconciled = bool(reconciled) and len(reconciled) == len(percent_targets)
+
     for target in scoped:
         if target.key in seen_keys:
             issues.append(PaperDistributionIssueCode.TARGET_INFEASIBLE)
@@ -140,12 +147,12 @@ def _evaluate_dimension_targets(
 
         if target.exact_percent is not None:
             variance[target.key] = round(observed_percent - target.exact_percent, 2)
-            if abs(observed_percent - target.exact_percent) > 0.01:
-                issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
-                status = DistributionDimensionStatus.FAIL
-            reconciled = reconcile_exact_counts(item_count, scoped)
-            expected_count = reconciled.get(target.key)
-            if expected_count is not None and abs(observed_count - expected_count) > 1e-6:
+            if uses_reconciled:
+                expected_count = reconciled.get(target.key)
+                if expected_count is not None and abs(observed_count - expected_count) > 1e-6:
+                    issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+                    status = DistributionDimensionStatus.FAIL
+            elif abs(observed_percent - target.exact_percent) > 0.01:
                 issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
                 status = DistributionDimensionStatus.FAIL
             if include_mark_weighted:
@@ -520,14 +527,14 @@ def evaluate_paper_distribution_with_session(
         data_session=session,
         execution_context=execution_context,
     )
-    day6_run_id = day6_trust.validation_run_id if day6_trust else None
+    day6_identity = day6_trust.day6_audit_identity_digest() if day6_trust else None
     audit_ref = persist_paper_distribution_audit(
         session,
         request,
         result,
         execution_context=execution_context,
         execution_mode=execution_mode,
-        day6_validation_run_id=day6_run_id,
+        day6_validation_identity=day6_identity,
     )
     session.flush()
     return result.model_copy(update={"audit_ref": audit_ref})

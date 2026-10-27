@@ -4,50 +4,38 @@ from sqlalchemy.orm import Session
 
 from app.common.trust_execution import TrustExecutionMode
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.contracts import (
-    GraphTraversalLimits,
-    PrerequisiteGraphEdge,
-    PrerequisiteGraphPath,
-)
+from app.prerequisite_intelligence.contracts import GraphTraversalLimits
 from app.prerequisite_intelligence.enums import (
     EdgeProvenanceClass,
     GraphAuditStatus,
     GraphIssueCode,
 )
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
-from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest, RootCauseResult
+from app.root_cause_intelligence.contracts import (
+    RootCauseDiagnosticRequest,
+    RootCauseHypothesis,
+    RootCauseResult,
+)
 from app.root_cause_intelligence.enums import (
     DEFAULT_ROOT_CAUSE_MAPPING_VERSION,
     RootCauseIssueCode,
     RootCauseVerdictStatus,
 )
+from app.root_cause_intelligence.mapping_authority import (
+    apply_mapping_authority_overlay,
+    mapping_entry_production_authorized,
+)
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.preflight import run_root_cause_preflight
-from app.root_cause_intelligence.ranking import rank_root_cause_hypotheses
+from app.root_cause_intelligence.ranking import (
+    project_hypothesis_authorized_paths,
+    rank_root_cause_hypotheses,
+)
 from app.root_cause_intelligence.trust_verify import (
     validate_graph_snapshot_attestation,
     verify_root_cause_trusted_context,
 )
 from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
-
-
-def _path_authorized_for_option(
-    snapshot_edges: list[PrerequisiteGraphEdge],
-    path: PrerequisiteGraphPath,
-    allowed: set[str],
-) -> bool:
-    edge_by_id = {edge.edge_id: edge for edge in snapshot_edges}
-    sourced_revision_ids: list[str] = []
-    for edge_id in path.edge_ids:
-        edge = edge_by_id.get(edge_id)
-        if edge is None or not edge.source_revision_id:
-            continue
-        sourced_revision_ids.append(str(edge.source_revision_id))
-    if not sourced_revision_ids:
-        return True
-    if not allowed:
-        return False
-    return all(revision_id in allowed for revision_id in sourced_revision_ids)
 
 
 class RootCauseIntelligenceService:
@@ -60,7 +48,10 @@ class RootCauseIntelligenceService:
         control_session: Session | None = None,
     ) -> RootCauseResult:
         preflight = run_root_cause_preflight(request, trusted=trusted)
-        mapping = load_root_cause_mapping(DEFAULT_ROOT_CAUSE_MAPPING_VERSION)
+        mapping = apply_mapping_authority_overlay(
+            control_session,
+            load_root_cause_mapping(DEFAULT_ROOT_CAUSE_MAPPING_VERSION),
+        )
         mapping_entry = mapping.resolve(request.misconception_code)
         issue_codes = list(preflight.issue_codes)
         field_paths = list(preflight.field_paths)
@@ -136,11 +127,10 @@ class RootCauseIntelligenceService:
                 hypotheses=[],
             )
 
-        if (
-            execution_mode == TrustExecutionMode.PRODUCTION
-            and mapping_entry.synthetic
-            and not mapping_entry.source_revision_ids
-        ):
+        production_mapping_ok = mapping_entry_production_authorized(
+            control_session, mapping_entry
+        )
+        if execution_mode == TrustExecutionMode.PRODUCTION and not production_mapping_ok:
             issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
             field_paths.append("mapping.synthetic")
             return RootCauseResult(
@@ -227,15 +217,19 @@ class RootCauseIntelligenceService:
             target_concept_code=request.target_concept_code,
             limits=GraphTraversalLimits(max_depth=8, max_paths=8, max_nodes=48),
         )
-        supported = [
-            hypothesis
-            for hypothesis in hypotheses
-            if hypothesis.paths
-            and all(
-                _path_authorized_for_option(request.graph_snapshot.edges, path, allowed)
-                for path in hypothesis.paths
+        supported: list[RootCauseHypothesis] = []
+        for hypothesis in hypotheses:
+            projected = project_hypothesis_authorized_paths(
+                request.graph_snapshot,
+                hypothesis,
+                allowed,
+                mapping_entry.source_revision_ids,
             )
-        ]
+            if projected is not None:
+                supported.append(projected)
+        supported.sort(
+            key=lambda item: (-item.support_score, item.rank, item.concept_code)
+        )
 
         path_budget_hit = any(
             item.code == GraphIssueCode.PATH_BUDGET_EXHAUSTED for item in traversal_issues

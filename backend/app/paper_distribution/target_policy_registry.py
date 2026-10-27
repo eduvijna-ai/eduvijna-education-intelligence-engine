@@ -70,6 +70,47 @@ def load_active_paper_target_policy(session: Session, version: str) -> dict[str,
     return dict(row.payload_json or {})
 
 
+def _overlay_mandatory_range(
+    targets: list[DistributionTarget],
+    *,
+    dimension: str,
+    key: str,
+    entry: dict[str, Any],
+) -> None:
+    existing = next((target for target in targets if target.key == key), None)
+    mandatory_min = entry.get("min_percent")
+    mandatory_max = entry.get("max_percent")
+    mandatory_count = entry.get("exact_count")
+    if existing is None:
+        targets.append(
+            DistributionTarget(
+                dimension=dimension,
+                key=key,
+                min_percent=mandatory_min,
+                max_percent=mandatory_max,
+                exact_count=mandatory_count,
+            )
+        )
+        return
+    new_min = existing.min_percent
+    new_max = existing.max_percent
+    if mandatory_min is not None:
+        baseline_min = new_min if new_min is not None else mandatory_min
+        new_min = max(float(mandatory_min), float(baseline_min))
+    if mandatory_max is not None:
+        baseline_max = new_max if new_max is not None else mandatory_max
+        new_max = min(float(mandatory_max), float(baseline_max))
+    updated = existing.model_copy(
+        update={
+            "min_percent": new_min,
+            "max_percent": new_max,
+            "exact_count": mandatory_count if mandatory_count is not None else existing.exact_count,
+        }
+    )
+    index = targets.index(existing)
+    targets[index] = updated
+
+
 def merge_mandatory_distribution_targets(
     request: PaperDistributionRequest,
     policy_payload: dict[str, Any],
@@ -80,43 +121,58 @@ def merge_mandatory_distribution_targets(
     competency_keys = {target.key for target in competency}
 
     for key, approved in (policy_payload.get("mandatory_cognitive_exact_percent") or {}).items():
-        if key not in cognitive_keys:
+        key_str = str(key)
+        existing = next((target for target in cognitive if target.key == key_str), None)
+        if existing is None:
             cognitive.append(
                 DistributionTarget(
                     dimension="cognitive",
-                    key=str(key),
+                    key=key_str,
                     exact_percent=float(approved),
                 )
             )
-            cognitive_keys.add(str(key))
+        else:
+            index = cognitive.index(existing)
+            cognitive[index] = existing.model_copy(
+                update={"exact_percent": float(approved)}
+            )
+        cognitive_keys.add(key_str)
 
     for key, approved in (policy_payload.get("mandatory_competency_exact_percent") or {}).items():
-        if key not in competency_keys:
+        key_str = str(key)
+        existing = next((target for target in competency if target.key == key_str), None)
+        if existing is None:
             competency.append(
                 DistributionTarget(
                     dimension="competency",
-                    key=str(key),
+                    key=key_str,
                     exact_percent=float(approved),
                 )
             )
-            competency_keys.add(str(key))
+        else:
+            index = competency.index(existing)
+            competency[index] = existing.model_copy(
+                update={"exact_percent": float(approved)}
+            )
+        competency_keys.add(key_str)
 
     for entry in policy_payload.get("mandatory_cognitive_ranges") or []:
         if not isinstance(entry, dict):
             continue
         key = str(entry.get("key") or "")
-        if not key or key in cognitive_keys:
+        if not key:
             continue
-        cognitive.append(
-            DistributionTarget(
-                dimension="cognitive",
-                key=key,
-                min_percent=entry.get("min_percent"),
-                max_percent=entry.get("max_percent"),
-                exact_count=entry.get("exact_count"),
-            )
-        )
+        _overlay_mandatory_range(cognitive, dimension="cognitive", key=key, entry=entry)
         cognitive_keys.add(key)
+
+    for entry in policy_payload.get("mandatory_competency_ranges") or []:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("key") or "")
+        if not key:
+            continue
+        _overlay_mandatory_range(competency, dimension="competency", key=key, entry=entry)
+        competency_keys.add(key)
 
     return cognitive, competency
 
