@@ -9,12 +9,12 @@ import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.prerequisite_intelligence.audit import build_graph_quality_report
+from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
 from app.prerequisite_intelligence.enums import (
     EdgeProvenanceClass,
     GraphAuditStatus,
     GraphIssueCode,
 )
-from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
 from app.prerequisite_intelligence.fixtures import (
     load_day10_fixture_snapshot,
     seed_day10_prerequisite_fixture,
