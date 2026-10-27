@@ -76,6 +76,8 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
         return "whole_output"
     request = OrchestrationRequest.model_validate(state["request"])
     if not request.diagnostic_enrichment_enabled():
+        if request.root_cause_enrichment_enabled():
+            return "root_cause_enrich"
         return "whole_output"
 
     diagnostic = state.get("diagnostic_validation") or []
@@ -109,6 +111,9 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
 
     if review_required:
         return "human_gate"
+
+    if request.root_cause_enrichment_enabled():
+        return "root_cause_enrich"
 
     return "whole_output"
 

@@ -129,6 +129,7 @@ def whole_output_node(
         metadata_json={
             "institution_id": scope.institution_id,
             "diagnostic_results": state.get("diagnostic_results") or [],
+            "root_cause_results": state.get("root_cause_results") or [],
         },
     )
     return timed_update(
