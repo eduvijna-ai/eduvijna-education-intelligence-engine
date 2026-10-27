@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import deque
-from uuid import uuid4
 
 from app.prerequisite_intelligence.contracts import (
     GraphIssue,
@@ -11,6 +10,7 @@ from app.prerequisite_intelligence.contracts import (
     PrerequisiteGraphSnapshot,
 )
 from app.prerequisite_intelligence.enums import GraphIssueCode
+from app.prerequisite_intelligence.stable_ids import stable_path_id
 
 
 def _adjacency(
@@ -39,8 +39,17 @@ def bounded_ancestor_paths(
     queue: deque[tuple[str, list[str], list[str], float]] = deque()
     queue.append((target_concept_id, [target_concept_id], [], 0.0))
     visited_nodes: set[str] = set()
+    max_queue = limits.max_nodes * limits.max_paths * 4
 
     while queue and len(paths) < limits.max_paths:
+        if len(queue) > max_queue:
+            issues.append(
+                GraphIssue(
+                    code=GraphIssueCode.PATH_BUDGET_EXHAUSTED,
+                    severity="warning",
+                )
+            )
+            break
         concept_id, concept_chain, edge_chain, weight_sum = queue.popleft()
         if len(concept_chain) > limits.max_depth + 1:
             issues.append(
@@ -64,9 +73,10 @@ def bounded_ancestor_paths(
         incoming = backward.get(concept_id, [])
         if not incoming:
             if len(concept_chain) > 1:
+                concept_tuple = tuple(reversed(concept_chain))
                 paths.append(
                     PrerequisiteGraphPath(
-                        path_id=str(uuid4()),
+                        path_id=stable_path_id(snapshot.checksum, concept_tuple),
                         concept_ids=list(reversed(concept_chain)),
                         edge_ids=list(reversed(edge_chain)),
                         depth=len(concept_chain) - 1,

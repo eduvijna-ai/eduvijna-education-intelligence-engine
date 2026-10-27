@@ -13,7 +13,10 @@ from app.models.curriculum import (
 )
 from app.models.enums import CurriculumNodeType, CurriculumStatus, SourceType
 from app.models.source import Source, SourceRevision
-from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope, PrerequisiteGraphSnapshot
+from app.prerequisite_intelligence.contracts import (
+    PrerequisiteGraphScope,
+    PrerequisiteGraphSnapshot,
+)
 from app.prerequisite_intelligence.enums import EdgeProvenanceClass
 from app.prerequisite_intelligence.loader import load_prerequisite_graph_snapshot
 
@@ -21,8 +24,8 @@ from app.prerequisite_intelligence.loader import load_prerequisite_graph_snapsho
 def seed_day10_prerequisite_fixture(session: Session) -> dict[str, str]:
     """Deterministic counting → addition → multi-step chain with alternate paths."""
     source = Source(
-        source_type=SourceType.OFFICIAL_SYLLABUS.value,
-        title="Day10 prerequisite fixture source (synthetic)",
+        source_type=SourceType.SAMPLE_PAPER.value,
+        title="Day10 prerequisite fixture source (synthetic exercise)",
     )
     framework = EducationFramework(code="d10-fw", name="D10 Framework", country="IN")
     pack = CurriculumPack(
@@ -94,27 +97,29 @@ def seed_day10_prerequisite_fixture(session: Session) -> dict[str, str]:
         extracted_checksum="e" * 64,
         metadata_json={"fixture": True, "synthetic": True},
     )
+    revision.curriculum_versions.append(version)
+    version.sources.append(source)
     session.add(revision)
     session.flush()
 
-    def official_edge(prereq: CurriculumNode, target: CurriculumNode) -> ConceptPrerequisite:
+    def synthetic_edge(prereq: CurriculumNode, target: CurriculumNode) -> ConceptPrerequisite:
         return ConceptPrerequisite(
             prerequisite_concept=prereq,
             target_concept=target,
             weight=0.9,
             metadata_json={
-                "provenance_class": EdgeProvenanceClass.OFFICIAL.value,
-                "source_revision_id": revision.id,
+                "provenance_class": EdgeProvenanceClass.SYNTHETIC.value,
+                "synthetic_fixture": True,
                 "source_locator": f"{prereq.code}->{target.code}",
             },
         )
 
     session.add_all(
         [
-            official_edge(counting, whole_add),
-            official_edge(whole_add, multi_add),
-            official_edge(place_value, multi_add),
-            official_edge(counting, place_value),
+            synthetic_edge(counting, whole_add),
+            synthetic_edge(whole_add, multi_add),
+            synthetic_edge(place_value, multi_add),
+            synthetic_edge(counting, place_value),
         ]
     )
     session.flush()
@@ -130,9 +135,7 @@ def seed_day10_prerequisite_fixture(session: Session) -> dict[str, str]:
     }
 
 
-def load_day10_fixture_snapshot(
-    session: Session, ctx: dict[str, str]
-) -> PrerequisiteGraphSnapshot:
+def load_day10_fixture_snapshot(session: Session, ctx: dict[str, str]) -> PrerequisiteGraphSnapshot:
     scope = PrerequisiteGraphScope(
         curriculum_version_id=ctx["curriculum_version_id"],
         grade_year_code=None,

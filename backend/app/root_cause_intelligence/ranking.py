@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 from app.prerequisite_intelligence.contracts import GraphTraversalLimits, PrerequisiteGraphSnapshot
+from app.prerequisite_intelligence.stable_ids import stable_hypothesis_id
 from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 from app.root_cause_intelligence.contracts import RootCauseHypothesis
 from app.root_cause_intelligence.mapping_registry import MisconceptionConceptMapping
@@ -27,23 +26,24 @@ def rank_root_cause_hypotheses(
         concept_id = code_to_id.get(concept_code)
         if concept_id is None:
             continue
-        matching_paths = [path for path in all_paths if concept_id in path.concept_ids]
-        if not matching_paths and concept_id != target_id:
-            matching_paths = [
-                path
-                for path in all_paths
-                if any(cid == concept_id for cid in path.concept_ids)
-            ]
+        matching_paths = [
+            path
+            for path in all_paths
+            if concept_id in path.concept_ids and len(path.edge_ids) > 0
+        ]
+        if not matching_paths:
+            continue
         support = 1.0 / rank
-        if matching_paths:
-            support += min(0.5, 0.1 * len(matching_paths))
-            support += max(0.0, 0.05 * (1.0 / matching_paths[0].depth))
+        support += min(0.5, 0.1 * len(matching_paths))
+        support += max(0.0, 0.05 * (1.0 / matching_paths[0].depth))
         alternatives = [
             code for code in mapping.candidate_concept_codes if code != concept_code
         ]
         hypotheses.append(
             RootCauseHypothesis(
-                hypothesis_id=str(uuid4()),
+                hypothesis_id=stable_hypothesis_id(
+                    snapshot.checksum, mapping.misconception_code, concept_code, rank
+                ),
                 rank=rank,
                 concept_id=concept_id,
                 concept_code=concept_code,
@@ -60,5 +60,17 @@ def rank_root_cause_hypotheses(
     hypotheses.sort(key=lambda h: (-h.support_score, h.rank, h.concept_code))
     reranked: list[RootCauseHypothesis] = []
     for index, hypothesis in enumerate(hypotheses, start=1):
-        reranked.append(hypothesis.model_copy(update={"rank": index}))
+        reranked.append(
+            hypothesis.model_copy(
+                update={
+                    "rank": index,
+                    "hypothesis_id": stable_hypothesis_id(
+                        snapshot.checksum,
+                        mapping.misconception_code,
+                        hypothesis.concept_code,
+                        index,
+                    ),
+                }
+            )
+        )
     return reranked

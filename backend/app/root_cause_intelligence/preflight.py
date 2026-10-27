@@ -27,16 +27,33 @@ def run_root_cause_preflight(request: RootCauseDiagnosticRequest) -> RootCausePr
         issues.append(RootCauseIssueCode.DAY6_BLOCKING)
         paths.append("day6_blocking")
 
-    if request.tag.validation_status not in {
-        DiagnosticValidationStatus.PASS,
-        DiagnosticValidationStatus.REVIEW_REQUIRED,
-    }:
+    if request.tag.validation_status != DiagnosticValidationStatus.PASS:
         issues.append(RootCauseIssueCode.DAY9_TAG_REJECTED)
         paths.append("tag.validation_status")
 
-    if request.graph_snapshot is None or not request.graph_snapshot.nodes:
+    if request.item_id != request.tag.item_id:
+        issues.append(RootCauseIssueCode.DAY9_TAG_REJECTED)
+        paths.append("tag.item_id")
+
+    if request.option_key != request.tag.option_key:
+        issues.append(RootCauseIssueCode.DAY9_TAG_REJECTED)
+        paths.append("tag.option_key")
+
+    if request.misconception_code != (request.tag.misconception_code or ""):
+        issues.append(RootCauseIssueCode.DAY9_TAG_REJECTED)
+        paths.append("tag.misconception_code")
+
+    if request.taxonomy_version != request.tag.taxonomy_version:
+        issues.append(RootCauseIssueCode.DAY9_TAG_REJECTED)
+        paths.append("tag.taxonomy_version")
+
+    if request.curriculum_version_id != request.graph_snapshot.scope.curriculum_version_id:
         issues.append(RootCauseIssueCode.MISSING_GRAPH)
-        paths.append("graph_snapshot")
+        paths.append("curriculum_version_id")
+
+    if not request.graph_snapshot.nodes:
+        issues.append(RootCauseIssueCode.MISSING_GRAPH)
+        paths.append("graph_snapshot.nodes")
 
     blocking = bool(issues)
     return RootCausePreflightResult(

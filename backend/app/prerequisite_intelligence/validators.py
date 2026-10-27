@@ -17,11 +17,13 @@ def validate_edge_integrity(
     edges: Iterable[PrerequisiteGraphEdge],
     *,
     allowed_source_revision_ids: set[str] | None = None,
+    require_official_authorization: bool = True,
 ) -> list[GraphIssue]:
     issues: list[GraphIssue] = []
     node_ids = {node.concept_id for node in nodes}
     node_by_id = {node.concept_id: node for node in nodes}
     seen: set[tuple[str, str]] = set()
+    allowlist = set(allowed_source_revision_ids or [])
 
     for edge in edges:
         pair = (edge.prerequisite_concept_id, edge.target_concept_id)
@@ -66,8 +68,9 @@ def validate_edge_integrity(
                     field_path=f"edges/{edge.edge_id}/weight",
                 )
             )
+
         if edge.provenance_class == EdgeProvenanceClass.OFFICIAL:
-            if not edge.source_revision_id:
+            if not edge.source_revision_id or not str(edge.source_locator or "").strip():
                 issues.append(
                     GraphIssue(
                         code=GraphIssueCode.MISSING_PROVENANCE,
@@ -75,8 +78,16 @@ def validate_edge_integrity(
                         field_path=f"edges/{edge.edge_id}/source_revision_id",
                     )
                 )
-            elif allowed_source_revision_ids is not None:
-                if edge.source_revision_id not in allowed_source_revision_ids:
+            elif require_official_authorization:
+                if not allowlist:
+                    issues.append(
+                        GraphIssue(
+                            code=GraphIssueCode.UNAUTHORIZED_PROVENANCE,
+                            severity="error",
+                            field_path=f"edges/{edge.edge_id}/source_revision_id",
+                        )
+                    )
+                elif edge.source_revision_id not in allowlist:
                     issues.append(
                         GraphIssue(
                             code=GraphIssueCode.UNAUTHORIZED_PROVENANCE,
@@ -108,6 +119,8 @@ def validate_edge_integrity(
 def detect_cycles(
     nodes: Iterable[PrerequisiteGraphNode],
     edges: Iterable[PrerequisiteGraphEdge],
+    *,
+    max_depth: int = 256,
 ) -> tuple[list[GraphIssue], list[str]]:
     issues: list[GraphIssue] = []
     cycle_edge_ids: list[str] = []
@@ -117,9 +130,18 @@ def detect_cycles(
 
     visiting: set[str] = set()
     visited: set[str] = set()
-    stack: list[str] = []
+    stack_edges: list[str] = []
 
-    def visit(node_id: str) -> None:
+    def visit(node_id: str, depth: int) -> None:
+        if depth > max_depth:
+            issues.append(
+                GraphIssue(
+                    code=GraphIssueCode.DEPTH_LIMIT_EXCEEDED,
+                    severity="error",
+                    field_path=f"concepts/{node_id}",
+                )
+            )
+            return
         if node_id in visiting:
             issues.append(
                 GraphIssue(
@@ -128,21 +150,22 @@ def detect_cycles(
                     field_path=f"concepts/{node_id}",
                 )
             )
-            if stack:
-                cycle_edge_ids.append(stack[-1])
+            if stack_edges:
+                cycle_edge_ids.append(stack_edges[-1])
             return
         if node_id in visited:
             return
         visiting.add(node_id)
         for target_id, edge_id in adjacency.get(node_id, []):
-            stack.append(edge_id)
-            visit(target_id)
-            stack.pop()
+            stack_edges.append(edge_id)
+            visit(target_id, depth + 1)
+            stack_edges.pop()
         visiting.remove(node_id)
         visited.add(node_id)
 
     for node in nodes:
-        visit(node.concept_id)
+        if node.concept_id not in visited:
+            visit(node.concept_id, 0)
 
     return issues, list(dict.fromkeys(cycle_edge_ids))
 

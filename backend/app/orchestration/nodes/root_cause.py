@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
-from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
+from app.knowledge_intelligence.contracts import KnowledgeContextPack
 from app.orchestration.contracts import ResolvedScope
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.nodes._helpers import audit_node, get_request, next_attempt, timed_update
@@ -57,12 +57,18 @@ def root_cause_enrich_node(
         teacher_id=scope.teacher_id or request.teacher_id,
     )
     snapshot = load_prerequisite_graph_snapshot(deps.session, graph_scope)
-    allowed_sources = list(
-        dict.fromkeys(
-            (state.get("source_revision_ids") or [])
-            + (request.metadata_json.get("allowed_source_revision_ids") or [])
-        )
+    context = KnowledgeContextPack.model_validate(state.get("knowledge_context") or {})
+    allowed_sources = sorted(
+        {
+            item.source_revision_id
+            for item in context.evidence
+            if item.source_revision_id
+        }
     )
+    deterministic_by_item = {
+        str(entry.get("item_id")): entry
+        for entry in (state.get("deterministic_validation") or [])
+    }
 
     diagnostic_results = state.get("diagnostic_results") or []
     for entry in diagnostic_results:
@@ -73,17 +79,17 @@ def root_cause_enrich_node(
             misconception = tag_data.get("misconception_code")
             if not misconception:
                 continue
+            validation_status = tag_data.get("validation_status")
+            if validation_status is None:
+                continue
             tag = OptionDiagnosticTag.model_validate(
                 {
                     **tag_data,
                     "item_id": item_id,
-                    "validation_status": tag_data.get("validation_status")
-                    or DiagnosticValidationStatus.PASS.value,
+                    "validation_status": validation_status,
                 }
             )
-            target_concept = (
-                request.metadata_json.get("root_cause_target_concept_code") or "multi-step-addition"
-            )
+            det = deterministic_by_item.get(item_id) or {}
             analysis = service.analyze(
                 RootCauseDiagnosticRequest(
                     item_id=item_id,
@@ -95,10 +101,11 @@ def root_cause_enrich_node(
                     tag=tag,
                     curriculum_version_id=curriculum_version_id,
                     graph_snapshot=snapshot,
-                    target_concept_code=str(target_concept),
+                    target_concept_code="multi-step-addition",
                     organization_id=graph_scope.organization_id,
                     institution_id=graph_scope.institution_id,
                     allowed_source_revision_ids=allowed_sources,
+                    day6_blocking=bool(det.get("blocking")),
                 )
             )
             results.append(analysis.model_dump(mode="json"))

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
+from app.prerequisite_intelligence.audit import build_graph_quality_report
 from app.prerequisite_intelligence.contracts import GraphTraversalLimits
-from app.prerequisite_intelligence.enums import EdgeProvenanceClass
+from app.prerequisite_intelligence.enums import EdgeProvenanceClass, GraphAuditStatus
+from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest, RootCauseResult
 from app.root_cause_intelligence.enums import (
     DEFAULT_ROOT_CAUSE_MAPPING_VERSION,
@@ -22,6 +22,13 @@ class RootCauseIntelligenceService:
         mapping_entry = mapping.resolve(request.misconception_code)
         issue_codes = list(preflight.issue_codes)
         field_paths = list(preflight.field_paths)
+        audit_ref = stable_audit_ref(
+            "root_cause",
+            request.item_id,
+            request.option_key,
+            request.misconception_code,
+            request.graph_snapshot.checksum,
+        )
 
         if mapping_entry is None:
             issue_codes.append(RootCauseIssueCode.UNKNOWN_MISCONCEPTION)
@@ -36,7 +43,7 @@ class RootCauseIntelligenceService:
                 mapping_version=mapping.version,
                 graph_snapshot_id=request.graph_snapshot.snapshot_id,
                 graph_checksum=request.graph_snapshot.checksum,
-                audit_ref=str(uuid4()),
+                audit_ref=audit_ref,
             )
 
         if preflight.blocking:
@@ -53,20 +60,31 @@ class RootCauseIntelligenceService:
                 mapping_version=mapping.version,
                 graph_snapshot_id=request.graph_snapshot.snapshot_id,
                 graph_checksum=request.graph_snapshot.checksum,
-                audit_ref=str(uuid4()),
+                audit_ref=audit_ref,
             )
 
-        unauthorized = [
-            edge.edge_id
+        allowed = set(request.allowed_source_revision_ids or [])
+        if not allowed:
+            allowed = set(request.graph_snapshot.metadata_json.get("authorized_revision_ids") or [])
+
+        has_official = any(
+            edge.provenance_class == EdgeProvenanceClass.OFFICIAL
             for edge in request.graph_snapshot.edges
-            if edge.provenance_class == EdgeProvenanceClass.OFFICIAL
-            and edge.source_revision_id
-            and request.allowed_source_revision_ids
-            and edge.source_revision_id not in set(request.allowed_source_revision_ids)
-        ]
-        if unauthorized:
+        )
+        if has_official and not allowed:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
-            field_paths.append("graph_snapshot.edges")
+            field_paths.append("allowed_source_revision_ids")
+
+        graph_report = build_graph_quality_report(
+            request.graph_snapshot,
+            allowed_source_revision_ids=allowed,
+        )
+        if graph_report.status == GraphAuditStatus.FAIL:
+            issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
+            field_paths.append("graph_snapshot")
+        elif graph_report.status == GraphAuditStatus.REVIEW_REQUIRED:
+            issue_codes.append(RootCauseIssueCode.CONFLICTING_EVIDENCE)
+            field_paths.append("graph_snapshot")
 
         hypotheses = rank_root_cause_hypotheses(
             request.graph_snapshot,
@@ -74,11 +92,13 @@ class RootCauseIntelligenceService:
             target_concept_code=request.target_concept_code,
             limits=GraphTraversalLimits(max_depth=8, max_paths=8, max_nodes=48),
         )
-        if not hypotheses:
+        supported = [hypothesis for hypothesis in hypotheses if hypothesis.paths]
+
+        if not supported:
             issue_codes.append(RootCauseIssueCode.NO_PREREQUISITE_PATH)
             field_paths.append("hypotheses")
             verdict = RootCauseVerdictStatus.INSUFFICIENT_EVIDENCE
-        elif len(hypotheses) >= 2 and hypotheses[0].support_score == hypotheses[1].support_score:
+        elif len(supported) >= 2 and supported[0].support_score == supported[1].support_score:
             issue_codes.append(RootCauseIssueCode.AMBIGUOUS_PATH)
             verdict = RootCauseVerdictStatus.REVIEW_REQUIRED
         elif issue_codes:
@@ -93,15 +113,16 @@ class RootCauseIntelligenceService:
             verdict_status=verdict,
             issue_codes=issue_codes,
             field_paths=field_paths,
-            hypotheses=hypotheses,
+            hypotheses=supported,
             mapping_version=mapping.version,
             graph_snapshot_id=request.graph_snapshot.snapshot_id,
             graph_checksum=request.graph_snapshot.checksum,
-            audit_ref=str(uuid4()),
+            audit_ref=audit_ref,
             metadata_json={
                 "disclaimer": (
                     "Hypotheses describe possible prerequisite mechanisms; "
                     "not demonstrated learner mastery."
                 ),
+                "graph_audit_status": graph_report.status.value,
             },
         )

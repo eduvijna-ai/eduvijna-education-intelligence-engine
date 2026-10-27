@@ -1,13 +1,15 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **IMPLEMENTATION HANDOFF** (Cursor push pending exact HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R1 FOCUSED REPAIR** (Chief Architect handoff R1; push pending new HEAD). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+
+**R1 deltas (vs `f1a3680`):** `authority.py` fail-closed graph loading; synthetic fixture edges; root-cause path-required PASS; paper competency + partial cognitive targets + fractional counts; orchestration trusted scope + whole-output review gate. Expanded `test_day10_*` (14 tests). D10-22/32/33/36 still PARTIAL/PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
 | D10-01 | Freeze Day-10 scope map | `docs/execution/D10-SCOPE-MAP.md` | `day10_verify` | IMPLEMENTED |
 | D10-02 | Reuse Day-2 `ConceptPrerequisite` | `app/prerequisite_intelligence/loader.py` | `test_day10_graph.py` | IMPLEMENTED |
 | D10-03 | Versioned graph contracts | `app/prerequisite_intelligence/contracts.py` | `test_day10_graph.py` | IMPLEMENTED |
-| D10-04 | Source-backed edge provenance | `loader.py`, `validators.py`, `fixtures.py` | `test_day10_adversarial.py` | IMPLEMENTED |
+| D10-04 | Source-backed edge provenance | `authority.py`, `loader.py`, `validators.py`, `fixtures.py` | `test_day10_adversarial.py` | IMPLEMENTED |
 | D10-05 | Edge integrity validator | `app/prerequisite_intelligence/validators.py` | `test_day10_graph.py` | IMPLEMENTED |
 | D10-06 | Cycle and progression validation | `validators.detect_cycles` | `test_day10_graph.py::test_cycle_detection_flags_error` | IMPLEMENTED |
 | D10-07 | Curriculum and tenant scope isolation | `loader.py`, `validators.validate_scope_isolation` | `test_day10_adversarial.py` | IMPLEMENTED |

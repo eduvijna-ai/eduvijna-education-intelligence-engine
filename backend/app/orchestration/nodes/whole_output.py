@@ -62,6 +62,12 @@ def whole_output_node(
     elif not diagnostics_finished(state, request) and request.diagnostic_enrichment_enabled():
         status = OrchestrationRunStatus.REVIEW_REQUIRED
         errors.append("diagnostic_enrichment_incomplete")
+    elif request.root_cause_enrichment_enabled() and any(
+        str(entry.get("verdict_status")) != "pass"
+        for entry in (state.get("root_cause_results") or [])
+    ):
+        status = OrchestrationRunStatus.REVIEW_REQUIRED
+        errors.append("root_cause_review_required")
     else:
         status = OrchestrationRunStatus.COMPLETED
 

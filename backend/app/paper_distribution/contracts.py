@@ -21,7 +21,7 @@ class PaperItemInput(BaseModel):
     cognitive_level: str | None = None
     competency_codes: list[str] = Field(default_factory=list)
     primary_competency_code: str | None = None
-    day6_validated: bool = True
+    day6_validated: bool = False
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -54,6 +54,7 @@ class DimensionSummary(BaseModel):
 
     dimension: str
     counts: dict[str, int] = Field(default_factory=dict)
+    fractional_counts: dict[str, float] = Field(default_factory=dict)
     count_percent: dict[str, float] = Field(default_factory=dict)
     mark_weighted_percent: dict[str, float] = Field(default_factory=dict)
     missing_coverage: list[str] = Field(default_factory=list)

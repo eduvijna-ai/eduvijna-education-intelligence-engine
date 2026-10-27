@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -16,7 +15,6 @@ from app.paper_distribution.contracts import (
     DistributionTarget,
     PaperDistributionRequest,
     PaperDistributionResult,
-    PaperItemInput,
 )
 from app.paper_distribution.enums import (
     DistributionDimensionStatus,
@@ -24,32 +22,77 @@ from app.paper_distribution.enums import (
     PaperDistributionIssueCode,
     PaperDistributionVerdict,
 )
+from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 
 
-def _default_marks(item: PaperItemInput) -> float:
-    if item.marks is None:
-        return 1.0
-    return float(item.marks)
+def _evaluate_dimension_targets(
+    dimension: str,
+    targets: list[DistributionTarget],
+    count_shares: dict[str, float],
+    count_percent: dict[str, float],
+    mark_percent: dict[str, float],
+    item_count: int,
+    *,
+    include_mark_weighted: bool,
+    valid_keys: set[str],
+) -> tuple[list[PaperDistributionIssueCode], DistributionDimensionStatus, dict[str, float]]:
+    issues: list[PaperDistributionIssueCode] = []
+    status = DistributionDimensionStatus.PASS
+    variance: dict[str, float] = {}
+    seen_keys: set[str] = set()
 
+    scoped = [target for target in targets if target.dimension == dimension]
+    if not scoped:
+        return issues, status, variance
 
-def _reconcile_exact_counts(total: int, targets: list[DistributionTarget]) -> dict[str, int]:
-    if total <= 0:
-        return {}
-    exact = [t for t in targets if t.exact_percent is not None]
-    if not exact:
-        return {}
-    raw = {t.key: (t.exact_percent or 0.0) * total / 100.0 for t in exact}
-    floors = {k: int(v) for k, v in raw.items()}
-    remainder = total - sum(floors.values())
-    fractional = sorted(raw.items(), key=lambda kv: (kv[1] - floors[kv[0]], kv[0]), reverse=True)
-    result = dict(floors)
-    index = 0
-    while remainder > 0 and fractional:
-        key = fractional[index % len(fractional)][0]
-        result[key] = result.get(key, 0) + 1
-        remainder -= 1
-        index += 1
-    return result
+    for target in scoped:
+        if target.key in seen_keys:
+            issues.append(PaperDistributionIssueCode.TARGET_INFEASIBLE)
+            status = DistributionDimensionStatus.FAIL
+        seen_keys.add(target.key)
+        if target.key not in valid_keys:
+            issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+            status = DistributionDimensionStatus.FAIL
+            continue
+
+        observed_count = count_shares.get(target.key, 0.0)
+        observed_percent = count_percent.get(target.key, 0.0)
+
+        if target.exact_count is not None:
+            if int(round(observed_count)) != target.exact_count:
+                issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+                status = DistributionDimensionStatus.FAIL
+            variance[target.key] = round(observed_count - float(target.exact_count), 2)
+
+        if target.exact_percent is not None:
+            variance[target.key] = round(observed_percent - target.exact_percent, 2)
+            if abs(observed_percent - target.exact_percent) > 0.01:
+                issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+                status = DistributionDimensionStatus.FAIL
+            if include_mark_weighted:
+                observed_mark = mark_percent.get(target.key, 0.0)
+                if abs(observed_mark - target.exact_percent) > 0.01 and abs(
+                    observed_percent - target.exact_percent
+                ) <= 0.01:
+                    issues.append(PaperDistributionIssueCode.COUNT_MARK_DISAGREEMENT)
+                    if status == DistributionDimensionStatus.PASS:
+                        status = DistributionDimensionStatus.REVIEW_REQUIRED
+
+        if target.min_percent is not None and observed_percent < target.min_percent:
+            issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+            status = DistributionDimensionStatus.FAIL
+        if target.max_percent is not None and observed_percent > target.max_percent:
+            issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
+            status = DistributionDimensionStatus.FAIL
+
+    total_exact = sum(
+        target.exact_percent or 0.0 for target in scoped if target.exact_percent is not None
+    )
+    if total_exact > 100.0 + 1e-6:
+        issues.append(PaperDistributionIssueCode.TARGET_INFEASIBLE)
+        status = DistributionDimensionStatus.INFEASIBLE
+
+    return issues, status, variance
 
 
 def evaluate_paper_distribution(
@@ -76,7 +119,7 @@ def evaluate_paper_distribution(
             competency_summary=DimensionSummary(dimension="competency"),
             issue_codes=issues,
             field_paths=field_paths,
-            audit_ref=str(uuid4()),
+            audit_ref=stable_audit_ref("paper", request.paper_id, "empty"),
         )
 
     seen_ids: set[str] = set()
@@ -99,17 +142,24 @@ def evaluate_paper_distribution(
         if not item.day6_validated:
             issues.append(PaperDistributionIssueCode.MISSING_COGNITIVE)
             field_paths.append(f"{base_path}/day6_validated")
+            continue
 
-        marks = _default_marks(item)
+        if item.marks is None:
+            if request.include_mark_weighted:
+                issues.append(PaperDistributionIssueCode.INVALID_MARKS)
+                field_paths.append(f"{base_path}/marks")
+            marks = 0.0
+        else:
+            marks = float(item.marks)
+
         if item.marks is not None and item.marks < 0:
             issues.append(PaperDistributionIssueCode.NEGATIVE_MARKS)
             field_paths.append(f"{base_path}/marks")
         if item.marks is not None and item.marks == 0:
             issues.append(PaperDistributionIssueCode.ZERO_MARKS)
             field_paths.append(f"{base_path}/marks")
-        if marks <= 0:
-            continue
-        total_marks += marks
+        if marks > 0:
+            total_marks += marks
 
         if not item.cognitive_level:
             issues.append(PaperDistributionIssueCode.MISSING_COGNITIVE)
@@ -124,7 +174,7 @@ def evaluate_paper_distribution(
                 if resolved is None:
                     issues.append(PaperDistributionIssueCode.INVALID_COGNITIVE)
                     field_paths.append(f"{base_path}/cognitive_level")
-                else:
+                elif marks > 0:
                     cognitive_counts[resolved] += 1.0
                     cognitive_marks[resolved] += marks
 
@@ -133,7 +183,7 @@ def evaluate_paper_distribution(
             if not comp_codes:
                 issues.append(PaperDistributionIssueCode.MISSING_COMPETENCY)
                 field_paths.append(f"{base_path}/competency_codes")
-            else:
+            elif marks > 0:
                 share = 1.0 / len(comp_codes)
                 for code in comp_codes:
                     resolved, _ = taxonomy.resolve_competency(code)
@@ -150,7 +200,7 @@ def evaluate_paper_distribution(
             if not primary:
                 issues.append(PaperDistributionIssueCode.MISSING_COMPETENCY)
                 field_paths.append(f"{base_path}/competency_codes")
-            else:
+            elif marks > 0:
                 resolved, _ = taxonomy.resolve_competency(primary)
                 if resolved is None:
                     issues.append(PaperDistributionIssueCode.INVALID_COMPETENCY)
@@ -177,46 +227,32 @@ def evaluate_paper_distribution(
         for key in competency_keys
     }
     competency_mark_percent = {
-        key: round(100.0 * competency_marks.get(key, 0.0) / mark_den, 2) for key in competency_keys
+        key: round(100.0 * competency_marks.get(key, 0.0) / mark_den, 2)
+        for key in competency_keys
     }
 
-    cognitive_status = DistributionDimensionStatus.PASS
-    competency_status = DistributionDimensionStatus.PASS
-    variance: dict[str, float] = {}
-
-    expected_counts = _reconcile_exact_counts(item_count, request.cognitive_targets)
-    for target in request.cognitive_targets:
-        observed = cognitive_percent.get(target.key, 0.0)
-        if target.exact_percent is not None:
-            variance[target.key] = round(observed - target.exact_percent, 2)
-            expected = expected_counts.get(target.key)
-            if expected is not None and cognitive_counts.get(target.key, 0) != expected:
-                issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
-                cognitive_status = DistributionDimensionStatus.FAIL
-        if target.min_percent is not None and observed < target.min_percent:
-            issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
-            cognitive_status = DistributionDimensionStatus.FAIL
-        if target.max_percent is not None and observed > target.max_percent:
-            issues.append(PaperDistributionIssueCode.TARGET_MISMATCH)
-            cognitive_status = DistributionDimensionStatus.FAIL
-
-    if request.include_mark_weighted and request.cognitive_targets:
-        for target in request.cognitive_targets:
-            if target.exact_percent is None:
-                continue
-            observed_mark = cognitive_mark_percent.get(target.key, 0.0)
-            if abs(observed_mark - target.exact_percent) > 0.01:
-                count_obs = cognitive_percent.get(target.key, 0.0)
-                if abs(count_obs - target.exact_percent) <= 0.01:
-                    issues.append(PaperDistributionIssueCode.COUNT_MARK_DISAGREEMENT)
-                    cognitive_status = DistributionDimensionStatus.REVIEW_REQUIRED
-
-    total_target_percent = sum(
-        t.exact_percent or 0.0 for t in request.cognitive_targets if t.exact_percent is not None
+    cognitive_target_issues, cognitive_status, cognitive_variance = _evaluate_dimension_targets(
+        "cognitive",
+        request.cognitive_targets,
+        cognitive_counts,
+        cognitive_percent,
+        cognitive_mark_percent,
+        item_count,
+        include_mark_weighted=request.include_mark_weighted,
+        valid_keys=set(COGNITIVE_PROGRESSION_ORDER),
     )
-    if total_target_percent > 100.0 + 1e-6:
-        issues.append(PaperDistributionIssueCode.TARGET_INFEASIBLE)
-        cognitive_status = DistributionDimensionStatus.INFEASIBLE
+    competency_target_issues, competency_status, competency_variance = _evaluate_dimension_targets(
+        "competency",
+        request.competency_targets,
+        competency_counts,
+        competency_percent,
+        competency_mark_percent,
+        item_count,
+        include_mark_weighted=request.include_mark_weighted,
+        valid_keys=set(competency_keys),
+    )
+    issues.extend(cognitive_target_issues)
+    issues.extend(competency_target_issues)
 
     missing_cognitive = [
         key for key in COGNITIVE_PROGRESSION_ORDER if cognitive_counts.get(key, 0.0) == 0.0
@@ -224,14 +260,23 @@ def evaluate_paper_distribution(
 
     verdict = PaperDistributionVerdict.PASS
     if issues:
-        if cognitive_status == DistributionDimensionStatus.FAIL or any(
-            code
-            in {
-                PaperDistributionIssueCode.DUPLICATE_ITEM_ID,
-                PaperDistributionIssueCode.CREATE_LEVEL_REJECTED,
-                PaperDistributionIssueCode.EMPTY_PAPER,
-            }
-            for code in issues
+        fail_statuses = {
+            DistributionDimensionStatus.FAIL,
+            DistributionDimensionStatus.INFEASIBLE,
+        }
+        if (
+            cognitive_status in fail_statuses
+            or competency_status in fail_statuses
+            or any(
+                code
+                in {
+                    PaperDistributionIssueCode.DUPLICATE_ITEM_ID,
+                    PaperDistributionIssueCode.CREATE_LEVEL_REJECTED,
+                    PaperDistributionIssueCode.EMPTY_PAPER,
+                    PaperDistributionIssueCode.TARGET_MISMATCH,
+                }
+                for code in issues
+            )
         ):
             verdict = PaperDistributionVerdict.FAIL
         else:
@@ -245,23 +290,26 @@ def evaluate_paper_distribution(
         cognitive_summary=DimensionSummary(
             dimension="cognitive",
             counts={k: int(cognitive_counts.get(k, 0)) for k in COGNITIVE_PROGRESSION_ORDER},
+            fractional_counts=dict(cognitive_counts),
             count_percent=cognitive_percent,
             mark_weighted_percent=cognitive_mark_percent,
             missing_coverage=missing_cognitive,
             status=cognitive_status,
-            variance=variance,
+            variance=cognitive_variance,
         ),
         competency_summary=DimensionSummary(
             dimension="competency",
-            counts={k: int(round(competency_counts.get(k, 0))) for k in competency_keys},
+            counts={k: int(competency_counts.get(k, 0)) for k in competency_keys},
+            fractional_counts=dict(competency_counts),
             count_percent=competency_percent,
             mark_weighted_percent=competency_mark_percent,
             missing_coverage=[k for k in competency_keys if competency_counts.get(k, 0) == 0],
             status=competency_status,
+            variance=competency_variance,
         ),
         issue_codes=list(dict.fromkeys(issues)),
         field_paths=field_paths,
-        audit_ref=str(uuid4()),
+        audit_ref=stable_audit_ref(request.paper_id, str(item_count), request.taxonomy_version),
         metadata_json={
             "multi_label_policy": request.multi_label_policy.value,
             "total_marks": total_marks,

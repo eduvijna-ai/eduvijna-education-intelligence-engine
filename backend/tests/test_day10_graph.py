@@ -9,9 +9,15 @@ import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
-from app.prerequisite_intelligence.enums import GraphAuditStatus, GraphIssueCode
-from app.prerequisite_intelligence.fixtures import load_day10_fixture_snapshot, seed_day10_prerequisite_fixture
+from app.prerequisite_intelligence.enums import (
+    EdgeProvenanceClass,
+    GraphAuditStatus,
+    GraphIssueCode,
+)
+from app.prerequisite_intelligence.fixtures import (
+    load_day10_fixture_snapshot,
+    seed_day10_prerequisite_fixture,
+)
 from app.prerequisite_intelligence.traversal import bounded_ancestor_paths
 
 
@@ -27,10 +33,9 @@ def test_fixture_graph_passes_audit_and_has_alternate_paths(tmp_path: Path) -> N
     ctx = seed_day10_prerequisite_fixture(session)
     session.commit()
     snapshot = load_day10_fixture_snapshot(session, ctx)
-    report = build_graph_quality_report(
-        snapshot, allowed_source_revision_ids={ctx["source_revision_id"]}
-    )
+    report = build_graph_quality_report(snapshot)
     assert report.status == GraphAuditStatus.PASS
+    assert all(edge.provenance_class == EdgeProvenanceClass.SYNTHETIC for edge in snapshot.edges)
     paths, _ = bounded_ancestor_paths(snapshot, ctx["multi_add_concept_id"])
     assert len(paths) >= 2
     path_signatures = {tuple(p.concept_ids) for p in paths}
@@ -46,7 +51,7 @@ def test_cycle_detection_flags_error(tmp_path: Path) -> None:
         ConceptPrerequisite(
             prerequisite_concept_id=ctx["multi_add_concept_id"],
             target_concept_id=ctx["counting_concept_id"],
-            metadata_json={"provenance_class": "synthetic"},
+            metadata_json={"provenance_class": "synthetic", "synthetic_fixture": True},
         )
     )
     session.commit()

@@ -44,4 +44,10 @@ def verify_day10_scope_guard() -> dict[str, object]:
                             for prefix in _FORBIDDEN_IMPORT_PREFIXES
                         ):
                             violations.append(f"{path.name}: import {alias.name}")
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    if any(
+                        node.module == prefix or node.module.startswith(f"{prefix}.")
+                        for prefix in _FORBIDDEN_IMPORT_PREFIXES
+                    ):
+                        violations.append(f"{path.name}: from {node.module}")
     return {"ok": not violations, "violations": violations}
