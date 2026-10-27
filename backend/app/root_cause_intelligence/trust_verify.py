@@ -72,6 +72,17 @@ def verify_root_cause_trusted_context(
         issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
         paths.append("trusted_validation.day9_audit_item")
 
+    if execution_mode == TrustExecutionMode.PRODUCTION:
+        if request.orchestration_run_id and event.run_id != request.orchestration_run_id:
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.day9_run_id")
+        if (
+            request.orchestration_request_hash
+            and event.request_hash != request.orchestration_request_hash
+        ):
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.day9_request_hash")
+
     traces = payload.get("option_traces") or []
     option_trace = next(
         (
@@ -113,9 +124,15 @@ def verify_root_cause_trusted_context(
     else:
         source_id_list = raw_sources
     event_sources = {str(revision_id) for revision_id in source_id_list if revision_id}
-    if event_sources and request.allowed_source_revision_ids:
-        allowed = set(request.allowed_source_revision_ids)
-        if not allowed.issubset(event_sources):
+    allowed = set(request.allowed_source_revision_ids or [])
+    if execution_mode == TrustExecutionMode.PRODUCTION:
+        if not allowed and event_sources:
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.day9_audit_sources")
+        elif allowed and event_sources and not allowed.issubset(event_sources):
+            issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+            paths.append("trusted_validation.day9_audit_sources")
+        elif allowed and not event_sources:
             issues.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
             paths.append("trusted_validation.day9_audit_sources")
 

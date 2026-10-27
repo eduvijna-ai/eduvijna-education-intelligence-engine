@@ -152,7 +152,7 @@ def test_forged_day9_audit_rejected_in_production(tmp_path: Path) -> None:
     assert result.hypotheses == []
 
 
-def test_persisted_day9_audit_allows_production_pass(tmp_path: Path) -> None:
+def test_persisted_day9_audit_allows_synthetic_fixture_pass(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = seed_day10_prerequisite_fixture(session)
     audit_id = "00000000-0000-4000-8000-000000000001"
@@ -207,8 +207,73 @@ def test_persisted_day9_audit_allows_production_pass(tmp_path: Path) -> None:
             target_concept_code="multi-step-addition",
         ),
         trusted=trusted,
-        execution_mode=TrustExecutionMode.PRODUCTION,
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
         control_session=session,
     )
     assert RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION not in result.issue_codes
     assert len(result.hypotheses) >= 1
+
+
+def test_fixture_curriculum_blocked_in_production_with_valid_day9(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = seed_day10_prerequisite_fixture(session)
+    audit_id = "00000000-0000-4000-8000-000000000003"
+    session.add(
+        OrchestrationAuditEvent(
+            id=audit_id,
+            run_id="run-prod-fixture",
+            request_hash="hash-prod",
+            node_name="diagnostic_item",
+            status="pass",
+            attempt=1,
+            source_revision_ids_json={"ids": [ctx["source_revision_id"]]},
+            payload_json={
+                "item_id": "item-1",
+                "taxonomy_version": DEFAULT_TAXONOMY_VERSION,
+                "option_traces": [
+                    {
+                        "option_key": "A",
+                        "misconception_code": "MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                        "validation_status": DiagnosticValidationStatus.PASS.value,
+                        "evidence_refs": [],
+                    }
+                ],
+            },
+        )
+    )
+    session.commit()
+    snapshot = load_day10_fixture_snapshot(session, ctx)
+    trusted = RootCauseTrustedValidationContext.from_day9_accepted(
+        item_id="item-1",
+        option_key="A",
+        misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+        taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+        day9_audit_ref=audit_id,
+    )
+    result = RootCauseIntelligenceService().analyze(
+        RootCauseDiagnosticRequest(
+            item_id="item-1",
+            option_key="A",
+            misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+            taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            tag=OptionDiagnosticTag(
+                item_id="item-1",
+                option_key="A",
+                is_correct=False,
+                misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
+                validation_status=DiagnosticValidationStatus.PASS,
+                taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+            ),
+            curriculum_version_id=ctx["curriculum_version_id"],
+            graph_snapshot=snapshot,
+            target_concept_code="multi-step-addition",
+            allowed_source_revision_ids=[ctx["source_revision_id"]],
+            orchestration_run_id="run-prod-fixture",
+            orchestration_request_hash="hash-prod",
+        ),
+        trusted=trusted,
+        execution_mode=TrustExecutionMode.PRODUCTION,
+        control_session=session,
+    )
+    assert result.hypotheses == []
+    assert RootCauseIssueCode.MISSING_GRAPH in result.issue_codes

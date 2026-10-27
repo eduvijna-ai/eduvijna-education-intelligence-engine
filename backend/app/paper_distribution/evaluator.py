@@ -27,7 +27,7 @@ from app.paper_distribution.enums import (
     PaperDistributionVerdict,
 )
 from app.paper_distribution.execution_context import PaperExecutionContext
-from app.paper_distribution.target_policy_registry import seed_paper_target_policy_registry
+from app.paper_distribution.target_policy_registry import ensure_paper_target_policy_configured
 from app.paper_distribution.trust_verify import verify_paper_day6_trust, verify_target_policy
 from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
@@ -443,7 +443,8 @@ def evaluate_paper_distribution_with_session(
     execution_context: PaperExecutionContext | None = None,
 ) -> PaperDistributionResult:
     taxonomy = seed_taxonomy_registry(session)
-    seed_paper_target_policy_registry(session)
+    if execution_mode == TrustExecutionMode.PRODUCTION:
+        ensure_paper_target_policy_configured(session)
     result = evaluate_paper_distribution(
         request,
         taxonomy=taxonomy,
@@ -452,8 +453,14 @@ def evaluate_paper_distribution_with_session(
         data_session=session,
         execution_context=execution_context,
     )
+    day6_run_id = day6_trust.validation_run_id if day6_trust else None
     audit_ref = persist_paper_distribution_audit(
-        session, request, result, execution_context=execution_context
+        session,
+        request,
+        result,
+        execution_context=execution_context,
+        execution_mode=execution_mode,
+        day6_validation_run_id=day6_run_id,
     )
     session.flush()
     return result.model_copy(update={"audit_ref": audit_ref})

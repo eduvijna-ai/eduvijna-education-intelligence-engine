@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R6 FOCUSED REPAIR** (Chief Architect handoff R6). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R7 FOCUSED REPAIR** (Chief Architect handoff R7). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R6 deltas (vs `4e449677`):** Day6 `validated_items` on persist (`kind=day6_validation`); paper trust rejects `paper_distribution` audits and fail-closed per-item binding; active paper-distribution target policy registry; `PaperExecutionContext` for tenant-scoped audit; session-backed graph checksum/canonical reload (`graph_verify.py`); production loader blocks unbound synthetic/inferred edges; option citation strict binding + Day9 trace `evidence_refs` match; expanded `test_day10_r6_trust.py`. D10-22/32/33/36 still PARTIAL/PENDING (no full LangGraph replay/HITL matrix).
+**R7 deltas (vs `c12e215`):** fail-closed Day6 trust (required hash/cognitive/competency, `blocking_failure`, production `PaperExecutionContext`); fixture curriculum rejected in production graph verify; INFERRED edge allowlist + path filtering; policy seed only on first configure (revocation sticks); audit `run_id` ≤64 chars + Day6/item idempotency; Day9 run/request hash binding; `test_day10_r7_trust.py`. D10-22/32/33/36 still PARTIAL/PENDING.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

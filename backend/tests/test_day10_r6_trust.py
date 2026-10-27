@@ -9,13 +9,15 @@ import app.models  # noqa: F401
 from app.common.trust_execution import TrustExecutionMode
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
+from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
+from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION, DiagnosticValidationStatus
 from app.education_intelligence.fixtures import positive_cbse_item, seed_cbse_fixture_curriculum
 from app.education_intelligence.service import EducationIntelligenceValidationService
 from app.knowledge_intelligence.contracts import KnowledgeContextPack, KnowledgeEvidenceItem
 from app.models.education_intelligence import ValidationAuditRun
 from app.models.orchestration import OrchestrationAuditEvent
-from app.orchestration.graph import build_orchestration_graph
 from app.orchestration.fixtures import build_day8_test_service
+from app.orchestration.graph import build_orchestration_graph
 from app.orchestration.root_cause_trust import option_allowed_source_revision_ids
 from app.paper_distribution.audit import persist_paper_distribution_audit
 from app.paper_distribution.contracts import PaperDistributionRequest, PaperItemInput
@@ -28,7 +30,7 @@ from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.fixtures import build_demo_ten_question_paper
 from app.paper_distribution.target_policy_registry import (
     PAPER_TARGET_POLICY_VERSION,
-    seed_paper_target_policy_registry,
+    ensure_paper_target_policy_configured,
 )
 from app.paper_distribution.trusted_validation import PaperDay6TrustContext
 from app.prerequisite_intelligence.fixtures import (
@@ -38,8 +40,6 @@ from app.prerequisite_intelligence.fixtures import (
 from app.root_cause_intelligence.contracts import RootCauseDiagnosticRequest
 from app.root_cause_intelligence.enums import RootCauseIssueCode, RootCauseVerdictStatus
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
-from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
-from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION, DiagnosticValidationStatus
 
 
 def _session(tmp_path: Path) -> Session:
@@ -66,7 +66,7 @@ def _persist_day6_passing_run(session: Session) -> tuple[str, dict]:
 
 def test_paper_distribution_audit_cannot_pose_as_day6(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    seed_paper_target_policy_registry(session)
+    ensure_paper_target_policy_configured(session)
     request = build_demo_ten_question_paper()
     result = evaluate_paper_distribution(
         request,
@@ -74,7 +74,12 @@ def test_paper_distribution_audit_cannot_pose_as_day6(tmp_path: Path) -> None:
         execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
         data_session=session,
     )
-    paper_audit_id = persist_paper_distribution_audit(session, request, result)
+    paper_audit_id = persist_paper_distribution_audit(
+        session,
+        request,
+        result,
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
+    )
     session.flush()
     trust = PaperDay6TrustContext.from_validation_run(paper_audit_id)
     checked = evaluate_paper_distribution(
@@ -89,7 +94,7 @@ def test_paper_distribution_audit_cannot_pose_as_day6(tmp_path: Path) -> None:
 
 def test_day6_run_for_item_a_cannot_authorize_item_b(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    seed_paper_target_policy_registry(session)
+    ensure_paper_target_policy_configured(session)
     run_id, validated = _persist_day6_passing_run(session)
     session.commit()
     paper = PaperDistributionRequest(
@@ -119,7 +124,7 @@ def test_day6_run_for_item_a_cannot_authorize_item_b(tmp_path: Path) -> None:
 
 def test_day6_validated_item_positive_with_matching_tags(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    seed_paper_target_policy_registry(session)
+    ensure_paper_target_policy_configured(session)
     run_id, validated = _persist_day6_passing_run(session)
     session.commit()
     item_id = str(validated["item_id"])
@@ -135,7 +140,10 @@ def test_day6_validated_item_positive_with_matching_tags(tmp_path: Path) -> None
                 competency_codes=list(validated.get("competency_codes") or []),
                 primary_competency_code=(validated.get("competency_codes") or ["knowledge"])[0],
                 day6_validated=True,
-                metadata_json={"day6_input_hash": validated["input_hash"]},
+                metadata_json={
+                    "day6_input_hash": validated["input_hash"],
+                    "curriculum_version_id": validated.get("curriculum_version_id"),
+                },
             )
         ],
         cognitive_targets=[],
@@ -154,7 +162,7 @@ def test_day6_validated_item_positive_with_matching_tags(tmp_path: Path) -> None
 
 def test_cognitive_mismatch_on_day6_record_fails(tmp_path: Path) -> None:
     session = _session(tmp_path)
-    seed_paper_target_policy_registry(session)
+    ensure_paper_target_policy_configured(session)
     run_id, validated = _persist_day6_passing_run(session)
     session.commit()
     paper = PaperDistributionRequest(

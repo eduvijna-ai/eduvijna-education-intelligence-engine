@@ -70,6 +70,15 @@ def verify_production_graph_snapshot(
         paths.append("graph_snapshot.curriculum_version")
         return issues, paths, True
 
+    if (
+        meta.get("synthetic_fixture")
+        or meta.get("fixture")
+        or (version.metadata_json or {}).get("fixture")
+    ):
+        issues.append(RootCauseIssueCode.MISSING_GRAPH)
+        paths.append("graph_snapshot.fixture_forbidden_in_production")
+        return issues, paths, True
+
     if not meta.get("loader_attested"):
         issues.append(RootCauseIssueCode.MISSING_GRAPH)
         paths.append("graph_snapshot.loader_attested")

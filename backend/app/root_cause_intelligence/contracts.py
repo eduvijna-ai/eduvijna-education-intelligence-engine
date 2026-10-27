@@ -25,6 +25,8 @@ class RootCauseDiagnosticRequest(BaseModel):
     teacher_id: str | None = None
     allowed_source_revision_ids: list[str] = Field(default_factory=list)
     day6_blocking: bool = False
+    orchestration_run_id: str | None = None
+    orchestration_request_hash: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 

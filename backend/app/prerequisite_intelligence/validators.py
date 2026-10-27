@@ -69,16 +69,19 @@ def validate_edge_integrity(
                 )
             )
 
-        if edge.provenance_class == EdgeProvenanceClass.OFFICIAL:
-            if not edge.source_revision_id or not str(edge.source_locator or "").strip():
-                issues.append(
-                    GraphIssue(
-                        code=GraphIssueCode.MISSING_PROVENANCE,
-                        severity="error",
-                        field_path=f"edges/{edge.edge_id}/source_revision_id",
+        sourced_classes = {EdgeProvenanceClass.OFFICIAL, EdgeProvenanceClass.INFERRED}
+        if edge.provenance_class in sourced_classes and edge.source_revision_id:
+            if edge.provenance_class == EdgeProvenanceClass.OFFICIAL:
+                if not str(edge.source_locator or "").strip():
+                    issues.append(
+                        GraphIssue(
+                            code=GraphIssueCode.MISSING_PROVENANCE,
+                            severity="error",
+                            field_path=f"edges/{edge.edge_id}/source_revision_id",
+                        )
                     )
-                )
-            elif require_official_authorization:
+                    continue
+            if require_official_authorization:
                 if not allowlist:
                     issues.append(
                         GraphIssue(
@@ -96,6 +99,15 @@ def validate_edge_integrity(
                             detail={"source_revision_id": edge.source_revision_id},
                         )
                     )
+        elif edge.provenance_class == EdgeProvenanceClass.OFFICIAL:
+            if not edge.source_revision_id or not str(edge.source_locator or "").strip():
+                issues.append(
+                    GraphIssue(
+                        code=GraphIssueCode.MISSING_PROVENANCE,
+                        severity="error",
+                        field_path=f"edges/{edge.edge_id}/source_revision_id",
+                    )
+                )
 
         prereq = node_by_id.get(edge.prerequisite_concept_id)
         target = node_by_id.get(edge.target_concept_id)

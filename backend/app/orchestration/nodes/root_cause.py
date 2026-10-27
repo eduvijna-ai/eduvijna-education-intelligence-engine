@@ -135,6 +135,10 @@ def root_cause_enrich_node(
                     teacher_id=graph_scope.teacher_id,
                     allowed_source_revision_ids=allowed_sources,
                     day6_blocking=day6_blocking,
+                    orchestration_run_id=(str(state.get("run_id") or "") or None),
+                    orchestration_request_hash=(
+                        str(state.get("request_hash") or "") or None
+                    ),
                 ),
                 trusted=trusted,
                 execution_mode=TrustExecutionMode.PRODUCTION,

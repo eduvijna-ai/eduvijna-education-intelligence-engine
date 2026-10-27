@@ -65,6 +65,11 @@ def verify_paper_day6_trust(
         paths.append("day6_trust.validation_run")
         return issues, paths
 
+    if execution_mode == TrustExecutionMode.PRODUCTION and execution_context is None:
+        issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+        paths.append("day6_trust.execution_context")
+        return issues, paths
+
     record = session.get(ValidationAuditRun, trust.validation_run_id)
     if record is None:
         record = session.scalar(
@@ -87,42 +92,37 @@ def verify_paper_day6_trust(
         paths.append("day6_trust.audit_kind")
         return issues, paths
 
+    if record.blocking_failure:
+        issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+        paths.append("day6_trust.blocking_failure")
+
     if str(record.aggregate_status).lower() not in _DAY6_PASS_STATUSES:
         issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
         paths.append("day6_trust.validation_run_status")
 
     trusted_institution = (
         execution_context.institution_id if execution_context else None
-    ) or (request.metadata_json or {}).get("institution_id")
-    scoped_institution = bool(
-        (request.metadata_json or {}).get("institution_id")
-        or (execution_context and execution_context.institution_id)
     )
-    if (
-        execution_mode == TrustExecutionMode.PRODUCTION
-        and scoped_institution
-        and not trusted_institution
-    ):
-        issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
-        paths.append("day6_trust.institution_required")
+    if execution_mode == TrustExecutionMode.SYNTHETIC_FIXTURE and not trusted_institution:
+        trusted_institution = (request.metadata_json or {}).get("institution_id")
 
     metadata_institution = (request.metadata_json or {}).get("institution_id")
     if (
-        execution_context
-        and execution_context.institution_id
+        execution_mode == TrustExecutionMode.PRODUCTION
         and metadata_institution
+        and execution_context
         and metadata_institution != execution_context.institution_id
     ):
         issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
         paths.append("day6_trust.metadata_institution_spoof")
 
-    if (
-        trusted_institution
-        and record.institution_id
-        and trusted_institution != record.institution_id
-    ):
-        issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
-        paths.append("day6_trust.institution_mismatch")
+    if execution_mode == TrustExecutionMode.PRODUCTION and trusted_institution:
+        if record.institution_id and trusted_institution != record.institution_id:
+            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+            paths.append("day6_trust.institution_mismatch")
+        elif record.institution_id is None and trusted_institution:
+            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+            paths.append("day6_trust.institution_missing_on_run")
 
     validated_index = _validated_items_index(record)
     if not validated_index:
@@ -140,12 +140,23 @@ def verify_paper_day6_trust(
 
         expected_hash = validated.get("input_hash")
         item_hash = (item.metadata_json or {}).get("day6_input_hash")
-        if expected_hash and item_hash and str(item_hash) != str(expected_hash):
+        if execution_mode == TrustExecutionMode.PRODUCTION:
+            if not expected_hash or not item_hash or str(item_hash) != str(expected_hash):
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/metadata_json.day6_input_hash")
+        elif expected_hash and item_hash and str(item_hash) != str(expected_hash):
             issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
             paths.append(f"{base_path}/metadata_json.day6_input_hash")
 
         declared_cognitive = validated.get("declared_cognitive_level")
-        if (
+        if execution_mode == TrustExecutionMode.PRODUCTION:
+            if not declared_cognitive or not item.cognitive_level:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/cognitive_level")
+            elif str(item.cognitive_level).casefold() != str(declared_cognitive).casefold():
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/cognitive_level")
+        elif (
             item.cognitive_level
             and declared_cognitive
             and str(item.cognitive_level).casefold() != str(declared_cognitive).casefold()
@@ -154,19 +165,29 @@ def verify_paper_day6_trust(
             paths.append(f"{base_path}/cognitive_level")
 
         validated_comps = set(validated.get("competency_codes") or [])
-        if item.competency_codes and validated_comps:
+        if execution_mode == TrustExecutionMode.PRODUCTION:
+            if not validated_comps or not item.competency_codes:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/competency_codes")
+            elif not set(item.competency_codes).issubset(validated_comps):
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/competency_codes")
+        elif item.competency_codes and validated_comps:
             if not set(item.competency_codes).issubset(validated_comps):
                 issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
                 paths.append(f"{base_path}/competency_codes")
 
-        validated_institution = validated.get("institution_id")
-        if (
-            trusted_institution
-            and validated_institution
-            and trusted_institution != validated_institution
-        ):
+        validated_curriculum = validated.get("curriculum_version_id")
+        paper_curriculum = (item.metadata_json or {}).get("curriculum_version_id")
+        if validated_curriculum and paper_curriculum and validated_curriculum != paper_curriculum:
             issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
-            paths.append(f"{base_path}/institution")
+            paths.append(f"{base_path}/metadata_json.curriculum_version_id")
+
+        validated_institution = validated.get("institution_id")
+        if execution_mode == TrustExecutionMode.PRODUCTION and trusted_institution:
+            if validated_institution and trusted_institution != validated_institution:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/institution")
 
     return issues, paths
 

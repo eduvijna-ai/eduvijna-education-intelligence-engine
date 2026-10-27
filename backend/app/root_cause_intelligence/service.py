@@ -4,7 +4,11 @@ from sqlalchemy.orm import Session
 
 from app.common.trust_execution import TrustExecutionMode
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.contracts import GraphTraversalLimits
+from app.prerequisite_intelligence.contracts import (
+    GraphTraversalLimits,
+    PrerequisiteGraphEdge,
+    PrerequisiteGraphPath,
+)
 from app.prerequisite_intelligence.enums import (
     EdgeProvenanceClass,
     GraphAuditStatus,
@@ -25,6 +29,25 @@ from app.root_cause_intelligence.trust_verify import (
     verify_root_cause_trusted_context,
 )
 from app.root_cause_intelligence.trusted_validation import RootCauseTrustedValidationContext
+
+
+def _path_authorized_for_option(
+    snapshot_edges: list[PrerequisiteGraphEdge],
+    path: PrerequisiteGraphPath,
+    allowed: set[str],
+) -> bool:
+    edge_by_id = {edge.edge_id: edge for edge in snapshot_edges}
+    sourced_revision_ids: list[str] = []
+    for edge_id in path.edge_ids:
+        edge = edge_by_id.get(edge_id)
+        if edge is None or not edge.source_revision_id:
+            continue
+        sourced_revision_ids.append(str(edge.source_revision_id))
+    if not sourced_revision_ids:
+        return True
+    if not allowed:
+        return False
+    return all(revision_id in allowed for revision_id in sourced_revision_ids)
 
 
 class RootCauseIntelligenceService:
@@ -121,11 +144,13 @@ class RootCauseIntelligenceService:
             issue_codes.append(RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF)
             field_paths.append("graph_snapshot.metadata_json.authorized_revision_ids")
 
-        has_official = any(
-            edge.provenance_class == EdgeProvenanceClass.OFFICIAL
+        has_sourced_edge = any(
+            edge.source_revision_id
+            and edge.provenance_class
+            in {EdgeProvenanceClass.OFFICIAL, EdgeProvenanceClass.INFERRED}
             for edge in request.graph_snapshot.edges
         )
-        if has_official and not allowed:
+        if has_sourced_edge and not allowed:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
             field_paths.append("allowed_source_revision_ids")
 
@@ -147,7 +172,7 @@ class RootCauseIntelligenceService:
         graph_blocking = (
             graph_report.status == GraphAuditStatus.FAIL
             or RootCauseIssueCode.SNAPSHOT_ALLOWLIST_SPOOF in issue_codes
-            or (has_official and not allowed)
+            or (has_sourced_edge and not allowed)
         )
         if graph_blocking:
             issue_codes.append(RootCauseIssueCode.UNAUTHORIZED_SOURCE)
@@ -184,7 +209,15 @@ class RootCauseIntelligenceService:
             target_concept_code=request.target_concept_code,
             limits=GraphTraversalLimits(max_depth=8, max_paths=8, max_nodes=48),
         )
-        supported = [hypothesis for hypothesis in hypotheses if hypothesis.paths]
+        supported = [
+            hypothesis
+            for hypothesis in hypotheses
+            if hypothesis.paths
+            and all(
+                _path_authorized_for_option(request.graph_snapshot.edges, path, allowed)
+                for path in hypothesis.paths
+            )
+        ]
 
         path_budget_hit = any(
             item.code == GraphIssueCode.PATH_BUDGET_EXHAUSTED for item in traversal_issues

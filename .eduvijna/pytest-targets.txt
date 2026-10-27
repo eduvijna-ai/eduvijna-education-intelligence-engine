@@ -5,6 +5,7 @@ tests/test_day10_adversarial.py
 tests/test_day10_orchestration.py
 tests/test_day10_root_cause_orchestration.py
 tests/test_day10_r6_trust.py
+tests/test_day10_r7_trust.py
 tests/test_day9_diagnostic.py
 tests/test_day9_service_integrity.py
 tests/test_day9_r4_acceptance.py
