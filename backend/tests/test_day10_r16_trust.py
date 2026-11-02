@@ -25,7 +25,7 @@ from test_day10_r18_trust import (
     _mapping_decision_token,
 )
 
-from app.curator_auth.issuer import CuratorAuthError
+
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
