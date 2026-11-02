@@ -33,7 +33,7 @@ Status: **R18 FOCUSED REPAIR** (Chief Architect handoff R18). Source: `docs/exec
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
-| D10-28 | Generic target policy | `mandatory_policy_resolver.py` conflict + scope errors | `test_day10_r17_trust.py` (board vs institution/teacher veto) | PARTIAL |
+| D10-28 | Generic target policy | `mandatory_policy_resolver.py` conflict + scope errors | `test_day10_r18_trust.py` (board exact_count/percent enforcement) | PARTIAL |
 | D10-29 | Integer target reconciliation | `reconcile_exact_counts` + policy merge | `test_day10_r9_trust.py` | PARTIAL |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
