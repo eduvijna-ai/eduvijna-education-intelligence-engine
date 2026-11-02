@@ -250,6 +250,7 @@ def test_sample_paper_analytical_trust_tier_not_official() -> None:
         extracted_checksum=None,
         approval_fingerprint=None,
         approved_by=None,
+        extracted_text=None,
         metadata_json={},
     )
     assert not revision_permits_official_authority(record)

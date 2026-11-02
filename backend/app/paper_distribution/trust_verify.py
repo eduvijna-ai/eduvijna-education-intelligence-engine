@@ -325,6 +325,7 @@ def verify_target_policy(
     request: PaperDistributionRequest,
     *,
     execution_mode: TrustExecutionMode,
+    execution_context: PaperExecutionContext | None = None,
 ) -> tuple[list[PaperDistributionIssueCode], list[str]]:
     issues: list[PaperDistributionIssueCode] = []
     paths: list[str] = []
@@ -342,7 +343,12 @@ def verify_target_policy(
         paths.append("target_policy_version")
         return issues, paths
 
-    ok, field_path = paper_targets_authorized(session, request, version=version)
+    ok, field_path = paper_targets_authorized(
+        session,
+        request,
+        version=version,
+        execution_context=execution_context,
+    )
     if not ok:
         if field_path == "target_policy_version":
             issues.append(PaperDistributionIssueCode.UNSUPPORTED_TAXONOMY)

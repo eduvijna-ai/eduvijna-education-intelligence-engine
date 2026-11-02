@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R16 FOCUSED REPAIR** (Chief Architect handoff R16). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R17 FOCUSED REPAIR** (Chief Architect handoff R17). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R16 deltas (vs `b54e672`):** mapping claims bind **source_span_checksum** + curator registry + scoped overlays; Day6 binding verify on requests; `mandatory_policy_resolver.py` for board/institution PolicyRule targets via `policy_rule_source_revisions`. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-35 static portability verified (**live PG not run**); D10-36 **PENDING**.
+**R17 deltas (vs `9cb991b`):** mapping spans from **checksum-validated `extracted_text`** (not mutable metadata excerpts); curator approval requires **scoped `AdminActor`** + registry; production **Day6 fail-closed** (`verify_production_day6_binding`); mandatory policy **hard exact_count/percent conflicts** (no max/min weakening), board-code mismatch veto, scoped rule revision + `source_approved` audit; strict **claim scope** (no unscoped private inheritance). Tests: `test_day10_r17_trust.py`. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-35 static portability verified (**live PG not run**); D10-36 **PENDING**.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -17,14 +17,14 @@ Status: **R16 FOCUSED REPAIR** (Chief Architect handoff R16). Source: `docs/exec
 | D10-09 | Bounded graph traversal | `app/prerequisite_intelligence/traversal.py` | `test_day10_graph.py` | IMPLEMENTED |
 | D10-10 | Graph quality audit | `app/prerequisite_intelligence/audit.py` | `day10_verify` graph_quality_pass | IMPLEMENTED |
 | D10-11 | Diagnostic request contract | `app/root_cause_intelligence/contracts.py` | `test_day10_root_cause.py` | IMPLEMENTED |
-| D10-12 | Misconception → concept mapping | `mapping_registry.py`, `mapping_claim_authority.py` | `test_day10_r15_trust.py` (production claim audit) | PARTIAL |
+| D10-12 | Misconception → concept mapping | `mapping_registry.py`, `mapping_claim_authority.py`, `mapping_evidence.py` | `test_day10_r17_trust.py` (span integrity, curator AdminActor, A/B scope) | PARTIAL |
 | D10-13 | Eligibility preflight | `app/root_cause_intelligence/preflight.py` | `test_day10_root_cause.py::test_correct_option_tag_is_blocked` | IMPLEMENTED |
 | D10-14 | Candidate prerequisite resolver | `ranking.py` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-15 | Bounded backward traversal | `traversal.bounded_ancestor_paths` | `day10_verify` alternate_prerequisite_paths | IMPLEMENTED |
 | D10-16 | Deterministic hypothesis ranking | `ranking.rank_root_cause_hypotheses` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-17 | Alternative hypotheses | `RootCauseHypothesis.alternatives` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-18 | Contradiction / uncertainty | `service.py` verdict policy | `day10_verify` root_cause_verdict | IMPLEMENTED |
-| D10-19 | LO/competency consistency | Day6 per-item trust + scope metadata | `test_day10_r15_trust.py` (persisted Day6 + enrich chain) | PARTIAL |
+| D10-19 | LO/competency consistency | `day6_binding_verify.py` production fail-closed | `test_day10_r17_trust.py`, `day10_day6_binding.py` | PARTIAL |
 | D10-20 | Day-7 provenance / tenant | `root_cause_trust.py` citation binding | `test_day10_r6_trust.py` | IMPLEMENTED |
 | D10-21 | Structured result/verdict/audit | `RootCauseResult` | `day10_verify` | IMPLEMENTED |
 | D10-22 | Day-8/9 integration | `root_cause.py` + graph compile | `test_day10_r15_trust.py` (Day6/9 writer + enrich; not full production graph matrix) | PARTIAL |
@@ -33,7 +33,7 @@ Status: **R16 FOCUSED REPAIR** (Chief Architect handoff R16). Source: `docs/exec
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
-| D10-28 | Generic target policy | `mandatory_policy_resolver.py` + registry merge | `test_day10_r16_trust.py` (board rule) | PARTIAL |
+| D10-28 | Generic target policy | `mandatory_policy_resolver.py` conflict + scope errors | `test_day10_r17_trust.py` (board vs institution/teacher veto) | PARTIAL |
 | D10-29 | Integer target reconciliation | `reconcile_exact_counts` + policy merge | `test_day10_r9_trust.py` | PARTIAL |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |

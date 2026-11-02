@@ -219,7 +219,10 @@ def evaluate_paper_distribution(
         field_paths.append("taxonomy_version")
 
     policy_issues, policy_paths = verify_target_policy(
-        data_session, request, execution_mode=execution_mode
+        data_session,
+        request,
+        execution_mode=execution_mode,
+        execution_context=execution_context,
     )
     issues.extend(policy_issues)
     field_paths.extend(policy_paths)

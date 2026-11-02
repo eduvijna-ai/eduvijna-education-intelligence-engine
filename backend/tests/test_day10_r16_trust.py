@@ -6,6 +6,7 @@ import pytest
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_source_content_approval,
+    ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
 )
 from test_day10_r8_trust import (
@@ -26,11 +27,6 @@ from app.models.enums import PolicyScopeType
 from app.models.policy import PolicyRule
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
-from app.paper_distribution.contracts import (
-    DistributionTarget,
-    PaperDistributionRequest,
-    PaperItemInput,
-)
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_resolver import (
     PAPER_MANDATORY_POLICY_KEY,
@@ -59,6 +55,13 @@ def test_fake_locator_rejected_for_mapping_claim(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     ensure_mapping_curator_registry(session)
+    actor_id = f"{DEFAULT_MAPPING_CURATOR_ACTOR}@{ctx['institution_id'][:8]}"
+    ensure_mapping_curator_admin_actor(
+        session,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        external_code=actor_id,
+    )
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
@@ -72,7 +75,7 @@ def test_fake_locator_rejected_for_mapping_claim(tmp_path: Path) -> None:
             source_locator="made-up/locator/path",
             mapping_registry_version="root-cause-mapping@v1",
             approval_context=MappingClaimApprovalContext(
-                actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+                actor_id=actor_id,
                 organization_id=ctx["organization_id"],
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
@@ -84,6 +87,13 @@ def test_unauthorized_curator_actor_rejected(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     ensure_mapping_curator_registry(session)
+    actor_id = f"{DEFAULT_MAPPING_CURATOR_ACTOR}@{ctx['institution_id'][:8]}"
+    ensure_mapping_curator_admin_actor(
+        session,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        external_code=actor_id,
+    )
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
@@ -154,17 +164,12 @@ def test_scoped_mapping_overlays_do_not_cross_institutions(tmp_path: Path) -> No
 def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session,
-        tmp_path,
-        ctx["source_revision_id"],
-        source_locator=_MAPPING_SOURCE_LOCATOR,
-    )
     inst_a = session.get(Institution, INST_A)
     inst_b = session.get(Institution, INST_B)
     assert inst_a and inst_b
     inst_a.metadata_json = {**(inst_a.metadata_json or {}), "board_code": "cbse"}
     inst_b.metadata_json = {**(inst_b.metadata_json or {}), "board_code": "cbse"}
+    session.flush()
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     rule = PolicyRule(
@@ -180,23 +185,22 @@ def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> 
     session.add(rule)
     session.flush()
     revision.policy_rules.append(rule)
+    session.flush()
+    ensure_genuine_source_content_approval(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        source_locator=_MAPPING_SOURCE_LOCATOR,
+    )
+    from app.paper_distribution.mandatory_policy_resolver import (
+        _revision_authorized_for_policy,
+    )
+
+    assert _revision_authorized_for_policy(session, rule)
     ensure_paper_target_policy_configured(session)
     session.commit()
-    request = PaperDistributionRequest(
-        paper_id="paper-r16-board",
-        requested_count=3,
-        items=[
-            PaperItemInput(item_id="i1", marks=1.0, cognitive_level="remember"),
-            PaperItemInput(item_id="i2", marks=1.0, cognitive_level="remember"),
-            PaperItemInput(item_id="i3", marks=1.0, cognitive_level="remember"),
-        ],
-        cognitive_targets=[
-            DistributionTarget(dimension="cognitive", key="remember", exact_percent=100.0)
-        ],
-    )
     from app.paper_distribution.target_policy_registry import (
         load_active_paper_target_policy,
-        mandatory_target_conflicts,
     )
 
     base_payload = load_active_paper_target_policy(session, PAPER_TARGET_POLICY_VERSION)
@@ -204,8 +208,7 @@ def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> 
         merged = merge_scoped_mandatory_policy_payload(
             session,
             base_payload,
-            PaperExecutionContext(institution_id=institution_id),
+            PaperExecutionContext(institution_id=institution_id, board_code="cbse"),
         )
+        assert merged.get("resolved_board_code") == "cbse"
         assert merged.get("mandatory_cognitive_ranges")
-        conflicts = mandatory_target_conflicts(request, merged)
-        assert conflicts

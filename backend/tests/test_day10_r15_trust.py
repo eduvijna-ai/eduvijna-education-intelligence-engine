@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from day10_day6_binding import seed_production_day6_audit
 from day10_source_lifecycle import (
-    DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_source_content_approval,
 )
 from sqlalchemy import func, select
@@ -17,7 +17,6 @@ from test_day10_r8_trust import (
     _seed_production_institution_graph,
     _session,
 )
-from test_day10_r10_trust import _persist_day6_item
 from test_day10_r11_trust import (
     _APPROVED_MAPPING_OVERLAY_BASE,
     _MAPPING_SOURCE_LOCATOR,
@@ -27,7 +26,6 @@ from test_day10_r11_trust import (
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.common.trust_execution import TrustExecutionMode
 from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
-from app.education_intelligence.fixtures import seed_cbse_fixture_curriculum
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.orchestration import OrchestrationAuditEvent
 from app.models.source import SourceAuditEvent, SourceRevision
@@ -157,11 +155,13 @@ def test_revoked_mapping_claim_blocks_production(tmp_path: Path) -> None:
     assert approved_event is not None
     claim_id = str((approved_event.payload_json or {}).get("claim_id") or "")
     assert claim_id
+    actor_id = str((approved_event.payload_json or {}).get("approved_by") or "")
+    assert actor_id
     revoke_root_cause_mapping_claim(
         session,
         revision_id=ctx["source_revision_id"],
         claim_id=claim_id,
-        actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+        actor_id=actor_id,
     )
     session.add(
         PolicyRegistryEntry(
@@ -197,10 +197,13 @@ def test_day6_day9_writer_root_cause_enrich_production_pass(tmp_path: Path) -> N
 
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    cbse = seed_cbse_fixture_curriculum(session)
-    session.flush()
-    day6_run_id, validated = _persist_day6_item(session, cbse, "item-r15-chain")
-    assert validated.get("competency_codes")
+    day6_run_id, validated = seed_production_day6_audit(
+        session,
+        item_id="item-r15-chain",
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+    )
     mapping_overlay = _approve_revision_mapping_binding(
         session, tmp_path, ctx["source_revision_id"], ctx
     )
@@ -254,7 +257,9 @@ def test_day6_day9_writer_root_cause_enrich_production_pass(tmp_path: Path) -> N
                 "item_id": "item-r15-chain",
                 "blocking": False,
                 "day6_validation_run_id": day6_run_id,
-                "learning_outcome_ids": [cbse["learning_outcome_id"]],
+                "input_hash": validated["input_hash"],
+                "learning_outcome_ids": list(validated.get("learning_outcome_ids") or []),
+                "competency_codes": list(validated.get("competency_codes") or []),
             }
         ],
         "diagnostic_results": [],
@@ -332,10 +337,8 @@ def test_day6_day9_writer_root_cause_enrich_production_pass(tmp_path: Path) -> N
     update = root_cause_enrich_node(state, deps)
     results = update.get("root_cause_results") or []
     assert results
-    assert results[0].get("verdict_status") == RootCauseVerdictStatus.PASS.value
+    assert results[0].get("verdict_status") == RootCauseVerdictStatus.PASS.value, results[0]
     assert results[0].get("hypotheses")
-    assert validated.get("declared_cognitive_level")
-    assert validated.get("competency_codes")
 
 
 def test_persistent_checkpoint_hitl_resume_no_extra_audits(

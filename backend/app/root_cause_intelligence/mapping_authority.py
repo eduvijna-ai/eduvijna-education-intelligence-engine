@@ -15,6 +15,7 @@ from app.prerequisite_intelligence.authority import (
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphScope
 from app.root_cause_intelligence.enums import DEFAULT_ROOT_CAUSE_MAPPING_VERSION
 from app.root_cause_intelligence.mapping_claim_authority import (
+    claim_scope_matches_graph,
     mapping_claim_authorized_for_overlay,
 )
 from app.root_cause_intelligence.mapping_evidence import (  # noqa: F401
@@ -107,13 +108,8 @@ def _overlay_matches_scope(
     raw: dict[str, Any], graph_scope: PrerequisiteGraphScope | None
 ) -> bool:
     if graph_scope is None:
-        return True
-    for field in ("organization_id", "institution_id", "curriculum_version_id"):
-        overlay_val = raw.get(field)
-        scope_val = getattr(graph_scope, field, None)
-        if overlay_val and scope_val and str(overlay_val) != str(scope_val):
-            return False
-    return True
+        return False
+    return claim_scope_matches_graph(raw, graph_scope)
 
 
 def _find_approved_overlay(

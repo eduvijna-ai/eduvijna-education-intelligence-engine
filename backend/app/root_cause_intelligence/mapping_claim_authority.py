@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.source import SourceAuditEvent
+from app.models.tenancy import AdminActor
 from app.prerequisite_intelligence.authority import (
     RevisionAuthorityRecord,
     load_revision_record,
@@ -20,6 +21,7 @@ from app.root_cause_intelligence.mapping_evidence import (
     mapping_evidence_checksum,
     resolve_approved_source_span,
     source_content_checksum,
+    verify_revision_content_integrity,
 )
 from app.root_cause_intelligence.mapping_registry import MisconceptionConceptMapping
 
@@ -50,6 +52,9 @@ def mapping_claim_id(
     source_locator: str,
     mapping_registry_version: str,
     mapping_evidence_checksum: str,
+    organization_id: str | None = None,
+    institution_id: str | None = None,
+    curriculum_version_id: str | None = None,
 ) -> str:
     payload = json.dumps(
         {
@@ -59,6 +64,9 @@ def mapping_claim_id(
             "source_locator": source_locator.strip(),
             "mapping_registry_version": mapping_registry_version,
             "mapping_evidence_checksum": mapping_evidence_checksum,
+            "organization_id": organization_id,
+            "institution_id": institution_id,
+            "curriculum_version_id": curriculum_version_id,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -80,6 +88,66 @@ def _curator_actor_authorized(session: Session, actor_id: str) -> bool:
     if not isinstance(allowed, list):
         return False
     return str(actor_id).strip() in {str(item).strip() for item in allowed if item}
+
+
+def _curator_admin_actor_active(session: Session, actor_id: str) -> bool:
+    if not _curator_actor_authorized(session, actor_id):
+        return False
+    admin = session.scalar(
+        select(AdminActor).where(
+            AdminActor.external_code == str(actor_id).strip(),
+            AdminActor.active.is_(True),
+        )
+    )
+    return admin is not None
+
+
+def _verify_curator_principal(
+    session: Session,
+    actor_id: str,
+    approval_context: MappingClaimApprovalContext,
+) -> bool:
+    if not _curator_admin_actor_active(session, actor_id):
+        return False
+    admin = session.scalar(
+        select(AdminActor).where(
+            AdminActor.external_code == str(actor_id).strip(),
+            AdminActor.active.is_(True),
+        )
+    )
+    assert admin is not None
+    if approval_context.organization_id:
+        if not admin.organization_id:
+            return False
+        if str(admin.organization_id) != str(approval_context.organization_id):
+            return False
+    if approval_context.institution_id:
+        if not admin.institution_id:
+            return False
+        if str(admin.institution_id) != str(approval_context.institution_id):
+            return False
+    return True
+
+
+def claim_scope_matches_graph(
+    scope_payload: dict[str, Any], graph_scope: PrerequisiteGraphScope
+) -> bool:
+    claim_org = scope_payload.get("organization_id")
+    claim_inst = scope_payload.get("institution_id")
+    claim_cur = scope_payload.get("curriculum_version_id")
+    public_global = bool(scope_payload.get("public_global"))
+    claim_private = any([claim_org, claim_inst, claim_cur]) and not public_global
+    if not claim_private:
+        return True
+    for _field, claim_val, req_val in (
+        ("organization_id", claim_org, graph_scope.organization_id),
+        ("institution_id", claim_inst, graph_scope.institution_id),
+        ("curriculum_version_id", claim_cur, graph_scope.curriculum_version_id),
+    ):
+        if claim_val:
+            if not req_val or str(claim_val) != str(req_val):
+                return False
+    return True
 
 
 def _latest_source_approved_audit(
@@ -128,11 +196,13 @@ def approve_root_cause_mapping_claim(
     approval_context: MappingClaimApprovalContext,
     request_id: str | None = None,
 ) -> str:
-    if not _curator_actor_authorized(session, approval_context.actor_id):
+    if not _verify_curator_principal(session, approval_context.actor_id, approval_context):
         raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
+    if not verify_revision_content_integrity(record):
+        raise MappingClaimAuthorityError("source revision content integrity check failed")
     graph_scope = PrerequisiteGraphScope(
         curriculum_version_id=approval_context.curriculum_version_id,
         organization_id=approval_context.organization_id,
@@ -185,6 +255,9 @@ def approve_root_cause_mapping_claim(
         source_locator=locator,
         mapping_registry_version=mapping_registry_version,
         mapping_evidence_checksum=evidence_checksum,
+        organization_id=approval_context.organization_id,
+        institution_id=approval_context.institution_id,
+        curriculum_version_id=approval_context.curriculum_version_id,
     )
     session.add(
         SourceAuditEvent(
@@ -226,7 +299,7 @@ def revoke_root_cause_mapping_claim(
     actor_id: str,
     request_id: str | None = None,
 ) -> None:
-    if not _curator_actor_authorized(session, actor_id):
+    if not _curator_admin_actor_active(session, actor_id):
         raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
     record = load_revision_record(session, revision_id)
     if record is None:
@@ -284,6 +357,8 @@ def _active_mapping_claim_audit(
     content_checksum = source_content_checksum(record)
     if not content_checksum or not locator or not span_checksum:
         return None
+    if not verify_revision_content_integrity(record):
+        return None
     try:
         _, resolved_span = resolve_approved_source_span(record, locator)
     except ValueError:
@@ -297,6 +372,11 @@ def _active_mapping_claim_audit(
         source_locator=locator,
         mapping_registry_version=registry_version,
         mapping_evidence_checksum=expected_evidence_checksum,
+        organization_id=str(overlay.get("organization_id") or graph_scope.organization_id or ""),
+        institution_id=str(overlay.get("institution_id") or graph_scope.institution_id or ""),
+        curriculum_version_id=str(
+            overlay.get("curriculum_version_id") or graph_scope.curriculum_version_id or ""
+        ),
     )
     events = session.scalars(
         select(SourceAuditEvent)
@@ -329,17 +409,9 @@ def _active_mapping_claim_audit(
             continue
         if not str(payload.get("approved_by") or "").strip():
             continue
-        scope_ok = True
-        for field, scope_val in (
-            ("organization_id", graph_scope.organization_id),
-            ("institution_id", graph_scope.institution_id),
-            ("curriculum_version_id", graph_scope.curriculum_version_id),
-        ):
-            payload_val = payload.get(field)
-            if payload_val and scope_val and str(payload_val) != str(scope_val):
-                scope_ok = False
-                break
-        if not scope_ok:
+        if not _curator_admin_actor_active(session, str(payload.get("approved_by") or "")):
+            continue
+        if not claim_scope_matches_graph(payload, graph_scope):
             continue
         if _mapping_claim_revoked(session, revision_id, claim_id, event.id):
             continue
@@ -363,6 +435,8 @@ def mapping_claim_authorized_for_overlay(
     if not content_checksum:
         return False
     if not record.approval_fingerprint or not record.approved_by:
+        return False
+    if not verify_revision_content_integrity(record):
         return False
     expected_checksum = _expected_evidence_checksum(
         record, entry, overlay, registry_version=registry_version

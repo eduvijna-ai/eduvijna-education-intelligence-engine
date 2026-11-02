@@ -6,6 +6,7 @@ from pathlib import Path
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_source_content_approval,
+    ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
 )
 from sqlalchemy import func, select
@@ -86,6 +87,13 @@ def _approve_revision_mapping_binding(
     session: Session, tmp_path: Path, revision_id: str, ctx: dict[str, str]
 ) -> dict[str, object]:
     ensure_mapping_curator_registry(session)
+    actor_id = f"{DEFAULT_MAPPING_CURATOR_ACTOR}@{ctx['institution_id'][:8]}"
+    ensure_mapping_curator_admin_actor(
+        session,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        external_code=actor_id,
+    )
     ensure_genuine_source_content_approval(
         session,
         tmp_path,
@@ -140,7 +148,7 @@ def _approve_revision_mapping_binding(
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=MappingClaimApprovalContext(
-            actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+            actor_id=actor_id,
             organization_id=ctx["organization_id"],
             institution_id=ctx["institution_id"],
             curriculum_version_id=ctx["curriculum_version_id"],
@@ -168,8 +176,15 @@ def test_unsourced_mapping_overlay_does_not_authorize_production(tmp_path: Path)
     audit_id = "00000000-0000-4000-8000-000000000011"
     _day9_audit(session, ctx, audit_id=audit_id)
     session.commit()
+    graph_scope = PrerequisiteGraphScope(
+        curriculum_version_id=ctx["curriculum_version_id"],
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        grade_year_code="grade-4",
+        subject_code="mathematics",
+    )
     registry = apply_mapping_authority_overlay(
-        session, load_root_cause_mapping()
+        session, load_root_cause_mapping(), graph_scope=graph_scope
     )
     entry = next(
         mapping
@@ -218,9 +233,15 @@ def test_source_backed_mapping_overlay_production_positive(tmp_path: Path) -> No
     session.commit()
     snapshot = _load_snapshot(session, ctx)
     assert snapshot.nodes
-    scope = snapshot.scope
+    scope = PrerequisiteGraphScope(
+        curriculum_version_id=ctx["curriculum_version_id"],
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        grade_year_code="grade-4",
+        subject_code="mathematics",
+    )
     registry = apply_mapping_authority_overlay(
-        session, load_root_cause_mapping()
+        session, load_root_cause_mapping(), graph_scope=scope
     )
     entry = next(
         mapping
@@ -249,7 +270,7 @@ def test_source_backed_mapping_overlay_production_positive(tmp_path: Path) -> No
         day9_audit_ref=audit_id,
     )
     request = _root_cause_request(ctx, snapshot, institution_id=INST_A).model_copy(
-        update={"curriculum_version_id": snapshot.scope.curriculum_version_id}
+        update={"graph_snapshot": snapshot.model_copy(update={"scope": scope})}
     )
     result = RootCauseIntelligenceService().analyze(
         request,

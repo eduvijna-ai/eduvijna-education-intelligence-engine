@@ -35,6 +35,7 @@ class RevisionAuthorityRecord:
     extracted_checksum: str | None
     approval_fingerprint: str | None
     approved_by: str | None
+    extracted_text: str | None
     metadata_json: dict[str, Any]
 
 
@@ -67,6 +68,7 @@ def _revision_record(revision: SourceRevision) -> RevisionAuthorityRecord:
         extracted_checksum=revision.extracted_checksum,
         approval_fingerprint=revision.approval_fingerprint,
         approved_by=revision.approved_by,
+        extracted_text=revision.extracted_text,
         metadata_json=dict(revision.metadata_json or {}),
     )
 

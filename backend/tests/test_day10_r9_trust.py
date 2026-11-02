@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from day10_day6_binding import seed_production_day6_audit
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -114,6 +115,13 @@ def test_synthetic_mapping_blocked_in_production(
         taxonomy_version=DEFAULT_TAXONOMY_VERSION,
         day9_audit_ref="audit-ref",
     )
+    day6_run_id, day6_validated = seed_production_day6_audit(
+        session,
+        item_id="item-1",
+        organization_id=ctx.get("organization_id"),
+        institution_id=ctx.get("institution_id"),
+        curriculum_version_id=ctx["curriculum_version_id"],
+    )
     result = RootCauseIntelligenceService().analyze(
         RootCauseDiagnosticRequest(
             item_id="item-1",
@@ -134,6 +142,12 @@ def test_synthetic_mapping_blocked_in_production(
             allowed_source_revision_ids=[ctx["source_revision_id"]],
             orchestration_run_id="run-r9",
             orchestration_request_hash="hash-r9",
+            day6_validation_run_id=day6_run_id,
+            day6_input_hash=str(day6_validated["input_hash"]),
+            learning_outcome_ids=list(day6_validated["learning_outcome_ids"]),
+            competency_codes=list(day6_validated["competency_codes"]),
+            organization_id=ctx.get("organization_id"),
+            institution_id=ctx.get("institution_id"),
         ),
         trusted=trusted,
         execution_mode=TrustExecutionMode.PRODUCTION,

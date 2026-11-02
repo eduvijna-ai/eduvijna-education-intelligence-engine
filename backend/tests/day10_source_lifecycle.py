@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.enums import SourceExtractionStatus, SourceRevisionStatus
 from app.models.source import SourceRevision
+from app.models.tenancy import AdminActor
 from app.root_cause_intelligence.mapping_claim_authority import (
     ROOT_CAUSE_MAPPING_CURATORS_KEY,
     ROOT_CAUSE_MAPPING_CURATORS_VERSION,
@@ -21,6 +22,43 @@ DEFAULT_MAPPING_CURATOR_ACTOR = "educational-curator-day10"
 
 def _canonical_json_bytes(payload: dict) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def ensure_mapping_curator_admin_actor(
+    session: Session,
+    *,
+    organization_id: str,
+    institution_id: str,
+    external_code: str = DEFAULT_MAPPING_CURATOR_ACTOR,
+    display_name: str = "Day10 mapping curator",
+) -> AdminActor:
+    existing = session.scalar(
+        select(AdminActor).where(AdminActor.external_code == external_code)
+    )
+    if existing is not None:
+        return existing
+    admin = AdminActor(
+        organization_id=organization_id,
+        institution_id=institution_id,
+        external_code=external_code,
+        display_name=display_name,
+        active=True,
+    )
+    session.add(admin)
+    session.flush()
+    row = session.scalar(
+        select(PolicyRegistryEntry).where(
+            PolicyRegistryEntry.registry_key == ROOT_CAUSE_MAPPING_CURATORS_KEY,
+            PolicyRegistryEntry.version == ROOT_CAUSE_MAPPING_CURATORS_VERSION,
+        )
+    )
+    if row is not None:
+        allowed = list(row.payload_json.get("actor_ids") or [])
+        if external_code not in allowed:
+            allowed.append(external_code)
+            row.payload_json = {**(row.payload_json or {}), "actor_ids": allowed}
+            session.flush()
+    return admin
 
 
 def ensure_mapping_curator_registry(session: Session) -> None:

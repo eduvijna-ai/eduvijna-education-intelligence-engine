@@ -339,7 +339,16 @@ def test_root_cause_enrich_node_persists_item_audit(tmp_path: Path) -> None:
                 "source_revision_ids": [ctx["source_revision_id"]],
             }
         ],
-        "deterministic_validation": [{"item_id": "item-r8", "blocking": False}],
+        "deterministic_validation": [
+            {
+                "item_id": "item-r8",
+                "blocking": False,
+                "day6_validation_run_id": ctx["day6_validation_run_id"],
+                "input_hash": ctx["day6_validated"]["input_hash"],
+                "learning_outcome_ids": list(ctx["day6_validated"]["learning_outcome_ids"]),
+                "competency_codes": list(ctx["day6_validated"]["competency_codes"]),
+            }
+        ],
         "knowledge_context": KnowledgeContextPack(
             query_id="r13-rc",
             query_text="addition",

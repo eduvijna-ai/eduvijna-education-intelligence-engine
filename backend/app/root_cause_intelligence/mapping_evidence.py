@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import Any
 
 from app.prerequisite_intelligence.authority import RevisionAuthorityRecord
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
@@ -20,31 +21,57 @@ def source_span_checksum(excerpt: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
-def resolve_approved_source_span(
-    record: RevisionAuthorityRecord, locator: str
-) -> tuple[str, str]:
-    """Resolve locator to excerpt text bound in approved revision metadata."""
-    needle = locator.strip()
-    if not needle:
-        raise ValueError("locator is empty")
+def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _approved_content_digest(record: RevisionAuthorityRecord) -> str | None:
     metadata = record.metadata_json or {}
     manual = metadata.get("manual_metadata")
     if isinstance(manual, dict):
-        manual_locator = str(manual.get("locator") or "").strip()
-        if manual_locator == needle:
-            excerpt = str(manual.get("excerpt") or "").strip()
-            if not excerpt:
-                raise ValueError("approved source span excerpt is missing")
-            return excerpt, source_span_checksum(excerpt)
-    extracted = str(metadata.get("extracted_text") or "").strip()
+        return hashlib.sha256(_canonical_json_bytes(manual)).hexdigest()
+    text = str(record.extracted_text or "").strip()
+    if not text:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def verify_revision_content_integrity(record: RevisionAuthorityRecord) -> bool:
+    """Ensure persisted checksums still match approved source content bytes."""
+    digest = _approved_content_digest(record)
+    if not digest:
+        return False
+    stored = source_content_checksum(record)
+    if not stored:
+        return False
+    return digest == stored
+
+
+def resolve_approved_source_span(
+    record: RevisionAuthorityRecord, locator: str
+) -> tuple[str, str]:
+    """Resolve locator to excerpt text bound in approved extracted source content only."""
+    needle = locator.strip()
+    if not needle:
+        raise ValueError("locator is empty")
+    if not verify_revision_content_integrity(record):
+        raise ValueError("approved source content integrity check failed")
+    extracted = str(record.extracted_text or "").strip()
     if not extracted:
-        extracted = str((metadata.get("manual_metadata") or {}).get("excerpt") or "").strip()
-    if extracted and needle in extracted:
-        start = extracted.index(needle)
-        excerpt = extracted[start : start + min(len(extracted) - start, 512)].strip()
-        if excerpt:
-            return excerpt, source_span_checksum(excerpt)
-    raise ValueError("locator does not resolve to approved source span")
+        raise ValueError("approved source extraction text is missing")
+    if needle not in extracted:
+        raise ValueError("locator does not resolve to approved source span")
+    start = extracted.index(needle)
+    excerpt = extracted[start : start + min(len(extracted) - start, 512)].strip()
+    if not excerpt:
+        raise ValueError("approved source span excerpt is empty")
+    metadata = record.metadata_json or {}
+    manual = metadata.get("manual_metadata")
+    if isinstance(manual, dict):
+        manual_excerpt = str(manual.get("excerpt") or "").strip()
+        if manual_excerpt and manual_excerpt not in extracted:
+            raise ValueError("mutable source metadata excerpt is not grounded in extraction")
+    return excerpt, source_span_checksum(excerpt)
 
 
 def mapping_evidence_checksum(

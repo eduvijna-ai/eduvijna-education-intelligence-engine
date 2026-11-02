@@ -290,6 +290,9 @@ def paper_targets_authorized(
     conflict_paths = mandatory_target_conflicts(request, payload)
     if conflict_paths:
         return False, conflict_paths[0]
+    resolution_errors = payload.get("mandatory_resolution_errors") or []
+    if resolution_errors:
+        return False, str(resolution_errors[0])
 
     cognitive, competency = merge_mandatory_distribution_targets(
         request, payload, session=session, execution_context=execution_context

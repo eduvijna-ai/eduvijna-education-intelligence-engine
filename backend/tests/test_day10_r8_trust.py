@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from day10_day6_binding import seed_production_day6_audit
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -169,7 +170,7 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
     session.add(official_edge(counting, whole_add))
     session.add(official_edge(whole_add, multi_add))
     session.flush()
-    return {
+    ctx = {
         "curriculum_version_id": version.id,
         "source_id": source.id,
         "source_revision_id": revision.id,
@@ -177,6 +178,21 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
         "organization_id": ORG_A,
         "institution_id": INST_A,
     }
+    day6_run_id, day6_validated = _seed_r8_day6_binding(session, ctx)
+    ctx["day6_validation_run_id"] = day6_run_id
+    ctx["day6_validated"] = day6_validated
+    return ctx
+
+
+def _seed_r8_day6_binding(session: Session, ctx: dict[str, str]) -> tuple[str, dict[str, object]]:
+    return seed_production_day6_audit(
+        session,
+        item_id="item-r8",
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+        input_hash="d" * 64,
+    )
 
 
 def _load_snapshot(session: Session, ctx: dict[str, str]) -> object:
@@ -239,6 +255,7 @@ def _root_cause_request(
     if metadata_json:
         meta = {**meta, **metadata_json}
     forged_snapshot = snapshot.model_copy(update={"metadata_json": meta})
+    day6_validated = ctx.get("day6_validated") or {}
     return RootCauseDiagnosticRequest(
         item_id="item-r8",
         option_key="A",
@@ -260,6 +277,10 @@ def _root_cause_request(
         allowed_source_revision_ids=[ctx["source_revision_id"]],
         orchestration_run_id="run-r8",
         orchestration_request_hash="hash-r8",
+        day6_validation_run_id=ctx.get("day6_validation_run_id"),
+        day6_input_hash=str(day6_validated.get("input_hash") or ""),
+        learning_outcome_ids=list(day6_validated.get("learning_outcome_ids") or []),
+        competency_codes=list(day6_validated.get("competency_codes") or []),
     )
 
 
