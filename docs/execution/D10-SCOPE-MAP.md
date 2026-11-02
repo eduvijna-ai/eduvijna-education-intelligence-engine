@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R17 FOCUSED REPAIR** (Chief Architect handoff R17). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R18 FOCUSED REPAIR** (Chief Architect handoff R18). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R17 deltas (vs `9cb991b`):** mapping spans from **checksum-validated `extracted_text`** (not mutable metadata excerpts); curator approval requires **scoped `AdminActor`** + registry; production **Day6 fail-closed** (`verify_production_day6_binding`); mandatory policy **hard exact_count/percent conflicts** (no max/min weakening), board-code mismatch veto, scoped rule revision + `source_approved` audit; strict **claim scope** (no unscoped private inheritance). Tests: `test_day10_r17_trust.py`. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-35 static portability verified (**live PG not run**); D10-36 **PENDING**.
+**R18 deltas (vs `2cf3d67`):** mapping integrity recomputes **SourceIntelligence approval fingerprint** (blocks post-approval `extracted_text` mutation); **`MappingClaimWriterContext`** session-attested writer required for claim writes (D10-12 still **PARTIAL** for full auth boundary); Day6 **exact LO set** + **strict run scope** + production **requires control session**; real Day6 persist writes **`metadata.scope`**; mandatory merge **key precedence fix** + **`exact_percent` in ranges** + policy revision **fingerprint revalidation**. Tests: `test_day10_r18_trust.py`. D10-22/32/33 **PARTIAL**; D10-35 static portability (**live PG not run**); D10-36 **PENDING**.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

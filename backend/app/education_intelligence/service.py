@@ -54,19 +54,27 @@ class EducationIntelligenceValidationService:
         if institution_overrides:
             ctx.policy = load_policy_registry(self.session, institution_overrides)
         summary = run_validation(item, ctx, self.registry, validator_ids=validator_ids)
+        resolved_curriculum = curriculum_version_id or item.curriculum_version_id
         summary = summary.model_copy(
             update={
                 "metadata": {
                     **summary.metadata,
+                    "scope": {
+                        "institution_id": item.institution_id,
+                        "curriculum_version_id": resolved_curriculum,
+                        "organization_id": (item.metadata_json or {}).get(
+                            "organization_id"
+                        ),
+                    },
                     "validated_items": [
                         {
                             "item_id": item.item_id,
                             "input_hash": summary.input_hash,
                             "declared_cognitive_level": item.declared_cognitive_level,
                             "competency_codes": list(item.competency_codes),
+                            "learning_outcome_ids": list(item.learning_outcome_ids),
                             "institution_id": item.institution_id,
                             "curriculum_version_id": item.curriculum_version_id,
-                            "learning_outcome_ids": list(item.learning_outcome_ids),
                             "grade_year_code": item.grade_year_code,
                             "medium_code": item.medium_code,
                             "subject_code": item.subject_code,

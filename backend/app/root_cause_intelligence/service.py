@@ -98,24 +98,28 @@ class RootCauseIntelligenceService:
             issue_codes.extend(trust_issues)
             field_paths.extend(trust_paths)
 
-        if execution_mode == TrustExecutionMode.PRODUCTION and control_session is not None:
-            binding_ok, binding_path = verify_production_day6_binding(
-                control_session,
-                item_id=request.item_id,
-                validation_run_id=request.day6_validation_run_id,
-                input_hash=request.day6_input_hash,
-                learning_outcome_ids=request.learning_outcome_ids,
-                competency_codes=request.competency_codes,
-                organization_id=request.organization_id,
-                institution_id=request.institution_id,
-                curriculum_version_id=request.curriculum_version_id,
-                grade_year_code=request.graph_snapshot.scope.grade_year_code,
-                medium_code=request.graph_snapshot.scope.medium_code,
-                subject_code=request.graph_snapshot.scope.subject_code,
-            )
-            if not binding_ok:
+        if execution_mode == TrustExecutionMode.PRODUCTION:
+            if control_session is None:
                 issue_codes.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
-                field_paths.append(binding_path or "day6_binding")
+                field_paths.append("control_session")
+            else:
+                binding_ok, binding_path = verify_production_day6_binding(
+                    control_session,
+                    item_id=request.item_id,
+                    validation_run_id=request.day6_validation_run_id,
+                    input_hash=request.day6_input_hash,
+                    learning_outcome_ids=request.learning_outcome_ids,
+                    competency_codes=request.competency_codes,
+                    organization_id=request.organization_id,
+                    institution_id=request.institution_id,
+                    curriculum_version_id=request.curriculum_version_id,
+                    grade_year_code=request.graph_snapshot.scope.grade_year_code,
+                    medium_code=request.graph_snapshot.scope.medium_code,
+                    subject_code=request.graph_snapshot.scope.subject_code,
+                )
+                if not binding_ok:
+                    issue_codes.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+                    field_paths.append(binding_path or "day6_binding")
 
         scope_issues, scope_paths, scope_blocking, canonical_graph_snapshot = (
             validate_graph_snapshot_attestation(

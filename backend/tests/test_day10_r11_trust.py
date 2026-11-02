@@ -65,6 +65,7 @@ from app.root_cause_intelligence.mapping_authority import (
 )
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
+    MappingClaimWriterContext,
     approve_root_cause_mapping_claim,
 )
 from app.root_cause_intelligence.mapping_evidence import resolve_approved_source_span
@@ -106,7 +107,7 @@ def _approve_revision_mapping_binding(
     assert record is not None
     content_checksum = source_content_checksum(record)
     assert content_checksum
-    _, span_checksum = resolve_approved_source_span(record, _MAPPING_SOURCE_LOCATOR)
+    _, span_checksum = resolve_approved_source_span(session, record, _MAPPING_SOURCE_LOCATOR)
     evidence_checksum = mapping_evidence_checksum(
         misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
         candidate_concept_codes=["whole-number-addition", "multi-step-addition"],
@@ -153,6 +154,7 @@ def _approve_revision_mapping_binding(
             institution_id=ctx["institution_id"],
             curriculum_version_id=ctx["curriculum_version_id"],
         ),
+        writer=MappingClaimWriterContext(authenticated_actor_external_code=actor_id),
     )
     session.flush()
     return overlay

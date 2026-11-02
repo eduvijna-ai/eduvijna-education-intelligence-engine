@@ -56,6 +56,7 @@ from app.root_cause_intelligence.mapping_authority import (
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     MappingClaimAuthorityError,
+    MappingClaimWriterContext,
     approve_root_cause_mapping_claim,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
@@ -97,6 +98,9 @@ def test_mutated_manual_metadata_excerpt_rejects_new_mapping_claim(tmp_path: Pat
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
+            writer=MappingClaimWriterContext(
+                authenticated_actor_external_code=DEFAULT_MAPPING_CURATOR_ACTOR
+            ),
         )
 
 
@@ -121,6 +125,9 @@ def test_registry_string_without_admin_actor_rejected(tmp_path: Path) -> None:
                 organization_id=ctx["organization_id"],
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
+            ),
+            writer=MappingClaimWriterContext(
+                authenticated_actor_external_code=DEFAULT_MAPPING_CURATOR_ACTOR
             ),
         )
 

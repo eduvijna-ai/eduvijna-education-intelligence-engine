@@ -44,6 +44,13 @@ class MappingClaimApprovalContext:
     teacher_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class MappingClaimWriterContext:
+    """Session-attested principal performing the claim write (must match actor_id)."""
+
+    authenticated_actor_external_code: str
+
+
 def mapping_claim_id(
     *,
     source_revision_id: str,
@@ -135,14 +142,16 @@ def claim_scope_matches_graph(
     claim_org = scope_payload.get("organization_id")
     claim_inst = scope_payload.get("institution_id")
     claim_cur = scope_payload.get("curriculum_version_id")
+    claim_teacher = scope_payload.get("teacher_id")
     public_global = bool(scope_payload.get("public_global"))
-    claim_private = any([claim_org, claim_inst, claim_cur]) and not public_global
+    claim_private = any([claim_org, claim_inst, claim_cur, claim_teacher]) and not public_global
     if not claim_private:
         return True
     for _field, claim_val, req_val in (
         ("organization_id", claim_org, graph_scope.organization_id),
         ("institution_id", claim_inst, graph_scope.institution_id),
         ("curriculum_version_id", claim_cur, graph_scope.curriculum_version_id),
+        ("teacher_id", claim_teacher, graph_scope.teacher_id),
     ):
         if claim_val:
             if not req_val or str(claim_val) != str(req_val):
@@ -194,14 +203,20 @@ def approve_root_cause_mapping_claim(
     source_locator: str,
     mapping_registry_version: str,
     approval_context: MappingClaimApprovalContext,
+    writer: MappingClaimWriterContext,
     request_id: str | None = None,
 ) -> str:
-    if not _verify_curator_principal(session, approval_context.actor_id, approval_context):
+    actor_id = str(approval_context.actor_id).strip()
+    if str(writer.authenticated_actor_external_code).strip() != actor_id:
+        raise MappingClaimAuthorityError(
+            "mapping claim writer is not authenticated as approval actor"
+        )
+    if not _verify_curator_principal(session, actor_id, approval_context):
         raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
-    if not verify_revision_content_integrity(record):
+    if not verify_revision_content_integrity(session, record):
         raise MappingClaimAuthorityError("source revision content integrity check failed")
     graph_scope = PrerequisiteGraphScope(
         curriculum_version_id=approval_context.curriculum_version_id,
@@ -236,7 +251,7 @@ def approve_root_cause_mapping_claim(
     if not locator:
         raise MappingClaimAuthorityError("mapping claim requires source_locator")
     try:
-        excerpt, span_checksum = resolve_approved_source_span(record, locator)
+        excerpt, span_checksum = resolve_approved_source_span(session, record, locator)
     except ValueError as exc:
         raise MappingClaimAuthorityError(str(exc)) from exc
     evidence_checksum = mapping_evidence_checksum(
@@ -357,10 +372,10 @@ def _active_mapping_claim_audit(
     content_checksum = source_content_checksum(record)
     if not content_checksum or not locator or not span_checksum:
         return None
-    if not verify_revision_content_integrity(record):
+    if not verify_revision_content_integrity(session, record):
         return None
     try:
-        _, resolved_span = resolve_approved_source_span(record, locator)
+        _, resolved_span = resolve_approved_source_span(session, record, locator)
     except ValueError:
         return None
     if resolved_span != span_checksum:
@@ -436,7 +451,7 @@ def mapping_claim_authorized_for_overlay(
         return False
     if not record.approval_fingerprint or not record.approved_by:
         return False
-    if not verify_revision_content_integrity(record):
+    if not verify_revision_content_integrity(session, record):
         return False
     expected_checksum = _expected_evidence_checksum(
         record, entry, overlay, registry_version=registry_version

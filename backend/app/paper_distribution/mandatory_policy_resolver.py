@@ -11,6 +11,7 @@ from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision, policy_rule_source_revisions
 from app.models.tenancy import Institution, Teacher
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
 
 PAPER_MANDATORY_POLICY_KEY = "paper_distribution_mandatory_targets"
 
@@ -106,6 +107,15 @@ def _revision_authorized_for_policy(session: Session, rule: PolicyRule) -> bool:
         approved = _latest_source_approved_audit(session, str(revision_id))
         if approved is None:
             return False
+        audit_fingerprint = str(
+            (approved.payload_json or {}).get("approval_fingerprint") or ""
+        )
+        if audit_fingerprint != str(revision.approval_fingerprint):
+            return False
+        if compute_revision_approval_fingerprint(session, revision) != str(
+            revision.approval_fingerprint
+        ):
+            return False
     return True
 
 
@@ -153,7 +163,7 @@ def _merge_mandatory_entry(
     incoming_precedence: int,
     existing_precedence: int,
 ) -> tuple[dict[str, Any], str | None]:
-    key = str(incoming.get("key") or existing.get("key") if existing else "")
+    key = str(incoming.get("key") or (existing.get("key") if existing else "") or "")
     merged = dict(existing or {"key": key})
     for field in ("exact_count", "exact_percent"):
         new_val = incoming.get(field)

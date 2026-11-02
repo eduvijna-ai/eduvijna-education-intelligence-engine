@@ -46,6 +46,7 @@ from app.root_cause_intelligence.mapping_authority import (
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     MappingClaimAuthorityError,
+    MappingClaimWriterContext,
     approve_root_cause_mapping_claim,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
@@ -80,6 +81,7 @@ def test_fake_locator_rejected_for_mapping_claim(tmp_path: Path) -> None:
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
+            writer=MappingClaimWriterContext(authenticated_actor_external_code=actor_id),
         )
 
 
@@ -111,6 +113,9 @@ def test_unauthorized_curator_actor_rejected(tmp_path: Path) -> None:
                 organization_id=ctx["organization_id"],
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
+            ),
+            writer=MappingClaimWriterContext(
+                authenticated_actor_external_code="random-teacher-actor"
             ),
         )
 

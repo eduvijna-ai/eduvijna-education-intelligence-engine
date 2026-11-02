@@ -66,13 +66,20 @@ def verify_production_day6_binding(
         return False, "day6_binding.item_id"
     if str(item_entry.get("input_hash") or "") != str(input_hash):
         return False, "day6_input_hash"
-    persisted_lo = item_entry.get("learning_outcome_id") or item_entry.get(
-        "declared_learning_outcome_id"
-    )
-    if not persisted_lo:
+    persisted_los: set[str] = set()
+    raw_los = item_entry.get("learning_outcome_ids")
+    if isinstance(raw_los, list):
+        persisted_los = {str(lo) for lo in raw_los if lo}
+    if not persisted_los:
+        persisted_lo = item_entry.get("learning_outcome_id") or item_entry.get(
+            "declared_learning_outcome_id"
+        )
+        if persisted_lo:
+            persisted_los = {str(persisted_lo)}
+    if not persisted_los:
         return False, "learning_outcome_ids"
     requested_lo = {str(lo) for lo in learning_outcome_ids if lo}
-    if str(persisted_lo) not in requested_lo:
+    if persisted_los != requested_lo:
         return False, "learning_outcome_ids"
     persisted_codes = {
         str(code) for code in (item_entry.get("competency_codes") or []) if code
@@ -83,21 +90,15 @@ def verify_production_day6_binding(
     if persisted_codes != requested_codes:
         return False, "competency_codes"
     run_scope = (record.metadata_json or {}).get("scope") or {}
-    if organization_id and str(run_scope.get("organization_id") or "") not in {
-        "",
-        str(organization_id),
-    }:
-        return False, "organization_id"
-    if institution_id and str(run_scope.get("institution_id") or "") not in {
-        "",
-        str(institution_id),
-    }:
-        return False, "institution_id"
-    if curriculum_version_id and str(run_scope.get("curriculum_version_id") or "") not in {
-        "",
-        str(curriculum_version_id),
-    }:
-        return False, "curriculum_version_id"
+    if organization_id:
+        if str(run_scope.get("organization_id") or "") != str(organization_id):
+            return False, "organization_id"
+    if institution_id:
+        if str(run_scope.get("institution_id") or "") != str(institution_id):
+            return False, "institution_id"
+    if curriculum_version_id:
+        if str(run_scope.get("curriculum_version_id") or "") != str(curriculum_version_id):
+            return False, "curriculum_version_id"
     for field, expected, path in (
         ("grade_year_code", grade_year_code, "grade_year_code"),
         ("medium_code", medium_code, "medium_code"),

@@ -321,25 +321,11 @@ class SourceIntelligenceService:
         return content, checksum, valid
 
     def _approval_fingerprint(self, revision: SourceRevision) -> str:
-        source_diff = self.session.scalar(
-            select(SourceDiff).where(SourceDiff.to_revision_id == revision.id)
+        from app.source_intelligence.approval_fingerprint import (
+            compute_revision_approval_fingerprint,
         )
-        payload = {
-            "revision_id": revision.id,
-            "checksum": revision.checksum,
-            "source_snapshot_checksum": revision.source_snapshot_checksum,
-            "extracted_checksum": revision.extracted_checksum,
-            "validated_checksum": revision.validated_checksum,
-            "extracted_text_checksum": _sha256(
-                (revision.extracted_text or "").encode("utf-8")
-            ),
-            "content_type": revision.content_type,
-            "byte_size": revision.byte_size,
-            "diff_from_revision_id": (
-                source_diff.from_revision_id if source_diff is not None else None
-            ),
-        }
-        return _sha256(_canonical_json_bytes(payload))
+
+        return compute_revision_approval_fingerprint(self.session, revision)
 
     @staticmethod
     def _validate_upload_filename(

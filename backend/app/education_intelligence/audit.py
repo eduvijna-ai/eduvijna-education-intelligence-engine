@@ -28,6 +28,7 @@ def persist_validation_run(
             "validator_versions": summary.validator_versions,
             "quality_rule_pack_version": summary.metadata.get("quality_rule_pack_version"),
             "safety_rules_version": summary.metadata.get("safety_rules_version"),
+            "scope": dict(summary.metadata.get("scope") or {}),
             "validated_items": list(summary.metadata.get("validated_items") or []),
         },
     )

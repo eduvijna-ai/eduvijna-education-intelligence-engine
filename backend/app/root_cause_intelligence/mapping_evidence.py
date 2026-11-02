@@ -4,8 +4,11 @@ import hashlib
 import json
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from app.prerequisite_intelligence.authority import RevisionAuthorityRecord
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
+from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
 
 
 def source_content_checksum(record: RevisionAuthorityRecord) -> str | None:
@@ -36,25 +39,39 @@ def _approved_content_digest(record: RevisionAuthorityRecord) -> str | None:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def verify_revision_content_integrity(record: RevisionAuthorityRecord) -> bool:
-    """Ensure persisted checksums still match approved source content bytes."""
+def verify_revision_content_integrity(
+    session: Session, record: RevisionAuthorityRecord
+) -> bool:
+    """Ensure checksums and approval fingerprint still match approved source content."""
     digest = _approved_content_digest(record)
     if not digest:
         return False
     stored = source_content_checksum(record)
     if not stored:
         return False
-    return digest == stored
+    if digest != stored:
+        return False
+    if not record.approval_fingerprint:
+        return False
+    from app.models.source import SourceRevision
+
+    revision = session.get(SourceRevision, record.revision_id)
+    if revision is None:
+        return False
+    current_fingerprint = compute_revision_approval_fingerprint(session, revision)
+    if current_fingerprint != str(record.approval_fingerprint):
+        return False
+    return True
 
 
 def resolve_approved_source_span(
-    record: RevisionAuthorityRecord, locator: str
+    session: Session, record: RevisionAuthorityRecord, locator: str
 ) -> tuple[str, str]:
     """Resolve locator to excerpt text bound in approved extracted source content only."""
     needle = locator.strip()
     if not needle:
         raise ValueError("locator is empty")
-    if not verify_revision_content_integrity(record):
+    if not verify_revision_content_integrity(session, record):
         raise ValueError("approved source content integrity check failed")
     extracted = str(record.extracted_text or "").strip()
     if not extracted:

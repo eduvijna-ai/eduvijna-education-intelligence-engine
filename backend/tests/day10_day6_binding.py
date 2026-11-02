@@ -16,10 +16,26 @@ def seed_production_day6_audit(
     input_hash: str | None = None,
     learning_outcome_id: str | None = None,
     competency_codes: list[str] | None = None,
+    declared_cognitive_level: str = "remember",
+    grade_year_code: str = "grade-4",
+    medium_code: str = "english",
+    subject_code: str = "mathematics",
 ) -> tuple[str, dict[str, object]]:
     digest = input_hash or ("e" * 64)
     lo_id = learning_outcome_id or "00000000-0000-4000-8000-0000000000d6"
     competencies = competency_codes or ["knowledge"]
+    validated = {
+        "item_id": item_id,
+        "input_hash": digest,
+        "declared_cognitive_level": declared_cognitive_level,
+        "learning_outcome_ids": [lo_id],
+        "competency_codes": competencies,
+        "institution_id": institution_id,
+        "curriculum_version_id": curriculum_version_id,
+        "grade_year_code": grade_year_code,
+        "medium_code": medium_code,
+        "subject_code": subject_code,
+    }
     run = ValidationAuditRun(
         run_id=f"day6-{item_id}",
         input_hash=digest,
@@ -29,28 +45,15 @@ def seed_production_day6_audit(
         blocking_failure=False,
         institution_id=institution_id,
         metadata_json={
+            "kind": "day6_validation",
             "scope": {
                 "organization_id": organization_id,
                 "institution_id": institution_id,
                 "curriculum_version_id": curriculum_version_id,
             },
-            "validated_items": [
-                {
-                    "item_id": item_id,
-                    "input_hash": digest,
-                    "learning_outcome_id": lo_id,
-                    "competency_codes": competencies,
-                    "grade_year_code": "grade-4",
-                    "medium_code": "english",
-                    "subject_code": "mathematics",
-                }
-            ],
+            "validated_items": [validated],
         },
     )
     session.add(run)
     session.flush()
-    return str(run.id), {
-        "input_hash": digest,
-        "learning_outcome_ids": [lo_id],
-        "competency_codes": competencies,
-    }
+    return str(run.id), validated
