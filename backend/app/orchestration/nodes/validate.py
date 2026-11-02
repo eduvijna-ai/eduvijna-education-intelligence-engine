@@ -142,7 +142,9 @@ def deterministic_validate_node(
             elif verdict.status == ReviewVerdictStatus.REVIEW_REQUIRED:
                 review_required = True
 
-        if request.metadata_json.get("deterministic_human_review_required"):
+        if request.metadata_json.get(
+            "deterministic_human_review_required"
+        ) and not state.get("human_decision"):
             review_required = True
 
         canonical = draft_to_canonical(draft, scope, request_marks=request.marks)
@@ -194,7 +196,7 @@ def deterministic_validate_node(
         if not reused_day6:
             human_review_gate = bool(
                 request.metadata_json.get("deterministic_human_review_required")
-            )
+            ) and not state.get("human_decision")
             allow_day6_persist = not review_required or human_review_gate
             should_persist = (
                 _may_persist_day6_validation(deps)
@@ -254,7 +256,8 @@ def deterministic_validate_node(
                     issue_codes.append("day6_blocking_validation")
                     blocking = True
                 elif ei_summary.aggregate_status == ValidationStatus.REVIEW_REQUIRED:
-                    review_required = True
+                    if not state.get("human_revalidate"):
+                        review_required = True
                 if should_persist and not blocking:
                     record = deps.session.scalar(
                         select(ValidationAuditRun).where(
