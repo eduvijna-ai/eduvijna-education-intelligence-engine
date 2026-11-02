@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.education_intelligence.context import ValidationContext
 from app.education_intelligence.policy_registry import V1_POLICY_VERSION
 from app.education_intelligence.taxonomy_registry import V1_TAXONOMY_VERSION
 from app.models.education_intelligence import ValidationAuditRun
+from app.orchestration.day6_reuse import current_day6_provenance
 
 
 def seed_production_day6_audit(
@@ -37,6 +39,8 @@ def seed_production_day6_audit(
         "medium_code": medium_code,
         "subject_code": subject_code,
     }
+    ctx = ValidationContext.create(session, curriculum_version_id=curriculum_version_id)
+    provenance = current_day6_provenance(ctx)
     run = ValidationAuditRun(
         run_id=f"day6-{item_id}",
         input_hash=digest,
@@ -47,6 +51,9 @@ def seed_production_day6_audit(
         institution_id=institution_id,
         metadata_json={
             "kind": "day6_validation",
+            "validator_versions": provenance["validator_versions"],
+            "quality_rule_pack_version": provenance["quality_rule_pack_version"],
+            "safety_rules_version": provenance["safety_rules_version"],
             "scope": {
                 "organization_id": organization_id,
                 "institution_id": institution_id,

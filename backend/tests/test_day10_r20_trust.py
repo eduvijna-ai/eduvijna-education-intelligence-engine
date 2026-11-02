@@ -657,6 +657,7 @@ def test_orchestration_hitl_file_backed_replay_idempotent(tmp_path: Path) -> Non
             "metadata_json": {
                 **request.metadata_json,
                 "root_cause_enrichment_enabled": True,
+                "deterministic_human_review_required": True,
             }
         }
     )

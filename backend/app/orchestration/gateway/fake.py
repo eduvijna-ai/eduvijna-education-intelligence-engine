@@ -192,7 +192,18 @@ class FakeGenerationGateway:
                 "Perform this unsafe lab experiment at home without supervision."
             )
         elif scenario == "human_review":
-            metadata_json = {"synthetic_fixture": True}
+            metadata_json = {
+                "synthetic_fixture": True,
+                "difficulty_evidence": {
+                    "cognitive_demand_band": 2,
+                    "step_count": 1,
+                    "computation_load": 2,
+                    "language_load": 1,
+                },
+                "cognitive_demand_evidence": {"application_required": True},
+                "age_min": 12,
+                "age_max": 14,
+            }
         elif scenario not in {"bad_provenance", "foreign_tenant", "malformed_json"}:
             metadata_json = {
                 "difficulty_evidence": {

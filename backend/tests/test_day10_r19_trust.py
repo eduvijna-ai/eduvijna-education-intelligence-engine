@@ -446,6 +446,7 @@ def test_orchestration_hitl_day6_binding_and_root_cause_replay(tmp_path: Path) -
             "metadata_json": {
                 **request.metadata_json,
                 "root_cause_enrichment_enabled": True,
+                "deterministic_human_review_required": True,
             }
         }
     )

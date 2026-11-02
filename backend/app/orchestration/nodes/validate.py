@@ -19,6 +19,7 @@ from app.orchestration.contracts import (
 )
 from app.orchestration.control_session import _sqlite_memory_database
 from app.orchestration.day6_reuse import (
+    current_day6_provenance,
     day6_run_versions_current,
     day6_summary_from_audit_run,
     find_accepted_day6_audit_run,
@@ -81,6 +82,10 @@ def deterministic_validate_node(
     )
     taxonomy_version = validation_ctx.taxonomy.version
     policy_version = validation_ctx.policy.version
+    day6_provenance = current_day6_provenance(validation_ctx)
+    quality_rule_pack_version = day6_provenance.get("quality_rule_pack_version")
+    safety_rules_version = day6_provenance.get("safety_rules_version")
+    validator_versions = dict(day6_provenance.get("validator_versions") or {})
     for draft in drafts:
         issue_codes: list[str] = []
         blocking = False
@@ -137,6 +142,9 @@ def deterministic_validate_node(
             elif verdict.status == ReviewVerdictStatus.REVIEW_REQUIRED:
                 review_required = True
 
+        if request.metadata_json.get("deterministic_human_review_required"):
+            review_required = True
+
         canonical = draft_to_canonical(draft, scope, request_marks=request.marks)
         canonical_hash = canonical.canonical_hash()
         prior = prior_by_item.get(draft.item_id)
@@ -164,6 +172,15 @@ def deterministic_validate_node(
                     prior_record,
                     taxonomy_version=taxonomy_version,
                     policy_version=policy_version,
+                    quality_rule_pack_version=(
+                        str(quality_rule_pack_version)
+                        if quality_rule_pack_version is not None
+                        else None
+                    ),
+                    safety_rules_version=(
+                        str(safety_rules_version) if safety_rules_version is not None else None
+                    ),
+                    validator_versions=validator_versions,
                 ):
                     prior_record = None
             else:
@@ -175,10 +192,14 @@ def deterministic_validate_node(
                 learning_outcome_ids = prior_los
                 competency_codes = prior_codes
         if not reused_day6:
+            human_review_gate = bool(
+                request.metadata_json.get("deterministic_human_review_required")
+            )
+            allow_day6_persist = not review_required or human_review_gate
             should_persist = (
                 _may_persist_day6_validation(deps)
                 and not blocking
-                and not review_required
+                and allow_day6_persist
             )
             existing_run: ValidationAuditRun | None = None
             if should_persist:
@@ -189,6 +210,15 @@ def deterministic_validate_node(
                     scope=scope,
                     taxonomy_version=taxonomy_version,
                     policy_version=policy_version,
+                    quality_rule_pack_version=(
+                        str(quality_rule_pack_version)
+                        if quality_rule_pack_version is not None
+                        else None
+                    ),
+                    safety_rules_version=(
+                        str(safety_rules_version) if safety_rules_version is not None else None
+                    ),
+                    validator_versions=validator_versions,
                 )
             if existing_run is not None:
                 day6_run_id, input_hash, learning_outcome_ids, competency_codes = (

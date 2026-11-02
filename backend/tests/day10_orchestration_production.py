@@ -21,8 +21,9 @@ from test_day10_r11_trust import (
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.knowledge_intelligence.indexing import index_source_revision
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
-from app.models.curriculum import CurriculumNode
+from app.models.curriculum import Competency, CurriculumNode, LearningOutcome
 from app.models.education_intelligence import PolicyRegistryEntry
+from app.models.enums import CurriculumNodeType
 from app.models.source import SourceRevision
 from app.orchestration.contracts import OrchestrationRequest
 from app.orchestration.factory import build_orchestration_service
@@ -47,6 +48,37 @@ def seed_day10_production_orchestration(
     adapter: FakeAnythingLLMAdapter | None = None,
 ) -> dict[str, str]:
     ctx = _seed_production_institution_graph(session)
+    whole_add = session.scalar(
+        select(CurriculumNode).where(
+            CurriculumNode.curriculum_version_id == ctx["curriculum_version_id"],
+            CurriculumNode.code == "whole-number-addition",
+        )
+    )
+    if session.scalar(select(Competency).where(Competency.code == "application")) is None:
+        from app.models.curriculum import EducationFramework
+
+        fw = session.scalar(select(EducationFramework).limit(1))
+        if fw is not None:
+            session.add(
+                Competency(
+                    code="application",
+                    name="Application",
+                    framework=fw,
+                    active=True,
+                )
+            )
+    lo = LearningOutcome(
+        curriculum_version_id=ctx["curriculum_version_id"],
+        code="lo-d10-whole-add",
+        text="Apply whole-number addition (synthetic fixture LO).",
+        active=True,
+        source_revision_id=ctx["source_revision_id"],
+    )
+    if whole_add is not None:
+        lo.nodes.append(whole_add)
+    session.add(lo)
+    session.flush()
+    ctx["learning_outcome_id"] = lo.id
     grade = session.scalar(
         select(CurriculumNode).where(
             CurriculumNode.curriculum_version_id == ctx["curriculum_version_id"],
@@ -56,7 +88,16 @@ def seed_day10_production_orchestration(
     if grade is not None:
         grade.code = "grade-8"
         grade.title = "Grade 8"
-        for concept_code in ("counting-sequence", "whole-number-addition", "multi-step-addition"):
+        grade.metadata_json = {
+            **(grade.metadata_json or {}),
+            "authoritative_age_min": 12,
+            "authoritative_age_max": 14,
+        }
+        for concept_code in (
+            "counting-sequence",
+            "whole-number-addition",
+            "multi-step-addition",
+        ):
             concept = session.scalar(
                 select(CurriculumNode).where(
                     CurriculumNode.curriculum_version_id == ctx["curriculum_version_id"],
@@ -68,6 +109,27 @@ def seed_day10_production_orchestration(
                     **concept.metadata_json,
                     "grade_year_code": "grade-8",
                 }
+        subject = session.scalar(
+            select(CurriculumNode).where(
+                CurriculumNode.curriculum_version_id == ctx["curriculum_version_id"],
+                CurriculumNode.code == "mathematics",
+                CurriculumNode.node_type == CurriculumNodeType.SUBJECT.value,
+            )
+        )
+        if subject is not None:
+            session.add(
+                CurriculumNode(
+                    curriculum_version_id=ctx["curriculum_version_id"],
+                    parent_id=subject.id,
+                    node_type=CurriculumNodeType.CONCEPT.value,
+                    code="addition-whole",
+                    title="Addition whole (taxonomy alias)",
+                    metadata_json={
+                        "grade_year_code": "grade-8",
+                        "subject_code": "mathematics",
+                    },
+                )
+            )
         session.flush()
     ctx["grade_year_code"] = "grade-8"
     ensure_mapping_curator_registry(session)
@@ -110,13 +172,6 @@ def seed_day10_production_orchestration(
         approval_context=approval_ctx,
         attestation=issue_mapping_claim_writer_attestation(session, approval_ctx),
     )
-    ki_adapter = adapter or FakeAnythingLLMAdapter()
-    index_source_revision(
-        session,
-        ki_adapter,
-        ctx["source_revision_id"],
-        retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
-    )
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     if revision is not None:
         revision.metadata_json = {
@@ -124,16 +179,27 @@ def seed_day10_production_orchestration(
             "grade_year_code": "grade-8",
             "medium_code": "english",
             "subject_code": "mathematics",
-            "concept_codes": ["addition-whole", "multi-step-addition"],
+            "concept_codes": [
+                "whole-number-addition",
+                "multi-step-addition",
+                "addition-whole",
+            ],
         }
         session.flush()
+    ki_adapter = adapter or FakeAnythingLLMAdapter()
+    index_source_revision(
+        session,
+        ki_adapter,
+        ctx["source_revision_id"],
+        retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+    )
     session.commit()
     return {
         **ctx,
         "grade_year_code": "grade-8",
         "medium_code": "english",
         "subject_code": "mathematics",
-        "concept_codes": ["multi-step-addition"],
+        "concept_codes": ["whole-number-addition", "addition-whole"],
         "citation_label": "cite-day10-prod-orch",
     }
 
@@ -144,7 +210,7 @@ def build_day10_production_orchestration_service(
     *,
     gateway: FakeGenerationGateway | None = None,
     memory_checkpointer: bool = True,
-) -> tuple[dict[str, str], OrchestrationService, FakeGenerationGateway]:
+) -> tuple[dict[str, str], OrchestrationService, FakeGenerationGateway, FakeAnythingLLMAdapter]:
     ki_adapter = FakeAnythingLLMAdapter()
     ctx = seed_day10_production_orchestration(session, tmp_path, adapter=ki_adapter)
     gw = gateway or FakeGenerationGateway()
@@ -155,7 +221,7 @@ def build_day10_production_orchestration_service(
         memory_checkpointer=memory_checkpointer,
         force_fake=True,
     )
-    return ctx, service, gw
+    return ctx, service, gw, ki_adapter
 
 
 def build_day10_production_orchestration_request(
@@ -170,11 +236,14 @@ def build_day10_production_orchestration_request(
         "fixture_scenario": "human_review",
         "diagnostic_enrichment_enabled": True,
         "root_cause_enrichment_enabled": True,
+        "deterministic_human_review_required": True,
+        "partial_diagnostic_blocking_with_root_cause_pass": True,
         "diagnostic_fixture_scenario": diagnostic_scenario,
-        "diagnostic_authoring_concept_codes": [],
     }
     if diagnostic_by_slot:
         metadata["diagnostic_fixture_by_slot"] = diagnostic_by_slot
+    if ctx.get("learning_outcome_id"):
+        metadata["learning_outcome_ids"] = [ctx["learning_outcome_id"]]
     return OrchestrationRequest(
         idempotency_key=idempotency_key,
         requested_count=requested_count,
@@ -182,9 +251,11 @@ def build_day10_production_orchestration_request(
         grade_year_code=ctx.get("grade_year_code", "grade-4"),
         medium_code=None,
         subject_code=ctx.get("subject_code", "mathematics"),
-        concept_codes=list(ctx.get("concept_codes") or ["multi-step-addition"]),
+        concept_codes=list(
+            ctx.get("concept_codes") or ["whole-number-addition", "addition-whole"]
+        ),
         retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
-        retrieval_query="multi-step addition whole numbers grade 4 mathematics",
+        retrieval_query="whole-number addition off-by-one-low maps multi-step",
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         marks=1.0,

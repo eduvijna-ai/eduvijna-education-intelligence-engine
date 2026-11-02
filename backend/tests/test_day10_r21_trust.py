@@ -27,7 +27,6 @@ from test_day10_r11_trust import (
 )
 from test_day10_r18_trust import _approve_mandatory_policy_for_rule
 
-from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.core.config import get_settings
 from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
 from app.education_intelligence.context import ValidationContext
@@ -38,6 +37,7 @@ from app.models.tenancy import Institution
 from app.orchestration.canonical_mapping import draft_to_canonical
 from app.orchestration.contracts import DraftQuestionItem, QuestionOptionDraft, ResolvedScope
 from app.orchestration.day6_reuse import (
+    current_day6_provenance,
     day6_summary_from_audit_run,
     find_accepted_day6_audit_run,
 )
@@ -64,7 +64,7 @@ from app.source_intelligence.storage import LocalSourceStorage
 def test_compiled_orchestration_production_root_cause_hitl_replay(tmp_path: Path) -> None:
     domain = _session(tmp_path)
     gateway = FakeGenerationGateway()
-    ctx, service, _gw = build_day10_production_orchestration_service(
+    ctx, service, _gw, ki_adapter = build_day10_production_orchestration_service(
         domain,
         tmp_path,
         gateway=gateway,
@@ -73,54 +73,68 @@ def test_compiled_orchestration_production_root_cause_hitl_replay(tmp_path: Path
     request = build_day10_production_orchestration_request(
         ctx,
         idempotency_key="d10-r21-prod-orch",
-        requested_count=1,
-        diagnostic_scenario="diagnostic_clean_pass",
+        requested_count=2,
+        diagnostic_by_slot={
+            "0": "diagnostic_clean_pass",
+            "1": "diagnostic_correct_mislabeled",
+        },
     )
     paused = service.run(request)
     assert paused.status == OrchestrationRunStatus.REVIEW_REQUIRED, paused.errors
     completed = service.run(request, resume=HumanResumeDecision(action="approve"))
-    if completed.status == OrchestrationRunStatus.REVIEW_REQUIRED:
-        completed = service.run(request, resume=HumanResumeDecision(action="approve"))
-    assert completed.status in {
-        OrchestrationRunStatus.COMPLETED,
-        OrchestrationRunStatus.REVIEW_REQUIRED,
-    }, completed.errors
-    checkpoint = service.compiled_graph.get_state(
-        {"configurable": {"thread_id": completed.run_id}}
-    )
-    values = checkpoint.values or {}
-    det = values.get("deterministic_validation") or []
-    assert len(det) >= 1
-    for row in det:
-        assert row.get("day6_validation_run_id")
-        assert row.get("input_hash")
-        assert row.get("learning_outcome_ids") is not None
-        assert row.get("competency_codes") is not None
-    root_cause = values.get("root_cause_results") or []
-    attempts = (checkpoint.values or {}).get("node_attempts") or {}
-    assert "root_cause_enrich" in attempts
+    assert completed.status == OrchestrationRunStatus.COMPLETED, completed.errors
+    root_cause = list(completed.metadata_json.get("root_cause_results") or [])
     assert root_cause
-    assert all(str(row.get("misconception_code") or "") for row in root_cause)
+    pass_rows = [
+        row
+        for row in root_cause
+        if str(row.get("verdict_status")) == RootCauseVerdictStatus.PASS.value
+        and len(row.get("hypotheses") or []) > 0
+    ]
     veto_rows = [
         row
         for row in root_cause
         if str(row.get("verdict_status")) != RootCauseVerdictStatus.PASS.value
     ]
-    assert len(root_cause) >= 2 or veto_rows
+    checkpoint = service.compiled_graph.get_state(
+        {"configurable": {"thread_id": completed.run_id}}
+    )
+    checkpoint_values = checkpoint.values or {}
+    diagnostic_validation = list(checkpoint_values.get("diagnostic_validation") or [])
+    sibling_diagnostic_veto = any(
+        item.get("blocking")
+        and "correct_option_mislabeled" in list(item.get("issue_codes") or [])
+        for item in diagnostic_validation
+    )
+    assert pass_rows, root_cause
+    assert veto_rows or sibling_diagnostic_veto, root_cause
+    det = checkpoint_values.get("deterministic_validation") or []
+    assert len(det) >= 2
+    for row in det:
+        assert row.get("day6_validation_run_id")
+        assert row.get("input_hash")
+        assert row.get("learning_outcome_ids") is not None
+        assert row.get("competency_codes") is not None
     control = service._control
     pass_audits = control.scalars(
         select(OrchestrationAuditEvent).where(
             OrchestrationAuditEvent.node_name == "root_cause_item",
+            OrchestrationAuditEvent.status == RootCauseVerdictStatus.PASS.value,
         )
     ).all()
     assert pass_audits
+    root_cause_audit_count = control.scalar(
+        select(func.count())
+        .select_from(OrchestrationAuditEvent)
+        .where(OrchestrationAuditEvent.node_name == "root_cause_item")
+    )
     gateway_calls_after_complete = len(gateway.call_history())
     audit_count = control.scalar(select(func.count()).select_from(OrchestrationAuditEvent))
     service.close()
     service2 = build_orchestration_service(
         domain,
         gateway=gateway,
-        knowledge_adapter=FakeAnythingLLMAdapter(),
+        knowledge_adapter=ki_adapter,
         memory_checkpointer=False,
         force_fake=True,
     )
@@ -128,12 +142,18 @@ def test_compiled_orchestration_production_root_cause_hitl_replay(tmp_path: Path
     assert replay.run_id == completed.run_id
     assert len(gateway.call_history()) == gateway_calls_after_complete
     assert control.scalar(select(func.count()).select_from(OrchestrationAuditEvent)) == audit_count
+    assert (
+        control.scalar(
+            select(func.count())
+            .select_from(OrchestrationAuditEvent)
+            .where(OrchestrationAuditEvent.node_name == "root_cause_item")
+        )
+        == root_cause_audit_count
+    )
     service2.close()
 
 
 def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> None:
-    from day10_source_lifecycle import ensure_genuine_source_content_approval
-
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     ensure_genuine_source_content_approval(
@@ -175,8 +195,6 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
 
 
 def test_mandatory_claim_rejects_ungrounded_locator(tmp_path: Path) -> None:
-    from day10_source_lifecycle import ensure_genuine_source_content_approval
-
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     ensure_genuine_source_content_approval(
@@ -219,12 +237,13 @@ def test_day6_reuse_requires_current_policy_version(tmp_path: Path) -> None:
     validation_ctx = ValidationContext.create(
         session, curriculum_version_id=ctx["curriculum_version_id"]
     )
+    provenance = current_day6_provenance(validation_ctx)
     item_id = "item-policy-stale"
     digest = "f" * 64
     stale_run = ValidationAuditRun(
         run_id=f"day6-{item_id}-stale",
         input_hash=digest,
-        taxonomy_version=DEFAULT_TAXONOMY_VERSION,
+        taxonomy_version=validation_ctx.taxonomy.version,
         policy_version="stale-policy@v0",
         aggregate_status="pass",
         blocking_failure=False,
@@ -256,8 +275,106 @@ def test_day6_reuse_requires_current_policy_version(tmp_path: Path) -> None:
             scope=scope,
             taxonomy_version=validation_ctx.taxonomy.version,
             policy_version=validation_ctx.policy.version,
+            quality_rule_pack_version=str(provenance.get("quality_rule_pack_version") or ""),
+            safety_rules_version=str(provenance.get("safety_rules_version") or ""),
+            validator_versions=dict(provenance.get("validator_versions") or {}),
         )
         is None
+    )
+
+
+def test_day6_reuse_rejects_stale_quality_rule_pack(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = _seed_production_institution_graph(session)
+    scope = ResolvedScope(
+        curriculum_version_id=ctx["curriculum_version_id"],
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        grade_year_code="grade-4",
+        medium_code="english",
+        subject_code="mathematics",
+    )
+    validation_ctx = ValidationContext.create(
+        session, curriculum_version_id=ctx["curriculum_version_id"]
+    )
+    provenance = current_day6_provenance(validation_ctx)
+    item_id = "item-quality-stale"
+    digest = "c" * 64
+    stale_run = ValidationAuditRun(
+        run_id=f"day6-{item_id}-quality",
+        input_hash=digest,
+        taxonomy_version=validation_ctx.taxonomy.version,
+        policy_version=validation_ctx.policy.version,
+        aggregate_status="pass",
+        blocking_failure=False,
+        institution_id=ctx["institution_id"],
+        metadata_json={
+            "quality_rule_pack_version": "stale-quality@v0",
+            "safety_rules_version": provenance.get("safety_rules_version"),
+            "validator_versions": provenance.get("validator_versions"),
+            "scope": {
+                "organization_id": ctx["organization_id"],
+                "institution_id": ctx["institution_id"],
+                "curriculum_version_id": ctx["curriculum_version_id"],
+            },
+            "validated_items": [
+                {
+                    "item_id": item_id,
+                    "input_hash": digest,
+                    "grade_year_code": "grade-4",
+                    "medium_code": "english",
+                    "subject_code": "mathematics",
+                }
+            ],
+        },
+    )
+    session.add(stale_run)
+    session.commit()
+    assert (
+        find_accepted_day6_audit_run(
+            session,
+            item_id=item_id,
+            input_hash=digest,
+            scope=scope,
+            taxonomy_version=validation_ctx.taxonomy.version,
+            policy_version=validation_ctx.policy.version,
+            quality_rule_pack_version=str(provenance.get("quality_rule_pack_version") or ""),
+            safety_rules_version=str(provenance.get("safety_rules_version") or ""),
+            validator_versions=dict(provenance.get("validator_versions") or {}),
+        )
+        is None
+    )
+
+
+def test_mandatory_claim_active_for_default_priority_zero(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = _seed_production_institution_graph(session)
+    ensure_genuine_source_content_approval(
+        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    )
+    inst = session.get(Institution, INST_A)
+    assert inst is not None
+    inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
+    rule = mandatory_board_policy_rule(
+        value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
+        source_locator=_MAPPING_SOURCE_LOCATOR,
+        priority=0,
+    )
+    assert int(rule.priority) == 0
+    session.add(rule)
+    session.flush()
+    revision = session.get(SourceRevision, ctx["source_revision_id"])
+    assert revision is not None
+    revision.policy_rules.append(rule)
+    _approve_mandatory_policy_for_rule(session, rule=rule, revision_id=revision.id)
+    assert mandatory_policy_claim_active(
+        session,
+        rule_id=str(rule.id),
+        revision_id=revision.id,
+        scope_type=str(rule.scope_type),
+        scope_code=str(rule.scope_code),
+        policy_key=PAPER_MANDATORY_POLICY_KEY,
+        value_json=dict(rule.value_json or {}),
     )
 
 

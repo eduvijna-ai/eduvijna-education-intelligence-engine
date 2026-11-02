@@ -200,7 +200,10 @@ def _claim_payload_matches_rule(rule: PolicyRule, payload: dict[str, Any]) -> bo
     lifecycle = _rule_lifecycle_digest(rule)
     if str(payload.get("rule_lifecycle_digest") or "") != lifecycle:
         return False
-    if int(payload.get("rule_priority") or -1) != int(rule.priority):
+    raw_priority = payload.get("rule_priority")
+    if raw_priority is None:
+        return False
+    if int(raw_priority) != int(rule.priority):
         return False
     return True
 

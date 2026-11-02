@@ -382,6 +382,7 @@ def test_persistent_checkpoint_hitl_resume_no_extra_audits(
             "metadata_json": {
                 **request.metadata_json,
                 "root_cause_enrichment_enabled": True,
+                "deterministic_human_review_required": True,
             }
         }
     )

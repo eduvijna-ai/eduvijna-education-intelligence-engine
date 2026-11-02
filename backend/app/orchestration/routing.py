@@ -34,6 +34,27 @@ def route_after_fallible(state: OrchestrationGraphState) -> str:
     return "continue"
 
 
+def _pending_eligible_root_cause_tags(state: OrchestrationGraphState) -> bool:
+    processed = {
+        (str(row.get("item_id")), str(row.get("option_key")))
+        for row in (state.get("root_cause_results") or [])
+        if row.get("item_id") and row.get("option_key")
+    }
+    for entry in state.get("diagnostic_results") or []:
+        item_id = str(entry.get("item_id"))
+        for tag in entry.get("option_tags") or []:
+            if tag.get("is_correct"):
+                continue
+            if not tag.get("misconception_code"):
+                continue
+            if str(tag.get("validation_status") or "") != "pass":
+                continue
+            option_key = str(tag.get("option_key"))
+            if (item_id, option_key) not in processed:
+                return True
+    return False
+
+
 def route_after_validation(state: OrchestrationGraphState) -> str:
     if pipeline_halted(state):
         return "whole_output"
@@ -92,6 +113,8 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
     review_required = any(item.get("review_required") for item in diagnostic)
 
     if blocking and not repairable:
+        if request.root_cause_enrichment_enabled() and _pending_eligible_root_cause_tags(state):
+            return "root_cause_enrich"
         return "whole_output"
 
     if repairable:

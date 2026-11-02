@@ -29,9 +29,19 @@ def whole_output_node(
     drafts = [DraftQuestionItem.model_validate(item) for item in state.get("draft_items") or []]
     errors = list(state.get("errors") or [])
 
-    blocking = any(item.get("blocking") for item in deterministic) or any(
-        item.get("blocking") for item in diagnostic
+    blocking = any(item.get("blocking") for item in deterministic)
+    root_cause_results = state.get("root_cause_results") or []
+    root_cause_pass = any(
+        str(entry.get("verdict_status")) == "pass" for entry in root_cause_results
     )
+    diagnostic_blocking = any(item.get("blocking") for item in diagnostic)
+    partial_ok = bool(
+        request.metadata_json.get("partial_diagnostic_blocking_with_root_cause_pass")
+    )
+    if request.root_cause_enrichment_enabled() and root_cause_pass and partial_ok:
+        blocking = blocking
+    else:
+        blocking = blocking or diagnostic_blocking
     duplicate_block = any(item.get("is_duplicate") for item in duplicate)
     repair_counts = state.get("repair_count_by_item") or {}
     exhausted = any(count > request.effective_max_repairs() for count in repair_counts.values())

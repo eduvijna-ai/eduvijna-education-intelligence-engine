@@ -224,6 +224,7 @@ def test_hitl_orchestration_persists_diagnostic_and_root_cause_audits(tmp_path: 
             "metadata_json": {
                 **request.metadata_json,
                 "root_cause_enrichment_enabled": True,
+                "deterministic_human_review_required": True,
             }
         }
     )

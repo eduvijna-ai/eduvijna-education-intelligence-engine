@@ -137,7 +137,7 @@ def _approve_revision_mapping_binding(
         curriculum_version_id=ctx["curriculum_version_id"],
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
-        grade_year_code="grade-4",
+        grade_year_code=str(ctx.get("grade_year_code") or "grade-4"),
         subject_code="mathematics",
     )
     registry = apply_mapping_authority_overlay(
