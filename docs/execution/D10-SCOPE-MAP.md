@@ -4,6 +4,8 @@ Status: **R19 FOCUSED REPAIR** (Chief Architect handoff R19). Source: `docs/exec
 
 **R19 deltas (vs `6795a2f`):** non-manual source integrity uses **storage-byte checksum + approval fingerprint** (not extracted-text vs byte SHA); **`PaperMandatoryPolicyClaim`** gate on board/institution/teacher rules; **`MappingClaimWriterAttestation`** + **`teacher_id` in claim_id** (D10-12 **PARTIAL** — see `D10-R19-MAPPING-WRITER-AUTH-DESIGN.md`); Day8 **`deterministic_validate_node`** persists **trusted-scope Day6** bindings; orchestration graph proof in `test_day10_r19_trust.py`. D10-19/22/32/33 **PARTIAL** (full matrix still limited); D10-28/29 **PARTIAL**; D10-36 **PENDING**.
 
+**R20 deltas (vs `5bc70af`):** **`RootCauseIntelligenceService.analyze`** uses **`domain_session`** for policy/graph/Day6/source lookups and **`control_session`** only for Day9 audit; file-backed SQLite orchestration proof in **`test_day10_r20_trust.py`**; Day6 reuse keyed on **`canonical_hash`** + persisted-run lookup/idempotency; source integrity uses **`SourceRevision.ingestion_method`** only; **`approve_mandatory_policy_claim`** validates persisted **`PolicyRule`**, revision binding, source approval, actor, and board official trust tier. D10-12/19/22/28/29/32/33 remain **PARTIAL**; D10-36 **PENDING**.
+
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
 | D10-01 | Freeze Day-10 scope map | `docs/execution/D10-SCOPE-MAP.md` | `day10_verify` | IMPLEMENTED |
