@@ -45,6 +45,7 @@ class EducationIntelligenceValidationService:
         validator_ids: list[str] | None = None,
         persist: bool = False,
         actor_id: str | None = None,
+        trusted_scope: dict[str, str | None] | None = None,
     ) -> ValidationRunSummary:
         ctx = ValidationContext.create(
             self.session,
@@ -55,17 +56,25 @@ class EducationIntelligenceValidationService:
             ctx.policy = load_policy_registry(self.session, institution_overrides)
         summary = run_validation(item, ctx, self.registry, validator_ids=validator_ids)
         resolved_curriculum = curriculum_version_id or item.curriculum_version_id
+        if trusted_scope is not None:
+            scope_payload = {
+                "organization_id": trusted_scope.get("organization_id"),
+                "institution_id": trusted_scope.get("institution_id")
+                or item.institution_id,
+                "curriculum_version_id": trusted_scope.get("curriculum_version_id")
+                or resolved_curriculum,
+            }
+        else:
+            scope_payload = {
+                "institution_id": item.institution_id,
+                "curriculum_version_id": resolved_curriculum,
+                "organization_id": (item.metadata_json or {}).get("organization_id"),
+            }
         summary = summary.model_copy(
             update={
                 "metadata": {
                     **summary.metadata,
-                    "scope": {
-                        "institution_id": item.institution_id,
-                        "curriculum_version_id": resolved_curriculum,
-                        "organization_id": (item.metadata_json or {}).get(
-                            "organization_id"
-                        ),
-                    },
+                    "scope": scope_payload,
                     "validated_items": [
                         {
                             "item_id": item.item_id,

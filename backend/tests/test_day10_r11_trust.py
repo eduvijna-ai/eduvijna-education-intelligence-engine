@@ -65,8 +65,8 @@ from app.root_cause_intelligence.mapping_authority import (
 )
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
-    MappingClaimWriterContext,
     approve_root_cause_mapping_claim,
+    issue_mapping_claim_writer_attestation,
 )
 from app.root_cause_intelligence.mapping_evidence import resolve_approved_source_span
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
@@ -154,7 +154,15 @@ def _approve_revision_mapping_binding(
             institution_id=ctx["institution_id"],
             curriculum_version_id=ctx["curriculum_version_id"],
         ),
-        writer=MappingClaimWriterContext(authenticated_actor_external_code=actor_id),
+        attestation=issue_mapping_claim_writer_attestation(
+            session,
+            MappingClaimApprovalContext(
+                actor_id=actor_id,
+                organization_id=ctx["organization_id"],
+                institution_id=ctx["institution_id"],
+                curriculum_version_id=ctx["curriculum_version_id"],
+            ),
+        ),
     )
     session.flush()
     return overlay

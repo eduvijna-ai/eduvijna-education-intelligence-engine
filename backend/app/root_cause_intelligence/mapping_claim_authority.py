@@ -45,10 +45,78 @@ class MappingClaimApprovalContext:
 
 
 @dataclass(frozen=True, slots=True)
-class MappingClaimWriterContext:
-    """Session-attested principal performing the claim write (must match actor_id)."""
+class MappingClaimWriterAttestation:
+    """Issued only via issue_mapping_claim_writer_attestation after curator verification."""
 
-    authenticated_actor_external_code: str
+    actor_external_code: str
+    organization_id: str
+    institution_id: str
+    curriculum_version_id: str
+    teacher_id: str | None
+    attestation_ref: str
+
+
+def issue_mapping_claim_writer_attestation(
+    session: Session, approval_context: MappingClaimApprovalContext
+) -> MappingClaimWriterAttestation:
+    actor_id = str(approval_context.actor_id).strip()
+    if not _verify_curator_principal(session, actor_id, approval_context):
+        raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
+    attestation_ref = stable_audit_ref(
+        "mapping-claim-writer-attestation",
+        json.dumps(
+            {
+                "actor_external_code": actor_id,
+                "organization_id": approval_context.organization_id,
+                "institution_id": approval_context.institution_id,
+                "curriculum_version_id": approval_context.curriculum_version_id,
+                "teacher_id": approval_context.teacher_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+    return MappingClaimWriterAttestation(
+        actor_external_code=actor_id,
+        organization_id=str(approval_context.organization_id),
+        institution_id=str(approval_context.institution_id),
+        curriculum_version_id=str(approval_context.curriculum_version_id),
+        teacher_id=approval_context.teacher_id,
+        attestation_ref=attestation_ref,
+    )
+
+
+def _verify_writer_attestation(
+    attestation: MappingClaimWriterAttestation,
+    approval_context: MappingClaimApprovalContext,
+) -> bool:
+    expected_ref = stable_audit_ref(
+        "mapping-claim-writer-attestation",
+        json.dumps(
+            {
+                "actor_external_code": str(approval_context.actor_id).strip(),
+                "organization_id": approval_context.organization_id,
+                "institution_id": approval_context.institution_id,
+                "curriculum_version_id": approval_context.curriculum_version_id,
+                "teacher_id": approval_context.teacher_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+    if attestation.attestation_ref != expected_ref:
+        return False
+    if attestation.actor_external_code != str(approval_context.actor_id).strip():
+        return False
+    if attestation.organization_id != str(approval_context.organization_id):
+        return False
+    if attestation.institution_id != str(approval_context.institution_id):
+        return False
+    if attestation.curriculum_version_id != str(approval_context.curriculum_version_id):
+        return False
+    if attestation.teacher_id != approval_context.teacher_id:
+        return False
+    return True
 
 
 def mapping_claim_id(
@@ -62,6 +130,7 @@ def mapping_claim_id(
     organization_id: str | None = None,
     institution_id: str | None = None,
     curriculum_version_id: str | None = None,
+    teacher_id: str | None = None,
 ) -> str:
     payload = json.dumps(
         {
@@ -74,6 +143,7 @@ def mapping_claim_id(
             "organization_id": organization_id,
             "institution_id": institution_id,
             "curriculum_version_id": curriculum_version_id,
+            "teacher_id": teacher_id,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -203,20 +273,21 @@ def approve_root_cause_mapping_claim(
     source_locator: str,
     mapping_registry_version: str,
     approval_context: MappingClaimApprovalContext,
-    writer: MappingClaimWriterContext,
+    attestation: MappingClaimWriterAttestation,
     request_id: str | None = None,
+    storage_root: str | None = None,
 ) -> str:
+    if not _verify_writer_attestation(attestation, approval_context):
+        raise MappingClaimAuthorityError("mapping claim writer attestation is invalid")
     actor_id = str(approval_context.actor_id).strip()
-    if str(writer.authenticated_actor_external_code).strip() != actor_id:
-        raise MappingClaimAuthorityError(
-            "mapping claim writer is not authenticated as approval actor"
-        )
     if not _verify_curator_principal(session, actor_id, approval_context):
         raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
-    if not verify_revision_content_integrity(session, record):
+    if not verify_revision_content_integrity(
+        session, record, storage_root=storage_root
+    ):
         raise MappingClaimAuthorityError("source revision content integrity check failed")
     graph_scope = PrerequisiteGraphScope(
         curriculum_version_id=approval_context.curriculum_version_id,
@@ -251,7 +322,9 @@ def approve_root_cause_mapping_claim(
     if not locator:
         raise MappingClaimAuthorityError("mapping claim requires source_locator")
     try:
-        excerpt, span_checksum = resolve_approved_source_span(session, record, locator)
+        excerpt, span_checksum = resolve_approved_source_span(
+            session, record, locator, storage_root=storage_root
+        )
     except ValueError as exc:
         raise MappingClaimAuthorityError(str(exc)) from exc
     evidence_checksum = mapping_evidence_checksum(
@@ -273,6 +346,7 @@ def approve_root_cause_mapping_claim(
         organization_id=approval_context.organization_id,
         institution_id=approval_context.institution_id,
         curriculum_version_id=approval_context.curriculum_version_id,
+        teacher_id=approval_context.teacher_id,
     )
     session.add(
         SourceAuditEvent(
@@ -392,6 +466,7 @@ def _active_mapping_claim_audit(
         curriculum_version_id=str(
             overlay.get("curriculum_version_id") or graph_scope.curriculum_version_id or ""
         ),
+        teacher_id=str(overlay.get("teacher_id") or graph_scope.teacher_id or "") or None,
     )
     events = session.scalars(
         select(SourceAuditEvent)

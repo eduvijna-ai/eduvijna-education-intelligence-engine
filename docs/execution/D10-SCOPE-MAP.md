@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R18 FOCUSED REPAIR** (Chief Architect handoff R18). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R19 FOCUSED REPAIR** (Chief Architect handoff R19). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R18 deltas (vs `2cf3d67`):** mapping integrity recomputes **SourceIntelligence approval fingerprint** (blocks post-approval `extracted_text` mutation); **`MappingClaimWriterContext`** session-attested writer required for claim writes (D10-12 still **PARTIAL** for full auth boundary); Day6 **exact LO set** + **strict run scope** + production **requires control session**; real Day6 persist writes **`metadata.scope`**; mandatory merge **key precedence fix** + **`exact_percent` in ranges** + policy revision **fingerprint revalidation**. Tests: `test_day10_r18_trust.py`. D10-22/32/33 **PARTIAL**; D10-35 static portability (**live PG not run**); D10-36 **PENDING**.
+**R19 deltas (vs `6795a2f`):** non-manual source integrity uses **storage-byte checksum + approval fingerprint** (not extracted-text vs byte SHA); **`PaperMandatoryPolicyClaim`** gate on board/institution/teacher rules; **`MappingClaimWriterAttestation`** + **`teacher_id` in claim_id** (D10-12 **PARTIAL** — see `D10-R19-MAPPING-WRITER-AUTH-DESIGN.md`); Day8 **`deterministic_validate_node`** persists **trusted-scope Day6** bindings; orchestration graph proof in `test_day10_r19_trust.py`. D10-19/22/32/33 **PARTIAL** (full matrix still limited); D10-28/29 **PARTIAL**; D10-36 **PENDING**.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|

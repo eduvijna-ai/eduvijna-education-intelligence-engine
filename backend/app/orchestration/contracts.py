@@ -115,6 +115,11 @@ class DeterministicValidationSummary(BaseModel):
     repairable: bool
     review_required: bool
     issue_codes: list[str] = Field(default_factory=list)
+    day6_validation_run_id: str | None = None
+    input_hash: str | None = None
+    learning_outcome_ids: list[str] = Field(default_factory=list)
+    competency_codes: list[str] = Field(default_factory=list)
+    day6_content_fingerprint: str | None = None
 
 
 class DuplicateValidationSummary(BaseModel):

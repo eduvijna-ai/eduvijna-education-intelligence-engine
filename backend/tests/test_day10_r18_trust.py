@@ -37,6 +37,9 @@ from app.paper_distribution.enums import (
 )
 from app.paper_distribution.evaluator import evaluate_paper_distribution_with_session
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.mandatory_policy_claim_authority import (
+    approve_mandatory_policy_claim,
+)
 from app.paper_distribution.mandatory_policy_resolver import (
     PAPER_MANDATORY_POLICY_KEY,
     merge_scoped_mandatory_policy_payload,
@@ -54,8 +57,9 @@ from app.root_cause_intelligence.enums import RootCauseIssueCode, RootCauseVerdi
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     MappingClaimAuthorityError,
-    MappingClaimWriterContext,
+    MappingClaimWriterAttestation,
     approve_root_cause_mapping_claim,
+    issue_mapping_claim_writer_attestation,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
@@ -97,7 +101,15 @@ def test_mutated_extracted_text_rejects_mapping_claim(tmp_path: Path) -> None:
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
-            writer=MappingClaimWriterContext(authenticated_actor_external_code=actor_id),
+            attestation=issue_mapping_claim_writer_attestation(
+                session,
+                MappingClaimApprovalContext(
+                    actor_id=actor_id,
+                    organization_id=ctx["organization_id"],
+                    institution_id=ctx["institution_id"],
+                    curriculum_version_id=ctx["curriculum_version_id"],
+                ),
+            ),
         )
 
 
@@ -117,7 +129,7 @@ def test_curator_impersonation_without_authenticated_writer_rejected(tmp_path: P
     )
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
-    with pytest.raises(MappingClaimAuthorityError, match="authenticated"):
+    with pytest.raises(MappingClaimAuthorityError, match="attestation"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],
@@ -130,8 +142,13 @@ def test_curator_impersonation_without_authenticated_writer_rejected(tmp_path: P
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
-            writer=MappingClaimWriterContext(
-                authenticated_actor_external_code="founder-day10-trust"
+            attestation=MappingClaimWriterAttestation(
+                actor_external_code=actor_id,
+                organization_id=ctx["organization_id"],
+                institution_id=ctx["institution_id"],
+                curriculum_version_id=ctx["curriculum_version_id"],
+                teacher_id=None,
+                attestation_ref="forged-ref",
             ),
         )
 
@@ -212,6 +229,25 @@ def test_root_cause_production_without_control_session_fail_closed(tmp_path: Pat
     assert "control_session" in result.field_paths
 
 
+def _approve_mandatory_policy_for_rule(
+    session: Session,
+    *,
+    rule: PolicyRule,
+    revision_id: str,
+    actor_id: str = "founder-day10-trust",
+) -> None:
+    approve_mandatory_policy_claim(
+        session,
+        rule_id=str(rule.id),
+        revision_id=revision_id,
+        scope_type=str(rule.scope_type),
+        scope_code=str(rule.scope_code),
+        policy_key=str(rule.policy_key),
+        value_json=dict(rule.value_json or {}),
+        actor_id=actor_id,
+    )
+
+
 def _seed_board_mandatory_remember_two(
     session: Session, tmp_path: Path, ctx: dict[str, str], revision_id: str
 ) -> None:
@@ -235,6 +271,7 @@ def _seed_board_mandatory_remember_two(
     session.add(rule)
     session.flush()
     revision.policy_rules.append(rule)
+    _approve_mandatory_policy_for_rule(session, rule=rule, revision_id=revision_id)
     ensure_paper_target_policy_configured(session)
 
 
@@ -347,6 +384,7 @@ def test_board_mandatory_exact_percent_from_rule_map(tmp_path: Path) -> None:
     session.add(rule)
     session.flush()
     revision.policy_rules.append(rule)
+    _approve_mandatory_policy_for_rule(session, rule=rule, revision_id=ctx["source_revision_id"])
     ensure_paper_target_policy_configured(session)
     session.commit()
     payload = merge_scoped_mandatory_policy_payload(
@@ -361,3 +399,53 @@ def test_board_mandatory_exact_percent_from_rule_map(tmp_path: Path) -> None:
         and entry.get("exact_percent") == 40.0
         for entry in merged
     )
+    apply_paper, apply_trust = _apply_paper_with_day6_bindings(session, ctx, apply_count=4)
+    pass_result = evaluate_paper_distribution_with_session(
+        session,
+        apply_paper,
+        day6_trust=apply_trust,
+        execution_mode=TrustExecutionMode.PRODUCTION,
+        execution_context=PaperExecutionContext(institution_id=INST_A, board_code="cbse"),
+    )
+    assert pass_result.verdict == PaperDistributionVerdict.PASS
+    fail_paper, fail_trust = _apply_paper_with_day6_bindings(session, ctx, apply_count=5)
+    fail_result = evaluate_paper_distribution_with_session(
+        session,
+        fail_paper,
+        day6_trust=fail_trust,
+        execution_mode=TrustExecutionMode.PRODUCTION,
+        execution_context=PaperExecutionContext(institution_id=INST_A, board_code="cbse"),
+    )
+    assert fail_result.verdict != PaperDistributionVerdict.PASS
+
+
+def _apply_paper_with_day6_bindings(
+    session: Session,
+    ctx: dict[str, str],
+    *,
+    apply_count: int,
+    total: int = 10,
+) -> tuple[PaperDistributionRequest, PaperDay6TrustContext]:
+    items: list[PaperItemInput] = []
+    bindings: list[PaperDay6ItemBinding] = []
+    cognitive_levels = ["apply"] * apply_count + ["remember"] * (total - apply_count)
+    for index, level in enumerate(cognitive_levels):
+        item_id = f"board-apply40-{apply_count}-{index}"
+        run_id, validated = seed_production_day6_audit(
+            session,
+            item_id=item_id,
+            organization_id=ctx["organization_id"],
+            institution_id=INST_A,
+            curriculum_version_id=ctx["curriculum_version_id"],
+            declared_cognitive_level=level,
+        )
+        bindings.append(PaperDay6ItemBinding(item_id=item_id, validation_run_id=run_id))
+        items.append(_paper_item_from_validated(validated))
+    request = PaperDistributionRequest(
+        paper_id=f"board-apply40-{apply_count}",
+        items=items,
+        cognitive_targets=[],
+        competency_targets=[],
+        target_policy_version=PAPER_TARGET_POLICY_VERSION,
+    )
+    return request, PaperDay6TrustContext.from_item_bindings(bindings)

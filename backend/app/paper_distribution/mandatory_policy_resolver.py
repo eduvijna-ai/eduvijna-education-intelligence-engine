@@ -11,6 +11,9 @@ from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision, policy_rule_source_revisions
 from app.models.tenancy import Institution, Teacher
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.mandatory_policy_claim_authority import (
+    mandatory_policy_claim_active,
+)
 from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
 
 PAPER_MANDATORY_POLICY_KEY = "paper_distribution_mandatory_targets"
@@ -41,12 +44,16 @@ def mandatory_policy_context_errors(
     institution = session.get(Institution, execution_context.institution_id)
     if institution is None:
         return ["execution_context.institution_id"]
+    if not institution.active:
+        return ["execution_context.institution_id"]
     board_code = resolve_institution_board_code(session, execution_context.institution_id)
     if execution_context.board_code and board_code and execution_context.board_code != board_code:
         return ["execution_context.board_code"]
     if execution_context.teacher_id:
         teacher = session.get(Teacher, execution_context.teacher_id)
         if teacher is None or teacher.institution_id != execution_context.institution_id:
+            return ["execution_context.teacher_id"]
+        if not teacher.active:
             return ["execution_context.teacher_id"]
     return []
 
@@ -114,6 +121,16 @@ def _revision_authorized_for_policy(session: Session, rule: PolicyRule) -> bool:
             return False
         if compute_revision_approval_fingerprint(session, revision) != str(
             revision.approval_fingerprint
+        ):
+            return False
+        if not mandatory_policy_claim_active(
+            session,
+            rule_id=str(rule.id),
+            revision_id=str(revision_id),
+            scope_type=str(rule.scope_type),
+            scope_code=str(rule.scope_code),
+            policy_key=str(rule.policy_key),
+            value_json=dict(rule.value_json or {}),
         ):
             return False
     return True

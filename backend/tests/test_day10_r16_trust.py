@@ -46,8 +46,9 @@ from app.root_cause_intelligence.mapping_authority import (
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     MappingClaimAuthorityError,
-    MappingClaimWriterContext,
+    MappingClaimWriterAttestation,
     approve_root_cause_mapping_claim,
+    issue_mapping_claim_writer_attestation,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 
@@ -81,7 +82,15 @@ def test_fake_locator_rejected_for_mapping_claim(tmp_path: Path) -> None:
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
-            writer=MappingClaimWriterContext(authenticated_actor_external_code=actor_id),
+            attestation=issue_mapping_claim_writer_attestation(
+                session,
+                MappingClaimApprovalContext(
+                    actor_id=actor_id,
+                    organization_id=ctx["organization_id"],
+                    institution_id=ctx["institution_id"],
+                    curriculum_version_id=ctx["curriculum_version_id"],
+                ),
+            ),
         )
 
 
@@ -101,7 +110,7 @@ def test_unauthorized_curator_actor_rejected(tmp_path: Path) -> None:
     )
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
-    with pytest.raises(MappingClaimAuthorityError, match="authorized curator"):
+    with pytest.raises(MappingClaimAuthorityError, match="attestation|authorized curator"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],
@@ -114,8 +123,13 @@ def test_unauthorized_curator_actor_rejected(tmp_path: Path) -> None:
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
-            writer=MappingClaimWriterContext(
-                authenticated_actor_external_code="random-teacher-actor"
+            attestation=MappingClaimWriterAttestation(
+                actor_external_code="random-teacher-actor",
+                organization_id=ctx["organization_id"],
+                institution_id=ctx["institution_id"],
+                curriculum_version_id=ctx["curriculum_version_id"],
+                teacher_id=None,
+                attestation_ref="forged",
             ),
         )
 
@@ -196,6 +210,20 @@ def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> 
         tmp_path,
         ctx["source_revision_id"],
         source_locator=_MAPPING_SOURCE_LOCATOR,
+    )
+    from app.paper_distribution.mandatory_policy_claim_authority import (
+        approve_mandatory_policy_claim,
+    )
+
+    approve_mandatory_policy_claim(
+        session,
+        rule_id=str(rule.id),
+        revision_id=ctx["source_revision_id"],
+        scope_type=str(rule.scope_type),
+        scope_code=str(rule.scope_code),
+        policy_key=str(rule.policy_key),
+        value_json=dict(rule.value_json or {}),
+        actor_id="founder-day10-trust",
     )
     from app.paper_distribution.mandatory_policy_resolver import (
         _revision_authorized_for_policy,

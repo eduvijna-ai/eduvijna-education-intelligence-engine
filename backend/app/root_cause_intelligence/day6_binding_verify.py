@@ -90,6 +90,15 @@ def verify_production_day6_binding(
     if persisted_codes != requested_codes:
         return False, "competency_codes"
     run_scope = (record.metadata_json or {}).get("scope") or {}
+    scope_private = any(
+        str(run_scope.get(key) or "").strip()
+        for key in ("organization_id", "institution_id", "curriculum_version_id")
+    )
+    request_private = any(
+        value for value in (organization_id, institution_id, curriculum_version_id) if value
+    )
+    if scope_private and not request_private:
+        return False, "organization_id"
     if organization_id:
         if str(run_scope.get("organization_id") or "") != str(organization_id):
             return False, "organization_id"

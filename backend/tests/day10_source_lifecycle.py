@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.enums import SourceExtractionStatus, SourceRevisionStatus
-from app.models.source import SourceRevision
+from app.models.enums import SourceExtractionStatus, SourceIngestionMethod, SourceRevisionStatus
+from app.models.source import Source, SourceRevision
 from app.models.tenancy import AdminActor
 from app.root_cause_intelligence.mapping_claim_authority import (
     ROOT_CAUSE_MAPPING_CURATORS_KEY,
@@ -139,3 +139,65 @@ def ensure_genuine_source_content_approval(
     service.activate_revision(revision.id, actor_id=actor_id)
     session.refresh(revision)
     return revision
+
+
+def ensure_genuine_json_upload_source_approval(
+    session: Session,
+    tmp_path: Path,
+    *,
+    organization_id: str,
+    institution_id: str,
+    curriculum_version_id: str,
+    actor_id: str = "founder-day10-trust",
+    source_locator: str,
+) -> tuple[SourceRevision, str]:
+    """Ingest copyright-safe JSON bytes, extract, validate, approve, activate."""
+    from app.models.enums import SourceStatus, SourceTrustTier, SourceType
+
+    upload_source = Source(
+        organization_id=organization_id,
+        institution_id=institution_id,
+        source_type=SourceType.INSTITUTION_CONTENT.value,
+        title="Day10 JSON misconception mapping upload",
+        trust_tier=SourceTrustTier.INSTITUTION.value,
+        status=SourceStatus.ACTIVE.value,
+        authority="Synthetic Education Authority",
+    )
+    session.add(upload_source)
+    session.flush()
+    from app.models.curriculum import CurriculumVersion
+
+    curriculum_version = session.get(CurriculumVersion, curriculum_version_id)
+    mapping_payload = {
+        "document_type": "official_misconception_mapping_table",
+        "locator": source_locator,
+        "excerpt": (
+            "Whole-number addition off-by-one-low maps to whole-number and multi-step addition."
+        ),
+        "subject": "Mathematics",
+        "grade": 4,
+    }
+    content = _canonical_json_bytes(mapping_payload)
+    store_root = tmp_path / "day10-json-upload-store"
+    storage = LocalSourceStorage(store_root)
+    service = SourceIntelligenceService(session, storage=storage)
+    revision = service.ingest_upload(
+        upload_source.id,
+        method=SourceIngestionMethod.JSON,
+        content=content,
+        filename="misconception-mapping.json",
+        actor_id=actor_id,
+    )
+    session.flush()
+    if curriculum_version is not None:
+        revision.curriculum_versions.append(curriculum_version)
+        session.flush()
+    service.extract_revision(revision.id, actor_id=actor_id)
+    service.create_diff(revision.id, actor_id=actor_id)
+    validation = service.validate_revision(revision.id, actor_id=actor_id)
+    if not validation.valid:
+        raise AssertionError(f"json source validation failed: {validation.errors}")
+    service.approve_revision(revision.id, actor_id=actor_id)
+    service.activate_revision(revision.id, actor_id=actor_id)
+    session.refresh(revision)
+    return revision, str(store_root)

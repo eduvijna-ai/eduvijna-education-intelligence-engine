@@ -6,9 +6,14 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.models.source import SourceRevision
 from app.prerequisite_intelligence.authority import RevisionAuthorityRecord
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
+from app.source_intelligence.content_integrity import (
+    verify_revision_approval_fingerprint_unchanged,
+    verify_revision_storage_bytes_integrity,
+)
 
 
 def source_content_checksum(record: RevisionAuthorityRecord) -> str | None:
@@ -28,50 +33,66 @@ def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _approved_content_digest(record: RevisionAuthorityRecord) -> str | None:
+def _manual_metadata_digest(record: RevisionAuthorityRecord) -> str | None:
     metadata = record.metadata_json or {}
     manual = metadata.get("manual_metadata")
     if isinstance(manual, dict):
         return hashlib.sha256(_canonical_json_bytes(manual)).hexdigest()
-    text = str(record.extracted_text or "").strip()
-    if not text:
-        return None
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return None
+
+
+def _is_manual_revision(record: RevisionAuthorityRecord) -> bool:
+    metadata = record.metadata_json or {}
+    return isinstance(metadata.get("manual_metadata"), dict)
 
 
 def verify_revision_content_integrity(
-    session: Session, record: RevisionAuthorityRecord
+    session: Session,
+    record: RevisionAuthorityRecord,
+    *,
+    storage_root: str | None = None,
 ) -> bool:
-    """Ensure checksums and approval fingerprint still match approved source content."""
-    digest = _approved_content_digest(record)
-    if not digest:
+    """Ensure approved checksums and fingerprint still match source content."""
+    revision = session.get(SourceRevision, record.revision_id)
+    if revision is None:
+        return False
+    if not record.approval_fingerprint:
+        return False
+    if compute_revision_approval_fingerprint(session, revision) != str(
+        record.approval_fingerprint
+    ):
         return False
     stored = source_content_checksum(record)
     if not stored:
         return False
-    if digest != stored:
+    if _is_manual_revision(record):
+        digest = _manual_metadata_digest(record)
+        if not digest or digest != stored:
+            return False
+        return verify_revision_approval_fingerprint_unchanged(session, revision)
+    if not verify_revision_storage_bytes_integrity(
+        session, revision, storage_root=storage_root
+    ):
         return False
-    if not record.approval_fingerprint:
+    if str(revision.validated_checksum or "") != str(stored):
         return False
-    from app.models.source import SourceRevision
-
-    revision = session.get(SourceRevision, record.revision_id)
-    if revision is None:
-        return False
-    current_fingerprint = compute_revision_approval_fingerprint(session, revision)
-    if current_fingerprint != str(record.approval_fingerprint):
-        return False
-    return True
+    return verify_revision_approval_fingerprint_unchanged(session, revision)
 
 
 def resolve_approved_source_span(
-    session: Session, record: RevisionAuthorityRecord, locator: str
+    session: Session,
+    record: RevisionAuthorityRecord,
+    locator: str,
+    *,
+    storage_root: str | None = None,
 ) -> tuple[str, str]:
     """Resolve locator to excerpt text bound in approved extracted source content only."""
     needle = locator.strip()
     if not needle:
         raise ValueError("locator is empty")
-    if not verify_revision_content_integrity(session, record):
+    if not verify_revision_content_integrity(
+        session, record, storage_root=storage_root
+    ):
         raise ValueError("approved source content integrity check failed")
     extracted = str(record.extracted_text or "").strip()
     if not extracted:
