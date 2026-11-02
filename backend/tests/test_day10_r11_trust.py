@@ -85,7 +85,12 @@ _MAPPING_SOURCE_LOCATOR = (
 
 
 def _approve_revision_mapping_binding(
-    session: Session, tmp_path: Path, revision_id: str, ctx: dict[str, str]
+    session: Session,
+    tmp_path: Path,
+    revision_id: str,
+    ctx: dict[str, str],
+    *,
+    skip_source_reapproval: bool = False,
 ) -> dict[str, object]:
     ensure_mapping_curator_registry(session)
     actor_id = f"{DEFAULT_MAPPING_CURATOR_ACTOR}@{ctx['institution_id'][:8]}"
@@ -95,12 +100,13 @@ def _approve_revision_mapping_binding(
         institution_id=ctx["institution_id"],
         external_code=actor_id,
     )
-    ensure_genuine_source_content_approval(
-        session,
-        tmp_path,
-        revision_id,
-        source_locator=_MAPPING_SOURCE_LOCATOR,
-    )
+    if not skip_source_reapproval:
+        ensure_genuine_source_content_approval(
+            session,
+            tmp_path,
+            revision_id,
+            source_locator=_MAPPING_SOURCE_LOCATOR,
+        )
     revision = session.get(SourceRevision, revision_id)
     assert revision is not None
     record = load_revision_record(session, revision_id)

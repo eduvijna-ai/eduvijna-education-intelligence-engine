@@ -15,15 +15,21 @@ def find_accepted_day6_audit_run(
     item_id: str,
     input_hash: str,
     scope: ResolvedScope,
+    taxonomy_version: str,
+    policy_version: str,
 ) -> ValidationAuditRun | None:
-    """Return a persisted non-blocking Day6 run matching canonical input hash and scope."""
+    """Return a persisted non-blocking Day6 run matching canonical input and active versions."""
     if not input_hash:
         return None
     records = session.scalars(
-        select(ValidationAuditRun).where(
+        select(ValidationAuditRun)
+        .where(
             ValidationAuditRun.input_hash == input_hash,
             ValidationAuditRun.blocking_failure.is_(False),
+            ValidationAuditRun.taxonomy_version == taxonomy_version,
+            ValidationAuditRun.policy_version == policy_version,
         )
+        .order_by(ValidationAuditRun.created_at.desc())
     ).all()
     for record in records:
         aggregate = str(record.aggregate_status or "").lower()
@@ -51,15 +57,44 @@ def find_accepted_day6_audit_run(
             run_scope.get("curriculum_version_id") or ""
         ) != str(scope.curriculum_version_id):
             continue
-        return record
+        for field, expected in (
+            ("grade_year_code", scope.grade_year_code),
+            ("medium_code", scope.medium_code),
+            ("subject_code", scope.subject_code),
+        ):
+            if expected:
+                persisted = item_entry.get(field)
+                if not persisted or str(persisted) != str(expected):
+                    break
+        else:
+            return record
     return None
 
 
 def day6_summary_from_audit_run(
     record: ValidationAuditRun,
+    *,
+    item_id: str,
 ) -> tuple[str, str, list[str], list[str]]:
     validated_items = (record.metadata_json or {}).get("validated_items") or []
-    first = validated_items[0] if validated_items and isinstance(validated_items[0], dict) else {}
-    learning_outcome_ids = list(first.get("learning_outcome_ids") or [])
-    competency_codes = list(first.get("competency_codes") or [])
+    item_entry = next(
+        (entry for entry in validated_items if str(entry.get("item_id")) == item_id),
+        None,
+    )
+    if item_entry is None or not isinstance(item_entry, dict):
+        item_entry = {}
+    learning_outcome_ids = list(item_entry.get("learning_outcome_ids") or [])
+    competency_codes = list(item_entry.get("competency_codes") or [])
     return str(record.id), str(record.input_hash), learning_outcome_ids, competency_codes
+
+
+def day6_run_versions_current(
+    record: ValidationAuditRun,
+    *,
+    taxonomy_version: str,
+    policy_version: str,
+) -> bool:
+    return (
+        str(record.taxonomy_version or "") == str(taxonomy_version)
+        and str(record.policy_version or "") == str(policy_version)
+    )

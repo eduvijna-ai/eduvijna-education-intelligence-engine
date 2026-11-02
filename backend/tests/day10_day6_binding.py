@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION
+from app.education_intelligence.policy_registry import V1_POLICY_VERSION
+from app.education_intelligence.taxonomy_registry import V1_TAXONOMY_VERSION
 from app.models.education_intelligence import ValidationAuditRun
 
 
@@ -39,8 +40,8 @@ def seed_production_day6_audit(
     run = ValidationAuditRun(
         run_id=f"day6-{item_id}",
         input_hash=digest,
-        taxonomy_version=DEFAULT_TAXONOMY_VERSION,
-        policy_version="cbse-primary@v1",
+        taxonomy_version=V1_TAXONOMY_VERSION,
+        policy_version=V1_POLICY_VERSION,
         aggregate_status="pass",
         blocking_failure=False,
         institution_id=institution_id,

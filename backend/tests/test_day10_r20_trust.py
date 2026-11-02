@@ -5,7 +5,10 @@ from uuid import uuid4
 
 import pytest
 from day10_day6_binding import seed_production_day6_audit
-from day10_source_lifecycle import ensure_genuine_json_upload_source_approval
+from day10_source_lifecycle import (
+    ensure_genuine_json_upload_source_approval,
+    mandatory_board_policy_rule,
+)
 from sqlalchemy import func, select
 from test_day10_r8_trust import (
     INST_A,
@@ -25,9 +28,7 @@ from app.diagnostic_intelligence.enums import DEFAULT_TAXONOMY_VERSION, Diagnost
 from app.education_intelligence.fixtures import positive_cbse_item
 from app.knowledge_intelligence.contracts import AppliedKnowledgeScope, KnowledgeContextPack
 from app.models.education_intelligence import PolicyRegistryEntry, ValidationAuditRun
-from app.models.enums import PolicyScopeType
 from app.models.orchestration import OrchestrationAuditEvent
-from app.models.policy import PolicyRule
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
 from app.orchestration.canonical_mapping import draft_to_canonical
@@ -57,7 +58,6 @@ from app.paper_distribution.mandatory_policy_claim_authority import (
     MandatoryPolicyClaimAuthorityError,
     approve_mandatory_policy_claim,
 )
-from app.paper_distribution.mandatory_policy_resolver import PAPER_MANDATORY_POLICY_KEY
 from app.paper_distribution.target_policy_registry import (
     ensure_paper_target_policy_configured,
 )
@@ -433,6 +433,9 @@ def test_day6_validate_retry_reuses_persisted_run_without_duplicate(tmp_path: Pa
         curriculum_version_id=ctx["curriculum_version_id"],
         input_hash=canonical_hash,
         grade_year_code="grade-8",
+        learning_outcome_id=ctx["learning_outcome_id"],
+        competency_codes=list(canonical.competency_codes),
+        declared_cognitive_level=str(canonical.declared_cognitive_level or "apply").lower(),
     )
     domain.commit()
     before = domain.scalar(select(func.count()).select_from(ValidationAuditRun))
@@ -554,13 +557,9 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
-    rule = PolicyRule(
-        scope_type=PolicyScopeType.BOARD.value,
-        scope_code="cbse",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        priority=10,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -614,13 +613,9 @@ def test_board_mandatory_apply40_paper_pass_fail_after_claim_gate(tmp_path: Path
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
-    rule = PolicyRule(
-        scope_type=PolicyScopeType.BOARD.value,
-        scope_code="cbse",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        priority=10,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
     session.add(rule)
     session.flush()

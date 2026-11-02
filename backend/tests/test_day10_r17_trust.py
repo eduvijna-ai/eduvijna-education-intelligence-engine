@@ -8,6 +8,9 @@ from day10_source_lifecycle import (
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
+    mandatory_board_policy_rule,
+    mandatory_institution_policy_rule,
+    mandatory_teacher_policy_rule,
 )
 from sqlalchemy.orm import Session
 from test_day10_r8_trust import (
@@ -25,7 +28,6 @@ from test_day10_r11_trust import (
 
 from app.common.trust_execution import TrustExecutionMode
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.enums import PolicyScopeType
 from app.models.policy import PolicyRule
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
@@ -39,7 +41,6 @@ from app.paper_distribution.mandatory_policy_claim_authority import (
     approve_mandatory_policy_claim,
 )
 from app.paper_distribution.mandatory_policy_resolver import (
-    PAPER_MANDATORY_POLICY_KEY,
     mandatory_policy_context_errors,
     merge_scoped_mandatory_policy_payload,
 )
@@ -214,21 +215,15 @@ def test_board_institution_exact_count_conflict(tmp_path: Path) -> None:
     inst_a.metadata_json = {**(inst_a.metadata_json or {}), "board_code": "cbse"}
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
-    board_rule = PolicyRule(
-        scope_type=PolicyScopeType.BOARD.value,
-        scope_code="cbse",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    board_rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        priority=10,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
-    inst_rule = PolicyRule(
-        scope_type=PolicyScopeType.INSTITUTION.value,
-        scope_code=INST_A,
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    inst_rule = mandatory_institution_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 3}]},
+        institution_id=INST_A,
         priority=5,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
     session.add(board_rule)
     session.add(inst_rule)
@@ -313,21 +308,15 @@ def test_paper_targets_reject_board_teacher_exact_percent_conflict(tmp_path: Pat
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
-    board_rule = PolicyRule(
-        scope_type=PolicyScopeType.BOARD.value,
-        scope_code="cbse",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    board_rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        priority=10,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
-    teacher_rule = PolicyRule(
-        scope_type=PolicyScopeType.TEACHER.value,
-        scope_code="teacher-a",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    teacher_rule = mandatory_teacher_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 20.0}},
+        teacher_id="teacher-a",
         priority=1,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
     session.add(board_rule)
     session.add(teacher_rule)

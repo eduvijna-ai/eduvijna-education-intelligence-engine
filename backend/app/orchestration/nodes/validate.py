@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.education_intelligence.context import ValidationContext
 from app.education_intelligence.enums import ValidationStatus
 from app.knowledge_intelligence.contracts import KnowledgeContextPack
 from app.models.education_intelligence import ValidationAuditRun
@@ -18,6 +19,7 @@ from app.orchestration.contracts import (
 )
 from app.orchestration.control_session import _sqlite_memory_database
 from app.orchestration.day6_reuse import (
+    day6_run_versions_current,
     day6_summary_from_audit_run,
     find_accepted_day6_audit_run,
 )
@@ -73,6 +75,12 @@ def deterministic_validate_node(
     }
 
     summaries: list[dict[str, Any]] = []
+    validation_ctx = ValidationContext.create(
+        deps.session,
+        curriculum_version_id=scope.curriculum_version_id,
+    )
+    taxonomy_version = validation_ctx.taxonomy.version
+    policy_version = validation_ctx.policy.version
     for draft in drafts:
         issue_codes: list[str] = []
         blocking = False
@@ -149,6 +157,18 @@ def deterministic_validate_node(
                 learning_outcome_ids=prior_los,
                 competency_codes=prior_codes,
             ):
+                prior_record = deps.session.get(
+                    ValidationAuditRun, str(prior.get("day6_validation_run_id"))
+                )
+                if prior_record is None or not day6_run_versions_current(
+                    prior_record,
+                    taxonomy_version=taxonomy_version,
+                    policy_version=policy_version,
+                ):
+                    prior_record = None
+            else:
+                prior_record = None
+            if prior_record is not None:
                 reused_day6 = True
                 day6_run_id = str(prior.get("day6_validation_run_id"))
                 input_hash = prior_hash
@@ -167,10 +187,12 @@ def deterministic_validate_node(
                     item_id=draft.item_id,
                     input_hash=canonical_hash,
                     scope=scope,
+                    taxonomy_version=taxonomy_version,
+                    policy_version=policy_version,
                 )
             if existing_run is not None:
                 day6_run_id, input_hash, learning_outcome_ids, competency_codes = (
-                    day6_summary_from_audit_run(existing_run)
+                    day6_summary_from_audit_run(existing_run, item_id=draft.item_id)
                 )
             else:
                 try:

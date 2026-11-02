@@ -7,9 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.enums import SourceExtractionStatus, SourceIngestionMethod, SourceRevisionStatus
+from app.models.enums import (
+    PolicyScopeType,
+    SourceExtractionStatus,
+    SourceIngestionMethod,
+    SourceRevisionStatus,
+)
+from app.models.policy import PolicyRule
 from app.models.source import Source, SourceRevision
 from app.models.tenancy import AdminActor
+from app.paper_distribution.mandatory_policy_resolver import PAPER_MANDATORY_POLICY_KEY
 from app.root_cause_intelligence.mapping_claim_authority import (
     ROOT_CAUSE_MAPPING_CURATORS_KEY,
     ROOT_CAUSE_MAPPING_CURATORS_VERSION,
@@ -88,6 +95,7 @@ def ensure_genuine_source_content_approval(
     *,
     actor_id: str = "founder-day10-trust",
     source_locator: str,
+    storage_root: Path | None = None,
 ) -> SourceRevision:
     """Run the real source validate → approve → activate lifecycle for a manual revision."""
     revision = session.get(SourceRevision, revision_id)
@@ -108,7 +116,7 @@ def ensure_genuine_source_content_approval(
     from app.source_intelligence.service import _sha256
 
     checksum = _sha256(content)
-    storage = LocalSourceStorage(tmp_path / "day10-source-store")
+    storage = LocalSourceStorage(storage_root or (tmp_path / "day10-source-store"))
     service = SourceIntelligenceService(session, storage=storage)
     snapshot = service._source_snapshot(source)
     snapshot_checksum = service._snapshot_checksum(snapshot)
@@ -150,6 +158,7 @@ def ensure_genuine_json_upload_source_approval(
     curriculum_version_id: str,
     actor_id: str = "founder-day10-trust",
     source_locator: str,
+    storage_root: Path | None = None,
 ) -> tuple[SourceRevision, str]:
     """Ingest copyright-safe JSON bytes, extract, validate, approve, activate."""
     from app.models.enums import SourceStatus, SourceTrustTier, SourceType
@@ -178,7 +187,7 @@ def ensure_genuine_json_upload_source_approval(
         "grade": 4,
     }
     content = _canonical_json_bytes(mapping_payload)
-    store_root = tmp_path / "day10-json-upload-store"
+    store_root = storage_root or (tmp_path / "day10-json-upload-store")
     storage = LocalSourceStorage(store_root)
     service = SourceIntelligenceService(session, storage=storage)
     revision = service.ingest_upload(
@@ -201,3 +210,63 @@ def ensure_genuine_json_upload_source_approval(
     service.activate_revision(revision.id, actor_id=actor_id)
     session.refresh(revision)
     return revision, str(store_root)
+
+
+def mandatory_board_policy_rule(
+    *,
+    value_json: dict,
+    source_locator: str,
+    scope_code: str = "cbse",
+    priority: int = 10,
+) -> PolicyRule:
+    return PolicyRule(
+        scope_type=PolicyScopeType.BOARD.value,
+        scope_code=scope_code,
+        policy_key=PAPER_MANDATORY_POLICY_KEY,
+        value_json=value_json,
+        priority=priority,
+        active=True,
+        metadata_json={"mandatory_source_locator": source_locator},
+    )
+
+
+def mandatory_institution_policy_rule(
+    *,
+    value_json: dict,
+    institution_id: str,
+    priority: int = 20,
+    source_locator: str | None = None,
+) -> PolicyRule:
+    meta: dict[str, object] = {}
+    if source_locator:
+        meta["mandatory_source_locator"] = source_locator
+    return PolicyRule(
+        scope_type=PolicyScopeType.INSTITUTION.value,
+        scope_code=institution_id,
+        policy_key=PAPER_MANDATORY_POLICY_KEY,
+        value_json=value_json,
+        priority=priority,
+        active=True,
+        metadata_json=meta,
+    )
+
+
+def mandatory_teacher_policy_rule(
+    *,
+    value_json: dict,
+    teacher_id: str,
+    priority: int = 30,
+    source_locator: str | None = None,
+) -> PolicyRule:
+    meta: dict[str, object] = {}
+    if source_locator:
+        meta["mandatory_source_locator"] = source_locator
+    return PolicyRule(
+        scope_type=PolicyScopeType.TEACHER.value,
+        scope_code=teacher_id,
+        policy_key=PAPER_MANDATORY_POLICY_KEY,
+        value_json=value_json,
+        priority=priority,
+        active=True,
+        metadata_json=meta,
+    )

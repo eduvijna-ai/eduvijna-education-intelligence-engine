@@ -9,6 +9,7 @@ from day10_source_lifecycle import (
     ensure_genuine_json_upload_source_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
+    mandatory_board_policy_rule,
 )
 from sqlalchemy import func, select
 from test_day10_r8_trust import (
@@ -22,9 +23,7 @@ from test_day10_r11_trust import (
 
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
-from app.models.enums import PolicyScopeType
 from app.models.orchestration import OrchestrationAuditEvent
-from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision
 from app.models.tenancy import Institution, Teacher
 from app.orchestration.contracts import OrchestrationRequest
@@ -35,7 +34,6 @@ from app.orchestration.nodes.validate import deterministic_validate_node
 from app.orchestration.state import OrchestrationGraphState
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_resolver import (
-    PAPER_MANDATORY_POLICY_KEY,
     merge_scoped_mandatory_policy_payload,
 )
 from app.paper_distribution.target_policy_registry import ensure_paper_target_policy_configured
@@ -159,13 +157,9 @@ def test_mandatory_policy_without_claim_not_merged(tmp_path: Path) -> None:
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
-    rule = PolicyRule(
-        scope_type=PolicyScopeType.BOARD.value,
-        scope_code="cbse",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        priority=10,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
     session.add(rule)
     session.flush()

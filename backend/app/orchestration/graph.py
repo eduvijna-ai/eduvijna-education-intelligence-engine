@@ -186,6 +186,7 @@ def build_orchestration_graph(
         {
             "deterministic_validate": "deterministic_validate",
             "diagnostic_enrich": "diagnostic_enrich",
+            "root_cause_enrich": "root_cause_enrich",
             "whole_output": "whole_output",
         },
     )

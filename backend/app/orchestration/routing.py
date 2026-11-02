@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from app.diagnostic_intelligence.repair_policy import diagnostic_repair_is_tag_only
 from app.orchestration.contracts import OrchestrationRequest
-from app.orchestration.diagnostic_routing import pending_diagnostic_enrichment
+from app.orchestration.diagnostic_routing import (
+    diagnostics_finished,
+    pending_diagnostic_enrichment,
+)
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.state import OrchestrationGraphState
 
@@ -118,6 +121,20 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
     return "whole_output"
 
 
+def _root_cause_enrichment_pending(
+    state: OrchestrationGraphState, request: OrchestrationRequest
+) -> bool:
+    if not request.root_cause_enrichment_enabled():
+        return False
+    if not diagnostics_finished(state, request):
+        return False
+    results = state.get("root_cause_results") or []
+    drafts = state.get("draft_items") or []
+    if not drafts:
+        return not results
+    return len(results) < len(drafts)
+
+
 def route_after_human(state: OrchestrationGraphState) -> str:
     if pipeline_halted(state):
         return "whole_output"
@@ -127,4 +144,8 @@ def route_after_human(state: OrchestrationGraphState) -> str:
     request = OrchestrationRequest.model_validate(state["request"])
     if decision.get("action") == "approve" and pending_diagnostic_enrichment(state, request):
         return "diagnostic_enrich"
+    if decision.get("action") == "approve" and _root_cause_enrichment_pending(
+        state, request
+    ):
+        return "root_cause_enrich"
     return "whole_output"

@@ -94,22 +94,22 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
         status=CurriculumStatus.ACTIVE.value,
         metadata_json={},
     )
-    subject = CurriculumNode(
-        curriculum_version=version,
-        node_type=CurriculumNodeType.SUBJECT.value,
-        code="mathematics",
-        title="Mathematics",
-    )
     grade = CurriculumNode(
         curriculum_version=version,
-        parent=subject,
         node_type=CurriculumNodeType.GRADE_YEAR.value,
         code="grade-4",
         title="Grade 4",
     )
-    counting = CurriculumNode(
+    subject = CurriculumNode(
         curriculum_version=version,
         parent=grade,
+        node_type=CurriculumNodeType.SUBJECT.value,
+        code="mathematics",
+        title="Mathematics",
+    )
+    counting = CurriculumNode(
+        curriculum_version=version,
+        parent=subject,
         node_type=CurriculumNodeType.CONCEPT.value,
         code="counting-sequence",
         title="Counting",
@@ -117,7 +117,7 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
     )
     whole_add = CurriculumNode(
         curriculum_version=version,
-        parent=grade,
+        parent=subject,
         node_type=CurriculumNodeType.CONCEPT.value,
         code="whole-number-addition",
         title="Whole-number addition",
@@ -125,14 +125,14 @@ def _seed_production_institution_graph(session: Session) -> dict[str, str]:
     )
     multi_add = CurriculumNode(
         curriculum_version=version,
-        parent=grade,
+        parent=subject,
         node_type=CurriculumNodeType.CONCEPT.value,
         code="multi-step-addition",
         title="Multi-step addition",
         metadata_json={"grade_year_code": "grade-4", "subject_code": "mathematics"},
     )
     session.add_all(
-        [source, framework, pack, version, subject, grade, counting, whole_add, multi_add]
+        [source, framework, pack, version, grade, subject, counting, whole_add, multi_add]
     )
     session.flush()
     revision = SourceRevision(

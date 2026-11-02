@@ -8,6 +8,7 @@ from day10_source_lifecycle import (
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
+    mandatory_board_policy_rule,
 )
 from test_day10_r8_trust import (
     INST_A,
@@ -23,13 +24,10 @@ from test_day10_r11_trust import (
 )
 
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.enums import PolicyScopeType
-from app.models.policy import PolicyRule
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_resolver import (
-    PAPER_MANDATORY_POLICY_KEY,
     merge_scoped_mandatory_policy_payload,
 )
 from app.paper_distribution.target_policy_registry import (
@@ -191,15 +189,11 @@ def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> 
     session.flush()
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
-    rule = PolicyRule(
-        scope_type=PolicyScopeType.BOARD.value,
-        scope_code="cbse",
-        policy_key=PAPER_MANDATORY_POLICY_KEY,
+    rule = mandatory_board_policy_rule(
         value_json={
             "mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}],
         },
-        priority=10,
-        active=True,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
     )
     session.add(rule)
     session.flush()
