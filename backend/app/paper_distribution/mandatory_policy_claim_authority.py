@@ -7,6 +7,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.curator_auth.issuer import (
+    CuratorAuthError,
+    CuratorScope,
+    sign_durable_curator_approval,
+    verify_and_consume_curator_write_decision,
+    verify_durable_curator_approval,
+)
+from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.models.enums import PolicyScopeType, SourceRevisionStatus, SourceStatus, SourceTrustTier
 from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision, policy_rule_source_revisions
@@ -77,6 +85,47 @@ def mandatory_policy_claim_id(
     return stable_audit_ref("mandatory-policy-claim", payload)
 
 
+def mandatory_policy_approve_binding_payload(
+    *,
+    rule_id: str,
+    revision_id: str,
+    scope_type: str,
+    scope_code: str,
+    policy_key: str,
+    value_checksum: str,
+    rule_lifecycle_digest: str,
+) -> dict[str, Any]:
+    return {
+        "policy_rule_id": rule_id,
+        "source_revision_id": revision_id,
+        "scope_type": scope_type,
+        "scope_code": scope_code,
+        "policy_key": policy_key,
+        "value_checksum": value_checksum,
+        "rule_lifecycle_digest": rule_lifecycle_digest,
+    }
+
+
+def curator_scope_for_policy_rule(
+    rule: PolicyRule,
+    *,
+    organization_id: str,
+    institution_id: str,
+) -> CuratorScope:
+    board_code = None
+    teacher_id = None
+    if str(rule.scope_type) == PolicyScopeType.BOARD.value:
+        board_code = str(rule.scope_code)
+    elif str(rule.scope_type) == PolicyScopeType.TEACHER.value:
+        teacher_id = str(rule.scope_code)
+    return CuratorScope(
+        organization_id=str(organization_id),
+        institution_id=str(institution_id),
+        teacher_id=teacher_id,
+        board_code=board_code,
+    )
+
+
 def _latest_source_approved_audit(
     session: Session, revision_id: str
 ) -> SourceAuditEvent | None:
@@ -130,15 +179,9 @@ def _verify_mandatory_claim_actor(
     revision: SourceRevision,
     actor_id: str,
 ) -> None:
-    if not actor_id.strip():
-        raise MandatoryPolicyClaimAuthorityError("actor_id is required")
-    approved_by = str(revision.approved_by or "").strip()
-    rule_meta = rule.metadata_json or {}
-    allowed = {str(item) for item in rule_meta.get("mandatory_claim_approver_actor_ids") or []}
-    if approved_by:
-        allowed.add(approved_by)
-    if actor_id not in allowed:
-        raise MandatoryPolicyClaimAuthorityError("actor is not authorized for mandatory claim")
+    raise MandatoryPolicyClaimAuthorityError(
+        "legacy mandatory policy actor attestation is disabled; use authenticated curator decisions"
+    )
 
 
 def _mandatory_source_locator(rule: PolicyRule) -> str:
@@ -218,6 +261,9 @@ def approve_mandatory_policy_claim(
     policy_key: str,
     value_json: dict[str, Any],
     actor_id: str,
+    organization_id: str,
+    institution_id: str,
+    curator_decision_token: str,
     request_id: str | None = None,
 ) -> str:
     rule = session.get(PolicyRule, rule_id)
@@ -243,12 +289,36 @@ def approve_mandatory_policy_claim(
         raise MandatoryPolicyClaimAuthorityError("source revision is unknown")
     _revision_meets_mandatory_source_gate(session, revision)
     _verify_scope_source_trust(session, rule, revision)
-    _verify_mandatory_claim_actor(session, rule=rule, revision=revision, actor_id=actor_id)
     if not _rule_effective_on(rule):
         raise MandatoryPolicyClaimAuthorityError("policy rule is not effective")
 
     value_checksum = submitted_checksum
     lifecycle = _rule_lifecycle_digest(rule)
+    binding = mandatory_policy_approve_binding_payload(
+        rule_id=rule_id,
+        revision_id=revision_id,
+        scope_type=scope_type,
+        scope_code=scope_code,
+        policy_key=policy_key,
+        value_checksum=value_checksum,
+        rule_lifecycle_digest=lifecycle,
+    )
+    scope = curator_scope_for_policy_rule(
+        rule, organization_id=organization_id, institution_id=institution_id
+    )
+    try:
+        decision = verify_and_consume_curator_write_decision(
+            session,
+            token=curator_decision_token,
+            role=CuratorRole.MANDATORY_POLICY_CURATOR,
+            operation=CuratorOperation.MANDATORY_POLICY_APPROVE,
+            binding_payload=binding,
+            scope=scope,
+        )
+    except CuratorAuthError as exc:
+        raise MandatoryPolicyClaimAuthorityError(str(exc)) from exc
+    if decision.admin_actor_external_code != str(actor_id).strip():
+        raise MandatoryPolicyClaimAuthorityError("mandatory policy actor mismatch")
     claim_id = mandatory_policy_claim_id(
         policy_rule_id=rule_id,
         source_revision_id=revision_id,
@@ -266,21 +336,26 @@ def approve_mandatory_policy_claim(
             actor_id=actor_id,
             request_id=request_id,
             outcome="success",
-            payload_json={
-                "claim_id": claim_id,
-                "policy_rule_id": rule_id,
-                "scope_type": scope_type,
-                "scope_code": scope_code,
-                "policy_key": policy_key,
-                "value_checksum": value_checksum,
-                "rule_lifecycle_digest": lifecycle,
-                "rule_priority": int(rule.priority),
-                "effective_from": rule.effective_from.isoformat() if rule.effective_from else None,
-                "effective_to": rule.effective_to.isoformat() if rule.effective_to else None,
-                "mandatory_source_locator": _mandatory_source_locator(rule),
-                "approved_by": actor_id,
-                "claim_status": "active",
-            },
+            payload_json=sign_durable_curator_approval(
+                {
+                    "claim_id": claim_id,
+                    "policy_rule_id": rule_id,
+                    "scope_type": scope_type,
+                    "scope_code": scope_code,
+                    "policy_key": policy_key,
+                    "value_checksum": value_checksum,
+                    "rule_lifecycle_digest": lifecycle,
+                    "rule_priority": int(rule.priority),
+                    "effective_from": (
+                        rule.effective_from.isoformat() if rule.effective_from else None
+                    ),
+                    "effective_to": rule.effective_to.isoformat() if rule.effective_to else None,
+                    "mandatory_source_locator": _mandatory_source_locator(rule),
+                    "approved_by": actor_id,
+                    "claim_status": "active",
+                },
+                decision=decision,
+            ),
         )
     )
     session.flush()
@@ -296,6 +371,8 @@ def mandatory_policy_claim_active(
     scope_code: str,
     policy_key: str,
     value_json: dict[str, Any],
+    organization_id: str,
+    institution_id: str,
 ) -> bool:
     rule = session.get(PolicyRule, rule_id)
     if rule is None or not rule.active or not _rule_effective_on(rule):
@@ -336,6 +413,23 @@ def mandatory_policy_claim_active(
         if str(payload.get("claim_id") or "") != claim_id:
             continue
         if not _claim_payload_matches_rule(rule, payload):
+            continue
+        binding = mandatory_policy_approve_binding_payload(
+            rule_id=rule_id,
+            revision_id=revision_id,
+            scope_type=scope_type,
+            scope_code=scope_code,
+            policy_key=policy_key,
+            value_checksum=value_checksum,
+            rule_lifecycle_digest=lifecycle,
+        )
+        if not verify_durable_curator_approval(
+            session,
+            payload,
+            role=CuratorRole.MANDATORY_POLICY_CURATOR,
+            operation=CuratorOperation.MANDATORY_POLICY_APPROVE,
+            binding_payload=binding,
+        ):
             continue
         revoked = session.scalars(
             select(SourceAuditEvent).where(

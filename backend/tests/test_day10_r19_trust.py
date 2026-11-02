@@ -4,11 +4,13 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from day10_curator_auth import (
+    DEFAULT_MAPPING_CURATOR_SECRET,
+    approve_mapping_with_curator,
+    issue_mapping_revoke_decision,
+)
 from day10_source_lifecycle import (
-    DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_json_upload_source_approval,
-    ensure_mapping_curator_admin_actor,
-    ensure_mapping_curator_registry,
     mandatory_board_policy_rule,
 )
 from sqlalchemy import func, select
@@ -20,8 +22,10 @@ from test_day10_r8_trust import (
 from test_day10_r11_trust import (
     _MAPPING_SOURCE_LOCATOR,
 )
+from test_day10_r18_trust import _bootstrap_mapping_curator, _mapping_decision_token
 
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
+from app.curator_auth.issuer import CuratorAuthError
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.models.orchestration import OrchestrationAuditEvent
 from app.models.source import SourceAuditEvent, SourceRevision
@@ -41,9 +45,7 @@ from app.prerequisite_intelligence.authority import load_revision_record
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     MappingClaimAuthorityError,
-    MappingClaimWriterAttestation,
     approve_root_cause_mapping_claim,
-    issue_mapping_claim_writer_attestation,
     revoke_root_cause_mapping_claim,
 )
 from app.root_cause_intelligence.mapping_evidence import (
@@ -56,14 +58,7 @@ from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 def test_json_upload_source_integrity_allows_mapping_claim(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_mapping_curator_registry(session)
-    actor_id = f"{DEFAULT_MAPPING_CURATOR_ACTOR}@{ctx['institution_id'][:8]}"
-    ensure_mapping_curator_admin_actor(
-        session,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-        external_code=actor_id,
-    )
+    actor_id, _admin = _bootstrap_mapping_curator(session, ctx)
     revision, storage_root = ensure_genuine_json_upload_source_approval(
         session,
         tmp_path,
@@ -87,14 +82,15 @@ def test_json_upload_source_integrity_allows_mapping_claim(tmp_path: Path) -> No
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
     )
-    approve_root_cause_mapping_claim(
+    approve_mapping_with_curator(
         session,
         revision_id=revision.id,
         entry=entry,
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=approval_ctx,
-        attestation=issue_mapping_claim_writer_attestation(session, approval_ctx),
+        admin_external_code=actor_id,
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
         storage_root=storage_root,
     )
 
@@ -102,13 +98,7 @@ def test_json_upload_source_integrity_allows_mapping_claim(tmp_path: Path) -> No
 def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_mapping_curator_registry(session)
-    actor_id = DEFAULT_MAPPING_CURATOR_ACTOR
-    ensure_mapping_curator_admin_actor(
-        session,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-    )
+    actor_id, _admin = _bootstrap_mapping_curator(session, ctx)
     revision, storage_root = ensure_genuine_json_upload_source_approval(
         session,
         tmp_path,
@@ -131,6 +121,13 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
     )
+    token = _mapping_decision_token(
+        session,
+        {**ctx, "source_revision_id": revision.id},
+        actor_id,
+        entry,
+        source_locator=_MAPPING_SOURCE_LOCATOR,
+    )
     with pytest.raises(MappingClaimAuthorityError, match="integrity"):
         approve_root_cause_mapping_claim(
             session,
@@ -139,7 +136,7 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
             source_locator=_MAPPING_SOURCE_LOCATOR,
             mapping_registry_version="root-cause-mapping@v1",
             approval_context=approval_ctx,
-            attestation=issue_mapping_claim_writer_attestation(session, approval_ctx),
+            curator_decision_token=token,
             storage_root=storage_root,
         )
 
@@ -208,13 +205,7 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
     )
     session.add_all([teacher_a, teacher_b])
     session.flush()
-    ensure_mapping_curator_registry(session)
-    actor_id = DEFAULT_MAPPING_CURATOR_ACTOR
-    ensure_mapping_curator_admin_actor(
-        session,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-    )
+    actor_id, _admin = _bootstrap_mapping_curator(session, ctx)
     from day10_source_lifecycle import ensure_genuine_source_content_approval
 
     ensure_genuine_source_content_approval(
@@ -236,23 +227,25 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
         curriculum_version_id=ctx["curriculum_version_id"],
         teacher_id=teacher_b.id,
     )
-    claim_a = approve_root_cause_mapping_claim(
+    claim_a = approve_mapping_with_curator(
         session,
         revision_id=ctx["source_revision_id"],
         entry=entry,
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=ctx_a,
-        attestation=issue_mapping_claim_writer_attestation(session, ctx_a),
+        admin_external_code=actor_id,
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
-    claim_b = approve_root_cause_mapping_claim(
+    claim_b = approve_mapping_with_curator(
         session,
         revision_id=ctx["source_revision_id"],
         entry=entry,
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=ctx_b,
-        attestation=issue_mapping_claim_writer_attestation(session, ctx_b),
+        admin_external_code=actor_id,
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     assert claim_a != claim_b
     revoke_root_cause_mapping_claim(
@@ -260,6 +253,15 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
         revision_id=ctx["source_revision_id"],
         claim_id=claim_a,
         actor_id=actor_id,
+        approval_context=ctx_a,
+        curator_decision_token=issue_mapping_revoke_decision(
+            session,
+            admin_external_code=actor_id,
+            operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
+            approval_context=ctx_a,
+            revision_id=ctx["source_revision_id"],
+            claim_id=claim_a,
+        ),
     )
     session.flush()
     revoked = session.scalars(
@@ -275,13 +277,7 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
 def test_matched_actor_strings_without_valid_attestation_rejected(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_mapping_curator_registry(session)
-    actor_id = DEFAULT_MAPPING_CURATOR_ACTOR
-    ensure_mapping_curator_admin_actor(
-        session,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-    )
+    actor_id, _admin = _bootstrap_mapping_curator(session, ctx)
     from day10_source_lifecycle import ensure_genuine_source_content_approval
 
     ensure_genuine_source_content_approval(
@@ -295,15 +291,7 @@ def test_matched_actor_strings_without_valid_attestation_rejected(tmp_path: Path
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
     )
-    forged = MappingClaimWriterAttestation(
-        actor_external_code=actor_id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-        curriculum_version_id=ctx["curriculum_version_id"],
-        teacher_id=None,
-        attestation_ref="forged-ref",
-    )
-    with pytest.raises(MappingClaimAuthorityError, match="attestation"):
+    with pytest.raises(MappingClaimAuthorityError, match="signature|malformed|invalid"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],
@@ -311,7 +299,7 @@ def test_matched_actor_strings_without_valid_attestation_rejected(tmp_path: Path
             source_locator=_MAPPING_SOURCE_LOCATOR,
             mapping_registry_version="root-cause-mapping@v1",
             approval_context=approval_ctx,
-            attestation=forged,
+            curator_decision_token="forged.token.here",
         )
 
 

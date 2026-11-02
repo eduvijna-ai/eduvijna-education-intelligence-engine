@@ -7,6 +7,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.curator_auth.issuer import (
+    CuratorAuthError,
+    CuratorScope,
+    sign_durable_curator_approval,
+    verify_and_consume_curator_write_decision,
+    verify_durable_curator_approval,
+)
+from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.source import SourceAuditEvent
 from app.models.tenancy import AdminActor
@@ -59,30 +67,8 @@ class MappingClaimWriterAttestation:
 def issue_mapping_claim_writer_attestation(
     session: Session, approval_context: MappingClaimApprovalContext
 ) -> MappingClaimWriterAttestation:
-    actor_id = str(approval_context.actor_id).strip()
-    if not _verify_curator_principal(session, actor_id, approval_context):
-        raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
-    attestation_ref = stable_audit_ref(
-        "mapping-claim-writer-attestation",
-        json.dumps(
-            {
-                "actor_external_code": actor_id,
-                "organization_id": approval_context.organization_id,
-                "institution_id": approval_context.institution_id,
-                "curriculum_version_id": approval_context.curriculum_version_id,
-                "teacher_id": approval_context.teacher_id,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ),
-    )
-    return MappingClaimWriterAttestation(
-        actor_external_code=actor_id,
-        organization_id=str(approval_context.organization_id),
-        institution_id=str(approval_context.institution_id),
-        curriculum_version_id=str(approval_context.curriculum_version_id),
-        teacher_id=approval_context.teacher_id,
-        attestation_ref=attestation_ref,
+    raise MappingClaimAuthorityError(
+        "legacy mapping writer attestation is disabled; use authenticated curator decisions"
     )
 
 
@@ -149,6 +135,42 @@ def mapping_claim_id(
         separators=(",", ":"),
     )
     return stable_audit_ref("root-cause-mapping-claim", payload)
+
+
+def mapping_approve_binding_payload(
+    *,
+    revision_id: str,
+    entry: MisconceptionConceptMapping,
+    source_locator: str,
+    mapping_registry_version: str,
+    approval_context: MappingClaimApprovalContext,
+) -> dict[str, Any]:
+    return {
+        "revision_id": revision_id,
+        "misconception_code": entry.misconception_code,
+        "candidate_concept_codes": sorted(str(code) for code in entry.candidate_concept_codes),
+        "source_locator": source_locator.strip(),
+        "mapping_registry_version": mapping_registry_version,
+        "organization_id": approval_context.organization_id,
+        "institution_id": approval_context.institution_id,
+        "curriculum_version_id": approval_context.curriculum_version_id,
+        "teacher_id": approval_context.teacher_id or "",
+    }
+
+
+def mapping_revoke_binding_payload(*, revision_id: str, claim_id: str) -> dict[str, Any]:
+    return {"revision_id": revision_id, "claim_id": claim_id}
+
+
+def curator_scope_from_mapping_context(
+    approval_context: MappingClaimApprovalContext,
+) -> CuratorScope:
+    return CuratorScope(
+        organization_id=str(approval_context.organization_id),
+        institution_id=str(approval_context.institution_id),
+        curriculum_version_id=str(approval_context.curriculum_version_id),
+        teacher_id=approval_context.teacher_id,
+    )
 
 
 def _curator_actor_authorized(session: Session, actor_id: str) -> bool:
@@ -273,15 +295,35 @@ def approve_root_cause_mapping_claim(
     source_locator: str,
     mapping_registry_version: str,
     approval_context: MappingClaimApprovalContext,
-    attestation: MappingClaimWriterAttestation,
+    curator_decision_token: str,
+    attestation: MappingClaimWriterAttestation | None = None,
     request_id: str | None = None,
     storage_root: str | None = None,
 ) -> str:
-    if not _verify_writer_attestation(attestation, approval_context):
-        raise MappingClaimAuthorityError("mapping claim writer attestation is invalid")
-    actor_id = str(approval_context.actor_id).strip()
-    if not _verify_curator_principal(session, actor_id, approval_context):
-        raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
+    if attestation is not None:
+        raise MappingClaimAuthorityError(
+            "legacy mapping writer attestation is disabled; use authenticated curator decisions"
+        )
+    scope = curator_scope_from_mapping_context(approval_context)
+    binding = mapping_approve_binding_payload(
+        revision_id=revision_id,
+        entry=entry,
+        source_locator=source_locator,
+        mapping_registry_version=mapping_registry_version,
+        approval_context=approval_context,
+    )
+    try:
+        decision = verify_and_consume_curator_write_decision(
+            session,
+            token=curator_decision_token,
+            role=CuratorRole.MAPPING_CURATOR,
+            operation=CuratorOperation.MAPPING_APPROVE,
+            binding_payload=binding,
+            scope=scope,
+        )
+    except CuratorAuthError as exc:
+        raise MappingClaimAuthorityError(str(exc)) from exc
+    actor_id = decision.admin_actor_external_code
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
@@ -353,27 +395,30 @@ def approve_root_cause_mapping_claim(
             source_id=record.source_id,
             source_revision_id=revision_id,
             event_type=MAPPING_CLAIM_APPROVED_EVENT,
-            actor_id=approval_context.actor_id,
+            actor_id=actor_id,
             request_id=request_id,
             outcome="success",
-            payload_json={
-                "claim_id": claim_id,
-                "misconception_code": entry.misconception_code,
-                "candidate_concept_codes": list(entry.candidate_concept_codes),
-                "source_locator": locator,
-                "source_span_excerpt": excerpt[:256],
-                "source_span_checksum": span_checksum,
-                "mapping_registry_version": mapping_registry_version,
-                "mapping_evidence_checksum": evidence_checksum,
-                "source_content_checksum": content_checksum,
-                "source_approval_fingerprint": record.approval_fingerprint,
-                "approved_by": approval_context.actor_id,
-                "organization_id": approval_context.organization_id,
-                "institution_id": approval_context.institution_id,
-                "curriculum_version_id": approval_context.curriculum_version_id,
-                "teacher_id": approval_context.teacher_id,
-                "claim_status": "active",
-            },
+            payload_json=sign_durable_curator_approval(
+                {
+                    "claim_id": claim_id,
+                    "misconception_code": entry.misconception_code,
+                    "candidate_concept_codes": list(entry.candidate_concept_codes),
+                    "source_locator": locator,
+                    "source_span_excerpt": excerpt[:256],
+                    "source_span_checksum": span_checksum,
+                    "mapping_registry_version": mapping_registry_version,
+                    "mapping_evidence_checksum": evidence_checksum,
+                    "source_content_checksum": content_checksum,
+                    "source_approval_fingerprint": record.approval_fingerprint,
+                    "approved_by": actor_id,
+                    "organization_id": approval_context.organization_id,
+                    "institution_id": approval_context.institution_id,
+                    "curriculum_version_id": approval_context.curriculum_version_id,
+                    "teacher_id": approval_context.teacher_id,
+                    "claim_status": "active",
+                },
+                decision=decision,
+            ),
         )
     )
     session.flush()
@@ -386,10 +431,25 @@ def revoke_root_cause_mapping_claim(
     revision_id: str,
     claim_id: str,
     actor_id: str,
+    curator_decision_token: str,
+    approval_context: MappingClaimApprovalContext,
     request_id: str | None = None,
 ) -> None:
-    if not _curator_admin_actor_active(session, actor_id):
-        raise MappingClaimAuthorityError("mapping claim actor is not an authorized curator")
+    scope = curator_scope_from_mapping_context(approval_context)
+    binding = mapping_revoke_binding_payload(revision_id=revision_id, claim_id=claim_id)
+    try:
+        decision = verify_and_consume_curator_write_decision(
+            session,
+            token=curator_decision_token,
+            role=CuratorRole.MAPPING_CURATOR,
+            operation=CuratorOperation.MAPPING_REVOKE,
+            binding_payload=binding,
+            scope=scope,
+        )
+    except CuratorAuthError as exc:
+        raise MappingClaimAuthorityError(str(exc)) from exc
+    if decision.admin_actor_external_code != str(actor_id).strip():
+        raise MappingClaimAuthorityError("mapping claim revoke actor mismatch")
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
@@ -499,7 +559,26 @@ def _active_mapping_claim_audit(
             continue
         if not str(payload.get("approved_by") or "").strip():
             continue
-        if not _curator_admin_actor_active(session, str(payload.get("approved_by") or "")):
+        binding = mapping_approve_binding_payload(
+            revision_id=revision_id,
+            entry=entry,
+            source_locator=locator,
+            mapping_registry_version=registry_version,
+            approval_context=MappingClaimApprovalContext(
+                actor_id=str(payload.get("approved_by") or ""),
+                organization_id=str(payload.get("organization_id") or ""),
+                institution_id=str(payload.get("institution_id") or ""),
+                curriculum_version_id=str(payload.get("curriculum_version_id") or ""),
+                teacher_id=str(payload.get("teacher_id") or "") or None,
+            ),
+        )
+        if not verify_durable_curator_approval(
+            session,
+            payload,
+            role=CuratorRole.MAPPING_CURATOR,
+            operation=CuratorOperation.MAPPING_APPROVE,
+            binding_payload=binding,
+        ):
             continue
         if not claim_scope_matches_graph(payload, graph_scope):
             continue

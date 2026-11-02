@@ -131,6 +131,8 @@ def _revision_authorized_for_policy(session: Session, rule: PolicyRule) -> bool:
             scope_code=str(rule.scope_code),
             policy_key=str(rule.policy_key),
             value_json=dict(rule.value_json or {}),
+            organization_id=str(source.organization_id or ""),
+            institution_id=str(source.institution_id or ""),
         ):
             return False
     return True

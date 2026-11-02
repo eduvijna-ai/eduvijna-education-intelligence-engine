@@ -6,13 +6,11 @@ import pytest
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_source_content_approval,
-    ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
     mandatory_board_policy_rule,
     mandatory_institution_policy_rule,
     mandatory_teacher_policy_rule,
 )
-from sqlalchemy.orm import Session
 from test_day10_r8_trust import (
     INST_A,
     INST_B,
@@ -25,10 +23,14 @@ from test_day10_r11_trust import (
     _MAPPING_SOURCE_LOCATOR,
     _approve_revision_mapping_binding,
 )
+from test_day10_r18_trust import (
+    _approve_mandatory_policy_for_rule,
+    _bootstrap_mapping_curator,
+    _mapping_decision_token,
+)
 
 from app.common.trust_execution import TrustExecutionMode
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.policy import PolicyRule
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
 from app.paper_distribution.contracts import (
@@ -37,9 +39,6 @@ from app.paper_distribution.contracts import (
     PaperItemInput,
 )
 from app.paper_distribution.execution_context import PaperExecutionContext
-from app.paper_distribution.mandatory_policy_claim_authority import (
-    approve_mandatory_policy_claim,
-)
 from app.paper_distribution.mandatory_policy_resolver import (
     mandatory_policy_context_errors,
     merge_scoped_mandatory_policy_payload,
@@ -62,40 +61,15 @@ from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     MappingClaimAuthorityError,
     approve_root_cause_mapping_claim,
-    issue_mapping_claim_writer_attestation,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
 
 
-def _approve_mandatory_policy_for_rule(
-    session: Session,
-    *,
-    rule: PolicyRule,
-    revision_id: str,
-    actor_id: str = "founder-day10-trust",
-) -> None:
-    approve_mandatory_policy_claim(
-        session,
-        rule_id=str(rule.id),
-        revision_id=revision_id,
-        scope_type=str(rule.scope_type),
-        scope_code=str(rule.scope_code),
-        policy_key=str(rule.policy_key),
-        value_json=dict(rule.value_json or {}),
-        actor_id=actor_id,
-    )
-
-
 def test_mutated_manual_metadata_excerpt_rejects_new_mapping_claim(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_mapping_curator_registry(session)
-    ensure_mapping_curator_admin_actor(
-        session,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-    )
+    actor_id, _admin = _bootstrap_mapping_curator(session, ctx)
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
@@ -109,6 +83,9 @@ def test_mutated_manual_metadata_excerpt_rejects_new_mapping_claim(tmp_path: Pat
     session.flush()
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
+    token = _mapping_decision_token(
+        session, ctx, actor_id, entry, source_locator=_MAPPING_SOURCE_LOCATOR
+    )
     with pytest.raises(MappingClaimAuthorityError, match="integrity|metadata excerpt"):
         approve_root_cause_mapping_claim(
             session,
@@ -117,20 +94,12 @@ def test_mutated_manual_metadata_excerpt_rejects_new_mapping_claim(tmp_path: Pat
             source_locator=_MAPPING_SOURCE_LOCATOR,
             mapping_registry_version="root-cause-mapping@v1",
             approval_context=MappingClaimApprovalContext(
-                actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+                actor_id=actor_id,
                 organization_id=ctx["organization_id"],
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
-            attestation=issue_mapping_claim_writer_attestation(
-                session,
-                MappingClaimApprovalContext(
-                    actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
-                    organization_id=ctx["organization_id"],
-                    institution_id=ctx["institution_id"],
-                    curriculum_version_id=ctx["curriculum_version_id"],
-                ),
-            ),
+            curator_decision_token=token,
         )
 
 
@@ -143,7 +112,7 @@ def test_registry_string_without_admin_actor_rejected(tmp_path: Path) -> None:
     )
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
-    with pytest.raises(MappingClaimAuthorityError, match="authorized curator"):
+    with pytest.raises(MappingClaimAuthorityError, match="credential|provisioned|curator"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],
@@ -156,15 +125,7 @@ def test_registry_string_without_admin_actor_rejected(tmp_path: Path) -> None:
                 institution_id=ctx["institution_id"],
                 curriculum_version_id=ctx["curriculum_version_id"],
             ),
-            attestation=issue_mapping_claim_writer_attestation(
-                session,
-                MappingClaimApprovalContext(
-                    actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
-                    organization_id=ctx["organization_id"],
-                    institution_id=ctx["institution_id"],
-                    curriculum_version_id=ctx["curriculum_version_id"],
-                ),
-            ),
+            curator_decision_token="invalid",
         )
 
 
@@ -229,8 +190,20 @@ def test_board_institution_exact_count_conflict(tmp_path: Path) -> None:
     session.add(inst_rule)
     session.flush()
     revision.policy_rules.extend([board_rule, inst_rule])
-    _approve_mandatory_policy_for_rule(session, rule=board_rule, revision_id=revision.id)
-    _approve_mandatory_policy_for_rule(session, rule=inst_rule, revision_id=revision.id)
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=board_rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=inst_rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
     ensure_paper_target_policy_configured(session)
     session.commit()
     payload = merge_scoped_mandatory_policy_payload(
@@ -322,8 +295,20 @@ def test_paper_targets_reject_board_teacher_exact_percent_conflict(tmp_path: Pat
     session.add(teacher_rule)
     session.flush()
     revision.policy_rules.extend([board_rule, teacher_rule])
-    _approve_mandatory_policy_for_rule(session, rule=board_rule, revision_id=revision.id)
-    _approve_mandatory_policy_for_rule(session, rule=teacher_rule, revision_id=revision.id)
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=board_rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=teacher_rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
     ensure_paper_target_policy_configured(session)
     session.commit()
     request = PaperDistributionRequest(

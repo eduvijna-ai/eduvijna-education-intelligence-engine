@@ -171,7 +171,13 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     revision.policy_rules.append(rule)
-    _approve_mandatory_policy_for_rule(session, rule=rule, revision_id=revision.id)
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
     assert mandatory_policy_claim_active(
         session,
         rule_id=str(rule.id),
@@ -180,6 +186,8 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
         scope_code=str(rule.scope_code),
         policy_key=PAPER_MANDATORY_POLICY_KEY,
         value_json=dict(rule.value_json or {}),
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
     )
     rule.priority = 99
     session.flush()
@@ -191,6 +199,8 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
         scope_code=str(rule.scope_code),
         policy_key=PAPER_MANDATORY_POLICY_KEY,
         value_json=dict(rule.value_json or {}),
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
     )
 
 
@@ -220,6 +230,9 @@ def test_mandatory_claim_rejects_ungrounded_locator(tmp_path: Path) -> None:
             policy_key=str(rule.policy_key),
             value_json=dict(rule.value_json or {}),
             actor_id="founder-day10-trust",
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            curator_decision_token="invalid",
         )
 
 
@@ -366,7 +379,13 @@ def test_mandatory_claim_active_for_default_priority_zero(tmp_path: Path) -> Non
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     revision.policy_rules.append(rule)
-    _approve_mandatory_policy_for_rule(session, rule=rule, revision_id=revision.id)
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
     assert mandatory_policy_claim_active(
         session,
         rule_id=str(rule.id),
@@ -375,6 +394,8 @@ def test_mandatory_claim_active_for_default_priority_zero(tmp_path: Path) -> Non
         scope_code=str(rule.scope_code),
         policy_key=PAPER_MANDATORY_POLICY_KEY,
         value_json=dict(rule.value_json or {}),
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
     )
 
 

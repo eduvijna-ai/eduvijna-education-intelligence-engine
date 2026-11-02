@@ -4,9 +4,16 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from day10_curator_auth import (
+    DEFAULT_POLICY_CURATOR_SECRET,
+    approve_mandatory_policy_with_curator,
+    ensure_mandatory_policy_curator_credential,
+    issue_mandatory_policy_approve_decision,
+)
 from day10_day6_binding import seed_production_day6_audit
 from day10_source_lifecycle import (
     ensure_genuine_json_upload_source_approval,
+    ensure_mapping_curator_admin_actor,
     mandatory_board_policy_rule,
 )
 from sqlalchemy import func, select
@@ -565,6 +572,22 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
     session.flush()
     revision.policy_rules.append(rule)
     session.flush()
+    actor_id = "founder-day10-trust"
+    admin = ensure_mapping_curator_admin_actor(
+        session,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        external_code=actor_id,
+        display_name="Day10 policy curator",
+    )
+    ensure_mandatory_policy_curator_credential(
+        session,
+        admin,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        board_code=str(rule.scope_code),
+        operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
+    )
     with pytest.raises(MandatoryPolicyClaimAuthorityError, match="not bound"):
         approve_mandatory_policy_claim(
             session,
@@ -574,9 +597,28 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
             scope_code=str(rule.scope_code),
             policy_key=str(rule.policy_key),
             value_json=dict(rule.value_json or {}),
-            actor_id="founder-day10-trust",
+            actor_id=actor_id,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            curator_decision_token="invalid",
         )
-    with pytest.raises(MandatoryPolicyClaimAuthorityError, match="authorized"):
+    from app.paper_distribution.mandatory_policy_claim_authority import (
+        _policy_value_checksum,
+        _rule_lifecycle_digest,
+    )
+
+    valid_token = issue_mandatory_policy_approve_decision(
+        session,
+        admin_external_code=actor_id,
+        operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        rule=rule,
+        revision_id=revision.id,
+        value_checksum=_policy_value_checksum(dict(rule.value_json or {})),
+        rule_lifecycle_digest=_rule_lifecycle_digest(rule),
+    )
+    with pytest.raises(MandatoryPolicyClaimAuthorityError, match="actor mismatch"):
         approve_mandatory_policy_claim(
             session,
             rule_id=str(rule.id),
@@ -586,16 +628,18 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
             policy_key=str(rule.policy_key),
             value_json=dict(rule.value_json or {}),
             actor_id="random-actor",
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            curator_decision_token=valid_token,
         )
-    claim_id = approve_mandatory_policy_claim(
+    claim_id = approve_mandatory_policy_with_curator(
         session,
-        rule_id=str(rule.id),
+        rule=rule,
         revision_id=revision.id,
-        scope_type=str(rule.scope_type),
-        scope_code=str(rule.scope_code),
-        policy_key=str(rule.policy_key),
-        value_json=dict(rule.value_json or {}),
-        actor_id="founder-day10-trust",
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        actor_id=actor_id,
+        policy_curator_secret=DEFAULT_POLICY_CURATOR_SECRET,
     )
     assert claim_id
 
@@ -620,7 +664,13 @@ def test_board_mandatory_apply40_paper_pass_fail_after_claim_gate(tmp_path: Path
     session.add(rule)
     session.flush()
     revision.policy_rules.append(rule)
-    _approve_mandatory_policy_for_rule(session, rule=rule, revision_id=revision.id)
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
     ensure_paper_target_policy_configured(session)
     session.commit()
     apply_paper, apply_trust = _apply_paper_with_day6_bindings(session, ctx, apply_count=4)

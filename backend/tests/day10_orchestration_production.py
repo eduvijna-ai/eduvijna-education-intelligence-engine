@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from day10_curator_auth import (
+    DEFAULT_MAPPING_CURATOR_SECRET,
+    approve_mapping_with_curator,
+    ensure_mapping_curator_credential,
+)
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_source_content_approval,
@@ -33,11 +38,7 @@ from app.root_cause_intelligence.mapping_authority import (
     ROOT_CAUSE_MAPPING_AUTHORITY_KEY,
     ROOT_CAUSE_MAPPING_AUTHORITY_VERSION,
 )
-from app.root_cause_intelligence.mapping_claim_authority import (
-    MappingClaimApprovalContext,
-    approve_root_cause_mapping_claim,
-    issue_mapping_claim_writer_attestation,
-)
+from app.root_cause_intelligence.mapping_claim_authority import MappingClaimApprovalContext
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 
 
@@ -133,10 +134,18 @@ def seed_day10_production_orchestration(
         session.flush()
     ctx["grade_year_code"] = "grade-8"
     ensure_mapping_curator_registry(session)
-    ensure_mapping_curator_admin_actor(
+    admin = ensure_mapping_curator_admin_actor(
         session,
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
+    )
+    ensure_mapping_curator_credential(
+        session,
+        admin,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     ensure_genuine_source_content_approval(
         session,
@@ -163,14 +172,14 @@ def seed_day10_production_orchestration(
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
     )
-    approve_root_cause_mapping_claim(
+    approve_mapping_with_curator(
         session,
         revision_id=ctx["source_revision_id"],
         entry=entry,
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=approval_ctx,
-        attestation=issue_mapping_claim_writer_attestation(session, approval_ctx),
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     if revision is not None:

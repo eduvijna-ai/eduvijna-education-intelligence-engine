@@ -4,6 +4,10 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from day10_curator_auth import (
+    DEFAULT_MAPPING_CURATOR_SECRET,
+    issue_mapping_revoke_decision,
+)
 from day10_day6_binding import seed_production_day6_audit
 from day10_source_lifecycle import (
     ensure_genuine_source_content_approval,
@@ -51,6 +55,7 @@ from app.root_cause_intelligence.mapping_authority import (
 )
 from app.root_cause_intelligence.mapping_claim_authority import (
     MAPPING_CLAIM_APPROVED_EVENT,
+    MappingClaimApprovalContext,
     revoke_root_cause_mapping_claim,
 )
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
@@ -162,6 +167,25 @@ def test_revoked_mapping_claim_blocks_production(tmp_path: Path) -> None:
         revision_id=ctx["source_revision_id"],
         claim_id=claim_id,
         actor_id=actor_id,
+        approval_context=MappingClaimApprovalContext(
+            actor_id=actor_id,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            curriculum_version_id=ctx["curriculum_version_id"],
+        ),
+        curator_decision_token=issue_mapping_revoke_decision(
+            session,
+            admin_external_code=actor_id,
+            operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
+            approval_context=MappingClaimApprovalContext(
+                actor_id=actor_id,
+                organization_id=ctx["organization_id"],
+                institution_id=ctx["institution_id"],
+                curriculum_version_id=ctx["curriculum_version_id"],
+            ),
+            revision_id=ctx["source_revision_id"],
+            claim_id=claim_id,
+        ),
     )
     session.add(
         PolicyRegistryEntry(

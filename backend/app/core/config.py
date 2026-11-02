@@ -23,6 +23,14 @@ UNSAFE_API_SECRETS = frozenset(
     }
 )
 
+UNSAFE_CURATOR_SIGNING_KEYS = frozenset(
+    {
+        "",
+        LOCAL_API_SECRET,
+        "change-me-for-non-local-use",
+    }
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -47,12 +55,20 @@ class Settings(BaseSettings):
     source_max_bytes: int = Field(default=25 * 1024 * 1024, gt=0)
     source_url_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     source_max_redirects: int = Field(default=3, ge=0, le=10)
+    curator_approval_signing_key: str | None = None
+    curator_approval_signing_key_id: str = "curator-approval-v1"
 
     @model_validator(mode="after")
     def require_non_local_secret(self) -> Settings:
         environment = self.app_env.strip().lower()
         if environment != "local" and self.api_secret_key in UNSAFE_API_SECRETS:
             raise ValueError("API_SECRET_KEY must be explicitly configured outside local mode")
+        if environment != "local":
+            key = (self.curator_approval_signing_key or "").strip()
+            if not key or key in UNSAFE_CURATOR_SIGNING_KEYS:
+                raise ValueError(
+                    "CURATOR_APPROVAL_SIGNING_KEY must be explicitly configured outside local mode"
+                )
         return self
 
     @property

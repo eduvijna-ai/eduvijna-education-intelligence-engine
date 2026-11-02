@@ -3,6 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from day10_curator_auth import (
+    DEFAULT_MAPPING_CURATOR_SECRET,
+    approve_mapping_with_curator,
+    ensure_mapping_curator_credential,
+)
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
     ensure_genuine_source_content_approval,
@@ -63,11 +68,7 @@ from app.root_cause_intelligence.mapping_authority import (
     mapping_evidence_checksum,
     source_content_checksum,
 )
-from app.root_cause_intelligence.mapping_claim_authority import (
-    MappingClaimApprovalContext,
-    approve_root_cause_mapping_claim,
-    issue_mapping_claim_writer_attestation,
-)
+from app.root_cause_intelligence.mapping_claim_authority import MappingClaimApprovalContext
 from app.root_cause_intelligence.mapping_evidence import resolve_approved_source_span
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.ranking import project_hypothesis_authorized_paths
@@ -94,11 +95,19 @@ def _approve_revision_mapping_binding(
 ) -> dict[str, object]:
     ensure_mapping_curator_registry(session)
     actor_id = f"{DEFAULT_MAPPING_CURATOR_ACTOR}@{ctx['institution_id'][:8]}"
-    ensure_mapping_curator_admin_actor(
+    admin = ensure_mapping_curator_admin_actor(
         session,
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         external_code=actor_id,
+    )
+    ensure_mapping_curator_credential(
+        session,
+        admin,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     if not skip_source_reapproval:
         ensure_genuine_source_content_approval(
@@ -148,27 +157,21 @@ def _approve_revision_mapping_binding(
         for mapping in registry.mappings
         if mapping.misconception_code == "MATH.ADD.WHOLE.OFF_BY_ONE_LOW"
     )
-    approve_root_cause_mapping_claim(
+    approval_ctx = MappingClaimApprovalContext(
+        actor_id=actor_id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+    )
+    approve_mapping_with_curator(
         session,
         revision_id=revision_id,
         entry=entry,
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
-        approval_context=MappingClaimApprovalContext(
-            actor_id=actor_id,
-            organization_id=ctx["organization_id"],
-            institution_id=ctx["institution_id"],
-            curriculum_version_id=ctx["curriculum_version_id"],
-        ),
-        attestation=issue_mapping_claim_writer_attestation(
-            session,
-            MappingClaimApprovalContext(
-                actor_id=actor_id,
-                organization_id=ctx["organization_id"],
-                institution_id=ctx["institution_id"],
-                curriculum_version_id=ctx["curriculum_version_id"],
-            ),
-        ),
+        approval_context=approval_ctx,
+        admin_external_code=actor_id,
+        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     session.flush()
     return overlay

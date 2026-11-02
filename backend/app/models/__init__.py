@@ -1,3 +1,4 @@
+from app.models.curator_auth import CuratorDecisionNonce, CuratorOperatorCredential
 from app.models.curriculum import (
     Competency,
     ConceptPrerequisite,
@@ -39,6 +40,8 @@ __all__ = [
     "AdminActor",
     "ApiClient",
     "AssessmentEvidence",
+    "CuratorDecisionNonce",
+    "CuratorOperatorCredential",
     "Competency",
     "ConceptPrerequisite",
     "CurriculumAlignment",
