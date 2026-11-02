@@ -25,7 +25,6 @@ from test_day10_r11_trust import (
 from test_day10_r18_trust import _bootstrap_mapping_curator, _mapping_decision_token
 
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
-from app.curator_auth.issuer import CuratorAuthError
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.models.orchestration import OrchestrationAuditEvent
 from app.models.source import SourceAuditEvent, SourceRevision
