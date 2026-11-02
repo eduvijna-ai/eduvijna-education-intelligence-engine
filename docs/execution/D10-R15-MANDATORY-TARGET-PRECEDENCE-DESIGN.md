@@ -1,6 +1,6 @@
 # D10-R15 — Mandatory distribution target precedence (design proposal)
 
-**Status:** PARTIAL — not implemented in Round 15. Founder/design review required before write authority.
+**Status:** PARTIAL — board/institution/teacher resolver implemented in `mandatory_policy_resolver.py` (PolicyRule + `policy_rule_source_revisions`); full D10-28/29 audit/precedence matrix still incomplete.
 
 ## Gap
 
@@ -12,7 +12,7 @@ D10-28 / D10-29 require **board > institution > teacher** mandatory target prece
 
 1. **Policy key:** `paper_distribution_mandatory_targets` on `PolicyRule` with `value_json` carrying cognitive/competency mandatory exact_count, exact_percent, and min/max ranges (same shape as today’s registry payload subsets).
 2. **Scope:** `scope_type` in `{board, institution, teacher}` with `scope_code` matching authenticated `PaperExecutionContext` (board from institution metadata, not free-form client input).
-3. **Authority:** each rule links to one or more active `SourceRevision` IDs via `policy_rule_sources`; resolver rejects foreign, revoked, superseded, or curriculum-unbound revisions.
+3. **Authority:** each rule links to one or more active `SourceRevision` IDs via `policy_rule_source_revisions`; resolver rejects foreign, revoked, superseded, or curriculum-unbound revisions.
 4. **Precedence:** sort by scope rank (board=3, institution=2, teacher=1), then `priority`, then `effective_from`. Lower scope may **tighten** compatible ranges but must not contradict superior mandatory exact_count / exact_percent / range intersection results.
 5. **Write path:** internal service method (no public REST) records rule activation only after source revision approval + optional `SourceAuditEvent` `paper_target_policy_approved` mirroring mapping-claim pattern.
 6. **Merge:** `merge_mandatory_distribution_targets` consumes resolver output instead of a single global registry row; voluntary caller targets remain separate and audited.

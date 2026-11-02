@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.common.trust_execution import TrustExecutionMode
 from app.prerequisite_intelligence.audit import build_graph_quality_report
-from app.prerequisite_intelligence.contracts import GraphTraversalLimits
+from app.prerequisite_intelligence.contracts import GraphTraversalLimits, PrerequisiteGraphScope
 from app.prerequisite_intelligence.enums import (
     EdgeProvenanceClass,
     GraphAuditStatus,
@@ -16,6 +16,7 @@ from app.root_cause_intelligence.contracts import (
     RootCauseHypothesis,
     RootCauseResult,
 )
+from app.root_cause_intelligence.day6_binding_verify import day6_binding_matches_persisted_run
 from app.root_cause_intelligence.enums import (
     DEFAULT_ROOT_CAUSE_MAPPING_VERSION,
     RootCauseIssueCode,
@@ -49,9 +50,16 @@ class RootCauseIntelligenceService:
         control_session: Session | None = None,
     ) -> RootCauseResult:
         preflight = run_root_cause_preflight(request, trusted=trusted)
+        overlay_scope = PrerequisiteGraphScope(
+            curriculum_version_id=request.curriculum_version_id,
+            organization_id=request.organization_id,
+            institution_id=request.institution_id,
+            teacher_id=request.teacher_id,
+        )
         mapping = apply_mapping_authority_overlay(
             control_session,
             load_root_cause_mapping(DEFAULT_ROOT_CAUSE_MAPPING_VERSION),
+            graph_scope=overlay_scope,
         )
         mapping_entry = mapping.resolve(request.misconception_code)
         issue_codes = list(preflight.issue_codes)
@@ -89,6 +97,22 @@ class RootCauseIntelligenceService:
             )
             issue_codes.extend(trust_issues)
             field_paths.extend(trust_paths)
+
+        if (
+            execution_mode == TrustExecutionMode.PRODUCTION
+            and control_session is not None
+            and request.day6_validation_run_id
+        ):
+            if not day6_binding_matches_persisted_run(
+                control_session,
+                item_id=request.item_id,
+                validation_run_id=request.day6_validation_run_id,
+                input_hash=request.day6_input_hash,
+                learning_outcome_ids=request.learning_outcome_ids,
+                competency_codes=request.competency_codes,
+            ):
+                issue_codes.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+                field_paths.append("day6_binding")
 
         scope_issues, scope_paths, scope_blocking, canonical_graph_snapshot = (
             validate_graph_snapshot_attestation(

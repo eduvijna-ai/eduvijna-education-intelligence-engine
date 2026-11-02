@@ -54,6 +54,7 @@ def _revision_supports_mapping_binding(
     overlay: dict[str, Any],
     *,
     registry_version: str,
+    graph_scope: PrerequisiteGraphScope,
 ) -> bool:
     if record.source_status != SourceStatus.ACTIVE.value:
         return False
@@ -63,6 +64,7 @@ def _revision_supports_mapping_binding(
         entry,
         overlay,
         registry_version=registry_version,
+        graph_scope=graph_scope,
     )
 
 
@@ -96,6 +98,21 @@ def _overlay_matches_entry(
         return False
     if not str(raw.get("mapping_evidence_checksum") or "").strip():
         return False
+    if not str(raw.get("source_span_checksum") or "").strip():
+        return False
+    return True
+
+
+def _overlay_matches_scope(
+    raw: dict[str, Any], graph_scope: PrerequisiteGraphScope | None
+) -> bool:
+    if graph_scope is None:
+        return True
+    for field in ("organization_id", "institution_id", "curriculum_version_id"):
+        overlay_val = raw.get(field)
+        scope_val = getattr(graph_scope, field, None)
+        if overlay_val and scope_val and str(overlay_val) != str(scope_val):
+            return False
     return True
 
 
@@ -104,23 +121,34 @@ def _find_approved_overlay(
     entry: MisconceptionConceptMapping,
     *,
     registry_version: str,
+    graph_scope: PrerequisiteGraphScope | None = None,
 ) -> dict[str, Any] | None:
     payload = _overlay_payload(session)
     if not payload:
         return None
     overlays_raw = payload.get("overlays")
     overlays: list[Any] = list(overlays_raw) if isinstance(overlays_raw, list) else []
+    matches: list[dict[str, Any]] = []
     for raw in overlays:
         if not isinstance(raw, dict):
             continue
-        if _overlay_matches_entry(raw, entry, registry_version=registry_version):
-            return raw
+        if not _overlay_matches_entry(raw, entry, registry_version=registry_version):
+            continue
+        if not _overlay_matches_scope(raw, graph_scope):
+            continue
+        matches.append(raw)
+    if len(matches) > 1:
+        return None
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
 def apply_mapping_authority_overlay(
     session: Session | None,
     registry: RootCauseMappingRegistry,
+    *,
+    graph_scope: PrerequisiteGraphScope | None = None,
 ) -> RootCauseMappingRegistry:
     if session is None:
         return registry
@@ -132,14 +160,11 @@ def apply_mapping_authority_overlay(
     if not overlays:
         return registry
     by_code = {entry.misconception_code: entry for entry in registry.mappings}
-    for raw in overlays:
-        if not isinstance(raw, dict):
-            continue
-        code = str(raw.get("misconception_code") or "")
-        if not code or code not in by_code:
-            continue
-        base = by_code[code]
-        if not _overlay_matches_entry(raw, base, registry_version=registry.version):
+    for code, base in list(by_code.items()):
+        raw = _find_approved_overlay(
+            session, base, registry_version=registry.version, graph_scope=graph_scope
+        )
+        if raw is None:
             continue
         source_ids = [str(item) for item in raw.get("source_revision_ids") or [] if item]
         by_code[code] = base.model_copy(
@@ -169,7 +194,10 @@ def mapping_entry_production_authorized(
     if not entry.source_revision_ids:
         return False
     approved_overlay = _find_approved_overlay(
-        session, entry, registry_version=mapping_registry_version
+        session,
+        entry,
+        registry_version=mapping_registry_version,
+        graph_scope=graph_scope,
     )
     if approved_overlay is None:
         return False
@@ -199,6 +227,7 @@ def mapping_entry_production_authorized(
             entry,
             approved_overlay,
             registry_version=mapping_registry_version,
+            graph_scope=graph_scope,
         ):
             return False
     return True

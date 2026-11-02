@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -44,7 +45,7 @@ def _run_alembic(database_path: Path, *args: str) -> None:
     environment = os.environ.copy()
     environment["DATABASE_URL"] = f"sqlite:///{database_path}"
     subprocess.run(
-        ["alembic", "-c", str(backend_root / "alembic.ini"), *args],
+        [sys.executable, "-m", "alembic", "-c", str(backend_root / "alembic.ini"), *args],
         cwd=backend_root,
         env=environment,
         check=True,
@@ -69,7 +70,7 @@ def test_day9_missing_organization_scope_rejected(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(
@@ -142,6 +143,7 @@ def test_self_attested_binding_without_revision_approval_rejected(tmp_path: Path
         mapping_registry_version="root-cause-mapping@v1",
         source_revision_id=ctx["source_revision_id"],
         source_content_checksum=content_checksum,
+        source_span_checksum="b" * 64,
     )
     revision.metadata_json = {
         "root_cause_mapping_bindings": [
@@ -209,7 +211,7 @@ def test_root_cause_enrich_rejects_mismatched_day9_lineage(tmp_path: Path) -> No
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(

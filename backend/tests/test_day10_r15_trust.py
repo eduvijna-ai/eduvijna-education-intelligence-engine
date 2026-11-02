@@ -4,7 +4,10 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from day10_source_lifecycle import ensure_genuine_source_content_approval
+from day10_source_lifecycle import (
+    DEFAULT_MAPPING_CURATOR_ACTOR,
+    ensure_genuine_source_content_approval,
+)
 from sqlalchemy import func, select
 from test_day10_r8_trust import (
     INST_A,
@@ -79,6 +82,7 @@ def test_post_hoc_mapping_metadata_without_claim_audit_rejected(tmp_path: Path) 
         mapping_registry_version="root-cause-mapping@v1",
         source_revision_id=revision_id,
         source_content_checksum=content_checksum,
+        source_span_checksum="c" * 64,
     )
     revision.metadata_json = {
         **(revision.metadata_json or {}),
@@ -142,7 +146,7 @@ def test_revoked_mapping_claim_blocks_production(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     approved_event = session.scalar(
         select(SourceAuditEvent).where(
@@ -157,7 +161,7 @@ def test_revoked_mapping_claim_blocks_production(tmp_path: Path) -> None:
         session,
         revision_id=ctx["source_revision_id"],
         claim_id=claim_id,
-        actor_id="curator-revoke-test",
+        actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
     )
     session.add(
         PolicyRegistryEntry(
@@ -198,7 +202,7 @@ def test_day6_day9_writer_root_cause_enrich_production_pass(tmp_path: Path) -> N
     day6_run_id, validated = _persist_day6_item(session, cbse, "item-r15-chain")
     assert validated.get("competency_codes")
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(

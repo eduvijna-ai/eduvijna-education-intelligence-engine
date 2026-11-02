@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from day10_source_lifecycle import ensure_genuine_source_content_approval
+from day10_source_lifecycle import (
+    DEFAULT_MAPPING_CURATOR_ACTOR,
+    ensure_genuine_source_content_approval,
+    ensure_mapping_curator_registry,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from test_day10_r8_trust import (
@@ -59,8 +63,10 @@ from app.root_cause_intelligence.mapping_authority import (
     source_content_checksum,
 )
 from app.root_cause_intelligence.mapping_claim_authority import (
+    MappingClaimApprovalContext,
     approve_root_cause_mapping_claim,
 )
+from app.root_cause_intelligence.mapping_evidence import resolve_approved_source_span
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.ranking import project_hypothesis_authorized_paths
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
@@ -77,8 +83,9 @@ _MAPPING_SOURCE_LOCATOR = (
 
 
 def _approve_revision_mapping_binding(
-    session: Session, tmp_path: Path, revision_id: str
+    session: Session, tmp_path: Path, revision_id: str, ctx: dict[str, str]
 ) -> dict[str, object]:
+    ensure_mapping_curator_registry(session)
     ensure_genuine_source_content_approval(
         session,
         tmp_path,
@@ -91,6 +98,7 @@ def _approve_revision_mapping_binding(
     assert record is not None
     content_checksum = source_content_checksum(record)
     assert content_checksum
+    _, span_checksum = resolve_approved_source_span(record, _MAPPING_SOURCE_LOCATOR)
     evidence_checksum = mapping_evidence_checksum(
         misconception_code="MATH.ADD.WHOLE.OFF_BY_ONE_LOW",
         candidate_concept_codes=["whole-number-addition", "multi-step-addition"],
@@ -98,14 +106,28 @@ def _approve_revision_mapping_binding(
         mapping_registry_version="root-cause-mapping@v1",
         source_revision_id=revision_id,
         source_content_checksum=content_checksum,
+        source_span_checksum=span_checksum,
     )
     overlay: dict[str, object] = {
         **_APPROVED_MAPPING_OVERLAY_BASE,
         "source_locator": _MAPPING_SOURCE_LOCATOR,
+        "source_span_checksum": span_checksum,
         "source_revision_ids": [revision_id],
         "mapping_evidence_checksum": evidence_checksum,
+        "organization_id": ctx["organization_id"],
+        "institution_id": ctx["institution_id"],
+        "curriculum_version_id": ctx["curriculum_version_id"],
     }
-    registry = apply_mapping_authority_overlay(session, load_root_cause_mapping())
+    graph_scope = PrerequisiteGraphScope(
+        curriculum_version_id=ctx["curriculum_version_id"],
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        grade_year_code="grade-4",
+        subject_code="mathematics",
+    )
+    registry = apply_mapping_authority_overlay(
+        session, load_root_cause_mapping(), graph_scope=graph_scope
+    )
     entry = next(
         mapping
         for mapping in registry.mappings
@@ -117,7 +139,12 @@ def _approve_revision_mapping_binding(
         entry=entry,
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
-        actor_id="educational-curator-day10",
+        approval_context=MappingClaimApprovalContext(
+            actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            curriculum_version_id=ctx["curriculum_version_id"],
+        ),
     )
     session.flush()
     return overlay
@@ -176,7 +203,7 @@ def test_source_backed_mapping_overlay_production_positive(tmp_path: Path) -> No
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(
@@ -334,7 +361,7 @@ def test_hypothesis_rerank_after_projection_matches_order(tmp_path: Path) -> Non
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(

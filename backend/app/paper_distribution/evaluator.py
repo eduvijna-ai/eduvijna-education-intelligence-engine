@@ -78,6 +78,7 @@ def _with_mandatory_targets(
     request: PaperDistributionRequest,
     *,
     execution_mode: TrustExecutionMode,
+    execution_context: PaperExecutionContext | None = None,
 ) -> PaperDistributionRequest:
     if execution_mode != TrustExecutionMode.PRODUCTION or session is None:
         return request
@@ -86,7 +87,9 @@ def _with_mandatory_targets(
         payload = load_active_paper_target_policy(session, version)
     except RegistryVersionNotFound:
         return request
-    cognitive, competency = merge_mandatory_distribution_targets(request, payload)
+    cognitive, competency = merge_mandatory_distribution_targets(
+        request, payload, session=session, execution_context=execution_context
+    )
     if (
         cognitive == list(request.cognitive_targets)
         and competency == list(request.competency_targets)
@@ -221,7 +224,12 @@ def evaluate_paper_distribution(
     issues.extend(policy_issues)
     field_paths.extend(policy_paths)
 
-    request = _with_mandatory_targets(data_session, request, execution_mode=execution_mode)
+    request = _with_mandatory_targets(
+        data_session,
+        request,
+        execution_mode=execution_mode,
+        execution_context=execution_context,
+    )
 
     trust_issues, trust_paths = verify_paper_day6_trust(
         data_session,

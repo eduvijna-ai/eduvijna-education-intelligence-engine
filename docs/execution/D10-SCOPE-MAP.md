@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R15 FOCUSED REPAIR** (Chief Architect handoff R15). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R16 FOCUSED REPAIR** (Chief Architect handoff R16). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R15 deltas (vs `559ca91`):** mapping-claim approval via persisted `SourceAuditEvent` (`root_cause_mapping_claim_approved` / revoked), separate from source-content `source_approved`; genuine `SourceIntelligenceService` lifecycle in tests (`day10_source_lifecycle.py`); adversarial post-hoc metadata rejected in `test_day10_r15_trust.py`; Day6 persist + `persist_diagnostic_item_audit` + `root_cause_enrich` chain test; persistent checkpoint HITL replay test; D10-28/29 precedence design in `docs/execution/D10-R15-MANDATORY-TARGET-PRECEDENCE-DESIGN.md` (not implemented). D10-19/22/32/33 PARTIAL; D10-28/29 PARTIAL; D10-35 PARTIAL (**live PostgreSQL not run**; static Alembic head + `CreateTable` compile only); D10-36 PENDING.
+**R16 deltas (vs `b54e672`):** mapping claims bind **source_span_checksum** + curator registry + scoped overlays; Day6 binding verify on requests; `mandatory_policy_resolver.py` for board/institution PolicyRule targets via `policy_rule_source_revisions`. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-35 static portability verified (**live PG not run**); D10-36 **PENDING**.
 
 | Task | Approved work | Implementation | Tests / CI | Status |
 |---|---|---|---|---|
@@ -33,8 +33,8 @@ Status: **R15 FOCUSED REPAIR** (Chief Architect handoff R15). Source: `docs/exec
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
-| D10-28 | Generic target policy | `target_policy_registry.py` (no demo % default) | `test_day10_r13_trust.py` (partial authority) | PARTIAL |
-| D10-29 | Integer target reconciliation | `reconcile_exact_counts` in `evaluator.py` | `test_day10_r9_trust.py` (partial) | PARTIAL |
+| D10-28 | Generic target policy | `mandatory_policy_resolver.py` + registry merge | `test_day10_r16_trust.py` (board rule) | PARTIAL |
+| D10-29 | Integer target reconciliation | `reconcile_exact_counts` + policy merge | `test_day10_r9_trust.py` | PARTIAL |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |

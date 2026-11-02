@@ -302,7 +302,7 @@ def test_approved_mapping_overlay_positive_production(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(

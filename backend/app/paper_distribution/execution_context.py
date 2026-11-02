@@ -10,3 +10,5 @@ class PaperExecutionContext:
     institution_id: str | None = None
     actor_id: str | None = None
     board_code: str | None = None
+    organization_id: str | None = None
+    teacher_id: str | None = None

@@ -58,7 +58,7 @@ def test_tampered_loader_issues_blocks_production_root_cause(tmp_path: Path) -> 
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(
@@ -269,7 +269,7 @@ def test_root_cause_enrich_node_persists_item_audit(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     mapping_overlay = _approve_revision_mapping_binding(
-        session, tmp_path, ctx["source_revision_id"]
+        session, tmp_path, ctx["source_revision_id"], ctx
     )
     session.add(
         PolicyRegistryEntry(

@@ -3,16 +3,44 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.education_intelligence import PolicyRegistryEntry
 from app.models.enums import SourceExtractionStatus, SourceRevisionStatus
 from app.models.source import SourceRevision
+from app.root_cause_intelligence.mapping_claim_authority import (
+    ROOT_CAUSE_MAPPING_CURATORS_KEY,
+    ROOT_CAUSE_MAPPING_CURATORS_VERSION,
+)
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
+
+DEFAULT_MAPPING_CURATOR_ACTOR = "educational-curator-day10"
 
 
 def _canonical_json_bytes(payload: dict) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def ensure_mapping_curator_registry(session: Session) -> None:
+    existing = session.scalar(
+        select(PolicyRegistryEntry).where(
+            PolicyRegistryEntry.registry_key == ROOT_CAUSE_MAPPING_CURATORS_KEY,
+            PolicyRegistryEntry.version == ROOT_CAUSE_MAPPING_CURATORS_VERSION,
+        )
+    )
+    if existing is not None:
+        return
+    session.add(
+        PolicyRegistryEntry(
+            registry_key=ROOT_CAUSE_MAPPING_CURATORS_KEY,
+            version=ROOT_CAUSE_MAPPING_CURATORS_VERSION,
+            status="active",
+            payload_json={"actor_ids": [DEFAULT_MAPPING_CURATOR_ACTOR, "founder-day10-trust"]},
+        )
+    )
+    session.flush()
 
 
 def ensure_genuine_source_content_approval(

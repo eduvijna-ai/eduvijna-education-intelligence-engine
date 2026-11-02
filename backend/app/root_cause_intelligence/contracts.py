@@ -25,6 +25,10 @@ class RootCauseDiagnosticRequest(BaseModel):
     teacher_id: str | None = None
     allowed_source_revision_ids: list[str] = Field(default_factory=list)
     day6_blocking: bool = False
+    day6_validation_run_id: str | None = None
+    day6_input_hash: str | None = None
+    learning_outcome_ids: list[str] = Field(default_factory=list)
+    competency_codes: list[str] = Field(default_factory=list)
     orchestration_run_id: str | None = None
     orchestration_request_hash: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)

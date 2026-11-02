@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.education_intelligence.registry_versions import RegistryVersionNotFound
 from app.models.education_intelligence import PolicyRegistryEntry
 from app.paper_distribution.contracts import DistributionTarget, PaperDistributionRequest
+from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.mandatory_policy_resolver import merge_scoped_mandatory_policy_payload
 
 PAPER_TARGET_POLICY_VERSION = "paper-distribution-targets@v1"
 PAPER_TARGET_REGISTRY_KEY = "paper_distribution"
@@ -211,7 +213,14 @@ def mandatory_target_conflicts(
 def merge_mandatory_distribution_targets(
     request: PaperDistributionRequest,
     policy_payload: dict[str, Any],
+    *,
+    session: Session | None = None,
+    execution_context: PaperExecutionContext | None = None,
 ) -> tuple[list[DistributionTarget], list[DistributionTarget]]:
+    if session is not None:
+        policy_payload = merge_scoped_mandatory_policy_payload(
+            session, policy_payload, execution_context
+        )
     cognitive = list(request.cognitive_targets)
     competency = list(request.competency_targets)
     cognitive_keys = {target.key for target in cognitive}
@@ -269,17 +278,22 @@ def paper_targets_authorized(
     request: PaperDistributionRequest,
     *,
     version: str,
+    execution_context: PaperExecutionContext | None = None,
 ) -> tuple[bool, str | None]:
     try:
         payload = load_active_paper_target_policy(session, version)
     except RegistryVersionNotFound:
         return False, "target_policy_version"
 
+    payload = merge_scoped_mandatory_policy_payload(session, payload, execution_context)
+
     conflict_paths = mandatory_target_conflicts(request, payload)
     if conflict_paths:
         return False, conflict_paths[0]
 
-    cognitive, competency = merge_mandatory_distribution_targets(request, payload)
+    cognitive, competency = merge_mandatory_distribution_targets(
+        request, payload, session=session, execution_context=execution_context
+    )
     if not cognitive and not competency:
         return True, None
 

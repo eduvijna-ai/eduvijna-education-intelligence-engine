@@ -144,6 +144,20 @@ def root_cause_enrich_node(
                     teacher_id=graph_scope.teacher_id,
                     allowed_source_revision_ids=allowed_sources,
                     day6_blocking=day6_blocking,
+                    day6_validation_run_id=(
+                        str(det.get("day6_validation_run_id") or "") or None
+                        if det is not None
+                        else None
+                    ),
+                    day6_input_hash=(
+                        str(det.get("input_hash") or "") or None if det is not None else None
+                    ),
+                    learning_outcome_ids=list(det.get("learning_outcome_ids") or [])
+                    if det is not None
+                    else [],
+                    competency_codes=list(det.get("competency_codes") or [])
+                    if det is not None
+                    else [],
                     orchestration_run_id=(str(state.get("run_id") or "") or None),
                     orchestration_request_hash=(
                         str(state.get("request_hash") or "") or None
