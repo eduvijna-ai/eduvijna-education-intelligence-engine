@@ -17,6 +17,10 @@ from app.orchestration.contracts import (
     SolverResult,
 )
 from app.orchestration.control_session import _sqlite_memory_database
+from app.orchestration.day6_reuse import (
+    day6_summary_from_audit_run,
+    find_accepted_day6_audit_run,
+)
 from app.orchestration.dependencies import OrchestrationDependencies
 from app.orchestration.enums import OrchestrationRunStatus, ReviewVerdictStatus
 from app.orchestration.math_tools import deterministic_math_check
@@ -28,6 +32,7 @@ from app.orchestration.nodes._helpers import (
     timed_update,
 )
 from app.orchestration.state import OrchestrationGraphState
+from app.root_cause_intelligence.day6_binding_verify import day6_binding_matches_persisted_run
 
 
 def _may_persist_day6_validation(deps: OrchestrationDependencies) -> bool:
@@ -125,73 +130,97 @@ def deterministic_validate_node(
                 review_required = True
 
         canonical = draft_to_canonical(draft, scope, request_marks=request.marks)
-        content_fp = draft.content_fingerprint()
+        canonical_hash = canonical.canonical_hash()
         prior = prior_by_item.get(draft.item_id)
         day6_run_id: str | None = None
         input_hash: str | None = None
         learning_outcome_ids: list[str] = list(draft.learning_outcome_ids)
         competency_codes: list[str] = list(draft.competency_codes)
-        reused_day6 = (
-            prior is not None
-            and not blocking
-            and prior.get("day6_content_fingerprint") == content_fp
-            and prior.get("day6_validation_run_id")
-        )
-        if reused_day6 and prior is not None:
-            day6_run_id = str(prior.get("day6_validation_run_id"))
-            input_hash = str(prior.get("input_hash") or "")
-            learning_outcome_ids = list(prior.get("learning_outcome_ids") or learning_outcome_ids)
-            competency_codes = list(prior.get("competency_codes") or competency_codes)
-        else:
+        reused_day6 = False
+        if prior is not None and not blocking and prior.get("day6_validation_run_id"):
+            prior_hash = str(prior.get("input_hash") or "")
+            prior_los = list(prior.get("learning_outcome_ids") or learning_outcome_ids)
+            prior_codes = list(prior.get("competency_codes") or competency_codes)
+            if prior_hash == canonical_hash and day6_binding_matches_persisted_run(
+                deps.session,
+                item_id=draft.item_id,
+                validation_run_id=str(prior.get("day6_validation_run_id")),
+                input_hash=prior_hash,
+                learning_outcome_ids=prior_los,
+                competency_codes=prior_codes,
+            ):
+                reused_day6 = True
+                day6_run_id = str(prior.get("day6_validation_run_id"))
+                input_hash = prior_hash
+                learning_outcome_ids = prior_los
+                competency_codes = prior_codes
+        if not reused_day6:
             should_persist = (
                 _may_persist_day6_validation(deps)
                 and not blocking
                 and not review_required
             )
-            try:
-                ei_summary = deps.education_service.validate_item(
-                    canonical,
-                    curriculum_version_id=scope.curriculum_version_id,
-                    persist=should_persist,
-                    actor_id=str(state.get("run_id") or "orchestration-day6"),
-                    trusted_scope={
-                        "organization_id": scope.organization_id,
-                        "institution_id": scope.institution_id,
-                        "curriculum_version_id": scope.curriculum_version_id,
-                    },
+            existing_run: ValidationAuditRun | None = None
+            if should_persist:
+                existing_run = find_accepted_day6_audit_run(
+                    deps.session,
+                    item_id=draft.item_id,
+                    input_hash=canonical_hash,
+                    scope=scope,
                 )
-            except Exception:
-                return pipeline_failure(
-                    deps,
-                    state,
-                    "deterministic_validate",
-                    started,
-                    "day6_service_error",
-                    attempt=attempt,
+            if existing_run is not None:
+                day6_run_id, input_hash, learning_outcome_ids, competency_codes = (
+                    day6_summary_from_audit_run(existing_run)
                 )
-            if ei_summary.blocking_failure or ei_summary.aggregate_status == ValidationStatus.FAIL:
-                issue_codes.append("day6_blocking_validation")
-                blocking = True
-            elif ei_summary.aggregate_status == ValidationStatus.REVIEW_REQUIRED:
-                review_required = True
-            if should_persist and not blocking:
-                record = deps.session.scalar(
-                    select(ValidationAuditRun).where(
-                        ValidationAuditRun.run_id == ei_summary.run_id
+            else:
+                try:
+                    ei_summary = deps.education_service.validate_item(
+                        canonical,
+                        curriculum_version_id=scope.curriculum_version_id,
+                        persist=should_persist,
+                        actor_id=str(state.get("run_id") or "orchestration-day6"),
+                        trusted_scope={
+                            "organization_id": scope.organization_id,
+                            "institution_id": scope.institution_id,
+                            "curriculum_version_id": scope.curriculum_version_id,
+                        },
                     )
+                except Exception:
+                    return pipeline_failure(
+                        deps,
+                        state,
+                        "deterministic_validate",
+                        started,
+                        "day6_service_error",
+                        attempt=attempt,
+                    )
+                day6_failed = (
+                    ei_summary.blocking_failure
+                    or ei_summary.aggregate_status == ValidationStatus.FAIL
                 )
-                if record is not None:
-                    day6_run_id = str(record.id)
-                input_hash = ei_summary.input_hash
-                validated = (ei_summary.metadata or {}).get("validated_items") or []
-                if validated and isinstance(validated[0], dict):
-                    first = validated[0]
-                    learning_outcome_ids = list(
-                        first.get("learning_outcome_ids") or learning_outcome_ids
+                if day6_failed:
+                    issue_codes.append("day6_blocking_validation")
+                    blocking = True
+                elif ei_summary.aggregate_status == ValidationStatus.REVIEW_REQUIRED:
+                    review_required = True
+                if should_persist and not blocking:
+                    record = deps.session.scalar(
+                        select(ValidationAuditRun).where(
+                            ValidationAuditRun.run_id == ei_summary.run_id
+                        )
                     )
-                    competency_codes = list(
-                        first.get("competency_codes") or competency_codes
-                    )
+                    if record is not None:
+                        day6_run_id = str(record.id)
+                    input_hash = ei_summary.input_hash
+                    validated = (ei_summary.metadata or {}).get("validated_items") or []
+                    if validated and isinstance(validated[0], dict):
+                        first = validated[0]
+                        learning_outcome_ids = list(
+                            first.get("learning_outcome_ids") or learning_outcome_ids
+                        )
+                        competency_codes = list(
+                            first.get("competency_codes") or competency_codes
+                        )
 
         summaries.append(
             DeterministicValidationSummary(
@@ -204,7 +233,7 @@ def deterministic_validate_node(
                 input_hash=input_hash,
                 learning_outcome_ids=learning_outcome_ids,
                 competency_codes=competency_codes,
-                day6_content_fingerprint=content_fp,
+                day6_content_fingerprint=canonical_hash,
             ).model_dump(mode="json")
         )
 

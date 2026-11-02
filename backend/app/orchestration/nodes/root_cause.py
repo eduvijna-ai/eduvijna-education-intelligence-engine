@@ -166,6 +166,7 @@ def root_cause_enrich_node(
                 trusted=trusted,
                 execution_mode=TrustExecutionMode.PRODUCTION,
                 control_session=deps.control_session,
+                domain_session=deps.session,
             )
             item_audit = audit_node(
                 deps,

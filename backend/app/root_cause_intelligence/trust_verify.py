@@ -167,7 +167,7 @@ def validate_graph_snapshot_attestation(
     request: RootCauseDiagnosticRequest,
     *,
     execution_mode: TrustExecutionMode,
-    control_session: Session | None,
+    domain_session: Session | None,
 ) -> tuple[
     list[RootCauseIssueCode],
     list[str],
@@ -176,7 +176,7 @@ def validate_graph_snapshot_attestation(
 ]:
     """Return issues, paths, blocking flag, and canonical snapshot when attested."""
     return verify_production_graph_snapshot(
-        control_session,
+        domain_session,
         request.graph_snapshot,
         organization_id=request.organization_id,
         institution_id=request.institution_id,

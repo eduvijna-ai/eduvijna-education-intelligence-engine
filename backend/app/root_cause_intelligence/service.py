@@ -48,7 +48,9 @@ class RootCauseIntelligenceService:
         trusted: RootCauseTrustedValidationContext | None = None,
         execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
         control_session: Session | None = None,
+        domain_session: Session | None = None,
     ) -> RootCauseResult:
+        domain = domain_session if domain_session is not None else control_session
         preflight = run_root_cause_preflight(request, trusted=trusted)
         overlay_scope = PrerequisiteGraphScope(
             curriculum_version_id=request.curriculum_version_id,
@@ -57,7 +59,7 @@ class RootCauseIntelligenceService:
             teacher_id=request.teacher_id,
         )
         mapping = apply_mapping_authority_overlay(
-            control_session,
+            domain,
             load_root_cause_mapping(DEFAULT_ROOT_CAUSE_MAPPING_VERSION),
             graph_scope=overlay_scope,
         )
@@ -102,9 +104,12 @@ class RootCauseIntelligenceService:
             if control_session is None:
                 issue_codes.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
                 field_paths.append("control_session")
+            elif domain is None:
+                issue_codes.append(RootCauseIssueCode.UNTRUSTED_TAG_VALIDATION)
+                field_paths.append("domain_session")
             else:
                 binding_ok, binding_path = verify_production_day6_binding(
-                    control_session,
+                    domain,
                     item_id=request.item_id,
                     validation_run_id=request.day6_validation_run_id,
                     input_hash=request.day6_input_hash,
@@ -125,7 +130,7 @@ class RootCauseIntelligenceService:
             validate_graph_snapshot_attestation(
                 request,
                 execution_mode=execution_mode,
-                control_session=control_session,
+                domain_session=domain,
             )
         )
         graph_snapshot = canonical_graph_snapshot or request.graph_snapshot
@@ -181,7 +186,7 @@ class RootCauseIntelligenceService:
             field_paths.append("allowed_source_revision_ids")
 
         production_mapping_ok = mapping_entry_production_authorized(
-            control_session,
+            domain,
             mapping_entry,
             graph_scope=graph_snapshot.scope,
             allowed_option_revision_ids=allowed,

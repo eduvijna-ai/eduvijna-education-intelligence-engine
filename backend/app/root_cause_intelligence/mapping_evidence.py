@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.models.enums import SourceIngestionMethod
 from app.models.source import SourceRevision
 from app.prerequisite_intelligence.authority import RevisionAuthorityRecord
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
@@ -41,9 +42,8 @@ def _manual_metadata_digest(record: RevisionAuthorityRecord) -> str | None:
     return None
 
 
-def _is_manual_revision(record: RevisionAuthorityRecord) -> bool:
-    metadata = record.metadata_json or {}
-    return isinstance(metadata.get("manual_metadata"), dict)
+def _is_manual_revision(revision: SourceRevision) -> bool:
+    return str(revision.ingestion_method or "") == SourceIngestionMethod.MANUAL.value
 
 
 def verify_revision_content_integrity(
@@ -65,7 +65,7 @@ def verify_revision_content_integrity(
     stored = source_content_checksum(record)
     if not stored:
         return False
-    if _is_manual_revision(record):
+    if _is_manual_revision(revision):
         digest = _manual_metadata_digest(record)
         if not digest or digest != stored:
             return False
@@ -103,9 +103,10 @@ def resolve_approved_source_span(
     excerpt = extracted[start : start + min(len(extracted) - start, 512)].strip()
     if not excerpt:
         raise ValueError("approved source span excerpt is empty")
+    revision = session.get(SourceRevision, record.revision_id)
     metadata = record.metadata_json or {}
     manual = metadata.get("manual_metadata")
-    if isinstance(manual, dict):
+    if isinstance(manual, dict) and revision is not None and _is_manual_revision(revision):
         manual_excerpt = str(manual.get("excerpt") or "").strip()
         if manual_excerpt and manual_excerpt not in extracted:
             raise ValueError("mutable source metadata excerpt is not grounded in extraction")
