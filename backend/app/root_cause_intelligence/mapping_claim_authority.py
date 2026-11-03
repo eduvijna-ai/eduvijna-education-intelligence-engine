@@ -394,6 +394,7 @@ def approve_root_cause_mapping_claim(
     try:
         claim_body = {
             "claim_id": claim_id,
+            "revision_id": revision_id,
             "misconception_code": entry.misconception_code,
             "candidate_concept_codes": list(entry.candidate_concept_codes),
             "source_locator": locator,
@@ -407,7 +408,7 @@ def approve_root_cause_mapping_claim(
             "organization_id": approval_context.organization_id,
             "institution_id": approval_context.institution_id,
             "curriculum_version_id": approval_context.curriculum_version_id,
-            "teacher_id": approval_context.teacher_id,
+            "teacher_id": approval_context.teacher_id or "",
             "claim_status": "active",
         }
         signed_payload = consume_decision_and_build_signed_payload(
@@ -415,7 +416,7 @@ def approve_root_cause_mapping_claim(
             token=curator_decision_token,
             role=CuratorRole.MAPPING_CURATOR,
             operation=CuratorOperation.MAPPING_APPROVE,
-            binding_payload=binding,
+            binding_payload={**binding, "claim_id": claim_id},
             scope=scope,
             claim_body=claim_body,
             claim_id=claim_id,

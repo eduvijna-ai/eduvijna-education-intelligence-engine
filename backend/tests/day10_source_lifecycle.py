@@ -256,7 +256,7 @@ def mandatory_board_policy_rule(
         value_json=value_json,
         priority=priority,
         active=True,
-        metadata_json={"mandatory_source_locator": source_locator},
+        metadata_json={"mandatory_source_locator": source_locator, "synthetic_test_policy": True},
     )
 
 

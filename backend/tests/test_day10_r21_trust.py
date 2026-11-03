@@ -45,6 +45,7 @@ from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.factory import build_orchestration_service
 from app.orchestration.gateway.fake import FakeGenerationGateway
 from app.orchestration.human_decision import HumanResumeDecision
+from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_claim_authority import (
     MandatoryPolicyClaimAuthorityError,
     approve_mandatory_policy_claim,
@@ -188,6 +189,11 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
         value_json=dict(rule.value_json or {}),
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
+        execution_context=PaperExecutionContext(
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            board_code="cbse",
+        ),
     )
     rule.priority = 99
     session.flush()
@@ -201,6 +207,11 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
         value_json=dict(rule.value_json or {}),
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
+        execution_context=PaperExecutionContext(
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            board_code="cbse",
+        ),
     )
 
 
@@ -396,6 +407,11 @@ def test_mandatory_claim_active_for_default_priority_zero(tmp_path: Path) -> Non
         value_json=dict(rule.value_json or {}),
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
+        execution_context=PaperExecutionContext(
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            board_code="cbse",
+        ),
     )
 
 

@@ -191,7 +191,15 @@ def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> 
         _revision_authorized_for_policy,
     )
 
-    assert _revision_authorized_for_policy(session, rule)
+    assert _revision_authorized_for_policy(
+        session,
+        rule,
+        PaperExecutionContext(
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            board_code="cbse",
+        ),
+    )
     ensure_paper_target_policy_configured(session)
     session.commit()
     from app.paper_distribution.target_policy_registry import (

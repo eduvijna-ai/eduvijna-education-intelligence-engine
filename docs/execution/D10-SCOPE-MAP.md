@@ -1,10 +1,10 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R24 FOCUSED SECURITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R25 FOCUSED SECURITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R24 deltas (vs `cdeccf6`):** bootstrap-gated credential provisioning (`curator_bootstrap_secret`, `bootstrap.py`); durable approval **v2 envelope** signing (actor/role/scope/jti bound); `CuratorDurableApprovalRecord` lineage + signed revocations; board/curriculum grant columns (**`20261103_0016`**, **`20261103_0017`**); min 32-byte signing key and 1–300s decision TTL; board mandatory source type/board checks; **`test_day10_r24_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING** (not signoff).
+**R25 deltas (vs `8a13380`):** board-wide curator grant enforcement; mandatory policy reads bind **`PaperExecutionContext`** (not source ownership); strict durable **`source_audit_event_id`** lineage; revoke marks approval records only; claim-body/binding consistency at sign; board source authority unless **`synthetic_test_policy`** fixture; **`test_day10_r25_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
-**R23 deltas (vs `ba54a51`):** internal **`curator_auth`** + migration **`20261102_0015`**; signed mapping/mandatory policy writes and durable read verification; **`test_day10_r23_trust.py`**; Founder **Option A** in **`D10-R21-POLICY-MAPPING-AUTH-FOUNDER-DECISION.md`**.
+**R24 deltas (vs `cdeccf6`):** bootstrap-gated credential provisioning; durable approval **v2 envelope**; Alembic **`20261103_0016`/`0017`**; **`test_day10_r24_trust.py`**.
 
 **R21 deltas (vs `9bf7bfc`):** compiled **`OrchestrationService.run`** production-scope proof + HITL/replay in **`test_day10_r21_trust.py`** (D10-19/22/32/33 still **PARTIAL** until PASS+hypothesis matrix complete); **Day6 reuse** version/scope/source-revision canonical hash in **`day6_reuse.py`** + **`canonical_mapping.py`**; **mandatory policy claim** locator/lifecycle read-path in **`mandatory_policy_claim_authority.py`**; **mapping overlay read** on configured **`SOURCE_STORAGE_DIR`** (JSON upload); Founder decision doc **`D10-R21-POLICY-MAPPING-AUTH-FOUNDER-DECISION.md`** (options A/B — **not chosen**). D10-12/28/29 remain **PARTIAL**; D10-36 **PENDING**.
 

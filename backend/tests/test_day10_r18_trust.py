@@ -282,6 +282,7 @@ def _approve_mandatory_policy_for_rule(
             display_name="Day10 policy curator",
         )
     board_code = str(rule.scope_code) if str(rule.scope_type) == "board" else None
+    board_scope_authorized = str(rule.scope_type) == "board"
     teacher_id = None
     if str(rule.scope_type) == "teacher":
         from day10_source_lifecycle import ensure_teacher_for_scope
@@ -299,6 +300,7 @@ def _approve_mandatory_policy_for_rule(
         institution_id=inst,
         board_code=board_code,
         teacher_id=teacher_id,
+        board_scope_authorized=board_scope_authorized,
         operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
     )
     approve_mandatory_policy_with_curator(

@@ -28,6 +28,7 @@ from app.curator_auth.issuer import CuratorAuthError, CuratorScope, verify_curat
 from app.curator_auth.roles import CuratorRole
 from app.models.source import SourceRevision
 from app.models.tenancy import Institution
+from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_claim_authority import mandatory_policy_claim_active
 from app.prerequisite_intelligence.authority import load_revision_record
 from app.root_cause_intelligence.mapping_claim_authority import (
@@ -92,6 +93,7 @@ def test_signed_mapping_and_policy_claims_authorize_production_read(tmp_path: Pa
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         board_code="cbse",
+        board_scope_authorized=True,
         operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
     )
     ensure_genuine_source_content_approval(
@@ -189,6 +191,11 @@ def test_signed_mapping_and_policy_claims_authorize_production_read(tmp_path: Pa
         value_json=dict(rule.value_json or {}),
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
+        execution_context=PaperExecutionContext(
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+            board_code="cbse",
+        ),
     )
 
 

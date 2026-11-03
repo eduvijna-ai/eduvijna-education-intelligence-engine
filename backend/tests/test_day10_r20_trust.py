@@ -586,6 +586,7 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         board_code=str(rule.scope_code),
+        board_scope_authorized=True,
         operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
     )
     with pytest.raises(MandatoryPolicyClaimAuthorityError, match="not bound"):

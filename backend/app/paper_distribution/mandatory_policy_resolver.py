@@ -90,7 +90,11 @@ def _latest_source_approved_audit(
     )
 
 
-def _revision_authorized_for_policy(session: Session, rule: PolicyRule) -> bool:
+def _revision_authorized_for_policy(
+    session: Session,
+    rule: PolicyRule,
+    execution_context: PaperExecutionContext | None,
+) -> bool:
     revision_ids: list[str] = list(
         session.scalars(
             select(policy_rule_source_revisions.c.source_revision_id).where(
@@ -123,6 +127,15 @@ def _revision_authorized_for_policy(session: Session, rule: PolicyRule) -> bool:
             revision.approval_fingerprint
         ):
             return False
+        org_id = ""
+        inst_id = ""
+        if execution_context is not None:
+            org_id = str(execution_context.organization_id or "").strip()
+            inst_id = str(execution_context.institution_id or "").strip()
+            if not org_id and inst_id:
+                institution = session.get(Institution, inst_id)
+                if institution is not None:
+                    org_id = str(institution.organization_id)
         if not mandatory_policy_claim_active(
             session,
             rule_id=str(rule.id),
@@ -131,8 +144,9 @@ def _revision_authorized_for_policy(session: Session, rule: PolicyRule) -> bool:
             scope_code=str(rule.scope_code),
             policy_key=str(rule.policy_key),
             value_json=dict(rule.value_json or {}),
-            organization_id=str(source.organization_id or ""),
-            institution_id=str(source.institution_id or ""),
+            organization_id=org_id,
+            institution_id=inst_id,
+            execution_context=execution_context,
         ):
             return False
     return True
@@ -144,6 +158,7 @@ def _active_rules_for_context(
     board_code: str | None,
     institution: Institution | None,
     teacher_id: str | None,
+    execution_context: PaperExecutionContext | None,
     on_date: date | None = None,
 ) -> list[PolicyRule]:
     effective = on_date or date.today()
@@ -166,7 +181,7 @@ def _active_rules_for_context(
             teacher_id=teacher_id,
         ):
             continue
-        if not _revision_authorized_for_policy(session, rule):
+        if not _revision_authorized_for_policy(session, rule, execution_context):
             continue
         selected.append(rule)
     return sorted(
@@ -257,6 +272,7 @@ def merge_scoped_mandatory_policy_payload(
         board_code=board_code,
         institution=institution,
         teacher_id=execution_context.teacher_id,
+        execution_context=execution_context,
     )
     if not rules:
         return merged

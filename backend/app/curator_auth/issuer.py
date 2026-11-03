@@ -37,6 +37,19 @@ MAX_DECISION_TTL_SECONDS = 300
 MAX_CLOCK_SKEW_SECONDS = 30
 DURABLE_APPROVAL_VERSION = 2
 
+_DURABLE_APPROVAL_OPERATIONS = frozenset(
+    {
+        CuratorOperation.MAPPING_APPROVE.value,
+        CuratorOperation.MANDATORY_POLICY_APPROVE.value,
+    }
+)
+_DURABLE_REVOCATION_OPERATIONS = frozenset(
+    {
+        CuratorOperation.MAPPING_REVOKE.value,
+        CuratorOperation.MANDATORY_POLICY_REVOKE.value,
+    }
+)
+
 SCRYPT_N = 2**14
 SCRYPT_R = 8
 SCRYPT_P = 1
@@ -82,8 +95,9 @@ def _require_signing_key() -> tuple[str, str]:
 
 
 def operation_binding_digest(operation: str, payload: dict[str, Any]) -> str:
+    cleaned = {key: value for key, value in payload.items() if key != "claim_id"}
     encoded = json.dumps(
-        {"operation": operation, **payload},
+        {"operation": operation, **cleaned},
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -165,6 +179,10 @@ def _assert_tenant_scope_active(session: Session, scope: CuratorScope) -> None:
         raise CuratorAuthError("curator scope institution is not active")
     if str(inst.organization_id) != str(scope.organization_id):
         raise CuratorAuthError("curator scope institution organization mismatch")
+    if scope.board_code:
+        meta_board = (inst.metadata_json or {}).get("board_code")
+        if meta_board and str(meta_board).strip().lower() != str(scope.board_code).strip().lower():
+            raise CuratorAuthError("curator scope board mismatch with institution metadata")
     if scope.teacher_id:
         teacher = _resolve_teacher_in_scope(session, scope)
         if teacher is None or not teacher.active:
@@ -202,12 +220,9 @@ def _scope_matches_credential(
             return False
     if scope.board_code:
         if not credential.board_scope_authorized:
-            if credential.board_code and str(credential.board_code) != str(scope.board_code):
-                return False
-        elif credential.board_code and str(credential.board_code) != str(scope.board_code):
             return False
-    elif credential.board_code and scope.board_code:
-        return False
+        if not credential.board_code or str(credential.board_code) != str(scope.board_code):
+            return False
     return True
 
 
@@ -393,12 +408,26 @@ def _consume_curator_write_decision(
     )
     if nonce is None:
         raise CuratorAuthError("curator decision jti is unknown or already consumed")
+    try:
+        expires_at = datetime.fromisoformat(str(nonce.expires_at_iso))
+    except ValueError as exc:
+        raise CuratorAuthError("curator decision nonce expiry is invalid") from exc
+    if now_ts > expires_at.timestamp() + MAX_CLOCK_SKEW_SECONDS:
+        raise CuratorAuthError("curator decision token expired")
     session.delete(nonce)
     session.flush()
     admin_id = str(payload.get("admin_actor_id") or "").strip()
     admin = session.get(AdminActor, admin_id)
     if admin is None or not admin.active:
         raise CuratorAuthError("curator decision admin actor is not active")
+    if scope.organization_id and (
+        not admin.organization_id or str(admin.organization_id) != str(scope.organization_id)
+    ):
+        raise CuratorAuthError("curator decision admin organization mismatch")
+    if scope.institution_id and (
+        not admin.institution_id or str(admin.institution_id) != str(scope.institution_id)
+    ):
+        raise CuratorAuthError("curator decision admin institution mismatch")
     _assert_tenant_scope_active(session, scope)
     credential = session.scalar(
         select(CuratorOperatorCredential).where(
@@ -444,6 +473,51 @@ def _durable_envelope(
     }
 
 
+def _verify_claim_binding_consistency(
+    operation: CuratorOperation,
+    binding_payload: dict[str, Any],
+    claim_body: dict[str, Any],
+    claim_id: str,
+) -> None:
+    if str(claim_id) != str(claim_body.get("claim_id") or ""):
+        raise CuratorAuthError("claim_id does not match claim body")
+    bound_claim = str(binding_payload.get("claim_id") or "")
+    if bound_claim and bound_claim != str(claim_id):
+        raise CuratorAuthError("claim_id does not match operation binding")
+    if operation == CuratorOperation.MAPPING_APPROVE:
+        for key in (
+            "revision_id",
+            "misconception_code",
+            "source_locator",
+            "mapping_registry_version",
+            "organization_id",
+            "institution_id",
+            "curriculum_version_id",
+        ):
+            if str(binding_payload.get(key) or "") != str(claim_body.get(key) or ""):
+                raise CuratorAuthError("mapping claim body does not match binding")
+        bound_codes = binding_payload.get("candidate_concept_codes")
+        body_codes = claim_body.get("candidate_concept_codes")
+        if bound_codes is not None and body_codes is not None:
+            if sorted(str(c) for c in bound_codes) != sorted(str(c) for c in body_codes):
+                raise CuratorAuthError("mapping claim body does not match binding")
+    elif operation == CuratorOperation.MANDATORY_POLICY_APPROVE:
+        for key in (
+            "policy_rule_id",
+            "source_revision_id",
+            "scope_type",
+            "scope_code",
+            "policy_key",
+            "value_checksum",
+            "rule_lifecycle_digest",
+        ):
+            if str(binding_payload.get(key) or "") != str(claim_body.get(key) or ""):
+                raise CuratorAuthError("mandatory policy claim body does not match binding")
+    elif operation in _DURABLE_REVOCATION_OPERATIONS:
+        if str(binding_payload.get("claim_id") or "") != str(claim_id):
+            raise CuratorAuthError("revocation claim_id does not match binding")
+
+
 def _sign_envelope(envelope: dict[str, Any], signing_key: str) -> str:
     encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":"))
     return hmac.new(
@@ -480,6 +554,7 @@ def consume_decision_and_build_signed_payload(
     )
     if existing is not None:
         raise CuratorAuthError("curator decision jti already consumed for durable approval")
+    _verify_claim_binding_consistency(operation, binding_payload, claim_body, claim_id)
     key_id, signing_key = _require_signing_key()
     signed_at = datetime.now(tz=UTC).isoformat()
     body = dict(claim_body)
@@ -519,6 +594,7 @@ def mark_durable_approval_revoked(session: Session, *, claim_id: str) -> None:
         select(CuratorDurableApprovalRecord).where(
             CuratorDurableApprovalRecord.claim_id == claim_id,
             CuratorDurableApprovalRecord.revoked_at_iso.is_(None),
+            CuratorDurableApprovalRecord.operation.in_(_DURABLE_APPROVAL_OPERATIONS),
         )
     ).all()
     revoked_at = datetime.now(tz=UTC).isoformat()
@@ -599,8 +675,12 @@ def verify_durable_curator_approval(
             "board_code",
         ):
             exp = getattr(expected_scope, field)
+            if exp is None:
+                continue
+            if field != "organization_id" and not str(exp).strip():
+                continue
             got = getattr(approval_scope, field)
-            if exp is not None and str(exp) != str(got or ""):
+            if str(exp) != str(got or ""):
                 return False
     jti = str(approval.get("jti") or "").strip()
     if not jti:
@@ -610,15 +690,20 @@ def verify_durable_curator_approval(
             CuratorDurableApprovalRecord.decision_jti == jti
         )
     )
-    if lineage is None or lineage.revoked_at_iso is not None:
+    if lineage is None:
+        return False
+    if str(lineage.operation) != operation.value:
+        return False
+    if operation.value in _DURABLE_APPROVAL_OPERATIONS and lineage.revoked_at_iso is not None:
         return False
     if str(lineage.admin_actor_id) != admin_id:
         return False
     if str(lineage.claim_id) != str(payload.get("claim_id") or ""):
         return False
-    if lineage.source_audit_event_id and source_audit_event_id:
-        if str(lineage.source_audit_event_id) != str(source_audit_event_id):
-            return False
+    if not source_audit_event_id or not lineage.source_audit_event_id:
+        return False
+    if str(lineage.source_audit_event_id) != str(source_audit_event_id):
+        return False
     try:
         key_id, signing_key = _require_signing_key()
     except CuratorAuthError:
