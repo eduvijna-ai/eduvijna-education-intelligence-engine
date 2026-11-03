@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     source_max_redirects: int = Field(default=3, ge=0, le=10)
     curator_approval_signing_key: str | None = None
     curator_approval_signing_key_id: str = "curator-approval-v1"
+    curator_bootstrap_secret: str | None = None
 
     @model_validator(mode="after")
     def require_non_local_secret(self) -> Settings:
@@ -68,6 +69,15 @@ class Settings(BaseSettings):
             if not key or key in UNSAFE_CURATOR_SIGNING_KEYS:
                 raise ValueError(
                     "CURATOR_APPROVAL_SIGNING_KEY must be explicitly configured outside local mode"
+                )
+            if len(key.encode("utf-8")) < 32:
+                raise ValueError(
+                    "CURATOR_APPROVAL_SIGNING_KEY must be at least 32 bytes outside local mode"
+                )
+            bootstrap = (self.curator_bootstrap_secret or "").strip()
+            if not bootstrap or len(bootstrap) < 32:
+                raise ValueError(
+                    "CURATOR_BOOTSTRAP_SECRET must be at least 32 characters outside local mode"
                 )
         return self
 

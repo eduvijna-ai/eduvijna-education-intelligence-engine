@@ -15,7 +15,7 @@ from app.models.enums import (
 )
 from app.models.policy import PolicyRule
 from app.models.source import Source, SourceRevision
-from app.models.tenancy import AdminActor
+from app.models.tenancy import AdminActor, Teacher
 from app.paper_distribution.mandatory_policy_resolver import PAPER_MANDATORY_POLICY_KEY
 from app.root_cause_intelligence.mapping_claim_authority import (
     ROOT_CAUSE_MAPPING_CURATORS_KEY,
@@ -210,6 +210,36 @@ def ensure_genuine_json_upload_source_approval(
     service.activate_revision(revision.id, actor_id=actor_id)
     session.refresh(revision)
     return revision, str(store_root)
+
+
+def ensure_teacher_for_scope(
+    session: Session,
+    *,
+    institution_id: str,
+    external_code: str,
+    display_name: str | None = None,
+) -> Teacher:
+    from app.models.tenancy import Teacher
+
+    existing = session.scalar(
+        select(Teacher).where(
+            Teacher.institution_id == institution_id,
+            Teacher.external_code == external_code,
+        )
+    )
+    if existing is not None:
+        existing.active = True
+        session.flush()
+        return existing
+    teacher = Teacher(
+        institution_id=institution_id,
+        external_code=external_code,
+        display_name=display_name or external_code,
+        active=True,
+    )
+    session.add(teacher)
+    session.flush()
+    return teacher
 
 
 def mandatory_board_policy_rule(

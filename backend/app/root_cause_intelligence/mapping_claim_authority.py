@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 from app.curator_auth.issuer import (
     CuratorAuthError,
     CuratorScope,
-    sign_durable_curator_approval,
-    verify_and_consume_curator_write_decision,
+    attach_source_audit_event_to_durable_record,
+    consume_decision_and_build_signed_payload,
+    mark_durable_approval_revoked,
     verify_durable_curator_approval,
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
@@ -282,8 +283,20 @@ def _mapping_claim_revoked(
         if event.created_at <= approved.created_at:
             continue
         payload = event.payload_json or {}
-        if str(payload.get("claim_id") or "") == claim_id:
-            return True
+        if str(payload.get("claim_id") or "") != claim_id:
+            continue
+        binding = mapping_revoke_binding_payload(revision_id=revision_id, claim_id=claim_id)
+        if not verify_durable_curator_approval(
+            session,
+            payload,
+            role=CuratorRole.MAPPING_CURATOR,
+            operation=CuratorOperation.MAPPING_REVOKE,
+            binding_payload=binding,
+            audit_actor_id=str(payload.get("approved_by") or ""),
+            source_audit_event_id=event.id,
+        ):
+            continue
+        return True
     return False
 
 
@@ -312,18 +325,6 @@ def approve_root_cause_mapping_claim(
         mapping_registry_version=mapping_registry_version,
         approval_context=approval_context,
     )
-    try:
-        decision = verify_and_consume_curator_write_decision(
-            session,
-            token=curator_decision_token,
-            role=CuratorRole.MAPPING_CURATOR,
-            operation=CuratorOperation.MAPPING_APPROVE,
-            binding_payload=binding,
-            scope=scope,
-        )
-    except CuratorAuthError as exc:
-        raise MappingClaimAuthorityError(str(exc)) from exc
-    actor_id = decision.admin_actor_external_code
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
@@ -390,37 +391,62 @@ def approve_root_cause_mapping_claim(
         curriculum_version_id=approval_context.curriculum_version_id,
         teacher_id=approval_context.teacher_id,
     )
-    session.add(
-        SourceAuditEvent(
-            source_id=record.source_id,
-            source_revision_id=revision_id,
-            event_type=MAPPING_CLAIM_APPROVED_EVENT,
-            actor_id=actor_id,
-            request_id=request_id,
-            outcome="success",
-            payload_json=sign_durable_curator_approval(
-                {
-                    "claim_id": claim_id,
-                    "misconception_code": entry.misconception_code,
-                    "candidate_concept_codes": list(entry.candidate_concept_codes),
-                    "source_locator": locator,
-                    "source_span_excerpt": excerpt[:256],
-                    "source_span_checksum": span_checksum,
-                    "mapping_registry_version": mapping_registry_version,
-                    "mapping_evidence_checksum": evidence_checksum,
-                    "source_content_checksum": content_checksum,
-                    "source_approval_fingerprint": record.approval_fingerprint,
-                    "approved_by": actor_id,
-                    "organization_id": approval_context.organization_id,
-                    "institution_id": approval_context.institution_id,
-                    "curriculum_version_id": approval_context.curriculum_version_id,
-                    "teacher_id": approval_context.teacher_id,
-                    "claim_status": "active",
-                },
-                decision=decision,
-            ),
+    try:
+        claim_body = {
+            "claim_id": claim_id,
+            "misconception_code": entry.misconception_code,
+            "candidate_concept_codes": list(entry.candidate_concept_codes),
+            "source_locator": locator,
+            "source_span_excerpt": excerpt[:256],
+            "source_span_checksum": span_checksum,
+            "mapping_registry_version": mapping_registry_version,
+            "mapping_evidence_checksum": evidence_checksum,
+            "source_content_checksum": content_checksum,
+            "source_approval_fingerprint": record.approval_fingerprint,
+            "approved_by": "",
+            "organization_id": approval_context.organization_id,
+            "institution_id": approval_context.institution_id,
+            "curriculum_version_id": approval_context.curriculum_version_id,
+            "teacher_id": approval_context.teacher_id,
+            "claim_status": "active",
+        }
+        signed_payload = consume_decision_and_build_signed_payload(
+            session,
+            token=curator_decision_token,
+            role=CuratorRole.MAPPING_CURATOR,
+            operation=CuratorOperation.MAPPING_APPROVE,
+            binding_payload=binding,
+            scope=scope,
+            claim_body=claim_body,
+            claim_id=claim_id,
         )
+    except CuratorAuthError as exc:
+        raise MappingClaimAuthorityError(str(exc)) from exc
+    actor_id = str(signed_payload.get("approved_by") or "").strip()
+    if not actor_id:
+        actor_id = str(
+            (signed_payload.get("curator_approval") or {}).get("admin_external_code") or ""
+        ).strip()
+    if not actor_id:
+        raise MappingClaimAuthorityError("curator approval missing approved_by")
+    audit_event = SourceAuditEvent(
+        source_id=record.source_id,
+        source_revision_id=revision_id,
+        event_type=MAPPING_CLAIM_APPROVED_EVENT,
+        actor_id=actor_id,
+        request_id=request_id,
+        outcome="success",
+        payload_json=signed_payload,
     )
+    session.add(audit_event)
+    session.flush()
+    approval_jti = str((signed_payload.get("curator_approval") or {}).get("jti") or "")
+    if approval_jti:
+        attach_source_audit_event_to_durable_record(
+            session,
+            decision_jti=approval_jti,
+            source_audit_event_id=audit_event.id,
+        )
     session.flush()
     return claim_id
 
@@ -437,33 +463,52 @@ def revoke_root_cause_mapping_claim(
 ) -> None:
     scope = curator_scope_from_mapping_context(approval_context)
     binding = mapping_revoke_binding_payload(revision_id=revision_id, claim_id=claim_id)
+    record = load_revision_record(session, revision_id)
+    if record is None:
+        raise MappingClaimAuthorityError("source revision is unknown")
     try:
-        decision = verify_and_consume_curator_write_decision(
+        signed_payload = consume_decision_and_build_signed_payload(
             session,
             token=curator_decision_token,
             role=CuratorRole.MAPPING_CURATOR,
             operation=CuratorOperation.MAPPING_REVOKE,
             binding_payload=binding,
             scope=scope,
+            claim_body={
+                "claim_id": claim_id,
+                "claim_status": "revoked",
+                "approved_by": "",
+            },
+            claim_id=claim_id,
         )
     except CuratorAuthError as exc:
         raise MappingClaimAuthorityError(str(exc)) from exc
-    if decision.admin_actor_external_code != str(actor_id).strip():
+    revoke_actor = str(signed_payload.get("approved_by") or "").strip()
+    if not revoke_actor:
+        revoke_actor = str(
+            (signed_payload.get("curator_approval") or {}).get("admin_external_code") or ""
+        ).strip()
+    if revoke_actor != str(actor_id).strip():
         raise MappingClaimAuthorityError("mapping claim revoke actor mismatch")
-    record = load_revision_record(session, revision_id)
-    if record is None:
-        raise MappingClaimAuthorityError("source revision is unknown")
-    session.add(
-        SourceAuditEvent(
-            source_id=record.source_id,
-            source_revision_id=revision_id,
-            event_type=MAPPING_CLAIM_REVOKED_EVENT,
-            actor_id=actor_id,
-            request_id=request_id,
-            outcome="success",
-            payload_json={"claim_id": claim_id, "claim_status": "revoked"},
-        )
+    revoke_event = SourceAuditEvent(
+        source_id=record.source_id,
+        source_revision_id=revision_id,
+        event_type=MAPPING_CLAIM_REVOKED_EVENT,
+        actor_id=actor_id,
+        request_id=request_id,
+        outcome="success",
+        payload_json=signed_payload,
     )
+    session.add(revoke_event)
+    session.flush()
+    mark_durable_approval_revoked(session, claim_id=claim_id)
+    revoke_jti = str((signed_payload.get("curator_approval") or {}).get("jti") or "")
+    if revoke_jti:
+        attach_source_audit_event_to_durable_record(
+            session,
+            decision_jti=revoke_jti,
+            source_audit_event_id=revoke_event.id,
+        )
     session.flush()
 
 
@@ -578,6 +623,7 @@ def _active_mapping_claim_audit(
             role=CuratorRole.MAPPING_CURATOR,
             operation=CuratorOperation.MAPPING_APPROVE,
             binding_payload=binding,
+            source_audit_event_id=event.id,
         ):
             continue
         if not claim_scope_matches_graph(payload, graph_scope):

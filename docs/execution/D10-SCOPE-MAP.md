@@ -1,8 +1,10 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R23 FOCUSED REPAIR** (Founder Option A 2026-11-02). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R24 FOCUSED SECURITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R23 deltas (vs `ba54a51`):** internal **`curator_auth`** + migration **`20261102_0015`**; signed mapping/mandatory policy writes and durable read verification; **`test_day10_r23_trust.py`**; Founder **Option A** in **`D10-R21-POLICY-MAPPING-AUTH-FOUNDER-DECISION.md`**. D10-12/28/29 **PARTIAL**; D10-36 **PENDING** (not signoff).
+**R24 deltas (vs `cdeccf6`):** bootstrap-gated credential provisioning (`curator_bootstrap_secret`, `bootstrap.py`); durable approval **v2 envelope** signing (actor/role/scope/jti bound); `CuratorDurableApprovalRecord` lineage + signed revocations; board/curriculum grant columns (**`20261103_0016`**, **`20261103_0017`**); min 32-byte signing key and 1–300s decision TTL; board mandatory source type/board checks; **`test_day10_r24_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING** (not signoff).
+
+**R23 deltas (vs `ba54a51`):** internal **`curator_auth`** + migration **`20261102_0015`**; signed mapping/mandatory policy writes and durable read verification; **`test_day10_r23_trust.py`**; Founder **Option A** in **`D10-R21-POLICY-MAPPING-AUTH-FOUNDER-DECISION.md`**.
 
 **R21 deltas (vs `9bf7bfc`):** compiled **`OrchestrationService.run`** production-scope proof + HITL/replay in **`test_day10_r21_trust.py`** (D10-19/22/32/33 still **PARTIAL** until PASS+hypothesis matrix complete); **Day6 reuse** version/scope/source-revision canonical hash in **`day6_reuse.py`** + **`canonical_mapping.py`**; **mandatory policy claim** locator/lifecycle read-path in **`mandatory_policy_claim_authority.py`**; **mapping overlay read** on configured **`SOURCE_STORAGE_DIR`** (JSON upload); Founder decision doc **`D10-R21-POLICY-MAPPING-AUTH-FOUNDER-DECISION.md`** (options A/B — **not chosen**). D10-12/28/29 remain **PARTIAL**; D10-36 **PENDING**.
 
@@ -44,5 +46,5 @@ Status: **R23 FOCUSED REPAIR** (Founder Option A 2026-11-02). Source: `docs/exec
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |
 | D10-33 | Batch / replay / HITL | HITL → `root_cause_enrich` routing; replay idempotency | `test_day10_r21_trust.py` gateway/audit replay | PARTIAL |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
-| D10-35 | SQLite / Alembic portability | existing migrations unchanged | `test_day10_r14_trust.py` Alembic head + PG DDL compile (live PG untested) | PARTIAL |
+| D10-35 | SQLite / Alembic portability | Alembic **`20261102_0015`–`20261103_0017`** (curator auth R23/R24) | `test_day10_r14_trust.py` Alembic head + PG DDL compile (live PG untested) | PARTIAL |
 | D10-36 | Founder acceptance evidence | — | — | PENDING |

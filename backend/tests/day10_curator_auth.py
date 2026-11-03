@@ -4,10 +4,11 @@ import secrets
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.curator_auth.bootstrap import provision_operator_credential
 from app.curator_auth.issuer import (
     CuratorScope,
     issue_curator_write_decision,
-    provision_operator_credential,
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.models.policy import PolicyRule
@@ -28,7 +29,14 @@ DEFAULT_MAPPING_CURATOR_SECRET = secrets.token_hex(24)
 DEFAULT_POLICY_CURATOR_SECRET = secrets.token_hex(24)
 
 
-def test_curator_signing_key() -> str:
+def curator_signing_key_for_tests() -> str:
+    return secrets.token_hex(32)
+
+
+def bootstrap_secret_for_tests() -> str:
+    configured = (get_settings().curator_bootstrap_secret or "").strip()
+    if configured:
+        return configured
     return secrets.token_hex(32)
 
 
@@ -48,6 +56,7 @@ def ensure_mapping_curator_credential(
     )
     provision_operator_credential(
         session,
+        bootstrap_secret=bootstrap_secret_for_tests(),
         admin_actor=admin,
         role=CuratorRole.MAPPING_CURATOR,
         operator_secret=operator_secret,
@@ -64,6 +73,7 @@ def ensure_mandatory_policy_curator_credential(
     operator_secret: str = DEFAULT_POLICY_CURATOR_SECRET,
     board_code: str | None = None,
     teacher_id: str | None = None,
+    board_scope_authorized: bool = False,
 ) -> None:
     scope = CuratorScope(
         organization_id=organization_id,
@@ -73,10 +83,12 @@ def ensure_mandatory_policy_curator_credential(
     )
     provision_operator_credential(
         session,
+        bootstrap_secret=bootstrap_secret_for_tests(),
         admin_actor=admin,
         role=CuratorRole.MANDATORY_POLICY_CURATOR,
         operator_secret=operator_secret,
         scope=scope,
+        board_scope_authorized=board_scope_authorized,
     )
 
 

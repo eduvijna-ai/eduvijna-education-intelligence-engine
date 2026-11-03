@@ -10,12 +10,19 @@ from sqlalchemy.orm import Session
 from app.curator_auth.issuer import (
     CuratorAuthError,
     CuratorScope,
-    sign_durable_curator_approval,
-    verify_and_consume_curator_write_decision,
+    attach_source_audit_event_to_durable_record,
+    consume_decision_and_build_signed_payload,
+    mark_durable_approval_revoked,
     verify_durable_curator_approval,
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
-from app.models.enums import PolicyScopeType, SourceRevisionStatus, SourceStatus, SourceTrustTier
+from app.models.enums import (
+    PolicyScopeType,
+    SourceRevisionStatus,
+    SourceStatus,
+    SourceTrustTier,
+    SourceType,
+)
 from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision, policy_rule_source_revisions
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
@@ -30,6 +37,15 @@ _OFFICIAL_TRUST_TIERS = {
     SourceTrustTier.OFFICIAL_PRIMARY.value,
     SourceTrustTier.OFFICIAL_SUPPORTING.value,
 }
+
+_BOARD_MANDATORY_SOURCE_TYPES = frozenset(
+    {
+        SourceType.OFFICIAL_AUTHORITY.value,
+        SourceType.OFFICIAL_SYLLABUS.value,
+        SourceType.OFFICIAL_EXAM_BULLETIN.value,
+        SourceType.MARKING_SCHEME.value,
+    }
+)
 
 
 class MandatoryPolicyClaimAuthorityError(ValueError):
@@ -103,6 +119,19 @@ def mandatory_policy_approve_binding_payload(
         "policy_key": policy_key,
         "value_checksum": value_checksum,
         "rule_lifecycle_digest": rule_lifecycle_digest,
+    }
+
+
+def mandatory_policy_revoke_binding_payload(
+    *,
+    rule_id: str,
+    revision_id: str,
+    claim_id: str,
+) -> dict[str, Any]:
+    return {
+        "policy_rule_id": rule_id,
+        "source_revision_id": revision_id,
+        "claim_id": claim_id,
     }
 
 
@@ -205,6 +234,17 @@ def _verify_scope_source_trust(
             raise MandatoryPolicyClaimAuthorityError(
                 "board mandatory policy requires official source trust tier"
             )
+        source_type = str(source.source_type or "")
+        if source_type not in _BOARD_MANDATORY_SOURCE_TYPES:
+            raise MandatoryPolicyClaimAuthorityError(
+                "board mandatory policy requires an official authority source type"
+            )
+        board_ref = str(source.board_or_exam or "").strip().lower()
+        scope_board = str(rule.scope_code or "").strip().lower()
+        if board_ref and scope_board and board_ref != scope_board:
+            raise MandatoryPolicyClaimAuthorityError(
+                "mandatory policy board scope does not match source board authority"
+            )
         locator = _mandatory_source_locator(rule)
         from app.prerequisite_intelligence.authority import load_revision_record
 
@@ -217,6 +257,12 @@ def _verify_scope_source_trust(
             raise MandatoryPolicyClaimAuthorityError(
                 "mandatory policy source locator is not grounded in approved source"
             ) from exc
+        rule_meta = rule.metadata_json or {}
+        if not str(rule_meta.get("mandatory_source_locator") or "").strip():
+            raise MandatoryPolicyClaimAuthorityError(
+                "mandatory policy rule lacks documented source locator"
+            )
+        return
 
 
 def _rule_effective_on(rule: PolicyRule, on_date: date | None = None) -> bool:
@@ -306,19 +352,6 @@ def approve_mandatory_policy_claim(
     scope = curator_scope_for_policy_rule(
         rule, organization_id=organization_id, institution_id=institution_id
     )
-    try:
-        decision = verify_and_consume_curator_write_decision(
-            session,
-            token=curator_decision_token,
-            role=CuratorRole.MANDATORY_POLICY_CURATOR,
-            operation=CuratorOperation.MANDATORY_POLICY_APPROVE,
-            binding_payload=binding,
-            scope=scope,
-        )
-    except CuratorAuthError as exc:
-        raise MandatoryPolicyClaimAuthorityError(str(exc)) from exc
-    if decision.admin_actor_external_code != str(actor_id).strip():
-        raise MandatoryPolicyClaimAuthorityError("mandatory policy actor mismatch")
     claim_id = mandatory_policy_claim_id(
         policy_rule_id=rule_id,
         source_revision_id=revision_id,
@@ -328,38 +361,133 @@ def approve_mandatory_policy_claim(
         value_checksum=value_checksum,
         rule_lifecycle_digest=lifecycle,
     )
-    session.add(
-        SourceAuditEvent(
-            source_id=revision.source_id,
-            source_revision_id=revision_id,
-            event_type=MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
-            actor_id=actor_id,
-            request_id=request_id,
-            outcome="success",
-            payload_json=sign_durable_curator_approval(
-                {
-                    "claim_id": claim_id,
-                    "policy_rule_id": rule_id,
-                    "scope_type": scope_type,
-                    "scope_code": scope_code,
-                    "policy_key": policy_key,
-                    "value_checksum": value_checksum,
-                    "rule_lifecycle_digest": lifecycle,
-                    "rule_priority": int(rule.priority),
-                    "effective_from": (
-                        rule.effective_from.isoformat() if rule.effective_from else None
-                    ),
-                    "effective_to": rule.effective_to.isoformat() if rule.effective_to else None,
-                    "mandatory_source_locator": _mandatory_source_locator(rule),
-                    "approved_by": actor_id,
-                    "claim_status": "active",
-                },
-                decision=decision,
+    try:
+        claim_body = {
+            "claim_id": claim_id,
+            "policy_rule_id": rule_id,
+            "scope_type": scope_type,
+            "scope_code": scope_code,
+            "policy_key": policy_key,
+            "value_checksum": value_checksum,
+            "rule_lifecycle_digest": lifecycle,
+            "rule_priority": int(rule.priority),
+            "effective_from": (
+                rule.effective_from.isoformat() if rule.effective_from else None
             ),
+            "effective_to": rule.effective_to.isoformat() if rule.effective_to else None,
+            "mandatory_source_locator": _mandatory_source_locator(rule),
+            "approved_by": "",
+            "claim_status": "active",
+        }
+        signed_payload = consume_decision_and_build_signed_payload(
+            session,
+            token=curator_decision_token,
+            role=CuratorRole.MANDATORY_POLICY_CURATOR,
+            operation=CuratorOperation.MANDATORY_POLICY_APPROVE,
+            binding_payload=binding,
+            scope=scope,
+            claim_body=claim_body,
+            claim_id=claim_id,
         )
+    except CuratorAuthError as exc:
+        raise MandatoryPolicyClaimAuthorityError(str(exc)) from exc
+    policy_actor = str(signed_payload.get("approved_by") or "").strip()
+    if not policy_actor:
+        policy_actor = str(
+            (signed_payload.get("curator_approval") or {}).get("admin_external_code") or ""
+        ).strip()
+    if policy_actor != str(actor_id).strip():
+        raise MandatoryPolicyClaimAuthorityError("mandatory policy actor mismatch")
+    audit_event = SourceAuditEvent(
+        source_id=revision.source_id,
+        source_revision_id=revision_id,
+        event_type=MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
+        actor_id=actor_id,
+        request_id=request_id,
+        outcome="success",
+        payload_json=signed_payload,
     )
+    session.add(audit_event)
+    session.flush()
+    approval_jti = str((signed_payload.get("curator_approval") or {}).get("jti") or "")
+    if approval_jti:
+        attach_source_audit_event_to_durable_record(
+            session,
+            decision_jti=approval_jti,
+            source_audit_event_id=audit_event.id,
+        )
     session.flush()
     return claim_id
+
+
+def revoke_mandatory_policy_claim(
+    session: Session,
+    *,
+    rule_id: str,
+    revision_id: str,
+    claim_id: str,
+    actor_id: str,
+    organization_id: str,
+    institution_id: str,
+    curator_decision_token: str,
+    request_id: str | None = None,
+) -> None:
+    rule = session.get(PolicyRule, rule_id)
+    if rule is None:
+        raise MandatoryPolicyClaimAuthorityError("policy rule is unknown")
+    revision = session.get(SourceRevision, revision_id)
+    if revision is None:
+        raise MandatoryPolicyClaimAuthorityError("source revision is unknown")
+    scope = curator_scope_for_policy_rule(
+        rule, organization_id=organization_id, institution_id=institution_id
+    )
+    binding = mandatory_policy_revoke_binding_payload(
+        rule_id=rule_id, revision_id=revision_id, claim_id=claim_id
+    )
+    try:
+        signed_payload = consume_decision_and_build_signed_payload(
+            session,
+            token=curator_decision_token,
+            role=CuratorRole.MANDATORY_POLICY_CURATOR,
+            operation=CuratorOperation.MANDATORY_POLICY_REVOKE,
+            binding_payload=binding,
+            scope=scope,
+            claim_body={
+                "claim_id": claim_id,
+                "claim_status": "revoked",
+                "approved_by": "",
+            },
+            claim_id=claim_id,
+        )
+    except CuratorAuthError as exc:
+        raise MandatoryPolicyClaimAuthorityError(str(exc)) from exc
+    revoke_actor = str(signed_payload.get("approved_by") or "").strip()
+    if not revoke_actor:
+        revoke_actor = str(
+            (signed_payload.get("curator_approval") or {}).get("admin_external_code") or ""
+        ).strip()
+    if revoke_actor != str(actor_id).strip():
+        raise MandatoryPolicyClaimAuthorityError("mandatory policy revoke actor mismatch")
+    revoke_event = SourceAuditEvent(
+        source_id=revision.source_id,
+        source_revision_id=revision_id,
+        event_type=MANDATORY_POLICY_CLAIM_REVOKED_EVENT,
+        actor_id=actor_id,
+        request_id=request_id,
+        outcome="success",
+        payload_json=signed_payload,
+    )
+    session.add(revoke_event)
+    session.flush()
+    mark_durable_approval_revoked(session, claim_id=claim_id)
+    revoke_jti = str((signed_payload.get("curator_approval") or {}).get("jti") or "")
+    if revoke_jti:
+        attach_source_audit_event_to_durable_record(
+            session,
+            decision_jti=revoke_jti,
+            source_audit_event_id=revoke_event.id,
+        )
+    session.flush()
 
 
 def mandatory_policy_claim_active(
@@ -429,6 +557,7 @@ def mandatory_policy_claim_active(
             role=CuratorRole.MANDATORY_POLICY_CURATOR,
             operation=CuratorOperation.MANDATORY_POLICY_APPROVE,
             binding_payload=binding,
+            source_audit_event_id=event.id,
         ):
             continue
         revoked = session.scalars(
@@ -441,7 +570,20 @@ def mandatory_policy_claim_active(
         for rev in revoked:
             if rev.created_at <= event.created_at:
                 continue
-            if str((rev.payload_json or {}).get("claim_id") or "") == claim_id:
+            rev_payload = rev.payload_json or {}
+            if str(rev_payload.get("claim_id") or "") != claim_id:
+                continue
+            revoke_binding = mandatory_policy_revoke_binding_payload(
+                rule_id=rule_id, revision_id=revision_id, claim_id=claim_id
+            )
+            if verify_durable_curator_approval(
+                session,
+                rev_payload,
+                role=CuratorRole.MANDATORY_POLICY_CURATOR,
+                operation=CuratorOperation.MANDATORY_POLICY_REVOKE,
+                binding_payload=revoke_binding,
+                source_audit_event_id=rev.id,
+            ):
                 return False
         return True
     return False

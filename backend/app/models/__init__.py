@@ -1,4 +1,9 @@
-from app.models.curator_auth import CuratorDecisionNonce, CuratorOperatorCredential
+from app.models.curator_auth import (  # noqa: F401
+    CuratorBootstrapAuditEvent,
+    CuratorDecisionNonce,
+    CuratorDurableApprovalRecord,
+    CuratorOperatorCredential,
+)
 from app.models.curriculum import (
     Competency,
     ConceptPrerequisite,

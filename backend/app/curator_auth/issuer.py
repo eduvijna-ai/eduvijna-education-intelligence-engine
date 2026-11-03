@@ -15,8 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.curator_auth.roles import CuratorOperation, CuratorRole
-from app.models.curator_auth import CuratorDecisionNonce, CuratorOperatorCredential
-from app.models.tenancy import AdminActor
+from app.models.curator_auth import (
+    CuratorDecisionNonce,
+    CuratorDurableApprovalRecord,
+    CuratorOperatorCredential,
+)
+from app.models.tenancy import AdminActor, Institution, Organization, Teacher
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 
 UNSAFE_CURATOR_SIGNING_KEYS = frozenset(
@@ -26,6 +30,12 @@ UNSAFE_CURATOR_SIGNING_KEYS = frozenset(
         "change-me-for-non-local-use",
     }
 )
+
+MIN_SIGNING_KEY_BYTES = 32
+MIN_DECISION_TTL_SECONDS = 1
+MAX_DECISION_TTL_SECONDS = 300
+MAX_CLOCK_SKEW_SECONDS = 30
+DURABLE_APPROVAL_VERSION = 2
 
 SCRYPT_N = 2**14
 SCRYPT_R = 8
@@ -46,7 +56,7 @@ class CuratorScope:
 
 
 @dataclass(frozen=True, slots=True)
-class VerifiedCuratorDecision:
+class _ConsumedCuratorDecision:
     admin_actor_id: str
     admin_actor_external_code: str
     role: CuratorRole
@@ -55,6 +65,7 @@ class VerifiedCuratorDecision:
     scope: CuratorScope
     jti: str
     key_id: str
+    issued_at: int
 
 
 def _require_signing_key() -> tuple[str, str]:
@@ -63,6 +74,8 @@ def _require_signing_key() -> tuple[str, str]:
     key_id = (settings.curator_approval_signing_key_id or "curator-approval-v1").strip()
     if not key or key in UNSAFE_CURATOR_SIGNING_KEYS:
         raise CuratorAuthError("curator approval signing key is not configured")
+    if len(key.encode("utf-8")) < MIN_SIGNING_KEY_BYTES:
+        raise CuratorAuthError("curator approval signing key is too short")
     if key == settings.api_secret_key:
         raise CuratorAuthError("curator approval signing key must not equal API secret")
     return key_id, key
@@ -119,38 +132,51 @@ def verify_operator_secret(plaintext: str, stored: dict[str, str]) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
-def provision_operator_credential(
-    session: Session,
-    *,
-    admin_actor: AdminActor,
-    role: CuratorRole,
-    operator_secret: str,
-    scope: CuratorScope,
-) -> CuratorOperatorCredential:
-    if not operator_secret or len(operator_secret) < 16:
-        raise CuratorAuthError("operator secret must be at least 16 characters")
-    existing = session.scalar(
-        select(CuratorOperatorCredential).where(
-            CuratorOperatorCredential.admin_actor_id == admin_actor.id,
-            CuratorOperatorCredential.role == role.value,
+def _scope_dict(scope: CuratorScope) -> dict[str, str | None]:
+    return {
+        "organization_id": scope.organization_id,
+        "institution_id": scope.institution_id,
+        "curriculum_version_id": scope.curriculum_version_id,
+        "teacher_id": scope.teacher_id,
+        "board_code": scope.board_code,
+    }
+
+
+def _resolve_teacher_in_scope(session: Session, scope: CuratorScope) -> Teacher | None:
+    if not scope.teacher_id:
+        return None
+    teacher = session.get(Teacher, scope.teacher_id)
+    if teacher is not None:
+        return teacher
+    return session.scalar(
+        select(Teacher).where(
+            Teacher.institution_id == scope.institution_id,
+            Teacher.external_code == str(scope.teacher_id),
         )
     )
-    record = existing or CuratorOperatorCredential(
-        admin_actor_id=admin_actor.id,
-        role=role.value,
-    )
-    record.organization_id = scope.organization_id or None
-    record.institution_id = scope.institution_id or None
-    record.teacher_id = scope.teacher_id
-    record.credential_hash_json = hash_operator_secret(operator_secret)
-    record.active = True
-    session.add(record)
-    session.flush()
-    return record
+
+
+def _assert_tenant_scope_active(session: Session, scope: CuratorScope) -> None:
+    org = session.get(Organization, scope.organization_id)
+    if org is None or not org.active:
+        raise CuratorAuthError("curator scope organization is not active")
+    inst = session.get(Institution, scope.institution_id)
+    if inst is None or not inst.active:
+        raise CuratorAuthError("curator scope institution is not active")
+    if str(inst.organization_id) != str(scope.organization_id):
+        raise CuratorAuthError("curator scope institution organization mismatch")
+    if scope.teacher_id:
+        teacher = _resolve_teacher_in_scope(session, scope)
+        if teacher is None or not teacher.active:
+            raise CuratorAuthError("curator scope teacher is not active")
+        if str(teacher.institution_id) != str(scope.institution_id):
+            raise CuratorAuthError("curator scope teacher institution mismatch")
 
 
 def _scope_matches_credential(
-    credential: CuratorOperatorCredential, scope: CuratorScope
+    session: Session,
+    credential: CuratorOperatorCredential,
+    scope: CuratorScope,
 ) -> bool:
     if credential.organization_id and str(credential.organization_id) != str(
         scope.organization_id
@@ -161,8 +187,27 @@ def _scope_matches_credential(
     ):
         return False
     if credential.teacher_id:
-        if not scope.teacher_id or str(credential.teacher_id) != str(scope.teacher_id):
+        if not scope.teacher_id:
             return False
+        cred_teacher = session.get(Teacher, credential.teacher_id)
+        scope_teacher = _resolve_teacher_in_scope(session, scope)
+        if cred_teacher is None or scope_teacher is None:
+            return False
+        if str(cred_teacher.id) != str(scope_teacher.id):
+            return False
+    if credential.curriculum_version_id:
+        if not scope.curriculum_version_id or str(credential.curriculum_version_id) != str(
+            scope.curriculum_version_id
+        ):
+            return False
+    if scope.board_code:
+        if not credential.board_scope_authorized:
+            if credential.board_code and str(credential.board_code) != str(scope.board_code):
+                return False
+        elif credential.board_code and str(credential.board_code) != str(scope.board_code):
+            return False
+    elif credential.board_code and scope.board_code:
+        return False
     return True
 
 
@@ -174,6 +219,7 @@ def verify_curator_operator(
     role: CuratorRole,
     scope: CuratorScope,
 ) -> AdminActor:
+    _assert_tenant_scope_active(session, scope)
     admin = session.scalar(
         select(AdminActor).where(
             AdminActor.external_code == str(admin_external_code).strip(),
@@ -200,7 +246,7 @@ def verify_curator_operator(
     )
     if credential is None:
         raise CuratorAuthError("curator operator credential is not provisioned")
-    if not _scope_matches_credential(credential, scope):
+    if not _scope_matches_credential(session, credential, scope):
         raise CuratorAuthError("curator credential scope mismatch")
     if not verify_operator_secret(operator_secret, credential.credential_hash_json):
         raise CuratorAuthError("curator operator credential verification failed")
@@ -208,9 +254,13 @@ def verify_curator_operator(
 
 
 def _encode_token(payload: dict[str, Any], signing_key: str) -> str:
-    body = base64.urlsafe_b64encode(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii").rstrip("=")
+    body = (
+        base64.urlsafe_b64encode(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
     sig = hmac.new(
         signing_key.encode("utf-8"),
         body.encode("utf-8"),
@@ -243,6 +293,10 @@ def _decode_token(token: str, signing_key: str) -> dict[str, Any]:
     return payload
 
 
+def _clamp_ttl(ttl_seconds: int) -> int:
+    return max(MIN_DECISION_TTL_SECONDS, min(int(ttl_seconds), MAX_DECISION_TTL_SECONDS))
+
+
 def issue_curator_write_decision(
     session: Session,
     *,
@@ -264,7 +318,8 @@ def issue_curator_write_decision(
     )
     binding_digest = operation_binding_digest(operation.value, binding_payload)
     now = datetime.now(tz=UTC)
-    exp = now + timedelta(seconds=ttl_seconds)
+    ttl = _clamp_ttl(ttl_seconds)
+    exp = now + timedelta(seconds=ttl)
     jti = str(uuid.uuid4())
     payload = {
         "v": 1,
@@ -277,13 +332,7 @@ def issue_curator_write_decision(
         "role": role.value,
         "operation": operation.value,
         "binding_digest": binding_digest,
-        "scope": {
-            "organization_id": scope.organization_id,
-            "institution_id": scope.institution_id,
-            "curriculum_version_id": scope.curriculum_version_id,
-            "teacher_id": scope.teacher_id,
-            "board_code": scope.board_code,
-        },
+        "scope": _scope_dict(scope),
     }
     token = _encode_token(payload, signing_key)
     session.add(
@@ -296,7 +345,7 @@ def issue_curator_write_decision(
     return token
 
 
-def verify_and_consume_curator_write_decision(
+def _consume_curator_write_decision(
     session: Session,
     *,
     token: str,
@@ -304,7 +353,7 @@ def verify_and_consume_curator_write_decision(
     operation: CuratorOperation,
     binding_payload: dict[str, Any],
     scope: CuratorScope,
-) -> VerifiedCuratorDecision:
+) -> _ConsumedCuratorDecision:
     key_id, signing_key = _require_signing_key()
     payload = _decode_token(token, signing_key)
     if int(payload.get("v") or 0) != 1:
@@ -324,19 +373,17 @@ def verify_and_consume_curator_write_decision(
     for field in ("organization_id", "institution_id"):
         if str(scope_payload.get(field) or "") != str(getattr(scope, field)):
             raise CuratorAuthError("curator decision scope mismatch")
-    if scope.curriculum_version_id is not None:
-        if str(scope_payload.get("curriculum_version_id") or "") != str(
-            scope.curriculum_version_id
-        ):
-            raise CuratorAuthError("curator decision curriculum scope mismatch")
-    if scope.teacher_id is not None:
-        if str(scope_payload.get("teacher_id") or "") != str(scope.teacher_id):
-            raise CuratorAuthError("curator decision teacher scope mismatch")
-    if scope.board_code is not None:
-        if str(scope_payload.get("board_code") or "") != str(scope.board_code):
-            raise CuratorAuthError("curator decision board scope mismatch")
+    for optional_field in ("curriculum_version_id", "teacher_id", "board_code"):
+        req_val = getattr(scope, optional_field)
+        if req_val is not None:
+            if str(scope_payload.get(optional_field) or "") != str(req_val):
+                raise CuratorAuthError("curator decision scope mismatch")
+    iat = int(payload.get("iat") or 0)
+    now_ts = datetime.now(tz=UTC).timestamp()
+    if iat > now_ts + MAX_CLOCK_SKEW_SECONDS:
+        raise CuratorAuthError("curator decision token issued in the future")
     exp = int(payload.get("exp") or 0)
-    if datetime.now(tz=UTC).timestamp() > exp:
+    if now_ts > exp + MAX_CLOCK_SKEW_SECONDS:
         raise CuratorAuthError("curator decision token expired")
     jti = str(payload.get("jti") or "").strip()
     if not jti:
@@ -345,14 +392,24 @@ def verify_and_consume_curator_write_decision(
         select(CuratorDecisionNonce).where(CuratorDecisionNonce.jti == jti)
     )
     if nonce is None:
-        raise CuratorAuthError("curator decision jti is unknown")
+        raise CuratorAuthError("curator decision jti is unknown or already consumed")
     session.delete(nonce)
     session.flush()
     admin_id = str(payload.get("admin_actor_id") or "").strip()
     admin = session.get(AdminActor, admin_id)
     if admin is None or not admin.active:
         raise CuratorAuthError("curator decision admin actor is not active")
-    return VerifiedCuratorDecision(
+    _assert_tenant_scope_active(session, scope)
+    credential = session.scalar(
+        select(CuratorOperatorCredential).where(
+            CuratorOperatorCredential.admin_actor_id == admin.id,
+            CuratorOperatorCredential.role == role.value,
+            CuratorOperatorCredential.active.is_(True),
+        )
+    )
+    if credential is None or not _scope_matches_credential(session, credential, scope):
+        raise CuratorAuthError("curator credential scope invalid at consumption")
+    return _ConsumedCuratorDecision(
         admin_actor_id=admin.id,
         admin_actor_external_code=admin.external_code,
         role=role,
@@ -361,36 +418,113 @@ def verify_and_consume_curator_write_decision(
         scope=scope,
         jti=jti,
         key_id=key_id,
+        issued_at=iat,
     )
 
 
-def sign_durable_curator_approval(
+def _durable_envelope(
     claim_body: dict[str, Any],
+    decision: _ConsumedCuratorDecision,
     *,
-    decision: VerifiedCuratorDecision,
+    signed_at_iso: str,
 ) -> dict[str, Any]:
-    key_id, signing_key = _require_signing_key()
-    encoded = json.dumps(claim_body, sort_keys=True, separators=(",", ":"))
-    digest_input = f"durable-v1:{key_id}:{encoded}"
-    signature = hmac.new(
+    return {
+        "v": DURABLE_APPROVAL_VERSION,
+        "kid": decision.key_id,
+        "claim": claim_body,
+        "admin_actor_id": decision.admin_actor_id,
+        "admin_external_code": decision.admin_actor_external_code,
+        "role": decision.role.value,
+        "operation": decision.operation.value,
+        "binding_digest": decision.binding_digest,
+        "scope": _scope_dict(decision.scope),
+        "jti": decision.jti,
+        "signed_at": signed_at_iso,
+        "issued_at": decision.issued_at,
+    }
+
+
+def _sign_envelope(envelope: dict[str, Any], signing_key: str) -> str:
+    encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":"))
+    return hmac.new(
         signing_key.encode("utf-8"),
-        digest_input.encode("utf-8"),
+        f"durable-v{DURABLE_APPROVAL_VERSION}:{encoded}".encode(),
         hashlib.sha256,
     ).hexdigest()
+
+
+def consume_decision_and_build_signed_payload(
+    session: Session,
+    *,
+    token: str,
+    role: CuratorRole,
+    operation: CuratorOperation,
+    binding_payload: dict[str, Any],
+    scope: CuratorScope,
+    claim_body: dict[str, Any],
+    claim_id: str,
+) -> dict[str, Any]:
+    """Atomic consume short-lived decision + sign durable claim envelope."""
+    decision = _consume_curator_write_decision(
+        session,
+        token=token,
+        role=role,
+        operation=operation,
+        binding_payload=binding_payload,
+        scope=scope,
+    )
+    existing = session.scalar(
+        select(CuratorDurableApprovalRecord).where(
+            CuratorDurableApprovalRecord.decision_jti == decision.jti
+        )
+    )
+    if existing is not None:
+        raise CuratorAuthError("curator decision jti already consumed for durable approval")
+    key_id, signing_key = _require_signing_key()
+    signed_at = datetime.now(tz=UTC).isoformat()
+    body = dict(claim_body)
+    body["approved_by"] = decision.admin_actor_external_code
+    envelope = _durable_envelope(body, decision, signed_at_iso=signed_at)
+    signature = _sign_envelope(envelope, signing_key)
+    session.add(
+        CuratorDurableApprovalRecord(
+            decision_jti=decision.jti,
+            operation=operation.value,
+            claim_id=claim_id,
+            admin_actor_id=decision.admin_actor_id,
+        )
+    )
+    session.flush()
     return {
-        **claim_body,
-        "curator_approval": {
-            "v": 1,
-            "kid": key_id,
-            "admin_actor_id": decision.admin_actor_id,
-            "admin_external_code": decision.admin_actor_external_code,
-            "role": decision.role.value,
-            "operation": decision.operation.value,
-            "binding_digest": decision.binding_digest,
-            "jti": decision.jti,
-            "signature": signature,
-        },
+        **body,
+        "curator_approval": {**envelope, "signature": signature},
     }
+
+
+def attach_source_audit_event_to_durable_record(
+    session: Session, *, decision_jti: str, source_audit_event_id: str
+) -> None:
+    record = session.scalar(
+        select(CuratorDurableApprovalRecord).where(
+            CuratorDurableApprovalRecord.decision_jti == decision_jti
+        )
+    )
+    if record is not None:
+        record.source_audit_event_id = source_audit_event_id
+        session.flush()
+
+
+def mark_durable_approval_revoked(session: Session, *, claim_id: str) -> None:
+    records = session.scalars(
+        select(CuratorDurableApprovalRecord).where(
+            CuratorDurableApprovalRecord.claim_id == claim_id,
+            CuratorDurableApprovalRecord.revoked_at_iso.is_(None),
+        )
+    ).all()
+    revoked_at = datetime.now(tz=UTC).isoformat()
+    for record in records:
+        record.revoked_at_iso = revoked_at
+        session.flush()
 
 
 def verify_durable_curator_approval(
@@ -400,11 +534,14 @@ def verify_durable_curator_approval(
     role: CuratorRole,
     operation: CuratorOperation,
     binding_payload: dict[str, Any],
+    audit_actor_id: str | None = None,
+    expected_scope: CuratorScope | None = None,
+    source_audit_event_id: str | None = None,
 ) -> bool:
     approval = payload.get("curator_approval")
     if not isinstance(approval, dict):
         return False
-    if int(approval.get("v") or 0) != 1:
+    if int(approval.get("v") or 0) != DURABLE_APPROVAL_VERSION:
         return False
     if str(approval.get("role") or "") != role.value:
         return False
@@ -414,8 +551,16 @@ def verify_durable_curator_approval(
     if str(approval.get("binding_digest") or "") != expected_binding:
         return False
     admin_id = str(approval.get("admin_actor_id") or "").strip()
+    admin_code = str(approval.get("admin_external_code") or "").strip()
+    approved_by = str(payload.get("approved_by") or "").strip()
+    if not admin_id or not admin_code:
+        return False
+    if approved_by and approved_by not in {admin_code, admin_id}:
+        return False
+    if audit_actor_id and str(audit_actor_id).strip() not in {admin_code, admin_id}:
+        return False
     admin = session.get(AdminActor, admin_id)
-    if admin is None or not admin.active:
+    if admin is None or not admin.active or admin.external_code != admin_code:
         return False
     credential = session.scalar(
         select(CuratorOperatorCredential).where(
@@ -426,21 +571,89 @@ def verify_durable_curator_approval(
     )
     if credential is None:
         return False
+    scope_payload = approval.get("scope") or {}
+    if not isinstance(scope_payload, dict):
+        return False
+    try:
+        approval_scope = CuratorScope(
+            organization_id=str(scope_payload.get("organization_id") or ""),
+            institution_id=str(scope_payload.get("institution_id") or ""),
+            curriculum_version_id=str(scope_payload.get("curriculum_version_id") or "") or None,
+            teacher_id=str(scope_payload.get("teacher_id") or "") or None,
+            board_code=str(scope_payload.get("board_code") or "") or None,
+        )
+    except (TypeError, ValueError):
+        return False
+    try:
+        _assert_tenant_scope_active(session, approval_scope)
+    except CuratorAuthError:
+        return False
+    if not _scope_matches_credential(session, credential, approval_scope):
+        return False
+    if expected_scope is not None:
+        for field in (
+            "organization_id",
+            "institution_id",
+            "curriculum_version_id",
+            "teacher_id",
+            "board_code",
+        ):
+            exp = getattr(expected_scope, field)
+            got = getattr(approval_scope, field)
+            if exp is not None and str(exp) != str(got or ""):
+                return False
+    jti = str(approval.get("jti") or "").strip()
+    if not jti:
+        return False
+    lineage = session.scalar(
+        select(CuratorDurableApprovalRecord).where(
+            CuratorDurableApprovalRecord.decision_jti == jti
+        )
+    )
+    if lineage is None or lineage.revoked_at_iso is not None:
+        return False
+    if str(lineage.admin_actor_id) != admin_id:
+        return False
+    if str(lineage.claim_id) != str(payload.get("claim_id") or ""):
+        return False
+    if lineage.source_audit_event_id and source_audit_event_id:
+        if str(lineage.source_audit_event_id) != str(source_audit_event_id):
+            return False
     try:
         key_id, signing_key = _require_signing_key()
     except CuratorAuthError:
         return False
     if str(approval.get("kid") or "") != key_id:
         return False
-    body = {key: value for key, value in payload.items() if key != "curator_approval"}
-    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    digest_input = f"durable-v1:{key_id}:{encoded}"
-    expected_sig = hmac.new(
-        signing_key.encode("utf-8"),
-        digest_input.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+    envelope = {key: approval[key] for key in approval if key != "signature"}
+    expected_sig = _sign_envelope(envelope, signing_key)
     supplied = str(approval.get("signature") or "")
     if not hmac.compare_digest(expected_sig, supplied):
         return False
+    claim_in_envelope = approval.get("claim")
+    if not isinstance(claim_in_envelope, dict):
+        return False
+    body_without_approval = {k: v for k, v in payload.items() if k != "curator_approval"}
+    if body_without_approval != claim_in_envelope:
+        return False
     return True
+
+
+# Backward-compatible alias for tests migrating to consume_decision_and_build_signed_payload
+def verify_and_consume_curator_write_decision(
+    session: Session,
+    *,
+    token: str,
+    role: CuratorRole,
+    operation: CuratorOperation,
+    binding_payload: dict[str, Any],
+    scope: CuratorScope,
+) -> _ConsumedCuratorDecision:
+    return _consume_curator_write_decision(
+        session,
+        token=token,
+        role=role,
+        operation=operation,
+        binding_payload=binding_payload,
+        scope=scope,
+    )
