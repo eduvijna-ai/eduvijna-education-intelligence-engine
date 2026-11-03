@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 from day10_source_lifecycle import (
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_source_content_approval,
     mandatory_board_policy_rule,
 )
@@ -168,17 +171,18 @@ def test_board_mandatory_policy_applies_to_both_institutions(tmp_path: Path) -> 
         value_json={
             "mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}],
         },
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
     revision.policy_rules.append(rule)
     session.flush()
-    ensure_genuine_source_content_approval(
+    ensure_board_mandatory_source_evidence(
         session,
         tmp_path,
         ctx["source_revision_id"],
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(remember_exact_count=2),
     )
     _approve_mandatory_policy_for_rule(
         session,

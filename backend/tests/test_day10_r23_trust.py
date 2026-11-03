@@ -16,6 +16,9 @@ from day10_curator_auth import (
 )
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
@@ -96,8 +99,15 @@ def test_signed_mapping_and_policy_claims_authorize_production_read(tmp_path: Pa
         board_scope_authorized=True,
         operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
     )
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=(
+            f"{default_board_mandatory_excerpt(apply_exact_percent=40.0)} "
+            f"{_MAPPING_SOURCE_LOCATOR}: whole-number addition mapping evidence."
+        ),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
@@ -167,7 +177,7 @@ def test_signed_mapping_and_policy_claims_authorize_production_read(tmp_path: Pa
     )
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()

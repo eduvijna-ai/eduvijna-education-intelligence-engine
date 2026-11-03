@@ -10,6 +10,9 @@ from day10_curator_auth import (
     issue_mapping_revoke_decision,
 )
 from day10_source_lifecycle import (
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_json_upload_source_approval,
     mandatory_board_policy_rule,
 )
@@ -104,7 +107,7 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
         curriculum_version_id=ctx["curriculum_version_id"],
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     assert revision.storage_path
     stored_file = Path(storage_root) / revision.storage_path
@@ -125,7 +128,7 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
         {**ctx, "source_revision_id": revision.id},
         actor_id,
         entry,
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     with pytest.raises(MappingClaimAuthorityError, match="integrity"):
         approve_root_cause_mapping_claim(
@@ -143,10 +146,13 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
 def test_mandatory_policy_without_claim_not_merged(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    from day10_source_lifecycle import ensure_genuine_source_content_approval
 
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
@@ -155,7 +161,7 @@ def test_mandatory_policy_without_claim_not_merged(tmp_path: Path) -> None:
     assert revision is not None
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()

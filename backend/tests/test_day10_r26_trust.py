@@ -14,7 +14,8 @@ from day10_curator_auth import (
 )
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
-    bind_revision_board_mandatory_source,
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
@@ -162,15 +163,21 @@ def test_synthetic_test_policy_flag_does_not_bypass_board_source(tmp_path: Path)
 def test_mandatory_claim_active_rejects_board_spoof_and_missing_teacher(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    from day10_source_lifecycle import default_board_mandatory_excerpt
+
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=100.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"remember": 100.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -245,15 +252,21 @@ def test_mandatory_claim_active_rejects_board_spoof_and_missing_teacher(tmp_path
 def test_tampered_audit_actor_rejected_on_mandatory_read(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    from day10_source_lifecycle import default_board_mandatory_excerpt
+
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=100.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"remember": 100.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -292,8 +305,14 @@ def test_tampered_audit_actor_rejected_on_mandatory_read(tmp_path: Path) -> None
 def test_board_mandatory_applies_to_two_cbse_institutions_not_icse(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    from day10_source_lifecycle import default_board_mandatory_excerpt
+
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(remember_exact_count=2),
     )
     for inst_id, board in ((INST_A, "cbse"), (INST_B, "cbse")):
         inst = session.get(Institution, inst_id)
@@ -309,7 +328,7 @@ def test_board_mandatory_applies_to_two_cbse_institutions_not_icse(tmp_path: Pat
     session.flush()
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
         scope_code="cbse",
     )
     session.add(rule)
@@ -317,7 +336,6 @@ def test_board_mandatory_applies_to_two_cbse_institutions_not_icse(tmp_path: Pat
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     revision.policy_rules.append(rule)
-    bind_revision_board_mandatory_source(session, revision.id, board_code="cbse")
     _approve_mandatory_policy_for_rule(
         session,
         rule=rule,
@@ -343,8 +361,14 @@ def test_board_mandatory_applies_to_two_cbse_institutions_not_icse(tmp_path: Pat
 def test_policy_revoke_token_bound_to_claim_id(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    from day10_source_lifecycle import default_board_mandatory_excerpt
+
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=100.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
@@ -353,18 +377,17 @@ def test_policy_revoke_token_bound_to_claim_id(tmp_path: Path) -> None:
     assert revision is not None
     rule_a = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"remember": 100.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     rule_b = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"understand": 100.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
         priority=11,
     )
     session.add(rule_a)
     session.add(rule_b)
     session.flush()
     revision.policy_rules.extend([rule_a, rule_b])
-    bind_revision_board_mandatory_source(session, revision.id, board_code="cbse")
     _approve_mandatory_policy_for_rule(
         session, rule=rule_a, revision_id=revision.id,
         organization_id=ctx["organization_id"], institution_id=ctx["institution_id"],

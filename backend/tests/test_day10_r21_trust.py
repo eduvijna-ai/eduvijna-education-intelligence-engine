@@ -9,9 +9,10 @@ from day10_orchestration_production import (
     build_day10_production_orchestration_service,
 )
 from day10_source_lifecycle import (
-    bind_revision_board_mandatory_source,
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_json_upload_source_approval,
-    ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
     mandatory_board_policy_rule,
@@ -158,15 +159,19 @@ def test_compiled_orchestration_production_root_cause_hitl_replay(tmp_path: Path
 def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -219,8 +224,12 @@ def test_mandatory_claim_inactive_after_rule_priority_change(tmp_path: Path) -> 
 def test_mandatory_claim_rejects_ungrounded_locator(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
@@ -234,7 +243,6 @@ def test_mandatory_claim_rejects_ungrounded_locator(tmp_path: Path) -> None:
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     revision.policy_rules.append(rule)
-    bind_revision_board_mandatory_source(session, revision.id, board_code=str(rule.scope_code))
     session.flush()
     with pytest.raises(MandatoryPolicyClaimAuthorityError, match="grounded|locator"):
         approve_mandatory_policy_claim(
@@ -378,15 +386,19 @@ def test_day6_reuse_rejects_stale_quality_rule_pack(tmp_path: Path) -> None:
 def test_mandatory_claim_active_for_default_priority_zero(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
         priority=0,
     )
     assert int(rule.priority) == 0

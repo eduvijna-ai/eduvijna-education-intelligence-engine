@@ -12,6 +12,9 @@ from day10_curator_auth import (
 )
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     mandatory_board_policy_rule,
@@ -79,7 +82,7 @@ def test_institution_only_credential_cannot_mint_board_mandatory_claim(tmp_path:
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 1}]},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -146,8 +149,12 @@ def test_board_scope_authorized_false_with_matching_board_code_rejected(tmp_path
 def test_board_wide_claim_active_only_for_matching_execution_board(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=100.0),
     )
     for inst_id in (INST_A, INST_B):
         inst = session.get(Institution, inst_id)
@@ -155,7 +162,7 @@ def test_board_wide_claim_active_only_for_matching_execution_board(tmp_path: Pat
         inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"remember": 100.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -198,15 +205,19 @@ def test_board_wide_claim_active_only_for_matching_execution_board(tmp_path: Pat
 def test_signed_revoke_verifies_and_blocks_original_read(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"remember": 100.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -304,8 +315,12 @@ def test_signed_revoke_verifies_and_blocks_original_read(tmp_path: Path) -> None
 def test_merge_scoped_mandatory_payload_respects_execution_board(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(remember_exact_count=2),
     )
     for inst_id in (INST_A, INST_B):
         inst = session.get(Institution, inst_id)
@@ -313,7 +328,7 @@ def test_merge_scoped_mandatory_payload_respects_execution_board(tmp_path: Path)
         inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()

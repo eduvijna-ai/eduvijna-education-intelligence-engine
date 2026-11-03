@@ -32,7 +32,10 @@ from app.root_cause_intelligence.mapping_evidence import (
     source_content_checksum,
     verify_revision_content_integrity,
 )
-from app.root_cause_intelligence.mapping_registry import MisconceptionConceptMapping
+from app.root_cause_intelligence.mapping_registry import (
+    MisconceptionConceptMapping,
+    load_root_cause_mapping,
+)
 
 MAPPING_CLAIM_APPROVED_EVENT = "root_cause_mapping_claim_approved"
 MAPPING_CLAIM_REVOKED_EVENT = "root_cause_mapping_claim_revoked"
@@ -452,6 +455,26 @@ def approve_root_cause_mapping_claim(
     return claim_id
 
 
+def _mapping_scope_teacher_value(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def _mapping_revoke_scope_matches_claim(
+    payload: dict[str, Any],
+    approval_context: MappingClaimApprovalContext,
+) -> bool:
+    return (
+        str(payload.get("organization_id") or "")
+        == str(approval_context.organization_id or "")
+        and str(payload.get("institution_id") or "")
+        == str(approval_context.institution_id or "")
+        and str(payload.get("curriculum_version_id") or "")
+        == str(approval_context.curriculum_version_id or "")
+        and _mapping_scope_teacher_value(payload.get("teacher_id"))
+        == _mapping_scope_teacher_value(approval_context.teacher_id)
+    )
+
+
 def _assert_active_mapping_claim_for_revoke(
     session: Session,
     *,
@@ -472,12 +495,44 @@ def _assert_active_mapping_claim_for_revoke(
             continue
         if _mapping_claim_revoked(session, revision_id, claim_id, event.id):
             continue
-        if str(payload.get("institution_id") or "") != str(approval_context.institution_id):
-            raise MappingClaimAuthorityError("mapping revoke tenant mismatch")
-        ctx_teacher = str(approval_context.teacher_id or "").strip()
-        payload_teacher = str(payload.get("teacher_id") or "").strip()
-        if ctx_teacher and payload_teacher and ctx_teacher != payload_teacher:
-            raise MappingClaimAuthorityError("mapping revoke teacher mismatch")
+        if not _mapping_revoke_scope_matches_claim(payload, approval_context):
+            raise MappingClaimAuthorityError("mapping revoke scope mismatch")
+        misconception_code = str(payload.get("misconception_code") or "")
+        candidate_codes = payload.get("candidate_concept_codes") or []
+        if not misconception_code or not isinstance(candidate_codes, list):
+            raise MappingClaimAuthorityError("mapping claim is not active for revoke")
+        entry = load_root_cause_mapping().resolve(misconception_code)
+        if entry is None:
+            raise MappingClaimAuthorityError("mapping claim is not active for revoke")
+        if sorted(str(code) for code in entry.candidate_concept_codes) != sorted(
+            str(code) for code in candidate_codes
+        ):
+            raise MappingClaimAuthorityError("mapping claim is not active for revoke")
+        binding = mapping_approve_binding_payload(
+            revision_id=revision_id,
+            entry=entry,
+            source_locator=str(payload.get("source_locator") or ""),
+            mapping_registry_version=str(payload.get("mapping_registry_version") or ""),
+            approval_context=MappingClaimApprovalContext(
+                actor_id=str(payload.get("approved_by") or ""),
+                organization_id=str(payload.get("organization_id") or ""),
+                institution_id=str(payload.get("institution_id") or ""),
+                curriculum_version_id=str(payload.get("curriculum_version_id") or ""),
+                teacher_id=_mapping_scope_teacher_value(payload.get("teacher_id")) or None,
+            ),
+        )
+        binding = {**binding, "claim_id": claim_id}
+        if not verify_durable_curator_approval(
+            session,
+            payload,
+            role=CuratorRole.MAPPING_CURATOR,
+            operation=CuratorOperation.MAPPING_APPROVE,
+            binding_payload=binding,
+            expected_scope=curator_scope_from_mapping_context(approval_context),
+            source_audit_event_id=event.id,
+            audit_actor_id=str(event.actor_id or ""),
+        ):
+            raise MappingClaimAuthorityError("mapping claim is not active for revoke")
         return
     raise MappingClaimAuthorityError("mapping claim is not active for revoke")
 

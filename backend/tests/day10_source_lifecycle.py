@@ -96,6 +96,7 @@ def ensure_genuine_source_content_approval(
     actor_id: str = "founder-day10-trust",
     source_locator: str,
     storage_root: Path | None = None,
+    manual_metadata: dict | None = None,
 ) -> SourceRevision:
     """Run the real source validate → approve → activate lifecycle for a manual revision."""
     revision = session.get(SourceRevision, revision_id)
@@ -105,13 +106,15 @@ def ensure_genuine_source_content_approval(
     if not source.authority:
         source.authority = "Synthetic Education Authority"
         session.flush()
-    manual_metadata = {
+    manual_metadata = manual_metadata or {
         "document_type": "official_misconception_mapping_table",
         "locator": source_locator,
         "excerpt": (
             "Whole-number addition off-by-one-low maps to whole-number and multi-step addition."
         ),
     }
+    if str(manual_metadata.get("locator") or "") != source_locator:
+        manual_metadata = {**manual_metadata, "locator": source_locator}
     content = _canonical_json_bytes(manual_metadata)
     from app.source_intelligence.service import _sha256
 
@@ -260,15 +263,73 @@ def mandatory_board_policy_rule(
     )
 
 
-def bind_revision_board_mandatory_source(
-    session: Session, revision_id: str, *, board_code: str
-) -> None:
-    """Align an approved revision's source with a board mandatory policy scope code."""
+FICTITIOUS_BOARD_MANDATORY_LOCATOR = "fictitious-board/cognitive-mandatory"
+
+
+def ensure_board_mandatory_source_evidence(
+    session: Session,
+    tmp_path: Path,
+    revision_id: str,
+    *,
+    board_code: str,
+    source_locator: str = FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    policy_excerpt: str,
+    actor_id: str = "founder-day10-trust",
+) -> SourceRevision:
+    """Approve an official board source with board identity set before source approval."""
+    from app.models.enums import SourceTrustTier, SourceType
+
     revision = session.get(SourceRevision, revision_id)
     if revision is None or revision.source is None:
         raise ValueError("revision or source missing")
-    revision.source.board_or_exam = str(board_code).strip()
+    source = revision.source
+    source.source_type = SourceType.OFFICIAL_EXAM_BULLETIN.value
+    source.trust_tier = SourceTrustTier.OFFICIAL_PRIMARY.value
+    source.board_or_exam = str(board_code).strip()
+    source.authority = (
+        f"Fictitious {board_code.upper()} Education Board (synthetic Day10 fixture)"
+    )
     session.flush()
+    manual_metadata = {
+        "document_type": "official_paper_distribution_mandatory_targets",
+        "locator": source_locator,
+        "excerpt": policy_excerpt,
+    }
+    return ensure_genuine_source_content_approval(
+        session,
+        tmp_path,
+        revision_id,
+        actor_id=actor_id,
+        source_locator=source_locator,
+        manual_metadata=manual_metadata,
+    )
+
+
+def bind_revision_board_mandatory_source(
+    session: Session, revision_id: str, *, board_code: str
+) -> None:
+    """Deprecated: mutating board authority after approval is rejected by mandatory policy gates."""
+    raise ValueError(
+        "bind_revision_board_mandatory_source is disabled; call "
+        "ensure_board_mandatory_source_evidence before source approval instead"
+    )
+
+
+def default_board_mandatory_excerpt(
+    source_locator: str = FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    *,
+    remember_exact_count: int | None = None,
+    apply_exact_percent: float | None = None,
+) -> str:
+    msg = (
+        f"{source_locator}: synthetic fictitious board mandatory targets for generic "
+        "paper distribution evaluation only."
+    )
+    if remember_exact_count is not None:
+        msg += f" remember exact_count {remember_exact_count}."
+    if apply_exact_percent is not None:
+        msg += f" apply exact_percent {apply_exact_percent}."
+    return msg
 
 
 def mandatory_institution_policy_rule(

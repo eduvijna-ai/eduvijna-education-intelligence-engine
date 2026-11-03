@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_registry,
     mandatory_board_policy_rule,
@@ -168,8 +171,12 @@ def test_root_cause_production_missing_day6_run_review_required(tmp_path: Path) 
 def test_board_institution_exact_count_conflict(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(remember_exact_count=2),
     )
     inst_a = session.get(Institution, INST_A)
     assert inst_a is not None
@@ -178,13 +185,13 @@ def test_board_institution_exact_count_conflict(tmp_path: Path) -> None:
     assert revision is not None
     board_rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     inst_rule = mandatory_institution_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 3}]},
         institution_id=INST_A,
         priority=5,
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(board_rule)
     session.add(inst_rule)
@@ -273,8 +280,12 @@ def test_independent_scoped_claims_per_institution(tmp_path: Path) -> None:
 def test_paper_targets_reject_board_teacher_exact_percent_conflict(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
@@ -283,13 +294,13 @@ def test_paper_targets_reject_board_teacher_exact_percent_conflict(tmp_path: Pat
     assert revision is not None
     board_rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     teacher_rule = mandatory_teacher_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 20.0}},
         teacher_id="teacher-a",
         priority=1,
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(board_rule)
     session.add(teacher_rule)

@@ -15,6 +15,9 @@ from day10_curator_auth import (
 from day10_day6_binding import seed_production_day6_audit
 from day10_source_lifecycle import (
     DEFAULT_MAPPING_CURATOR_ACTOR,
+    FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+    default_board_mandatory_excerpt,
+    ensure_board_mandatory_source_evidence,
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     ensure_mapping_curator_registry,
@@ -293,12 +296,6 @@ def _approve_mandatory_policy_for_rule(
             external_code=str(rule.scope_code),
         )
         teacher_id = str(teacher.id)
-    if str(rule.scope_type) == "board":
-        from day10_source_lifecycle import bind_revision_board_mandatory_source
-
-        bind_revision_board_mandatory_source(
-            session, revision_id, board_code=str(rule.scope_code)
-        )
     ensure_mandatory_policy_curator_credential(
         session,
         admin,
@@ -323,8 +320,16 @@ def _approve_mandatory_policy_for_rule(
 def _seed_board_mandatory_remember_two(
     session: Session, tmp_path: Path, ctx: dict[str, str], revision_id: str
 ) -> None:
-    ensure_genuine_source_content_approval(
-        session, tmp_path, revision_id, source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        revision_id,
+        board_code="cbse",
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+        policy_excerpt=(
+            f"{FICTITIOUS_BOARD_MANDATORY_LOCATOR}: mandatory cognitive distribution "
+            "requires remember exact_count 2 for generic institution paper evaluation."
+        ),
     )
     for inst_id in (INST_A, INST_B):
         inst = session.get(Institution, inst_id)
@@ -334,7 +339,7 @@ def _seed_board_mandatory_remember_two(
     assert revision is not None
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_ranges": [{"key": "remember", "exact_count": 2}]},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()
@@ -439,8 +444,12 @@ def test_board_mandatory_exact_count_enforces_without_voluntary_targets(
 def test_board_mandatory_exact_percent_from_rule_map(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None
@@ -449,7 +458,7 @@ def test_board_mandatory_exact_percent_from_rule_map(tmp_path: Path) -> None:
     assert revision is not None
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        source_locator=_MAPPING_SOURCE_LOCATOR,
+        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     )
     session.add(rule)
     session.flush()

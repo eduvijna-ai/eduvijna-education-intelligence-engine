@@ -27,8 +27,13 @@ from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision, policy_rule_source_revisions
 from app.models.tenancy import Institution, Teacher
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.prerequisite_intelligence.authority import load_revision_record
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
-from app.root_cause_intelligence.mapping_evidence import resolve_approved_source_span
+from app.root_cause_intelligence.mapping_evidence import (
+    resolve_approved_source_span,
+    source_content_checksum,
+    verify_revision_content_integrity,
+)
 from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
 
 MANDATORY_POLICY_CLAIM_APPROVED_EVENT = "paper_mandatory_policy_claim_approved"
@@ -181,6 +186,58 @@ def _revision_linked_to_rule(session: Session, *, rule_id: str, revision_id: str
     return linked is not None
 
 
+def _revision_live_source_matches_approved_snapshot(revision: SourceRevision) -> bool:
+    snapshot = (revision.metadata_json or {}).get("source_snapshot")
+    if not isinstance(snapshot, dict):
+        return False
+    source = revision.source
+    if source is None:
+        return False
+    for field in (
+        "board_or_exam",
+        "source_type",
+        "trust_tier",
+        "authority",
+        "academic_year",
+    ):
+        if str(snapshot.get(field) or "") != str(getattr(source, field, None) or ""):
+            return False
+    return True
+
+
+def _mandatory_signed_evidence_still_valid(
+    session: Session, revision: SourceRevision, payload: dict[str, Any]
+) -> bool:
+    record = load_revision_record(session, revision.id)
+    if record is None:
+        return False
+    if not verify_revision_content_integrity(session, record):
+        return False
+    if not _revision_live_source_matches_approved_snapshot(revision):
+        return False
+    fingerprint = str(payload.get("source_approval_fingerprint") or "")
+    if not fingerprint or fingerprint != str(revision.approval_fingerprint or ""):
+        return False
+    if fingerprint != compute_revision_approval_fingerprint(session, revision):
+        return False
+    content_checksum = source_content_checksum(record)
+    if str(payload.get("source_content_checksum") or "") != str(content_checksum or ""):
+        return False
+    if str(payload.get("source_snapshot_checksum") or "") != str(
+        revision.source_snapshot_checksum or ""
+    ):
+        return False
+    locator = str(payload.get("mandatory_source_locator") or "").strip()
+    span_checksum = str(payload.get("source_span_checksum") or "").strip()
+    if not locator or not span_checksum:
+        return False
+    try:
+        _, resolved_span = resolve_approved_source_span(session, record, locator)
+    except ValueError:
+        return False
+    return resolved_span == span_checksum
+
+
 def _revision_meets_mandatory_source_gate(session: Session, revision: SourceRevision) -> None:
     source = revision.source
     if source is None:
@@ -191,6 +248,10 @@ def _revision_meets_mandatory_source_gate(session: Session, revision: SourceRevi
         raise MandatoryPolicyClaimAuthorityError("source revision is not active")
     if not revision.approval_fingerprint or not revision.approved_by:
         raise MandatoryPolicyClaimAuthorityError("source revision is not approved")
+    if not _revision_live_source_matches_approved_snapshot(revision):
+        raise MandatoryPolicyClaimAuthorityError(
+            "source authority metadata no longer matches approved snapshot"
+        )
     approved = _latest_source_approved_audit(session, revision.id)
     if approved is None:
         raise MandatoryPolicyClaimAuthorityError("source revision lacks source_approved audit")
@@ -424,6 +485,22 @@ def approve_mandatory_policy_claim(
     if not _rule_effective_on(rule):
         raise MandatoryPolicyClaimAuthorityError("policy rule is not effective")
 
+    record = load_revision_record(session, revision_id)
+    if record is None:
+        raise MandatoryPolicyClaimAuthorityError("source revision record is missing")
+    if not verify_revision_content_integrity(session, record):
+        raise MandatoryPolicyClaimAuthorityError("source revision content integrity check failed")
+    content_checksum = source_content_checksum(record)
+    if not content_checksum:
+        raise MandatoryPolicyClaimAuthorityError("source revision has no content checksum")
+    locator = _mandatory_source_locator(rule)
+    try:
+        _, span_checksum = resolve_approved_source_span(session, record, locator)
+    except ValueError as exc:
+        raise MandatoryPolicyClaimAuthorityError(
+            "mandatory policy source locator is not grounded in approved source"
+        ) from exc
+
     value_checksum = submitted_checksum
     lifecycle = _rule_lifecycle_digest(rule)
     binding = mandatory_policy_approve_binding_payload(
@@ -462,7 +539,11 @@ def approve_mandatory_policy_claim(
                 rule.effective_from.isoformat() if rule.effective_from else None
             ),
             "effective_to": rule.effective_to.isoformat() if rule.effective_to else None,
-            "mandatory_source_locator": _mandatory_source_locator(rule),
+            "mandatory_source_locator": locator,
+            "source_approval_fingerprint": str(revision.approval_fingerprint or ""),
+            "source_content_checksum": content_checksum,
+            "source_span_checksum": span_checksum,
+            "source_snapshot_checksum": str(revision.source_snapshot_checksum or ""),
             "approved_by": "",
             "claim_status": "active",
         }
@@ -631,6 +712,8 @@ def mandatory_policy_claim_active(
         if str(payload.get("claim_id") or "") != claim_id:
             continue
         if not _claim_payload_matches_rule(rule, payload):
+            continue
+        if not _mandatory_signed_evidence_still_valid(session, revision, payload):
             continue
         binding = mandatory_policy_approve_binding_payload(
             rule_id=rule_id,
