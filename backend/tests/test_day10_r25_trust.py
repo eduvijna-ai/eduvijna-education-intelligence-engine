@@ -124,7 +124,7 @@ def test_board_scope_authorized_false_with_matching_board_code_rejected(tmp_path
         ),
         board_scope_authorized=False,
     )
-    with pytest.raises(CuratorAuthError, match="scope mismatch"):
+    with pytest.raises(CuratorAuthError, match="board mismatch|scope mismatch|credential scope"):
         issue_curator_write_decision(
             session,
             admin_external_code=DEFAULT_MAPPING_CURATOR_ACTOR,

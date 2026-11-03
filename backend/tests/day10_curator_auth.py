@@ -230,11 +230,19 @@ def approve_mandatory_policy_with_curator(
     actor_id: str,
     policy_curator_secret: str = DEFAULT_POLICY_CURATOR_SECRET,
 ) -> str:
+    from app.models.enums import PolicyScopeType
     from app.paper_distribution.mandatory_policy_claim_authority import (
         _policy_value_checksum,
         _rule_lifecycle_digest,
         approve_mandatory_policy_claim,
     )
+
+    if str(rule.scope_type) == PolicyScopeType.BOARD.value:
+        from day10_source_lifecycle import bind_revision_board_mandatory_source
+
+        bind_revision_board_mandatory_source(
+            session, revision_id, board_code=str(rule.scope_code)
+        )
 
     value_checksum = _policy_value_checksum(dict(rule.value_json or {}))
     lifecycle = _rule_lifecycle_digest(rule)

@@ -94,8 +94,18 @@ def _require_signing_key() -> tuple[str, str]:
     return key_id, key
 
 
+_CLAIM_ID_EXCLUDED_FROM_BINDING_DIGEST = frozenset(
+    {
+        CuratorOperation.MAPPING_APPROVE.value,
+        CuratorOperation.MANDATORY_POLICY_APPROVE.value,
+    }
+)
+
+
 def operation_binding_digest(operation: str, payload: dict[str, Any]) -> str:
-    cleaned = {key: value for key, value in payload.items() if key != "claim_id"}
+    cleaned = dict(payload)
+    if operation in _CLAIM_ID_EXCLUDED_FROM_BINDING_DIGEST:
+        cleaned = {key: value for key, value in cleaned.items() if key != "claim_id"}
     encoded = json.dumps(
         {"operation": operation, **cleaned},
         sort_keys=True,
@@ -181,7 +191,9 @@ def _assert_tenant_scope_active(session: Session, scope: CuratorScope) -> None:
         raise CuratorAuthError("curator scope institution organization mismatch")
     if scope.board_code:
         meta_board = (inst.metadata_json or {}).get("board_code")
-        if meta_board and str(meta_board).strip().lower() != str(scope.board_code).strip().lower():
+        if not meta_board or str(meta_board).strip().lower() != str(
+            scope.board_code
+        ).strip().lower():
             raise CuratorAuthError("curator scope board mismatch with institution metadata")
     if scope.teacher_id:
         teacher = _resolve_teacher_in_scope(session, scope)
@@ -638,6 +650,18 @@ def verify_durable_curator_approval(
     admin = session.get(AdminActor, admin_id)
     if admin is None or not admin.active or admin.external_code != admin_code:
         return False
+    scope_payload_pre = approval.get("scope") or {}
+    if isinstance(scope_payload_pre, dict):
+        if scope_payload_pre.get("organization_id") and (
+            not admin.organization_id
+            or str(admin.organization_id) != str(scope_payload_pre.get("organization_id"))
+        ):
+            return False
+        if scope_payload_pre.get("institution_id") and (
+            not admin.institution_id
+            or str(admin.institution_id) != str(scope_payload_pre.get("institution_id"))
+        ):
+            return False
     credential = session.scalar(
         select(CuratorOperatorCredential).where(
             CuratorOperatorCredential.admin_actor_id == admin.id,

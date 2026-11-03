@@ -293,6 +293,12 @@ def _approve_mandatory_policy_for_rule(
             external_code=str(rule.scope_code),
         )
         teacher_id = str(teacher.id)
+    if str(rule.scope_type) == "board":
+        from day10_source_lifecycle import bind_revision_board_mandatory_source
+
+        bind_revision_board_mandatory_source(
+            session, revision_id, board_code=str(rule.scope_code)
+        )
     ensure_mandatory_policy_curator_credential(
         session,
         admin,

@@ -25,7 +25,7 @@ from app.models.enums import (
 )
 from app.models.policy import PolicyRule
 from app.models.source import SourceAuditEvent, SourceRevision, policy_rule_source_revisions
-from app.models.tenancy import Institution
+from app.models.tenancy import Institution, Teacher
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.prerequisite_intelligence.stable_ids import stable_audit_ref
 from app.root_cause_intelligence.mapping_evidence import resolve_approved_source_span
@@ -243,13 +243,10 @@ def _verify_scope_source_trust(
             )
         board_ref = str(source.board_or_exam or "").strip().lower()
         scope_board = str(rule.scope_code or "").strip().lower()
-        rule_meta = rule.metadata_json or {}
-        synthetic_fixture = bool(rule_meta.get("synthetic_test_policy"))
-        if not synthetic_fixture:
-            if not board_ref or not scope_board or board_ref != scope_board:
-                raise MandatoryPolicyClaimAuthorityError(
-                    "mandatory policy board scope does not match source board authority"
-                )
+        if not board_ref or not scope_board or board_ref != scope_board:
+            raise MandatoryPolicyClaimAuthorityError(
+                "mandatory policy board scope does not match source board authority"
+            )
         locator = _mandatory_source_locator(rule)
         from app.prerequisite_intelligence.authority import load_revision_record
 
@@ -287,16 +284,37 @@ def _policy_claim_applies_to_execution_context(
         return False
     scope_type = str(rule.scope_type)
     scope_code = str(rule.scope_code)
+    if str(execution_context.organization_id or "").strip():
+        if str(institution.organization_id) != str(execution_context.organization_id).strip():
+            return False
     if scope_type == PolicyScopeType.BOARD.value:
-        board_code = execution_context.board_code or _institution_board_code(
-            session, execution_context.institution_id
-        )
-        return bool(board_code and scope_code == board_code)
+        inst_board = _institution_board_code(session, execution_context.institution_id)
+        if not inst_board:
+            return False
+        if execution_context.board_code and str(
+            execution_context.board_code
+        ).strip().lower() != inst_board.lower():
+            return False
+        return scope_code.lower() == inst_board.lower()
     if scope_type == PolicyScopeType.INSTITUTION.value:
         return scope_code in {institution.id, institution.code}
     if scope_type == PolicyScopeType.TEACHER.value:
-        teacher_ref = execution_context.teacher_id or scope_code
-        return bool(teacher_ref and scope_code == teacher_ref)
+        teacher_id = str(execution_context.teacher_id or "").strip()
+        if not teacher_id:
+            return False
+        teacher = session.get(Teacher, teacher_id)
+        if teacher is None:
+            teacher = session.scalar(
+                select(Teacher).where(
+                    Teacher.institution_id == execution_context.institution_id,
+                    Teacher.external_code == teacher_id,
+                )
+            )
+        if teacher is None or not teacher.active:
+            return False
+        if str(teacher.institution_id) != str(execution_context.institution_id):
+            return False
+        return scope_code in {str(teacher.id), str(teacher.external_code)}
     return False
 
 
@@ -637,6 +655,7 @@ def mandatory_policy_claim_active(
             binding_payload=binding,
             expected_scope=expected_scope,
             source_audit_event_id=event.id,
+            audit_actor_id=str(event.actor_id or ""),
         ):
             continue
         revoked = session.scalars(
@@ -662,6 +681,7 @@ def mandatory_policy_claim_active(
                 operation=CuratorOperation.MANDATORY_POLICY_REVOKE,
                 binding_payload=revoke_binding,
                 source_audit_event_id=rev.id,
+                audit_actor_id=str(rev.actor_id or ""),
             ):
                 return False
         return True

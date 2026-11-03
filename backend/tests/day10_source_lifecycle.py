@@ -256,8 +256,19 @@ def mandatory_board_policy_rule(
         value_json=value_json,
         priority=priority,
         active=True,
-        metadata_json={"mandatory_source_locator": source_locator, "synthetic_test_policy": True},
+        metadata_json={"mandatory_source_locator": source_locator},
     )
+
+
+def bind_revision_board_mandatory_source(
+    session: Session, revision_id: str, *, board_code: str
+) -> None:
+    """Align an approved revision's source with a board mandatory policy scope code."""
+    revision = session.get(SourceRevision, revision_id)
+    if revision is None or revision.source is None:
+        raise ValueError("revision or source missing")
+    revision.source.board_or_exam = str(board_code).strip()
+    session.flush()
 
 
 def mandatory_institution_policy_rule(

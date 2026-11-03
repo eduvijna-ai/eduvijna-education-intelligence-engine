@@ -36,6 +36,7 @@ from app.curator_auth.issuer import (
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.models.source import SourceAuditEvent
+from app.models.tenancy import Institution
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
     mapping_approve_binding_payload,
@@ -181,11 +182,19 @@ def test_tampered_durable_admin_actor_id_fails_read_verification(tmp_path: Path)
 def test_wrong_board_scope_on_write_decision_rejected(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
+    inst = session.get(Institution, ctx["institution_id"])
+    assert inst is not None
+    inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
+    session.flush()
     admin = ensure_mapping_curator_admin_actor(
         session,
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
     )
+    inst = session.get(Institution, ctx["institution_id"])
+    assert inst is not None
+    inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
+    session.flush()
     provision_operator_credential(
         session,
         bootstrap_secret=bootstrap_secret_for_tests(),
@@ -197,8 +206,9 @@ def test_wrong_board_scope_on_write_decision_rejected(tmp_path: Path) -> None:
             institution_id=ctx["institution_id"],
             board_code="cbse",
         ),
+        board_scope_authorized=True,
     )
-    with pytest.raises(CuratorAuthError, match="scope mismatch"):
+    with pytest.raises(CuratorAuthError, match="board mismatch|scope mismatch|credential scope"):
         issue_curator_write_decision(
             session,
             admin_external_code=DEFAULT_MAPPING_CURATOR_ACTOR,

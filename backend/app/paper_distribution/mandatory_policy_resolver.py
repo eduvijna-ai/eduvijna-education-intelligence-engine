@@ -47,8 +47,14 @@ def mandatory_policy_context_errors(
     if not institution.active:
         return ["execution_context.institution_id"]
     board_code = resolve_institution_board_code(session, execution_context.institution_id)
-    if execution_context.board_code and board_code and execution_context.board_code != board_code:
-        return ["execution_context.board_code"]
+    if execution_context.organization_id:
+        if str(institution.organization_id) != str(execution_context.organization_id):
+            return ["execution_context.organization_id"]
+    if execution_context.board_code:
+        if not board_code:
+            return ["execution_context.board_code"]
+        if execution_context.board_code != board_code:
+            return ["execution_context.board_code"]
     if execution_context.teacher_id:
         teacher = session.get(Teacher, execution_context.teacher_id)
         if teacher is None or teacher.institution_id != execution_context.institution_id:

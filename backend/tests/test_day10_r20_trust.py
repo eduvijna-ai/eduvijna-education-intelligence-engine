@@ -12,7 +12,9 @@ from day10_curator_auth import (
 )
 from day10_day6_binding import seed_production_day6_audit
 from day10_source_lifecycle import (
+    bind_revision_board_mandatory_source,
     ensure_genuine_json_upload_source_approval,
+    ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     mandatory_board_policy_rule,
 )
@@ -552,7 +554,6 @@ def test_json_upload_manual_metadata_injection_does_not_bypass_storage_integrity
 
 
 def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) -> None:
-    from day10_source_lifecycle import ensure_genuine_source_content_approval
 
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
@@ -562,6 +563,7 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
     inst = session.get(Institution, INST_A)
     assert inst is not None
     inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
+    session.flush()
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     rule = mandatory_board_policy_rule(
@@ -571,6 +573,7 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
     session.add(rule)
     session.flush()
     revision.policy_rules.append(rule)
+    bind_revision_board_mandatory_source(session, revision.id, board_code=str(rule.scope_code))
     session.flush()
     actor_id = "founder-day10-trust"
     admin = ensure_mapping_curator_admin_actor(
@@ -646,7 +649,6 @@ def test_mandatory_policy_claim_requires_rule_binding_and_actor(tmp_path: Path) 
 
 
 def test_board_mandatory_apply40_paper_pass_fail_after_claim_gate(tmp_path: Path) -> None:
-    from day10_source_lifecycle import ensure_genuine_source_content_approval
 
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)

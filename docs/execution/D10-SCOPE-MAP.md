@@ -1,8 +1,10 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R25 FOCUSED SECURITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R26 FOCUSED SECURITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R25 deltas (vs `8a13380`):** board-wide curator grant enforcement; mandatory policy reads bind **`PaperExecutionContext`** (not source ownership); strict durable **`source_audit_event_id`** lineage; revoke marks approval records only; claim-body/binding consistency at sign; board source authority unless **`synthetic_test_policy`** fixture; **`test_day10_r25_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
+**R26 deltas (vs `0af0b31`):** revoke **`claim_id` bound in operation digest** (no redirect); removed production **`synthetic_test_policy`** board bypass; execution-context **board/teacher fail-closed**; **`audit_actor_id`** on durable reads; **`bind_revision_board_mandatory_source`** test helper; **`test_day10_r26_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
+
+**R25 deltas (vs `8a13380`):** board-wide curator grant enforcement; mandatory policy reads bind **`PaperExecutionContext`** (not source ownership); strict durable **`source_audit_event_id`** lineage; revoke marks approval records only; claim-body/binding consistency at sign; board source authority on approved sources; **`test_day10_r25_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
 **R24 deltas (vs `cdeccf6`):** bootstrap-gated credential provisioning; durable approval **v2 envelope**; Alembic **`20261103_0016`/`0017`**; **`test_day10_r24_trust.py`**.
 

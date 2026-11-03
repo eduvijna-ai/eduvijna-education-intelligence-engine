@@ -9,6 +9,7 @@ from day10_orchestration_production import (
     build_day10_production_orchestration_service,
 )
 from day10_source_lifecycle import (
+    bind_revision_board_mandatory_source,
     ensure_genuine_json_upload_source_approval,
     ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
@@ -221,6 +222,9 @@ def test_mandatory_claim_rejects_ungrounded_locator(tmp_path: Path) -> None:
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
+    inst = session.get(Institution, INST_A)
+    assert inst is not None
+    inst.metadata_json = {**(inst.metadata_json or {}), "board_code": "cbse"}
     rule = mandatory_board_policy_rule(
         value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
         source_locator="forged/locator/not-in-source",
@@ -230,6 +234,7 @@ def test_mandatory_claim_rejects_ungrounded_locator(tmp_path: Path) -> None:
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     revision.policy_rules.append(rule)
+    bind_revision_board_mandatory_source(session, revision.id, board_code=str(rule.scope_code))
     session.flush()
     with pytest.raises(MandatoryPolicyClaimAuthorityError, match="grounded|locator"):
         approve_mandatory_policy_claim(

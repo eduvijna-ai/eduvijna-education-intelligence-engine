@@ -452,6 +452,36 @@ def approve_root_cause_mapping_claim(
     return claim_id
 
 
+def _assert_active_mapping_claim_for_revoke(
+    session: Session,
+    *,
+    revision_id: str,
+    claim_id: str,
+    approval_context: MappingClaimApprovalContext,
+) -> None:
+    events = session.scalars(
+        select(SourceAuditEvent).where(
+            SourceAuditEvent.source_revision_id == revision_id,
+            SourceAuditEvent.event_type == MAPPING_CLAIM_APPROVED_EVENT,
+            SourceAuditEvent.outcome == "success",
+        )
+    ).all()
+    for event in events:
+        payload = event.payload_json or {}
+        if str(payload.get("claim_id") or "") != claim_id:
+            continue
+        if _mapping_claim_revoked(session, revision_id, claim_id, event.id):
+            continue
+        if str(payload.get("institution_id") or "") != str(approval_context.institution_id):
+            raise MappingClaimAuthorityError("mapping revoke tenant mismatch")
+        ctx_teacher = str(approval_context.teacher_id or "").strip()
+        payload_teacher = str(payload.get("teacher_id") or "").strip()
+        if ctx_teacher and payload_teacher and ctx_teacher != payload_teacher:
+            raise MappingClaimAuthorityError("mapping revoke teacher mismatch")
+        return
+    raise MappingClaimAuthorityError("mapping claim is not active for revoke")
+
+
 def revoke_root_cause_mapping_claim(
     session: Session,
     *,
@@ -467,6 +497,12 @@ def revoke_root_cause_mapping_claim(
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
+    _assert_active_mapping_claim_for_revoke(
+        session,
+        revision_id=revision_id,
+        claim_id=claim_id,
+        approval_context=approval_context,
+    )
     try:
         signed_payload = consume_decision_and_build_signed_payload(
             session,
@@ -625,6 +661,7 @@ def _active_mapping_claim_audit(
             operation=CuratorOperation.MAPPING_APPROVE,
             binding_payload=binding,
             source_audit_event_id=event.id,
+            audit_actor_id=str(event.actor_id or ""),
         ):
             continue
         if not claim_scope_matches_graph(payload, graph_scope):
