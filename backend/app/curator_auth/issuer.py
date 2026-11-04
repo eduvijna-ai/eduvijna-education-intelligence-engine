@@ -791,6 +791,97 @@ def verify_durable_curator_approval(
     return True
 
 
+def verify_durable_curator_approval_lineage_at_rest(
+    session: Session,
+    payload: dict[str, Any],
+    *,
+    role: CuratorRole,
+    operation: CuratorOperation,
+    binding_payload: dict[str, Any],
+    source_audit_event_id: str,
+    audit_actor_id: str,
+) -> bool:
+    """Verify persisted signed curator envelope + durable lineage for a stored audit event.
+
+    Skips live credential/tenant activation checks so historical obligations remain detectable
+    after credential offboarding or source drift; signature and event↔durable linkage must hold.
+    """
+    approval = payload.get("curator_approval")
+    if not isinstance(approval, dict):
+        return False
+    if int(approval.get("v") or 0) != DURABLE_APPROVAL_VERSION:
+        return False
+    if str(approval.get("role") or "") != role.value:
+        return False
+    if str(approval.get("operation") or "") != operation.value:
+        return False
+    expected_binding = operation_binding_digest(operation.value, binding_payload)
+    if str(approval.get("binding_digest") or "") != expected_binding:
+        return False
+    admin_id = str(approval.get("admin_actor_id") or "").strip()
+    admin_code = str(approval.get("admin_external_code") or "").strip()
+    approved_by = str(payload.get("approved_by") or "").strip()
+    if not admin_id or not admin_code:
+        return False
+    if approved_by and approved_by not in {admin_code, admin_id}:
+        return False
+    if not str(audit_actor_id or "").strip():
+        return False
+    if str(audit_actor_id).strip() not in {admin_code, admin_id}:
+        return False
+    from app.models.source import SourceAuditEvent
+
+    audit_event = session.get(SourceAuditEvent, source_audit_event_id)
+    if audit_event is None:
+        return False
+    persisted_actor = str(audit_event.actor_id or "").strip()
+    if not persisted_actor:
+        return False
+    if persisted_actor not in {admin_code, admin_id}:
+        return False
+    admin = session.get(AdminActor, admin_id)
+    if admin is None or admin.external_code != admin_code:
+        return False
+    jti = str(approval.get("jti") or "").strip()
+    if not jti:
+        return False
+    lineage = session.scalar(
+        select(CuratorDurableApprovalRecord).where(
+            CuratorDurableApprovalRecord.decision_jti == jti
+        )
+    )
+    if lineage is None:
+        return False
+    if str(lineage.operation) != operation.value:
+        return False
+    if str(lineage.admin_actor_id) != admin_id:
+        return False
+    if str(lineage.claim_id) != str(payload.get("claim_id") or ""):
+        return False
+    if not lineage.source_audit_event_id:
+        return False
+    if str(lineage.source_audit_event_id) != str(source_audit_event_id):
+        return False
+    try:
+        key_id, signing_key = _require_signing_key()
+    except CuratorAuthError:
+        return False
+    if str(approval.get("kid") or "") != key_id:
+        return False
+    envelope = {key: approval[key] for key in approval if key != "signature"}
+    expected_sig = _sign_envelope(envelope, signing_key)
+    supplied = str(approval.get("signature") or "")
+    if not hmac.compare_digest(expected_sig, supplied):
+        return False
+    claim_in_envelope = approval.get("claim")
+    if not isinstance(claim_in_envelope, dict):
+        return False
+    body_without_approval = {k: v for k, v in payload.items() if k != "curator_approval"}
+    if body_without_approval != claim_in_envelope:
+        return False
+    return True
+
+
 # Backward-compatible alias for tests migrating to consume_decision_and_build_signed_payload
 def verify_and_consume_curator_write_decision(
     session: Session,

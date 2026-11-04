@@ -225,7 +225,9 @@ def test_unsigned_draft_mandatory_rule_does_not_block_valid_paper(tmp_path: Path
     assert pass_result.verdict == PaperDistributionVerdict.PASS
 
 
-def test_deactivated_mandatory_rule_retires_obligation(tmp_path: Path) -> None:
+def test_deactivated_mandatory_rule_without_signed_retirement_fails_closed(
+    tmp_path: Path,
+) -> None:
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     _seed_board_apply40(session, tmp_path, ctx)
@@ -240,10 +242,11 @@ def test_deactivated_mandatory_rule_retires_obligation(tmp_path: Path) -> None:
     session.flush()
     exec_ctx = _exec_ctx(ctx)
     merged = merge_scoped_mandatory_policy_payload(session, {}, exec_ctx)
-    assert not merged.get("mandatory_resolution_errors")
+    errors = merged.get("mandatory_resolution_errors") or []
+    assert any(str(item).startswith("mandatory_policy.retirement_unauthorized:") for item in errors)
     session.commit()
-    _, result = _evaluate_apply_paper(session, ctx, apply_count=5)
-    assert result.verdict == PaperDistributionVerdict.PASS
+    _, result = _evaluate_apply_paper(session, ctx, apply_count=5, id_prefix="r32-unsigned-off")
+    assert result.verdict != PaperDistributionVerdict.PASS
 
 
 def test_inactive_parent_organization_fails_closed(tmp_path: Path) -> None:

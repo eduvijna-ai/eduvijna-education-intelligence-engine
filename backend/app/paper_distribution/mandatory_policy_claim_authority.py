@@ -14,9 +14,9 @@ from app.curator_auth.issuer import (
     consume_decision_and_build_signed_payload,
     mark_durable_approval_revoked,
     verify_durable_curator_approval,
+    verify_durable_curator_approval_lineage_at_rest,
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
-from app.models.curator_auth import CuratorDurableApprovalRecord
 from app.models.enums import (
     PolicyScopeType,
     SourceRevisionStatus,
@@ -804,38 +804,194 @@ def revoke_mandatory_policy_claim(
     session.flush()
 
 
-def rule_had_durable_mandatory_approval_record(session: Session, rule: PolicyRule) -> bool:
-    """True when this rule has a persisted signed mandatory approval (not a draft candidate)."""
-    revision_ids: list[str] = list(
-        session.scalars(
-            select(policy_rule_source_revisions.c.source_revision_id).where(
-                policy_rule_source_revisions.c.policy_rule_id == rule.id
-            )
-        ).all()
+def _mandatory_approve_binding_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return mandatory_policy_approve_binding_payload(
+        rule_id=str(payload.get("policy_rule_id") or ""),
+        revision_id=str(payload.get("source_revision_id") or ""),
+        scope_type=str(payload.get("scope_type") or ""),
+        scope_code=str(payload.get("scope_code") or ""),
+        policy_key=str(payload.get("policy_key") or ""),
+        value_checksum=str(payload.get("value_checksum") or ""),
+        rule_lifecycle_digest=str(payload.get("rule_lifecycle_digest") or ""),
+        source_approval_fingerprint=str(payload.get("source_approval_fingerprint") or ""),
+        source_snapshot_checksum=str(payload.get("source_snapshot_checksum") or ""),
+        source_content_checksum=str(payload.get("source_content_checksum") or ""),
+        mandatory_source_locator=str(payload.get("mandatory_source_locator") or ""),
+        source_span_checksum=str(payload.get("source_span_checksum") or ""),
     )
-    for revision_id in revision_ids:
-        events = session.scalars(
-            select(SourceAuditEvent).where(
-                SourceAuditEvent.source_revision_id == str(revision_id),
-                SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
-                SourceAuditEvent.outcome == "success",
-            )
-        ).all()
-        for event in events:
-            payload = event.payload_json or {}
-            if not _claim_payload_matches_rule(rule, payload):
-                continue
-            claim_id = str(payload.get("claim_id") or "").strip()
-            if not claim_id:
-                continue
-            durable = session.scalar(
-                select(CuratorDurableApprovalRecord).where(
-                    CuratorDurableApprovalRecord.claim_id == claim_id
-                )
-            )
-            if durable is not None:
-                return True
+
+
+def _verify_mandatory_approve_event_lineage_at_rest(
+    session: Session,
+    event: SourceAuditEvent,
+) -> bool:
+    payload = event.payload_json or {}
+    if str(payload.get("policy_rule_id") or "").strip() == "":
+        return False
+    binding = _mandatory_approve_binding_from_payload(payload)
+    binding = {**binding, "claim_id": str(payload.get("claim_id") or "")}
+    return verify_durable_curator_approval_lineage_at_rest(
+        session,
+        payload,
+        role=CuratorRole.MANDATORY_POLICY_CURATOR,
+        operation=CuratorOperation.MANDATORY_POLICY_APPROVE,
+        binding_payload=binding,
+        source_audit_event_id=str(event.id),
+        audit_actor_id=str(event.actor_id or ""),
+    )
+
+
+def _verify_mandatory_revoke_event_lineage_at_rest(
+    session: Session,
+    event: SourceAuditEvent,
+    *,
+    rule_id: str,
+) -> bool:
+    payload = event.payload_json or {}
+    claim_id = str(payload.get("claim_id") or "").strip()
+    if not claim_id:
+        return False
+    revision_id = str(event.source_revision_id or payload.get("source_revision_id") or "")
+    if not rule_id or not revision_id:
+        return False
+    binding = mandatory_policy_revoke_binding_payload(
+        rule_id=rule_id,
+        revision_id=revision_id,
+        claim_id=claim_id,
+    )
+    return verify_durable_curator_approval_lineage_at_rest(
+        session,
+        payload,
+        role=CuratorRole.MANDATORY_POLICY_CURATOR,
+        operation=CuratorOperation.MANDATORY_POLICY_REVOKE,
+        binding_payload=binding,
+        source_audit_event_id=str(event.id),
+        audit_actor_id=str(event.actor_id or ""),
+    )
+
+
+def _mandatory_claim_superseded_by_signed_revoke(
+    session: Session,
+    approve_event: SourceAuditEvent,
+    *,
+    claim_id: str,
+) -> bool:
+    revision_id = str(approve_event.source_revision_id or "")
+    rule_id = str((approve_event.payload_json or {}).get("policy_rule_id") or "")
+    revoke_events = session.scalars(
+        select(SourceAuditEvent)
+        .where(
+            SourceAuditEvent.source_revision_id == revision_id,
+            SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_REVOKED_EVENT,
+            SourceAuditEvent.outcome == "success",
+            SourceAuditEvent.created_at > approve_event.created_at,
+        )
+        .order_by(SourceAuditEvent.created_at.asc())
+    ).all()
+    for revoke_event in revoke_events:
+        payload = revoke_event.payload_json or {}
+        if str(payload.get("claim_id") or "") != claim_id:
+            continue
+        if _verify_mandatory_revoke_event_lineage_at_rest(
+            session, revoke_event, rule_id=rule_id
+        ):
+            return True
     return False
+
+
+def _mandatory_approve_events_for_rule_id(
+    session: Session,
+    rule_id: str,
+) -> list[SourceAuditEvent]:
+    events = session.scalars(
+        select(SourceAuditEvent)
+        .where(
+            SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
+            SourceAuditEvent.outcome == "success",
+        )
+        .order_by(SourceAuditEvent.created_at.asc())
+    ).all()
+    selected: list[SourceAuditEvent] = []
+    for event in events:
+        payload = event.payload_json or {}
+        if str(payload.get("policy_rule_id") or "") != str(rule_id):
+            continue
+        selected.append(event)
+    return selected
+
+
+def mandatory_policy_unretired_obligation(session: Session, rule: PolicyRule) -> bool:
+    """True when this rule id has a verified signed approval not superseded by signed revoke."""
+    for event in _mandatory_approve_events_for_rule_id(session, str(rule.id)):
+        if not _verify_mandatory_approve_event_lineage_at_rest(session, event):
+            continue
+        claim_id = str((event.payload_json or {}).get("claim_id") or "")
+        if not claim_id:
+            continue
+        if _mandatory_claim_superseded_by_signed_revoke(
+            session, event, claim_id=claim_id
+        ):
+            continue
+        return True
+    return False
+
+
+def mandatory_policy_signed_retirement_recorded(session: Session, rule: PolicyRule) -> bool:
+    meta = rule.metadata_json or {}
+    if not meta.get("mandatory_policy_retired"):
+        return False
+    claim_id = str(meta.get("mandatory_policy_retirement_claim_id") or "").strip()
+    if not claim_id:
+        return False
+    for event in _mandatory_approve_events_for_rule_id(session, str(rule.id)):
+        payload = event.payload_json or {}
+        if str(payload.get("claim_id") or "") != claim_id:
+            continue
+        if _mandatory_claim_superseded_by_signed_revoke(
+            session, event, claim_id=claim_id
+        ):
+            return True
+    return False
+
+
+def revoke_and_retire_mandatory_policy_rule(
+    session: Session,
+    *,
+    rule_id: str,
+    revision_id: str,
+    claim_id: str,
+    actor_id: str,
+    organization_id: str,
+    institution_id: str,
+    curator_decision_token: str,
+    request_id: str | None = None,
+) -> None:
+    revoke_mandatory_policy_claim(
+        session,
+        rule_id=rule_id,
+        revision_id=revision_id,
+        claim_id=claim_id,
+        actor_id=actor_id,
+        organization_id=organization_id,
+        institution_id=institution_id,
+        curator_decision_token=curator_decision_token,
+        request_id=request_id,
+    )
+    rule = session.get(PolicyRule, rule_id)
+    if rule is None:
+        raise MandatoryPolicyClaimAuthorityError("policy rule is unknown")
+    rule.active = False
+    rule.metadata_json = {
+        **(rule.metadata_json or {}),
+        "mandatory_policy_retired": True,
+        "mandatory_policy_retirement_claim_id": claim_id,
+    }
+    session.flush()
+
+
+def rule_had_durable_mandatory_approval_record(session: Session, rule: PolicyRule) -> bool:
+    """Backward-compatible alias for obligation detection."""
+    return mandatory_policy_unretired_obligation(session, rule)
 
 
 def mandatory_policy_claim_active(

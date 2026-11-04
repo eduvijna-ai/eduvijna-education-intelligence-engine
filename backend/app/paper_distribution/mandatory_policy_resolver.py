@@ -13,7 +13,8 @@ from app.models.tenancy import Institution, Organization, Teacher
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_claim_authority import (
     mandatory_policy_claim_active,
-    rule_had_durable_mandatory_approval_record,
+    mandatory_policy_signed_retirement_recorded,
+    mandatory_policy_unretired_obligation,
 )
 from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
 
@@ -165,23 +166,25 @@ def _revision_authorized_for_policy(
     return True
 
 
-def _scoped_active_mandatory_rule_candidates(
+def _scoped_mandatory_rule_candidates(
     session: Session,
     *,
     board_code: str | None,
     institution: Institution | None,
     teacher_id: str | None,
     on_date: date | None = None,
+    active_only: bool = True,
 ) -> list[PolicyRule]:
     effective = on_date or date.today()
     rules = session.scalars(
         select(PolicyRule).where(
             PolicyRule.policy_key == PAPER_MANDATORY_POLICY_KEY,
-            PolicyRule.active.is_(True),
         )
     ).all()
     candidates: list[PolicyRule] = []
     for rule in rules:
+        if active_only and not rule.active:
+            continue
         if rule.effective_from is not None and rule.effective_from > effective:
             continue
         if rule.effective_to is not None and rule.effective_to < effective:
@@ -197,6 +200,24 @@ def _scoped_active_mandatory_rule_candidates(
     return candidates
 
 
+def _scoped_active_mandatory_rule_candidates(
+    session: Session,
+    *,
+    board_code: str | None,
+    institution: Institution | None,
+    teacher_id: str | None,
+    on_date: date | None = None,
+) -> list[PolicyRule]:
+    return _scoped_mandatory_rule_candidates(
+        session,
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+        on_date=on_date,
+        active_only=True,
+    )
+
+
 def _resolve_authorized_mandatory_rules(
     session: Session,
     *,
@@ -206,21 +227,38 @@ def _resolve_authorized_mandatory_rules(
     execution_context: PaperExecutionContext | None,
     on_date: date | None = None,
 ) -> tuple[list[PolicyRule], list[str]]:
-    candidates = _scoped_active_mandatory_rule_candidates(
+    active_candidates = _scoped_active_mandatory_rule_candidates(
         session,
         board_code=board_code,
         institution=institution,
         teacher_id=teacher_id,
         on_date=on_date,
     )
+    obligation_scope = _scoped_mandatory_rule_candidates(
+        session,
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+        on_date=on_date,
+        active_only=False,
+    )
     selected: list[PolicyRule] = []
     auth_errors: list[str] = []
-    for rule in candidates:
+    for rule in active_candidates:
         if _revision_authorized_for_policy(session, rule, execution_context):
             selected.append(rule)
             continue
-        if rule_had_durable_mandatory_approval_record(session, rule):
+        if mandatory_policy_unretired_obligation(session, rule):
             auth_errors.append(f"mandatory_policy.authorization_unavailable:{rule.id}")
+    for rule in obligation_scope:
+        if rule.active:
+            continue
+        if not mandatory_policy_unretired_obligation(session, rule):
+            continue
+        if mandatory_policy_signed_retirement_recorded(session, rule):
+            continue
+        auth_errors.append(f"mandatory_policy.retirement_unauthorized:{rule.id}")
+    deduped_errors = list(dict.fromkeys(auth_errors))
     return (
         sorted(
             selected,
@@ -229,7 +267,7 @@ def _resolve_authorized_mandatory_rules(
                 -item.priority,
             ),
         ),
-        auth_errors,
+        deduped_errors,
     )
 
 
