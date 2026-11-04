@@ -472,6 +472,8 @@ def evaluate_paper_distribution(
                     PaperDistributionIssueCode.CREATE_LEVEL_REJECTED,
                     PaperDistributionIssueCode.EMPTY_PAPER,
                     PaperDistributionIssueCode.TARGET_MISMATCH,
+                    PaperDistributionIssueCode.TARGET_INFEASIBLE,
+                    PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION,
                     PaperDistributionIssueCode.MALFORMED_TARGET_DIMENSION,
                     PaperDistributionIssueCode.ZERO_ITEM_COVERAGE,
                     PaperDistributionIssueCode.REQUESTED_COUNT_MISMATCH,
@@ -553,13 +555,27 @@ def evaluate_paper_distribution_with_session(
         execution_context=execution_context,
     )
     day6_identity = day6_trust.day6_audit_identity_digest() if day6_trust else None
-    audit_ref = persist_paper_distribution_audit(
-        session,
-        request,
-        result,
-        execution_context=execution_context,
-        execution_mode=execution_mode,
-        day6_validation_identity=day6_identity,
-    )
+    audit_ref: str | None = None
+    if execution_mode != TrustExecutionMode.PRODUCTION:
+        audit_ref = persist_paper_distribution_audit(
+            session,
+            request,
+            result,
+            execution_context=execution_context,
+            execution_mode=execution_mode,
+            day6_validation_identity=day6_identity,
+        )
+    else:
+        from app.paper_distribution.execution_scope import production_execution_context_errors
+
+        if not production_execution_context_errors(session, execution_context):
+            audit_ref = persist_paper_distribution_audit(
+                session,
+                request,
+                result,
+                execution_context=execution_context,
+                execution_mode=execution_mode,
+                day6_validation_identity=day6_identity,
+            )
     session.flush()
     return result.model_copy(update={"audit_ref": audit_ref})

@@ -499,6 +499,83 @@ def _claim_payload_matches_rule(rule: PolicyRule, payload: dict[str, Any]) -> bo
     return True
 
 
+def _mandatory_numeric_floors(value_json: dict[str, Any]) -> dict[tuple[str, str, str], float]:
+    """Map (dimension, key, field) -> highest required floor from a rule payload."""
+    floors: dict[tuple[str, str, str], float] = {}
+    for prefix in ("cognitive", "competency"):
+        exact_map = value_json.get(f"mandatory_{prefix}_exact_percent") or {}
+        if isinstance(exact_map, dict):
+            for key, percent in exact_map.items():
+                floors[(prefix, str(key), "exact_percent")] = float(percent)
+        for entry in value_json.get(f"mandatory_{prefix}_ranges") or []:
+            if not isinstance(entry, dict):
+                continue
+            key = str(entry.get("key") or "")
+            if not key:
+                continue
+            for field in ("exact_percent", "exact_count"):
+                raw = entry.get(field)
+                if raw is not None:
+                    floors[(prefix, key, field)] = float(raw)
+    return floors
+
+
+def _reject_weakening_against_higher_mandatory_rules(
+    session: Session,
+    *,
+    rule: PolicyRule,
+    organization_id: str,
+    institution_id: str,
+) -> None:
+    from app.paper_distribution.mandatory_policy_resolver import (
+        _SCOPE_PRECEDENCE,
+        _active_rules_for_context,
+        resolve_institution_board_code,
+    )
+
+    rule_precedence = _SCOPE_PRECEDENCE.get(str(rule.scope_type), 0)
+    if rule_precedence >= _SCOPE_PRECEDENCE[PolicyScopeType.BOARD.value]:
+        return
+    institution = session.get(Institution, institution_id)
+    if institution is None:
+        return
+    board_code = resolve_institution_board_code(session, institution_id)
+    teacher_id = (
+        str(rule.scope_code)
+        if str(rule.scope_type) == PolicyScopeType.TEACHER.value
+        else None
+    )
+    exec_ctx = PaperExecutionContext(
+        organization_id=organization_id,
+        institution_id=institution_id,
+        board_code=board_code,
+        teacher_id=teacher_id,
+    )
+    incoming_floors = _mandatory_numeric_floors(dict(rule.value_json or {}))
+    if not incoming_floors:
+        return
+    combined: dict[tuple[str, str, str], float] = {}
+    for higher in _active_rules_for_context(
+        session,
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+        execution_context=exec_ctx,
+    ):
+        if str(higher.id) == str(rule.id):
+            continue
+        if _SCOPE_PRECEDENCE.get(str(higher.scope_type), 0) <= rule_precedence:
+            continue
+        for coord, value in _mandatory_numeric_floors(dict(higher.value_json or {})).items():
+            combined[coord] = max(combined.get(coord, value), value)
+    for coord, proposed in incoming_floors.items():
+        floor = combined.get(coord)
+        if floor is not None and proposed < floor - 1e-6:
+            raise MandatoryPolicyClaimAuthorityError(
+                "mandatory policy would weaken a verified higher-priority constraint"
+            )
+
+
 def approve_mandatory_policy_claim(
     session: Session,
     *,
@@ -544,6 +621,12 @@ def approve_mandatory_policy_claim(
         raise MandatoryPolicyClaimAuthorityError(
             "weakening mandatory distribution targets is not authorized for signed approval"
         )
+    _reject_weakening_against_higher_mandatory_rules(
+        session,
+        rule=rule,
+        organization_id=organization_id,
+        institution_id=institution_id,
+    )
 
     record = load_revision_record(session, revision_id)
     if record is None:

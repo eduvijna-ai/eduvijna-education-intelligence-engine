@@ -70,13 +70,14 @@ class EducationIntelligenceValidationService:
                 "curriculum_version_id": resolved_curriculum,
                 "organization_id": (item.metadata_json or {}).get("organization_id"),
             }
+        resolved_institution = scope_payload.get("institution_id") or item.institution_id
         validated_item_payload: dict[str, object] = {
             "item_id": item.item_id,
             "input_hash": summary.input_hash,
             "declared_cognitive_level": item.declared_cognitive_level,
             "competency_codes": list(item.competency_codes),
             "learning_outcome_ids": list(item.learning_outcome_ids),
-            "institution_id": item.institution_id,
+            "institution_id": resolved_institution,
             "curriculum_version_id": item.curriculum_version_id,
             "grade_year_code": item.grade_year_code,
             "medium_code": item.medium_code,
@@ -100,7 +101,7 @@ class EducationIntelligenceValidationService:
             persist_validation_run(
                 self.session,
                 summary,
-                institution_id=item.institution_id,
+                institution_id=resolved_institution,
                 actor_id=actor_id,
             )
             self.session.commit()

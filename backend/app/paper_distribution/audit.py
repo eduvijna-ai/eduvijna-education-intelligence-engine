@@ -7,6 +7,7 @@ from app.common.trust_execution import TrustExecutionMode
 from app.models.education_intelligence import ValidationAuditRun
 from app.paper_distribution.contracts import PaperDistributionRequest, PaperDistributionResult
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.execution_scope import production_execution_context_errors
 from app.prerequisite_intelligence.stable_ids import stable_digest
 
 PAPER_POLICY_VERSION = "paper-distribution@v1"
@@ -44,8 +45,14 @@ def persist_paper_distribution_audit(
     if not fingerprint:
         raise ValueError("result_fingerprint required for paper audit persistence")
 
-    if execution_mode == TrustExecutionMode.PRODUCTION and execution_context is None:
-        raise ValueError("execution_context required for production paper audit persistence")
+    if execution_mode == TrustExecutionMode.PRODUCTION:
+        if execution_context is None:
+            raise ValueError("execution_context required for production paper audit persistence")
+        scope_errors = production_execution_context_errors(session, execution_context)
+        if scope_errors:
+            raise ValueError(
+                "production paper audit requires valid institution execution context"
+            )
 
     institution_id = execution_context.institution_id if execution_context else None
     actor_id = execution_context.actor_id if execution_context else None

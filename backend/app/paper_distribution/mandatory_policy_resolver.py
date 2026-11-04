@@ -267,6 +267,7 @@ def merge_scoped_mandatory_policy_payload(
         merged["mandatory_resolution_errors"] = context_errors
         return merged
     if execution_context is None or not execution_context.institution_id:
+        merged["mandatory_resolution_errors"] = ["execution_context.institution_id"]
         return merged
     institution = session.get(Institution, execution_context.institution_id)
     if institution is None:

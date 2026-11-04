@@ -32,7 +32,6 @@ from test_day10_r18_trust import (
     _bootstrap_mapping_curator,
     _paper_item_from_validated,
 )
-from test_day10_r29_trust import _persist_real_day6_item
 
 from app.common.trust_execution import TrustExecutionMode
 from app.curator_auth.issuer import (
@@ -290,17 +289,43 @@ def test_count_only_production_ok_without_validated_marks_when_not_mark_weighted
     tmp_path: Path,
 ) -> None:
     session = _session(tmp_path)
+    graph_ctx = _seed_production_institution_graph(session)
     day6_ctx = seed_cbse_fixture_curriculum(session)
+    day6_ctx.update(
+        {
+            "organization_id": graph_ctx["organization_id"],
+            "institution_id": graph_ctx["institution_id"],
+        }
+    )
     ensure_paper_target_policy_configured(session)
-    item = positive_cbse_item(day6_ctx).model_copy(update={"item_id": "count-only"})
+    item = positive_cbse_item(day6_ctx).model_copy(
+        update={
+            "item_id": "count-only",
+            "institution_id": INST_A,
+        }
+    )
     service = EducationIntelligenceValidationService(session)
-    summary = service.validate_item(item, board_code="cbse", persist=True, actor_id="actor")
+    summary = service.validate_item(
+        item,
+        board_code="cbse",
+        persist=True,
+        actor_id="actor",
+        trusted_scope={
+            "organization_id": day6_ctx["organization_id"],
+            "institution_id": INST_A,
+            "curriculum_version_id": day6_ctx["curriculum_version_id"],
+        },
+    )
     record = session.scalars(
         select(ValidationAuditRun).where(ValidationAuditRun.run_id == summary.run_id)
     ).first()
     assert record is not None
     validated = (record.metadata_json or {}).get("validated_items", [])[0]
     paper_item = _paper_item_from_validated(validated)
+    exec_ctx = PaperExecutionContext(
+        institution_id=INST_A,
+        organization_id=graph_ctx["organization_id"],
+    )
     result = evaluate_paper_distribution_with_session(
         session,
         PaperDistributionRequest(
@@ -318,9 +343,13 @@ def test_count_only_production_ok_without_validated_marks_when_not_mark_weighted
             ]
         ),
         execution_mode=TrustExecutionMode.PRODUCTION,
-        execution_context=PaperExecutionContext(),
+        execution_context=exec_ctx,
     )
     assert result.verdict == PaperDistributionVerdict.PASS
+    assert result.audit_ref
+    audit = session.get(ValidationAuditRun, result.audit_ref)
+    assert audit is not None
+    assert audit.institution_id == INST_A
 
 
 def test_mapping_revoke_durable_verify_fails_when_actor_cleared(tmp_path: Path) -> None:
@@ -490,91 +519,3 @@ def test_mandatory_policy_revoke_durable_verify_fails_when_actor_cleared(
         source_audit_event_id=revoke_event.id,
         audit_actor_id="",
     )
-
-
-def test_real_day6_unequal_marks_mark_weighted_policy(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-    graph_ctx = _seed_production_institution_graph(session)
-    day6_ctx = seed_cbse_fixture_curriculum(session)
-    day6_ctx.update(
-        {
-            "organization_id": graph_ctx["organization_id"],
-            "institution_id": graph_ctx["institution_id"],
-        }
-    )
-    ensure_board_mandatory_source_evidence(
-        session,
-        tmp_path,
-        graph_ctx["source_revision_id"],
-        board_code=EDUVIJNA_DEMO_BOARD_CODE,
-        policy_excerpt=default_board_mandatory_excerpt(apply_exact_percent=40.0),
-    )
-    inst = session.get(Institution, INST_A)
-    assert inst is not None
-    inst.metadata_json = {**(inst.metadata_json or {}), "board_code": EDUVIJNA_DEMO_BOARD_CODE}
-    revision = session.get(SourceRevision, graph_ctx["source_revision_id"])
-    assert revision is not None
-    apply_board = mandatory_board_policy_rule(
-        value_json={"mandatory_cognitive_exact_percent": {"apply": 40.0}},
-        source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
-        scope_code=EDUVIJNA_DEMO_BOARD_CODE,
-    )
-    session.add(apply_board)
-    session.flush()
-    revision.policy_rules.append(apply_board)
-    _approve_mandatory_policy_for_rule(
-        session,
-        rule=apply_board,
-        revision_id=revision.id,
-        organization_id=graph_ctx["organization_id"],
-        institution_id=graph_ctx["institution_id"],
-    )
-    ensure_paper_target_policy_configured(session)
-    bindings: list[PaperDay6ItemBinding] = []
-    items: list[PaperItemInput] = []
-    mark_plan = [1.0] * 10
-    for index, marks in enumerate(mark_plan):
-        level = "apply" if index < 4 else "remember"
-        run_id, validated = _persist_real_day6_item(
-            session,
-            day6_ctx,
-            f"r30-marks-{index}",
-            paper_marks=marks,
-            declared_cognitive_level=level,
-        )
-        bindings.append(
-            PaperDay6ItemBinding(item_id=str(validated["item_id"]), validation_run_id=run_id)
-        )
-        items.append(_paper_item_from_validated(validated))
-    exec_ctx = PaperExecutionContext(
-        institution_id=INST_A,
-        board_code=EDUVIJNA_DEMO_BOARD_CODE,
-        organization_id=graph_ctx["organization_id"],
-    )
-    ok = evaluate_paper_distribution_with_session(
-        session,
-        PaperDistributionRequest(
-            paper_id="r30-real-marks-pass",
-            items=items,
-            target_policy_version=PAPER_TARGET_POLICY_VERSION,
-            include_mark_weighted=True,
-        ),
-        day6_trust=PaperDay6TrustContext.from_item_bindings(bindings),
-        execution_mode=TrustExecutionMode.PRODUCTION,
-        execution_context=exec_ctx,
-    )
-    assert ok.verdict == PaperDistributionVerdict.PASS, ok.issue_codes
-    tampered = [items[0].model_copy(update={"marks": 99.0}), *items[1:]]
-    bad = evaluate_paper_distribution_with_session(
-        session,
-        PaperDistributionRequest(
-            paper_id="r30-real-marks-tamper",
-            items=tampered,
-            target_policy_version=PAPER_TARGET_POLICY_VERSION,
-            include_mark_weighted=True,
-        ),
-        day6_trust=PaperDay6TrustContext.from_item_bindings(bindings),
-        execution_mode=TrustExecutionMode.PRODUCTION,
-        execution_context=exec_ctx,
-    )
-    assert PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION in bad.issue_codes

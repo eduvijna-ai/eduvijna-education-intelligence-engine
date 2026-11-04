@@ -400,13 +400,37 @@ def test_production_requires_orchestration_run_and_hash(tmp_path: Path) -> None:
     assert result.hypotheses == []
 
 
-def _persist_day6(session: Session, *, ctx: dict[str, str] | None = None) -> tuple[str, dict]:
+def _persist_day6(
+    session: Session,
+    *,
+    ctx: dict[str, str] | None = None,
+    institution_id: str | None = None,
+) -> tuple[str, dict]:
     if ctx is None:
         ctx = seed_cbse_fixture_curriculum(session)
         session.flush()
-    item = positive_cbse_item(ctx)
+    base = positive_cbse_item(ctx)
+    item = base.model_copy(
+        update={
+            "institution_id": institution_id or base.institution_id,
+            "metadata_json": {**(base.metadata_json or {}), "paper_marks": 1.0},
+        }
+    )
     service = EducationIntelligenceValidationService(session)
-    summary = service.validate_item(item, board_code="cbse", persist=True, actor_id="actor-1")
+    trusted_scope = None
+    if institution_id:
+        trusted_scope = {
+            "organization_id": ctx.get("organization_id"),
+            "institution_id": institution_id,
+            "curriculum_version_id": ctx.get("curriculum_version_id"),
+        }
+    summary = service.validate_item(
+        item,
+        board_code="cbse",
+        persist=True,
+        actor_id="actor-1",
+        trusted_scope=trusted_scope,
+    )
     session.flush()
     record = session.scalars(
         select(ValidationAuditRun).where(ValidationAuditRun.run_id == summary.run_id)
@@ -438,18 +462,28 @@ def _paper_item_from_validated(validated: dict) -> PaperItemInput:
 def test_two_day6_runs_same_paper_distinct_audit_run_ids(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ensure_paper_target_policy_configured(session)
+    graph_ctx = _seed_production_institution_graph(session)
     cbse_ctx = seed_cbse_fixture_curriculum(session)
+    cbse_ctx.update(
+        {
+            "organization_id": graph_ctx["organization_id"],
+            "institution_id": graph_ctx["institution_id"],
+        }
+    )
     session.flush()
-    run_a, validated = _persist_day6(session, ctx=cbse_ctx)
-    run_b, _ = _persist_day6(session, ctx=cbse_ctx)
+    run_a, validated = _persist_day6(session, ctx=cbse_ctx, institution_id=INST_A)
+    run_b, _ = _persist_day6(session, ctx=cbse_ctx, institution_id=INST_A)
     session.commit()
     paper = PaperDistributionRequest(
         paper_id="dual-day6",
         requested_count=1,
         items=[_paper_item_from_validated(validated)],
     )
-    inst = validated.get("institution_id")
-    ctx = PaperExecutionContext(institution_id=inst, actor_id="actor-a")
+    ctx = PaperExecutionContext(
+        institution_id=INST_A,
+        organization_id=graph_ctx["organization_id"],
+        actor_id="actor-a",
+    )
     first = evaluate_paper_distribution_with_session(
         session,
         paper,
@@ -475,6 +509,7 @@ def test_two_day6_runs_same_paper_distinct_audit_run_ids(tmp_path: Path) -> None
 def test_generic_cognitive_targets_not_rejected_by_demo_defaults(tmp_path: Path) -> None:
     session = _session(tmp_path)
     ensure_paper_target_policy_configured(session)
+    graph_ctx = _seed_production_institution_graph(session)
     request = PaperDistributionRequest(
         paper_id="generic-targets",
         requested_count=1,
@@ -493,7 +528,15 @@ def test_generic_cognitive_targets_not_rejected_by_demo_defaults(tmp_path: Path)
             )
         ],
     )
-    ok, path = paper_targets_authorized(session, request, version=PAPER_TARGET_POLICY_VERSION)
+    ok, path = paper_targets_authorized(
+        session,
+        request,
+        version=PAPER_TARGET_POLICY_VERSION,
+        execution_context=PaperExecutionContext(
+            institution_id=INST_A,
+            organization_id=graph_ctx["organization_id"],
+        ),
+    )
     assert ok is True
     assert path is None
 

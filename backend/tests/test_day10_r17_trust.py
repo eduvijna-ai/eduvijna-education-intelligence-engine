@@ -42,6 +42,9 @@ from app.paper_distribution.contracts import (
     PaperItemInput,
 )
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.mandatory_policy_claim_authority import (
+    MandatoryPolicyClaimAuthorityError,
+)
 from app.paper_distribution.mandatory_policy_resolver import (
     mandatory_policy_context_errors,
     merge_scoped_mandatory_policy_payload,
@@ -316,13 +319,14 @@ def test_paper_targets_reject_board_teacher_exact_percent_conflict(tmp_path: Pat
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
     )
-    _approve_mandatory_policy_for_rule(
-        session,
-        rule=teacher_rule,
-        revision_id=revision.id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-    )
+    with pytest.raises(MandatoryPolicyClaimAuthorityError, match="weaken"):
+        _approve_mandatory_policy_for_rule(
+            session,
+            rule=teacher_rule,
+            revision_id=revision.id,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+        )
     ensure_paper_target_policy_configured(session)
     session.commit()
     request = PaperDistributionRequest(
@@ -343,8 +347,8 @@ def test_paper_targets_reject_board_teacher_exact_percent_conflict(tmp_path: Pat
         execution_context=PaperExecutionContext(
             institution_id=INST_A,
             board_code="cbse",
-            teacher_id="teacher-a",
+            organization_id=ctx["organization_id"],
         ),
     )
-    assert not ok
-    assert field is not None
+    assert ok
+    assert field is None

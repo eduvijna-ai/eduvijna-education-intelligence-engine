@@ -12,6 +12,7 @@ from app.models.education_intelligence import ValidationAuditRun
 from app.paper_distribution.contracts import PaperDistributionRequest, PaperItemInput
 from app.paper_distribution.enums import PaperDistributionIssueCode
 from app.paper_distribution.execution_context import PaperExecutionContext
+from app.paper_distribution.execution_scope import production_execution_context_errors
 from app.paper_distribution.target_policy_registry import (
     PAPER_TARGET_POLICY_VERSION,
     paper_targets_authorized,
@@ -96,6 +97,9 @@ def _validate_day6_record_header(
         if record.institution_id and trusted_institution != record.institution_id:
             issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
             paths.append(f"{path_prefix}.institution_mismatch")
+        elif not record.institution_id:
+            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+            paths.append(f"{path_prefix}.institution_missing")
     return True
 
 
@@ -250,6 +254,13 @@ def verify_paper_day6_trust(
         paths.append("day6_trust.execution_context")
         return issues, paths
 
+    if execution_mode == TrustExecutionMode.PRODUCTION and session is not None:
+        scope_errors = production_execution_context_errors(session, execution_context)
+        if scope_errors:
+            issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+            paths.append(f"day6_trust.{scope_errors[0]}")
+            return issues, paths
+
     require_trusted_marks = (
         execution_mode == TrustExecutionMode.PRODUCTION and request.include_mark_weighted
     )
@@ -383,6 +394,12 @@ def verify_target_policy(
     if session is None:
         issues.append(PaperDistributionIssueCode.UNSUPPORTED_TAXONOMY)
         paths.append("target_policy_version")
+        return issues, paths
+
+    scope_errors = production_execution_context_errors(session, execution_context)
+    if scope_errors:
+        issues.append(PaperDistributionIssueCode.TARGET_INFEASIBLE)
+        paths.append(scope_errors[0])
         return issues, paths
 
     ok, field_path = paper_targets_authorized(

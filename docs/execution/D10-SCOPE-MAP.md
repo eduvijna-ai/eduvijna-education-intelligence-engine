@@ -1,6 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R30 FOCUSED SECURITY/ACCEPTANCE REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R31 FOCUSED TENANT/MARKS/MANDATORY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+
+**R31 deltas (vs `6e646987`):** production papers require valid **institution/org execution context** (no empty `PaperExecutionContext()` PASS or unscoped audit); **`test_day10_r31_trust.py`** with unequal real Day6 marks + count/mark disagreement; teacher **lower mandatory without `enforcement=weaken`** rejected at signed approval against verified board floor. R30 curator/mark/weaken/revoke preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
 **R30 deltas (vs `8e1786aa`):** strict teacher credential scope (no institution/board escalation); bootstrap clears blended board/teacher grants; production **mark-weighted requires trusted Day6 marks**; signed **weaken** mandatory rules rejected at approval; **`test_day10_r30_trust.py`**. R29 audit actor + real Day6 marks preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 

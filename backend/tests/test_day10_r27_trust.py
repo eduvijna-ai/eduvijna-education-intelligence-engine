@@ -36,7 +36,10 @@ from app.models.tenancy import Institution
 from app.paper_distribution.enums import PaperDistributionVerdict
 from app.paper_distribution.evaluator import evaluate_paper_distribution_with_session
 from app.paper_distribution.execution_context import PaperExecutionContext
-from app.paper_distribution.mandatory_policy_claim_authority import mandatory_policy_claim_active
+from app.paper_distribution.mandatory_policy_claim_authority import (
+    MandatoryPolicyClaimAuthorityError,
+    mandatory_policy_claim_active,
+)
 from app.paper_distribution.mandatory_policy_resolver import merge_scoped_mandatory_policy_payload
 from app.paper_distribution.target_policy_registry import ensure_paper_target_policy_configured
 from app.prerequisite_intelligence.authority import load_revision_record
@@ -346,19 +349,20 @@ def test_board_remember_mandatory_precedence_over_weaker_institution_rule(
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
     )
-    _approve_mandatory_policy_for_rule(
-        session,
-        rule=inst_rule,
-        revision_id=revision.id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-    )
+    with pytest.raises(MandatoryPolicyClaimAuthorityError, match="weaken"):
+        _approve_mandatory_policy_for_rule(
+            session,
+            rule=inst_rule,
+            revision_id=revision.id,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+        )
     exec_ctx = PaperExecutionContext(
         institution_id=INST_A, board_code=EDUVIJNA_DEMO_BOARD_CODE
     )
     merged = merge_scoped_mandatory_policy_payload(session, {}, exec_ctx)
     errors = merged.get("mandatory_resolution_errors") or []
-    assert any("remember" in str(item) and "exact_count" in str(item) for item in errors)
+    assert not errors
     assert mandatory_policy_claim_active(
         session,
         rule_id=str(remember_board.id),
@@ -371,7 +375,7 @@ def test_board_remember_mandatory_precedence_over_weaker_institution_rule(
         institution_id=ctx["institution_id"],
         execution_context=exec_ctx,
     )
-    assert mandatory_policy_claim_active(
+    assert not mandatory_policy_claim_active(
         session,
         rule_id=str(inst_rule.id),
         revision_id=revision.id,

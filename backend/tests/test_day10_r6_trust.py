@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from test_day10_r8_trust import INST_A
 
 import app.models  # noqa: F401
 from app.common.trust_execution import TrustExecutionMode
@@ -16,6 +17,7 @@ from app.education_intelligence.service import EducationIntelligenceValidationSe
 from app.knowledge_intelligence.contracts import KnowledgeContextPack, KnowledgeEvidenceItem
 from app.models.education_intelligence import ValidationAuditRun
 from app.models.orchestration import OrchestrationAuditEvent
+from app.models.tenancy import Institution
 from app.orchestration.fixtures import build_day8_test_service
 from app.orchestration.graph import build_orchestration_graph
 from app.orchestration.root_cause_trust import option_allowed_source_revision_ids
@@ -50,16 +52,36 @@ def _session(tmp_path: Path) -> Session:
 
 
 def _persist_day6_passing_run(session: Session) -> tuple[str, dict]:
+    from test_day10_r8_trust import INST_A, _seed_production_institution_graph
+
+    graph_ctx = _seed_production_institution_graph(session)
     ctx = seed_cbse_fixture_curriculum(session)
+    ctx.update(
+        {
+            "organization_id": graph_ctx["organization_id"],
+            "institution_id": graph_ctx["institution_id"],
+        }
+    )
     session.flush()
     item = positive_cbse_item(ctx)
     item = item.model_copy(
         update={
+            "institution_id": INST_A,
             "metadata_json": {**(item.metadata_json or {}), "paper_marks": 1.0},
         }
     )
     service = EducationIntelligenceValidationService(session)
-    summary = service.validate_item(item, board_code="cbse", persist=True, actor_id="actor-1")
+    summary = service.validate_item(
+        item,
+        board_code="cbse",
+        persist=True,
+        actor_id="actor-1",
+        trusted_scope={
+            "organization_id": ctx["organization_id"],
+            "institution_id": INST_A,
+            "curriculum_version_id": ctx["curriculum_version_id"],
+        },
+    )
     session.flush()
     record = session.scalars(
         select(ValidationAuditRun).where(ValidationAuditRun.run_id == summary.run_id)
@@ -158,13 +180,17 @@ def test_day6_validated_item_positive_with_matching_tags(tmp_path: Path) -> None
         cognitive_targets=[],
     )
     trust = PaperDay6TrustContext.from_validation_run(run_id)
-    inst = validated.get("institution_id")
+    inst_row = session.get(Institution, INST_A)
+    assert inst_row is not None
     result = evaluate_paper_distribution(
         paper,
         day6_trust=trust,
         execution_mode=TrustExecutionMode.PRODUCTION,
         data_session=session,
-        execution_context=PaperExecutionContext(institution_id=inst),
+        execution_context=PaperExecutionContext(
+            institution_id=INST_A,
+            organization_id=str(inst_row.organization_id),
+        ),
     )
     assert PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION not in result.issue_codes
 
