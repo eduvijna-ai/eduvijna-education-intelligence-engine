@@ -16,6 +16,7 @@ from app.curator_auth.issuer import (
     verify_durable_curator_approval,
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
+from app.models.curator_auth import CuratorDurableApprovalRecord
 from app.models.enums import (
     PolicyScopeType,
     SourceRevisionStatus,
@@ -801,6 +802,40 @@ def revoke_mandatory_policy_claim(
             source_audit_event_id=revoke_event.id,
         )
     session.flush()
+
+
+def rule_had_durable_mandatory_approval_record(session: Session, rule: PolicyRule) -> bool:
+    """True when this rule has a persisted signed mandatory approval (not a draft candidate)."""
+    revision_ids: list[str] = list(
+        session.scalars(
+            select(policy_rule_source_revisions.c.source_revision_id).where(
+                policy_rule_source_revisions.c.policy_rule_id == rule.id
+            )
+        ).all()
+    )
+    for revision_id in revision_ids:
+        events = session.scalars(
+            select(SourceAuditEvent).where(
+                SourceAuditEvent.source_revision_id == str(revision_id),
+                SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
+                SourceAuditEvent.outcome == "success",
+            )
+        ).all()
+        for event in events:
+            payload = event.payload_json or {}
+            if not _claim_payload_matches_rule(rule, payload):
+                continue
+            claim_id = str(payload.get("claim_id") or "").strip()
+            if not claim_id:
+                continue
+            durable = session.scalar(
+                select(CuratorDurableApprovalRecord).where(
+                    CuratorDurableApprovalRecord.claim_id == claim_id
+                )
+            )
+            if durable is not None:
+                return True
+    return False
 
 
 def mandatory_policy_claim_active(

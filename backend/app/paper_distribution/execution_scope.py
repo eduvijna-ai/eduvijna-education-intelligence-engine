@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.models.tenancy import Institution
+from app.models.tenancy import Institution, Organization
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_resolver import (
     mandatory_policy_context_errors,
@@ -27,6 +27,11 @@ def production_execution_context_errors(
     organization_id = str(execution_context.organization_id or "").strip()
     if not organization_id:
         organization_id = str(institution.organization_id)
+    organization = session.get(Organization, organization_id)
+    if organization is None or not organization.active:
+        return ["execution_context.organization_id"]
+    if str(institution.organization_id) != organization_id:
+        return ["execution_context.organization_id"]
     board_code = execution_context.board_code or resolve_institution_board_code(
         session, institution_id
     )
