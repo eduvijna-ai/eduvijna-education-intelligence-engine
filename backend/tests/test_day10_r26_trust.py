@@ -24,7 +24,7 @@ from day10_source_lifecycle import (
 from sqlalchemy import select
 from test_day10_r8_trust import INST_A, INST_B, ORG_A, _seed_production_institution_graph, _session
 from test_day10_r11_trust import _MAPPING_SOURCE_LOCATOR
-from test_day10_r18_trust import _approve_mandatory_policy_for_rule
+from test_day10_r18_trust import MANDATORY_BOARD_POLICY_ACTOR, _approve_mandatory_policy_for_rule
 
 from app.curator_auth.issuer import (
     CuratorOperation,
@@ -425,7 +425,7 @@ def test_policy_revoke_token_bound_to_claim_id(tmp_path: Path) -> None:
 
     token = issue_curator_write_decision(
         session,
-        admin_external_code="founder-day10-trust",
+        admin_external_code=MANDATORY_BOARD_POLICY_ACTOR,
         operator_secret=DEFAULT_POLICY_CURATOR_SECRET,
         role=CuratorRole.MANDATORY_POLICY_CURATOR,
         operation=CuratorOperation.MANDATORY_POLICY_REVOKE,
@@ -444,7 +444,7 @@ def test_policy_revoke_token_bound_to_claim_id(tmp_path: Path) -> None:
             rule_id=str(rule_a.id),
             revision_id=revision.id,
             claim_id=claim_b,
-            actor_id="founder-day10-trust",
+            actor_id=MANDATORY_BOARD_POLICY_ACTOR,
             organization_id=ctx["organization_id"],
             institution_id=ctx["institution_id"],
             curator_decision_token=token,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from sqlalchemy import select
@@ -23,6 +24,25 @@ from app.paper_distribution.trusted_validation import (
 _PAPER_AUDIT_KIND = "paper_distribution"
 _DAY6_VALIDATION_KIND = "day6_validation"
 _DAY6_PASS_STATUSES = {"pass", "accepted", "ok"}
+
+
+def _positive_finite_mark(raw: object) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        value = float(raw)
+    elif isinstance(raw, str):
+        try:
+            value = float(raw.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return value
 
 
 def _validated_items_index(record: ValidationAuditRun) -> dict[str, dict[str, Any]]:
@@ -88,6 +108,7 @@ def _validate_item_against_day6_entry(
     trusted_institution: str | None,
     issues: list[PaperDistributionIssueCode],
     paths: list[str],
+    require_trusted_marks: bool = False,
 ) -> None:
     base_path = f"items[{index}]"
     expected_hash = validated.get("input_hash")
@@ -179,9 +200,17 @@ def _validate_item_against_day6_entry(
             paths.append(f"{base_path}/institution")
 
     if execution_mode == TrustExecutionMode.PRODUCTION:
-        validated_marks = validated.get("marks")
-        if validated_marks is not None:
-            if item.marks is None or abs(float(validated_marks) - float(item.marks)) > 0.001:
+        validated_marks = _positive_finite_mark(validated.get("marks"))
+        paper_marks = _positive_finite_mark(item.marks)
+        if require_trusted_marks:
+            if validated_marks is None or paper_marks is None:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/marks")
+            elif abs(validated_marks - paper_marks) > 0.001:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/marks")
+        elif validated_marks is not None:
+            if paper_marks is None or abs(validated_marks - paper_marks) > 0.001:
                 issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
                 paths.append(f"{base_path}/marks")
 
@@ -220,6 +249,10 @@ def verify_paper_day6_trust(
         issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
         paths.append("day6_trust.execution_context")
         return issues, paths
+
+    require_trusted_marks = (
+        execution_mode == TrustExecutionMode.PRODUCTION and request.include_mark_weighted
+    )
 
     trusted_institution = (
         execution_context.institution_id if execution_context else None
@@ -277,6 +310,7 @@ def verify_paper_day6_trust(
                 trusted_institution=trusted_institution,
                 issues=issues,
                 paths=paths,
+                require_trusted_marks=require_trusted_marks,
             )
         return issues, paths
 
@@ -322,6 +356,7 @@ def verify_paper_day6_trust(
             trusted_institution=trusted_institution,
             issues=issues,
             paths=paths,
+            require_trusted_marks=require_trusted_marks,
         )
 
     return issues, paths

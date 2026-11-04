@@ -216,13 +216,17 @@ def _scope_matches_credential(
         scope.institution_id
     ):
         return False
-    if credential.teacher_id and scope.teacher_id:
+    if credential.teacher_id:
+        if not scope.teacher_id:
+            return False
         cred_teacher = session.get(Teacher, credential.teacher_id)
         scope_teacher = _resolve_teacher_in_scope(session, scope)
         if cred_teacher is None or scope_teacher is None:
             return False
         if str(cred_teacher.id) != str(scope_teacher.id):
             return False
+    elif scope.teacher_id:
+        return False
     if credential.curriculum_version_id:
         if not scope.curriculum_version_id or str(credential.curriculum_version_id) != str(
             scope.curriculum_version_id

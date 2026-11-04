@@ -7,13 +7,18 @@ import pytest
 from day10_curator_auth import (
     DEFAULT_MAPPING_CURATOR_SECRET,
     approve_mapping_with_curator,
+    ensure_mapping_curator_credential,
     issue_mapping_revoke_decision,
 )
 from day10_source_lifecycle import (
+    DEFAULT_MAPPING_CURATOR_ACTOR,
     FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     default_board_mandatory_excerpt,
     ensure_board_mandatory_source_evidence,
     ensure_genuine_json_upload_source_approval,
+    ensure_genuine_source_content_approval,
+    ensure_mapping_curator_admin_actor,
+    ensure_mapping_curator_registry,
     mandatory_board_policy_rule,
 )
 from sqlalchemy import func, select
@@ -55,6 +60,37 @@ from app.root_cause_intelligence.mapping_evidence import (
     verify_revision_content_integrity,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
+
+
+def _teacher_mapping_curator_context(
+    session,
+    ctx: dict[str, str],
+    *,
+    teacher_id: str,
+) -> MappingClaimApprovalContext:
+    ensure_mapping_curator_registry(session)
+    actor_code = f"{DEFAULT_MAPPING_CURATOR_ACTOR}-t-{teacher_id[:8]}"
+    admin = ensure_mapping_curator_admin_actor(
+        session,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        external_code=actor_code,
+    )
+    ensure_mapping_curator_credential(
+        session,
+        admin,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+        teacher_id=teacher_id,
+    )
+    return MappingClaimApprovalContext(
+        actor_id=actor_code,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+        curriculum_version_id=ctx["curriculum_version_id"],
+        teacher_id=teacher_id,
+    )
 
 
 def test_json_upload_source_integrity_allows_mapping_claim(tmp_path: Path) -> None:
@@ -211,27 +247,16 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
     )
     session.add_all([teacher_a, teacher_b])
     session.flush()
-    actor_id, _admin = _bootstrap_mapping_curator(session, ctx)
-    from day10_source_lifecycle import ensure_genuine_source_content_approval
-
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
-    ctx_a = MappingClaimApprovalContext(
-        actor_id=actor_id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-        curriculum_version_id=ctx["curriculum_version_id"],
-        teacher_id=teacher_a.id,
+    ctx_a = _teacher_mapping_curator_context(
+        session, ctx, teacher_id=str(teacher_a.id)
     )
-    ctx_b = MappingClaimApprovalContext(
-        actor_id=actor_id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-        curriculum_version_id=ctx["curriculum_version_id"],
-        teacher_id=teacher_b.id,
+    ctx_b = _teacher_mapping_curator_context(
+        session, ctx, teacher_id=str(teacher_b.id)
     )
     claim_a = approve_mapping_with_curator(
         session,
@@ -240,8 +265,6 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=ctx_a,
-        admin_external_code=actor_id,
-        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     claim_b = approve_mapping_with_curator(
         session,
@@ -250,19 +273,17 @@ def test_mapping_claim_teacher_scope_independent_revocation(tmp_path: Path) -> N
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=ctx_b,
-        admin_external_code=actor_id,
-        operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
     )
     assert claim_a != claim_b
     revoke_root_cause_mapping_claim(
         session,
         revision_id=ctx["source_revision_id"],
         claim_id=claim_a,
-        actor_id=actor_id,
+        actor_id=ctx_a.actor_id,
         approval_context=ctx_a,
         curator_decision_token=issue_mapping_revoke_decision(
             session,
-            admin_external_code=actor_id,
+            admin_external_code=ctx_a.actor_id,
             operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
             approval_context=ctx_a,
             revision_id=ctx["source_revision_id"],

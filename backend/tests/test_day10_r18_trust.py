@@ -68,6 +68,8 @@ from app.root_cause_intelligence.mapping_claim_authority import (
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
 from app.root_cause_intelligence.service import RootCauseIntelligenceService
 
+MANDATORY_BOARD_POLICY_ACTOR = "founder-day10-mandatory-board-curator"
+
 
 def _bootstrap_mapping_curator(session: Session, ctx: dict[str, str]) -> tuple[str, AdminActor]:
     ensure_mapping_curator_registry(session)
@@ -282,19 +284,34 @@ def _approve_mandatory_policy_for_rule(
         raise AssertionError(
             "mandatory policy approval requires organization and institution scope"
         )
-    admin = session.scalar(select(AdminActor).where(AdminActor.external_code == actor_id))
+    scope_type = str(rule.scope_type)
+    if scope_type == "board":
+        policy_actor = (
+            actor_id
+            if actor_id != "founder-day10-trust"
+            else MANDATORY_BOARD_POLICY_ACTOR
+        )
+    elif scope_type == "teacher":
+        policy_actor = (
+            actor_id
+            if actor_id != "founder-day10-trust"
+            else f"founder-day10-mandatory-teacher-{rule.scope_code}"
+        )
+    else:
+        policy_actor = actor_id
+    admin = session.scalar(select(AdminActor).where(AdminActor.external_code == policy_actor))
     if admin is None:
         admin = ensure_mapping_curator_admin_actor(
             session,
             organization_id=org,
             institution_id=inst,
-            external_code=actor_id,
+            external_code=policy_actor,
             display_name="Day10 policy curator",
         )
-    board_code = str(rule.scope_code) if str(rule.scope_type) == "board" else None
-    board_scope_authorized = str(rule.scope_type) == "board"
+    board_code = str(rule.scope_code) if scope_type == "board" else None
+    board_scope_authorized = scope_type == "board"
     teacher_id = None
-    if str(rule.scope_type) == "teacher":
+    if scope_type == "teacher":
         from day10_source_lifecycle import ensure_teacher_for_scope
 
         from app.models.tenancy import Teacher
@@ -323,7 +340,7 @@ def _approve_mandatory_policy_for_rule(
         revision_id=revision_id,
         organization_id=org,
         institution_id=inst,
-        actor_id=actor_id,
+        actor_id=policy_actor,
         policy_curator_secret=DEFAULT_POLICY_CURATOR_SECRET,
     )
 

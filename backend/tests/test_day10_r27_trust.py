@@ -54,10 +54,16 @@ def _bootstrap_mapping_curator(
     session, ctx: dict[str, str], *, teacher_id: str | None = None
 ) -> MappingClaimApprovalContext:
     ensure_mapping_curator_registry(session)
+    actor_code = (
+        DEFAULT_MAPPING_CURATOR_ACTOR
+        if not teacher_id
+        else f"{DEFAULT_MAPPING_CURATOR_ACTOR}-t-{teacher_id[:8]}"
+    )
     admin = ensure_mapping_curator_admin_actor(
         session,
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
+        external_code=actor_code,
     )
     ensure_mapping_curator_credential(
         session,
@@ -65,9 +71,10 @@ def _bootstrap_mapping_curator(
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
+        teacher_id=teacher_id,
     )
     return MappingClaimApprovalContext(
-        actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+        actor_id=actor_code,
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
@@ -105,7 +112,7 @@ def test_two_teacher_mapping_claims_cross_revoke_blocked(tmp_path: Path) -> None
     )
     token_a_on_b = issue_mapping_revoke_decision(
         session,
-        admin_external_code=DEFAULT_MAPPING_CURATOR_ACTOR,
+        admin_external_code=ctx_a.actor_id,
         operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
         approval_context=ctx_a,
         revision_id=ctx["source_revision_id"],
@@ -116,13 +123,13 @@ def test_two_teacher_mapping_claims_cross_revoke_blocked(tmp_path: Path) -> None
             session,
             revision_id=ctx["source_revision_id"],
             claim_id=claim_b,
-            actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+            actor_id=ctx_a.actor_id,
             curator_decision_token=token_a_on_b,
             approval_context=ctx_a,
         )
     token_a = issue_mapping_revoke_decision(
         session,
-        admin_external_code=DEFAULT_MAPPING_CURATOR_ACTOR,
+        admin_external_code=ctx_a.actor_id,
         operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
         approval_context=ctx_a,
         revision_id=ctx["source_revision_id"],
@@ -132,7 +139,7 @@ def test_two_teacher_mapping_claims_cross_revoke_blocked(tmp_path: Path) -> None
         session,
         revision_id=ctx["source_revision_id"],
         claim_id=claim_a,
-        actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+        actor_id=ctx_a.actor_id,
         curator_decision_token=token_a,
         approval_context=ctx_a,
     )
@@ -212,7 +219,7 @@ def test_institution_curator_cannot_revoke_teacher_specific_mapping_claim(tmp_pa
     )
     token = issue_mapping_revoke_decision(
         session,
-        admin_external_code=DEFAULT_MAPPING_CURATOR_ACTOR,
+        admin_external_code=inst_ctx.actor_id,
         operator_secret=DEFAULT_MAPPING_CURATOR_SECRET,
         approval_context=inst_ctx,
         revision_id=ctx["source_revision_id"],
@@ -223,7 +230,7 @@ def test_institution_curator_cannot_revoke_teacher_specific_mapping_claim(tmp_pa
             session,
             revision_id=ctx["source_revision_id"],
             claim_id=claim_teacher,
-            actor_id=DEFAULT_MAPPING_CURATOR_ACTOR,
+            actor_id=inst_ctx.actor_id,
             curator_decision_token=token,
             approval_context=inst_ctx,
         )

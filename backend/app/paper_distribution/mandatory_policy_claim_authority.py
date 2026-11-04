@@ -539,6 +539,11 @@ def approve_mandatory_policy_claim(
     _verify_scope_source_trust(session, rule, revision)
     if not _rule_effective_on(rule):
         raise MandatoryPolicyClaimAuthorityError("policy rule is not effective")
+    enforcement = str((rule.metadata_json or {}).get("enforcement") or "mandatory")
+    if enforcement == "weaken":
+        raise MandatoryPolicyClaimAuthorityError(
+            "weakening mandatory distribution targets is not authorized for signed approval"
+        )
 
     record = load_revision_record(session, revision_id)
     if record is None:

@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R29 FOCUSED ACCEPTANCE/INTEGRITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R30 FOCUSED SECURITY/ACCEPTANCE REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R29 deltas (vs `1593cc72`):** durable curator verify requires **nonempty persisted audit actor** when `source_audit_event_id` is set; **Day6 validated marks** bound in production paper trust; **`test_day10_r29_trust.py`** (null audit actor, real `validate_item` mark tamper, approved teacher weaken, infeasible/7-item reconcile audit). R28 snapshot/ticket bindings preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
+**R30 deltas (vs `8e1786aa`):** strict teacher credential scope (no institution/board escalation); bootstrap clears blended board/teacher grants; production **mark-weighted requires trusted Day6 marks**; signed **weaken** mandatory rules rejected at approval; **`test_day10_r30_trust.py`**. R29 audit actor + real Day6 marks preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
 **R27 deltas (vs `1727f865`):** mapping **revoke requires exact org/institution/curriculum/teacher** match to signed active claim + durable verify; mandatory policy claims bind **`source_approval_fingerprint`**, **content/span/snapshot checksums** with live **approved snapshot authority** gate; board fixtures use **`ensure_board_mandatory_source_evidence`** (no post-approval `board_or_exam` mutation); **`test_day10_r27_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 

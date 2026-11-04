@@ -53,6 +53,11 @@ def _persist_day6_passing_run(session: Session) -> tuple[str, dict]:
     ctx = seed_cbse_fixture_curriculum(session)
     session.flush()
     item = positive_cbse_item(ctx)
+    item = item.model_copy(
+        update={
+            "metadata_json": {**(item.metadata_json or {}), "paper_marks": 1.0},
+        }
+    )
     service = EducationIntelligenceValidationService(session)
     summary = service.validate_item(item, board_code="cbse", persist=True, actor_id="actor-1")
     session.flush()

@@ -456,13 +456,18 @@ def test_teacher_weaken_rule_does_not_reduce_board_apply_mandatory(tmp_path: Pat
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
     )
-    _approve_mandatory_policy_for_rule(
-        session,
-        rule=weaken_rule,
-        revision_id=revision.id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
+    from app.paper_distribution.mandatory_policy_claim_authority import (
+        MandatoryPolicyClaimAuthorityError,
     )
+
+    with pytest.raises(MandatoryPolicyClaimAuthorityError, match="weakening"):
+        _approve_mandatory_policy_for_rule(
+            session,
+            rule=weaken_rule,
+            revision_id=revision.id,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+        )
     exec_ctx = PaperExecutionContext(
         institution_id=INST_A,
         board_code=EDUVIJNA_DEMO_BOARD_CODE,

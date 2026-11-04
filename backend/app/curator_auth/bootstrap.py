@@ -59,16 +59,21 @@ def provision_operator_credential(
     )
     record.organization_id = scope.organization_id or None
     record.institution_id = scope.institution_id or None
-    if scope.teacher_id is not None:
-        record.teacher_id = scope.teacher_id
-    if scope.curriculum_version_id is not None:
-        record.curriculum_version_id = scope.curriculum_version_id
     if board_scope_authorized:
         record.board_scope_authorized = True
         record.board_code = scope.board_code
-    elif existing is None:
+        record.teacher_id = None
+    else:
         record.board_scope_authorized = False
-        record.board_code = scope.board_code
+        record.board_code = None
+    if scope.teacher_id is not None:
+        record.teacher_id = scope.teacher_id
+        record.board_scope_authorized = False
+        record.board_code = None
+    elif not board_scope_authorized:
+        record.teacher_id = None
+    if scope.curriculum_version_id is not None:
+        record.curriculum_version_id = scope.curriculum_version_id
     record.credential_hash_json = hash_operator_secret(operator_secret)
     record.active = True
     session.add(record)

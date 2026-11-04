@@ -20,7 +20,10 @@ from day10_source_lifecycle import (
 )
 from sqlalchemy import select
 from test_day10_r8_trust import INST_A, INST_B, _seed_production_institution_graph, _session
-from test_day10_r18_trust import _approve_mandatory_policy_for_rule
+from test_day10_r18_trust import (
+    MANDATORY_BOARD_POLICY_ACTOR,
+    _approve_mandatory_policy_for_rule,
+)
 
 from app.curator_auth.bootstrap import provision_operator_credential
 from app.curator_auth.issuer import (
@@ -257,7 +260,7 @@ def test_signed_revoke_verifies_and_blocks_original_read(tmp_path: Path) -> None
         institution_id=ctx["institution_id"],
         execution_context=exec_ctx,
     )
-    policy_actor = "founder-day10-trust"
+    policy_actor = MANDATORY_BOARD_POLICY_ACTOR
     revoke_token = issue_curator_write_decision(
         session,
         admin_external_code=policy_actor,

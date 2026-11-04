@@ -50,12 +50,14 @@ def ensure_mapping_curator_credential(
     organization_id: str,
     institution_id: str,
     curriculum_version_id: str,
+    teacher_id: str | None = None,
     operator_secret: str = DEFAULT_MAPPING_CURATOR_SECRET,
 ) -> None:
     scope = CuratorScope(
         organization_id=organization_id,
         institution_id=institution_id,
         curriculum_version_id=curriculum_version_id,
+        teacher_id=teacher_id,
     )
     provision_operator_credential(
         session,

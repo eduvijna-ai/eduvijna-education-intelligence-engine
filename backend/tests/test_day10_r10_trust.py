@@ -60,8 +60,13 @@ def _session(tmp_path: Path) -> Session:
 def _persist_day6_item(
     session: Session, ctx: dict, item_id: str
 ) -> tuple[str, dict]:
-    item = positive_cbse_item(ctx)
-    item = item.model_copy(update={"item_id": item_id})
+    base = positive_cbse_item(ctx)
+    item = base.model_copy(
+        update={
+            "item_id": item_id,
+            "metadata_json": {**(base.metadata_json or {}), "paper_marks": 1.0},
+        }
+    )
     service = EducationIntelligenceValidationService(session)
     summary = service.validate_item(item, board_code="cbse", persist=True, actor_id="actor-1")
     session.flush()

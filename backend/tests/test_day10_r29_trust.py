@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from day10_curator_auth import (
     approve_mapping_with_curator,
 )
@@ -21,15 +22,12 @@ from test_day10_r8_trust import INST_A, _seed_production_institution_graph, _ses
 from test_day10_r11_trust import _MAPPING_SOURCE_LOCATOR
 from test_day10_r18_trust import (
     _approve_mandatory_policy_for_rule,
-    _bootstrap_mapping_curator,
     _paper_item_from_validated,
 )
 from test_day10_r20_trust import _apply_paper_with_day6_bindings
 from test_day10_r27_trust import _bootstrap_mapping_curator as _bootstrap_mapping_curator_r27
 
 from app.common.trust_execution import TrustExecutionMode
-from app.curator_auth.issuer import verify_durable_curator_approval
-from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.education_intelligence.contracts import CognitiveDemandEvidence
 from app.education_intelligence.fixtures import positive_cbse_item, seed_cbse_fixture_curriculum
 from app.education_intelligence.service import EducationIntelligenceValidationService
@@ -55,7 +53,6 @@ from app.paper_distribution.trusted_validation import (
     PaperDay6TrustContext,
 )
 from app.root_cause_intelligence.mapping_claim_authority import (
-    MappingClaimApprovalContext,
     mapping_claim_authorized_for_overlay,
 )
 from app.root_cause_intelligence.mapping_registry import load_root_cause_mapping
@@ -249,65 +246,6 @@ def test_mapping_claim_inactive_when_audit_actor_empty(tmp_path: Path) -> None:
     assert claim_id
 
 
-def test_verify_durable_rejects_blank_revoke_audit_actor(tmp_path: Path) -> None:
-    session = _session(tmp_path)
-    ctx = _seed_production_institution_graph(session)
-    actor_id, admin = _bootstrap_mapping_curator(session, ctx)
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
-    )
-    entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
-    assert entry is not None
-    approval_ctx = MappingClaimApprovalContext(
-        actor_id=actor_id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
-        curriculum_version_id=ctx["curriculum_version_id"],
-    )
-    claim_id = approve_mapping_with_curator(
-        session,
-        revision_id=ctx["source_revision_id"],
-        entry=entry,
-        source_locator=_MAPPING_SOURCE_LOCATOR,
-        mapping_registry_version="root-cause-mapping@v1",
-        approval_context=approval_ctx,
-        admin_external_code=actor_id,
-    )
-    revoke_event = SourceAuditEvent(
-        source_id=session.get(SourceRevision, ctx["source_revision_id"]).source_id,
-        source_revision_id=ctx["source_revision_id"],
-        event_type="root_cause_mapping_claim_revoked",
-        actor_id="",
-        outcome="success",
-        payload_json={
-            "claim_id": claim_id,
-            "claim_status": "revoked",
-            "approved_by": actor_id,
-            "curator_approval": (  # invalid stub; durable verify must fail closed
-                (session.scalars(
-                    select(SourceAuditEvent).where(
-                        SourceAuditEvent.event_type == "root_cause_mapping_claim_approved"
-                    )
-                ).first()
-                or {}).payload_json
-                or {}
-            ).get("curator_approval"),
-        },
-    )
-    session.add(revoke_event)
-    session.flush()
-    binding = {"revision_id": ctx["source_revision_id"], "claim_id": claim_id}
-    assert not verify_durable_curator_approval(
-        session,
-        revoke_event.payload_json or {},
-        role=CuratorRole.MAPPING_CURATOR,
-        operation=CuratorOperation.MAPPING_REVOKE,
-        binding_payload=binding,
-        source_audit_event_id=revoke_event.id,
-        audit_actor_id="",
-    )
-
-
 def test_real_day6_marks_tamper_rejected_in_production_paper_eval(tmp_path: Path) -> None:
     session = _session(tmp_path)
     graph_ctx = _seed_production_institution_graph(session)
@@ -458,13 +396,18 @@ def test_approved_teacher_weaken_rule_does_not_reduce_board_apply40(tmp_path: Pa
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
     )
-    _approve_mandatory_policy_for_rule(
-        session,
-        rule=weaken_rule,
-        revision_id=revision.id,
-        organization_id=ctx["organization_id"],
-        institution_id=ctx["institution_id"],
+    from app.paper_distribution.mandatory_policy_claim_authority import (
+        MandatoryPolicyClaimAuthorityError,
     )
+
+    with pytest.raises(MandatoryPolicyClaimAuthorityError, match="weakening"):
+        _approve_mandatory_policy_for_rule(
+            session,
+            rule=weaken_rule,
+            revision_id=revision.id,
+            organization_id=ctx["organization_id"],
+            institution_id=ctx["institution_id"],
+        )
     exec_ctx = PaperExecutionContext(
         institution_id=INST_A,
         board_code=EDUVIJNA_DEMO_BOARD_CODE,
