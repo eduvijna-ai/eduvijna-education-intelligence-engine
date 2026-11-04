@@ -13,8 +13,9 @@ from app.models.tenancy import Institution, Organization, Teacher
 from app.paper_distribution.execution_context import PaperExecutionContext
 from app.paper_distribution.mandatory_policy_claim_authority import (
     mandatory_policy_claim_active,
-    mandatory_policy_signed_retirement_recorded,
-    mandatory_policy_unretired_obligation,
+    mandatory_policy_enforcement_obligation_active,
+    mandatory_policy_historic_rule_ids_for_execution,
+    mandatory_policy_signed_rule_retirement_recorded,
 )
 from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
 
@@ -227,37 +228,64 @@ def _resolve_authorized_mandatory_rules(
     execution_context: PaperExecutionContext | None,
     on_date: date | None = None,
 ) -> tuple[list[PolicyRule], list[str]]:
+    effective = on_date or date.today()
     active_candidates = _scoped_active_mandatory_rule_candidates(
         session,
         board_code=board_code,
         institution=institution,
         teacher_id=teacher_id,
-        on_date=on_date,
+        on_date=effective,
     )
     obligation_scope = _scoped_mandatory_rule_candidates(
         session,
         board_code=board_code,
         institution=institution,
         teacher_id=teacher_id,
-        on_date=on_date,
+        on_date=effective,
         active_only=False,
+    )
+    historic_rule_ids = mandatory_policy_historic_rule_ids_for_execution(
+        session,
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+        on_date=effective,
     )
     selected: list[PolicyRule] = []
     auth_errors: list[str] = []
-    for rule in active_candidates:
-        if _revision_authorized_for_policy(session, rule, execution_context):
+    seen_rule_ids: set[str] = set()
+    candidate_rules: list[PolicyRule] = list(active_candidates)
+    for rule in obligation_scope:
+        if rule.id not in {item.id for item in candidate_rules}:
+            candidate_rules.append(rule)
+    for rule_id in historic_rule_ids:
+        if rule_id in seen_rule_ids:
+            continue
+        extra = session.get(PolicyRule, rule_id)
+        if extra is not None and extra.id not in {item.id for item in candidate_rules}:
+            candidate_rules.append(extra)
+    for rule in candidate_rules:
+        seen_rule_ids.add(str(rule.id))
+        if rule.active and _revision_authorized_for_policy(
+            session, rule, execution_context
+        ):
             selected.append(rule)
             continue
-        if mandatory_policy_unretired_obligation(session, rule):
-            auth_errors.append(f"mandatory_policy.authorization_unavailable:{rule.id}")
-    for rule in obligation_scope:
-        if rule.active:
+        if not mandatory_policy_enforcement_obligation_active(
+            session,
+            rule,
+            board_code=board_code,
+            institution=institution,
+            teacher_id=teacher_id,
+            on_date=effective,
+        ):
             continue
-        if not mandatory_policy_unretired_obligation(session, rule):
+        if not rule.active:
+            if mandatory_policy_signed_rule_retirement_recorded(session, rule):
+                continue
+            auth_errors.append(f"mandatory_policy.retirement_unauthorized:{rule.id}")
             continue
-        if mandatory_policy_signed_retirement_recorded(session, rule):
-            continue
-        auth_errors.append(f"mandatory_policy.retirement_unauthorized:{rule.id}")
+        auth_errors.append(f"mandatory_policy.authorization_unavailable:{rule.id}")
     deduped_errors = list(dict.fromkeys(auth_errors))
     return (
         sorted(

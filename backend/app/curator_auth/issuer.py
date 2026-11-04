@@ -554,6 +554,10 @@ def _verify_claim_binding_consistency(
     elif operation in _DURABLE_REVOCATION_OPERATIONS:
         if str(binding_payload.get("claim_id") or "") != str(claim_id):
             raise CuratorAuthError("revocation claim_id does not match binding")
+        binding_retire = bool(binding_payload.get("retire_rule"))
+        body_retire = bool(claim_body.get("retire_rule"))
+        if binding_retire != body_retire:
+            raise CuratorAuthError("revocation retire_rule does not match binding")
 
 
 def _sign_envelope(envelope: dict[str, Any], signing_key: str) -> str:

@@ -184,6 +184,7 @@ def test_signed_revoke_and_retire_allows_paper_without_mandatory(tmp_path: Path)
             rule_id=str(rule.id),
             revision_id=revision_id,
             claim_id=claim_id,
+            retire_rule=True,
         ),
         scope=CuratorScope(
             organization_id=ctx["organization_id"],
