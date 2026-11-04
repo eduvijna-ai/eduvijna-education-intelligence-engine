@@ -178,6 +178,13 @@ def _validate_item_against_day6_entry(
             issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
             paths.append(f"{base_path}/institution")
 
+    if execution_mode == TrustExecutionMode.PRODUCTION:
+        validated_marks = validated.get("marks")
+        if validated_marks is not None:
+            if item.marks is None or abs(float(validated_marks) - float(item.marks)) > 0.001:
+                issues.append(PaperDistributionIssueCode.UNTRUSTED_DAY6_ASSERTION)
+                paths.append(f"{base_path}/marks")
+
 
 def verify_paper_day6_trust(
     session: Session | None,

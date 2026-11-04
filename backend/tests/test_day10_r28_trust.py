@@ -298,6 +298,7 @@ def _mark_weighted_apply_paper(
     apply_marks: list[float],
     paper_suffix: str,
 ) -> tuple[PaperDistributionRequest, PaperDay6TrustContext]:
+    """Seed-audit mark-weighted arithmetic only (not genuine Day6 validate_item provenance)."""
     items: list[PaperItemInput] = []
     bindings: list[PaperDay6ItemBinding] = []
     for index, marks in enumerate(apply_marks):
@@ -309,10 +310,10 @@ def _mark_weighted_apply_paper(
             institution_id=INST_A,
             curriculum_version_id=ctx["curriculum_version_id"],
             declared_cognitive_level="apply",
+            marks=marks,
         )
         bindings.append(PaperDay6ItemBinding(item_id=item_id, validation_run_id=run_id))
-        item = _paper_item_from_validated(validated)
-        items.append(item.model_copy(update={"marks": marks}))
+        items.append(_paper_item_from_validated(validated))
     remember_count = max(0, 10 - len(apply_marks))
     for index in range(remember_count):
         item_id = f"mark-weight-{paper_suffix}-remember-{index}"
@@ -339,6 +340,7 @@ def _mark_weighted_apply_paper(
 
 
 def test_mark_weighted_apply40_mandatory_pass_and_fail(tmp_path: Path) -> None:
+    """Uses seed_production_day6_audit marks aligned with paper items (not real validate_item)."""
     session = _session(tmp_path)
     ctx = _seed_production_institution_graph(session)
     ensure_board_mandatory_source_evidence(
@@ -454,10 +456,18 @@ def test_teacher_weaken_rule_does_not_reduce_board_apply_mandatory(tmp_path: Pat
         organization_id=ctx["organization_id"],
         institution_id=ctx["institution_id"],
     )
+    _approve_mandatory_policy_for_rule(
+        session,
+        rule=weaken_rule,
+        revision_id=revision.id,
+        organization_id=ctx["organization_id"],
+        institution_id=ctx["institution_id"],
+    )
     exec_ctx = PaperExecutionContext(
         institution_id=INST_A,
         board_code=EDUVIJNA_DEMO_BOARD_CODE,
         teacher_id=str(teacher.id),
+        organization_id=ctx["organization_id"],
     )
     merged = merge_scoped_mandatory_policy_payload(session, {}, exec_ctx)
     ranges = merged.get("mandatory_cognitive_ranges") or []

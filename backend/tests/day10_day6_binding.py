@@ -23,6 +23,7 @@ def seed_production_day6_audit(
     grade_year_code: str = "grade-4",
     medium_code: str = "english",
     subject_code: str = "mathematics",
+    marks: float | None = None,
 ) -> tuple[str, dict[str, object]]:
     digest = input_hash or ("e" * 64)
     lo_id = learning_outcome_id or "00000000-0000-4000-8000-0000000000d6"
@@ -38,6 +39,7 @@ def seed_production_day6_audit(
         "grade_year_code": grade_year_code,
         "medium_code": medium_code,
         "subject_code": subject_code,
+        "marks": float(marks) if marks is not None else 1.0,
     }
     ctx = ValidationContext.create(session, curriculum_version_id=curriculum_version_id)
     provenance = current_day6_provenance(ctx)

@@ -216,9 +216,7 @@ def _scope_matches_credential(
         scope.institution_id
     ):
         return False
-    if credential.teacher_id:
-        if not scope.teacher_id:
-            return False
+    if credential.teacher_id and scope.teacher_id:
         cred_teacher = session.get(Teacher, credential.teacher_id)
         scope_teacher = _resolve_teacher_in_scope(session, scope)
         if cred_teacher is None or scope_teacher is None:
@@ -669,7 +667,22 @@ def verify_durable_curator_approval(
         return False
     if approved_by and approved_by not in {admin_code, admin_id}:
         return False
-    if audit_actor_id and str(audit_actor_id).strip() not in {admin_code, admin_id}:
+    if source_audit_event_id:
+        if not str(audit_actor_id or "").strip():
+            return False
+        if str(audit_actor_id).strip() not in {admin_code, admin_id}:
+            return False
+        from app.models.source import SourceAuditEvent
+
+        audit_event = session.get(SourceAuditEvent, source_audit_event_id)
+        if audit_event is None:
+            return False
+        persisted_actor = str(audit_event.actor_id or "").strip()
+        if not persisted_actor:
+            return False
+        if persisted_actor not in {admin_code, admin_id}:
+            return False
+    elif audit_actor_id and str(audit_actor_id).strip() not in {admin_code, admin_id}:
         return False
     admin = session.get(AdminActor, admin_id)
     if admin is None or not admin.active or admin.external_code != admin_code:
@@ -686,15 +699,6 @@ def verify_durable_curator_approval(
             or str(admin.institution_id) != str(scope_payload_pre.get("institution_id"))
         ):
             return False
-    credential = session.scalar(
-        select(CuratorOperatorCredential).where(
-            CuratorOperatorCredential.admin_actor_id == admin.id,
-            CuratorOperatorCredential.role == role.value,
-            CuratorOperatorCredential.active.is_(True),
-        )
-    )
-    if credential is None:
-        return False
     scope_payload = approval.get("scope") or {}
     if not isinstance(scope_payload, dict):
         return False
@@ -712,7 +716,18 @@ def verify_durable_curator_approval(
         _assert_tenant_scope_active(session, approval_scope)
     except CuratorAuthError:
         return False
-    if not _scope_matches_credential(session, credential, approval_scope):
+    credential = None
+    for candidate in session.scalars(
+        select(CuratorOperatorCredential).where(
+            CuratorOperatorCredential.admin_actor_id == admin.id,
+            CuratorOperatorCredential.role == role.value,
+            CuratorOperatorCredential.active.is_(True),
+        )
+    ).all():
+        if _scope_matches_credential(session, candidate, approval_scope):
+            credential = candidate
+            break
+    if credential is None:
         return False
     if expected_scope is not None:
         for field in (

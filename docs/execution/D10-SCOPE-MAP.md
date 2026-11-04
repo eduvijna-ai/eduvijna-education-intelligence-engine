@@ -1,8 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R28 FOCUSED SECURITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R29 FOCUSED ACCEPTANCE/INTEGRITY REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
 
-**R28 deltas (vs `268f088f`):** mandatory/mapping **curator tickets bind source approval fingerprint, snapshot/content checksums, and approved locator span**; **stored snapshot dict rehashed** against `source_snapshot_checksum` on mandatory read/write; **`EDUVIJNA_DEMO_BOARD_CODE`** for generic board fixtures; **`test_day10_r28_trust.py`** (dual tamper, stale ticket, precedence, mark-weighted matrix). D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
+**R29 deltas (vs `1593cc72`):** durable curator verify requires **nonempty persisted audit actor** when `source_audit_event_id` is set; **Day6 validated marks** bound in production paper trust; **`test_day10_r29_trust.py`** (null audit actor, real `validate_item` mark tamper, approved teacher weaken, infeasible/7-item reconcile audit). R28 snapshot/ticket bindings preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
 **R27 deltas (vs `1727f865`):** mapping **revoke requires exact org/institution/curriculum/teacher** match to signed active claim + durable verify; mandatory policy claims bind **`source_approval_fingerprint`**, **content/span/snapshot checksums** with live **approved snapshot authority** gate; board fixtures use **`ensure_board_mandatory_source_evidence`** (no post-approval `board_or_exam` mutation); **`test_day10_r27_trust.py`**. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 

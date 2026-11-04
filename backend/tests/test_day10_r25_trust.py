@@ -311,6 +311,7 @@ def test_signed_revoke_verifies_and_blocks_original_read(tmp_path: Path) -> None
         operation=CuratorOperation.MANDATORY_POLICY_REVOKE,
         binding_payload=revoke_binding,
         source_audit_event_id=revoke_event.id,
+        audit_actor_id=str(revoke_event.actor_id or ""),
     )
 
 

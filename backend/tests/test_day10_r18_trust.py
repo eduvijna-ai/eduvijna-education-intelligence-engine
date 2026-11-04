@@ -297,11 +297,15 @@ def _approve_mandatory_policy_for_rule(
     if str(rule.scope_type) == "teacher":
         from day10_source_lifecycle import ensure_teacher_for_scope
 
-        teacher = ensure_teacher_for_scope(
-            session,
-            institution_id=inst,
-            external_code=str(rule.scope_code),
-        )
+        from app.models.tenancy import Teacher
+
+        teacher = session.get(Teacher, str(rule.scope_code))
+        if teacher is None:
+            teacher = ensure_teacher_for_scope(
+                session,
+                institution_id=inst,
+                external_code=str(rule.scope_code),
+            )
         teacher_id = str(teacher.id)
     ensure_mandatory_policy_curator_credential(
         session,
@@ -362,9 +366,11 @@ def _seed_board_mandatory_remember_two(
 
 
 def _paper_item_from_validated(validated: dict) -> PaperItemInput:
+    marks_raw = validated.get("marks")
+    marks = float(marks_raw) if marks_raw is not None else 1.0
     return PaperItemInput(
         item_id=str(validated["item_id"]),
-        marks=1.0,
+        marks=marks,
         cognitive_level=str(validated.get("declared_cognitive_level")),
         competency_codes=list(validated.get("competency_codes") or []),
         day6_validated=True,
