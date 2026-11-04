@@ -45,6 +45,7 @@ class EducationIntelligenceValidationService:
         validator_ids: list[str] | None = None,
         persist: bool = False,
         actor_id: str | None = None,
+        trusted_scope: dict[str, str | None] | None = None,
     ) -> ValidationRunSummary:
         ctx = ValidationContext.create(
             self.session,
@@ -54,11 +55,53 @@ class EducationIntelligenceValidationService:
         if institution_overrides:
             ctx.policy = load_policy_registry(self.session, institution_overrides)
         summary = run_validation(item, ctx, self.registry, validator_ids=validator_ids)
+        resolved_curriculum = curriculum_version_id or item.curriculum_version_id
+        if trusted_scope is not None:
+            scope_payload = {
+                "organization_id": trusted_scope.get("organization_id"),
+                "institution_id": trusted_scope.get("institution_id")
+                or item.institution_id,
+                "curriculum_version_id": trusted_scope.get("curriculum_version_id")
+                or resolved_curriculum,
+            }
+        else:
+            scope_payload = {
+                "institution_id": item.institution_id,
+                "curriculum_version_id": resolved_curriculum,
+                "organization_id": (item.metadata_json or {}).get("organization_id"),
+            }
+        resolved_institution = scope_payload.get("institution_id") or item.institution_id
+        validated_item_payload: dict[str, object] = {
+            "item_id": item.item_id,
+            "input_hash": summary.input_hash,
+            "declared_cognitive_level": item.declared_cognitive_level,
+            "competency_codes": list(item.competency_codes),
+            "learning_outcome_ids": list(item.learning_outcome_ids),
+            "institution_id": resolved_institution,
+            "curriculum_version_id": item.curriculum_version_id,
+            "grade_year_code": item.grade_year_code,
+            "medium_code": item.medium_code,
+            "subject_code": item.subject_code,
+        }
+        paper_marks = (item.metadata_json or {}).get("paper_marks")
+        if paper_marks is not None:
+            validated_item_payload["marks"] = float(paper_marks)
+        elif item.rubric is not None and item.rubric.total_marks is not None:
+            validated_item_payload["marks"] = float(item.rubric.total_marks)
+        summary = summary.model_copy(
+            update={
+                "metadata": {
+                    **summary.metadata,
+                    "scope": scope_payload,
+                    "validated_items": [validated_item_payload],
+                }
+            }
+        )
         if persist and self.session is not None:
             persist_validation_run(
                 self.session,
                 summary,
-                institution_id=item.institution_id,
+                institution_id=resolved_institution,
                 actor_id=actor_id,
             )
             self.session.commit()

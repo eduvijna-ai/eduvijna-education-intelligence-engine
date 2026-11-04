@@ -52,6 +52,7 @@ jobs:
           git checkout --detach "${EDUVIJNA_CANDIDATE_SHA}"
           python -m app.day8_verify
           python -m app.day9_verify
+          python -m app.day10_verify --json
 
   compose-smoke:
     if: github.event.pull_request.draft == false

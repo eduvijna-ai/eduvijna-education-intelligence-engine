@@ -139,6 +139,11 @@ def build_orchestration_request(
         metadata_json={
             "fixture_scenario": scenario,
             "learning_outcome_ids": [ctx["learning_outcome_id"]],
+            **(
+                {"deterministic_human_review_required": True}
+                if scenario == "human_review"
+                else {}
+            ),
         },
     )
 

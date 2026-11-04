@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from app.diagnostic_intelligence.repair_policy import diagnostic_repair_is_tag_only
 from app.orchestration.contracts import OrchestrationRequest
-from app.orchestration.diagnostic_routing import pending_diagnostic_enrichment
+from app.orchestration.diagnostic_routing import (
+    diagnostics_finished,
+    pending_diagnostic_enrichment,
+)
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.state import OrchestrationGraphState
 
@@ -29,6 +32,27 @@ def route_after_fallible(state: OrchestrationGraphState) -> str:
     if pipeline_halted(state):
         return "whole_output"
     return "continue"
+
+
+def _pending_eligible_root_cause_tags(state: OrchestrationGraphState) -> bool:
+    processed = {
+        (str(row.get("item_id")), str(row.get("option_key")))
+        for row in (state.get("root_cause_results") or [])
+        if row.get("item_id") and row.get("option_key")
+    }
+    for entry in state.get("diagnostic_results") or []:
+        item_id = str(entry.get("item_id"))
+        for tag in entry.get("option_tags") or []:
+            if tag.get("is_correct"):
+                continue
+            if not tag.get("misconception_code"):
+                continue
+            if str(tag.get("validation_status") or "") != "pass":
+                continue
+            option_key = str(tag.get("option_key"))
+            if (item_id, option_key) not in processed:
+                return True
+    return False
 
 
 def route_after_validation(state: OrchestrationGraphState) -> str:
@@ -76,6 +100,8 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
         return "whole_output"
     request = OrchestrationRequest.model_validate(state["request"])
     if not request.diagnostic_enrichment_enabled():
+        if request.root_cause_enrichment_enabled():
+            return "root_cause_enrich"
         return "whole_output"
 
     diagnostic = state.get("diagnostic_validation") or []
@@ -87,6 +113,8 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
     review_required = any(item.get("review_required") for item in diagnostic)
 
     if blocking and not repairable:
+        if request.root_cause_enrichment_enabled() and _pending_eligible_root_cause_tags(state):
+            return "root_cause_enrich"
         return "whole_output"
 
     if repairable:
@@ -110,7 +138,24 @@ def route_after_diagnostic(state: OrchestrationGraphState) -> str:
     if review_required:
         return "human_gate"
 
+    if request.root_cause_enrichment_enabled():
+        return "root_cause_enrich"
+
     return "whole_output"
+
+
+def _root_cause_enrichment_pending(
+    state: OrchestrationGraphState, request: OrchestrationRequest
+) -> bool:
+    if not request.root_cause_enrichment_enabled():
+        return False
+    if not diagnostics_finished(state, request):
+        return False
+    results = state.get("root_cause_results") or []
+    drafts = state.get("draft_items") or []
+    if not drafts:
+        return not results
+    return len(results) < len(drafts)
 
 
 def route_after_human(state: OrchestrationGraphState) -> str:
@@ -122,4 +167,8 @@ def route_after_human(state: OrchestrationGraphState) -> str:
     request = OrchestrationRequest.model_validate(state["request"])
     if decision.get("action") == "approve" and pending_diagnostic_enrichment(state, request):
         return "diagnostic_enrich"
+    if decision.get("action") == "approve" and _root_cause_enrichment_pending(
+        state, request
+    ):
+        return "root_cause_enrich"
     return "whole_output"

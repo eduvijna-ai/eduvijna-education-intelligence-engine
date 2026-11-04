@@ -9,7 +9,10 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./data/test-eduvijna.db")
 
+from day10_curator_auth import curator_signing_key_for_tests  # noqa: E402
+
 from app.core.config import get_settings  # noqa: E402
+from app.curator_auth.bootstrap import generate_test_bootstrap_secret  # noqa: E402
 from app.db.session import create_database_engine  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -20,6 +23,8 @@ def reset_caches(
 ) -> Generator[None, None, None]:
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("CURATOR_APPROVAL_SIGNING_KEY", curator_signing_key_for_tests())
+    monkeypatch.setenv("CURATOR_BOOTSTRAP_SECRET", generate_test_bootstrap_secret())
     get_settings.cache_clear()
     create_database_engine.cache_clear()
     yield

@@ -70,5 +70,6 @@ def draft_to_canonical(
         }
         | {
             "marks": request_marks if request_marks is not None else draft.marks,
+            "source_revision_ids": sorted(str(item) for item in draft.source_revision_ids if item),
         },
     )

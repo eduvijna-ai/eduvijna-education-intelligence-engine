@@ -112,12 +112,14 @@ def _build_authoring(
                 }
             }
         )
+    meta = request.metadata_json or {}
+    concept_codes = list(meta.get("diagnostic_authoring_concept_codes", request.concept_codes))
     return DiagnosticAuthoringRequest(
         item=diagnostic_item,
         subject_code=scope.subject_code or request.subject_code,
         grade_year_code=scope.grade_year_code or request.grade_year_code,
         topic_codes=list(request.topic_codes),
-        concept_codes=list(request.concept_codes),
+        concept_codes=concept_codes,
         learning_outcome_ids=lo_ids,
         competency_codes=list(draft.competency_codes),
         curriculum_version_id=scope.curriculum_version_id,
