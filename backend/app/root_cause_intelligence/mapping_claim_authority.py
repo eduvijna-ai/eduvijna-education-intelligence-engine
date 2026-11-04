@@ -17,7 +17,7 @@ from app.curator_auth.issuer import (
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.models.education_intelligence import PolicyRegistryEntry
-from app.models.source import SourceAuditEvent
+from app.models.source import SourceAuditEvent, SourceRevision
 from app.models.tenancy import AdminActor
 from app.prerequisite_intelligence.authority import (
     RevisionAuthorityRecord,
@@ -35,6 +35,16 @@ from app.root_cause_intelligence.mapping_evidence import (
 from app.root_cause_intelligence.mapping_registry import (
     MisconceptionConceptMapping,
     load_root_cause_mapping,
+)
+from app.source_intelligence.approval_fingerprint import (
+    verify_revision_stored_source_snapshot_checksum,
+)
+
+_MAPPING_EVIDENCE_BINDING_KEYS = (
+    "source_approval_fingerprint",
+    "source_snapshot_checksum",
+    "source_content_checksum",
+    "source_span_checksum",
 )
 
 MAPPING_CLAIM_APPROVED_EVENT = "root_cause_mapping_claim_approved"
@@ -148,6 +158,10 @@ def mapping_approve_binding_payload(
     source_locator: str,
     mapping_registry_version: str,
     approval_context: MappingClaimApprovalContext,
+    source_approval_fingerprint: str,
+    source_snapshot_checksum: str,
+    source_content_checksum: str,
+    source_span_checksum: str,
 ) -> dict[str, Any]:
     return {
         "revision_id": revision_id,
@@ -159,6 +173,47 @@ def mapping_approve_binding_payload(
         "institution_id": approval_context.institution_id,
         "curriculum_version_id": approval_context.curriculum_version_id,
         "teacher_id": approval_context.teacher_id or "",
+        "source_approval_fingerprint": source_approval_fingerprint,
+        "source_snapshot_checksum": source_snapshot_checksum,
+        "source_content_checksum": source_content_checksum,
+        "source_span_checksum": source_span_checksum,
+    }
+
+
+def compute_mapping_evidence_binding(
+    session: Session,
+    revision_id: str,
+    source_locator: str,
+    *,
+    storage_root: str | None = None,
+) -> dict[str, str]:
+    revision = session.get(SourceRevision, revision_id)
+    if revision is None:
+        raise MappingClaimAuthorityError("source revision is unknown")
+    if not verify_revision_stored_source_snapshot_checksum(revision):
+        raise MappingClaimAuthorityError("source snapshot checksum does not match stored metadata")
+    record = load_revision_record(session, revision_id)
+    if record is None:
+        raise MappingClaimAuthorityError("source revision record is missing")
+    if not verify_revision_content_integrity(session, record, storage_root=storage_root):
+        raise MappingClaimAuthorityError("source revision content integrity check failed")
+    content_checksum = source_content_checksum(record)
+    if not content_checksum:
+        raise MappingClaimAuthorityError("source revision has no content checksum")
+    locator = source_locator.strip()
+    if not locator:
+        raise MappingClaimAuthorityError("mapping claim requires source_locator")
+    try:
+        _, span_checksum = resolve_approved_source_span(
+            session, record, locator, storage_root=storage_root
+        )
+    except ValueError as exc:
+        raise MappingClaimAuthorityError(str(exc)) from exc
+    return {
+        "source_approval_fingerprint": str(record.approval_fingerprint or ""),
+        "source_snapshot_checksum": str(revision.source_snapshot_checksum or ""),
+        "source_content_checksum": str(content_checksum),
+        "source_span_checksum": span_checksum,
     }
 
 
@@ -321,13 +376,6 @@ def approve_root_cause_mapping_claim(
             "legacy mapping writer attestation is disabled; use authenticated curator decisions"
         )
     scope = curator_scope_from_mapping_context(approval_context)
-    binding = mapping_approve_binding_payload(
-        revision_id=revision_id,
-        entry=entry,
-        source_locator=source_locator,
-        mapping_registry_version=mapping_registry_version,
-        approval_context=approval_context,
-    )
     record = load_revision_record(session, revision_id)
     if record is None:
         raise MappingClaimAuthorityError("source revision is unknown")
@@ -373,6 +421,20 @@ def approve_root_cause_mapping_claim(
         )
     except ValueError as exc:
         raise MappingClaimAuthorityError(str(exc)) from exc
+    evidence = compute_mapping_evidence_binding(
+        session,
+        revision_id,
+        locator,
+        storage_root=storage_root,
+    )
+    binding = mapping_approve_binding_payload(
+        revision_id=revision_id,
+        entry=entry,
+        source_locator=locator,
+        mapping_registry_version=mapping_registry_version,
+        approval_context=approval_context,
+        **evidence,
+    )
     evidence_checksum = mapping_evidence_checksum(
         misconception_code=entry.misconception_code,
         candidate_concept_codes=entry.candidate_concept_codes,
@@ -407,6 +469,7 @@ def approve_root_cause_mapping_claim(
             "mapping_evidence_checksum": evidence_checksum,
             "source_content_checksum": content_checksum,
             "source_approval_fingerprint": record.approval_fingerprint,
+            "source_snapshot_checksum": evidence["source_snapshot_checksum"],
             "approved_by": "",
             "organization_id": approval_context.organization_id,
             "institution_id": approval_context.institution_id,
@@ -520,6 +583,10 @@ def _assert_active_mapping_claim_for_revoke(
                 curriculum_version_id=str(payload.get("curriculum_version_id") or ""),
                 teacher_id=_mapping_scope_teacher_value(payload.get("teacher_id")) or None,
             ),
+            source_approval_fingerprint=str(payload.get("source_approval_fingerprint") or ""),
+            source_snapshot_checksum=str(payload.get("source_snapshot_checksum") or ""),
+            source_content_checksum=str(payload.get("source_content_checksum") or ""),
+            source_span_checksum=str(payload.get("source_span_checksum") or ""),
         )
         binding = {**binding, "claim_id": claim_id}
         if not verify_durable_curator_approval(
@@ -708,6 +775,10 @@ def _active_mapping_claim_audit(
                 curriculum_version_id=str(payload.get("curriculum_version_id") or ""),
                 teacher_id=str(payload.get("teacher_id") or "") or None,
             ),
+            source_approval_fingerprint=str(payload.get("source_approval_fingerprint") or ""),
+            source_snapshot_checksum=str(payload.get("source_snapshot_checksum") or ""),
+            source_content_checksum=str(payload.get("source_content_checksum") or ""),
+            source_span_checksum=str(payload.get("source_span_checksum") or ""),
         )
         if not verify_durable_curator_approval(
             session,

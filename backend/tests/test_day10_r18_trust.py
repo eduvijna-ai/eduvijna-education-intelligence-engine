@@ -90,7 +90,13 @@ def _bootstrap_mapping_curator(session: Session, ctx: dict[str, str]) -> tuple[s
 
 
 def _mapping_decision_token(
-    session: Session, ctx: dict[str, str], actor_id: str, entry, *, source_locator: str
+    session: Session,
+    ctx: dict[str, str],
+    actor_id: str,
+    entry,
+    *,
+    source_locator: str,
+    storage_root: str | None = None,
 ) -> str:
     approval_ctx = MappingClaimApprovalContext(
         actor_id=actor_id,
@@ -107,6 +113,7 @@ def _mapping_decision_token(
         entry=entry,
         source_locator=source_locator,
         mapping_registry_version="root-cause-mapping@v1",
+        storage_root=storage_root,
     )
 
 
@@ -121,6 +128,11 @@ def test_mutated_extracted_text_rejects_mapping_claim(tmp_path: Path) -> None:
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
+    entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
+    assert entry is not None
+    token = _mapping_decision_token(
+        session, ctx, actor_id, entry, source_locator=_MAPPING_SOURCE_LOCATOR
+    )
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     revision.extracted_text = (
@@ -128,17 +140,12 @@ def test_mutated_extracted_text_rejects_mapping_claim(tmp_path: Path) -> None:
         "forged/locator\nFake mapping educational claim appended after approval."
     )
     session.flush()
-    entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
-    assert entry is not None
-    token = _mapping_decision_token(
-        session, ctx, actor_id, entry, source_locator="forged/locator"
-    )
-    with pytest.raises(MappingClaimAuthorityError, match="integrity|fingerprint"):
+    with pytest.raises(MappingClaimAuthorityError, match="integrity|fingerprint|snapshot|binding"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],
             entry=entry,
-            source_locator="forged/locator",
+            source_locator=_MAPPING_SOURCE_LOCATOR,
             mapping_registry_version="root-cause-mapping@v1",
             approval_context=MappingClaimApprovalContext(
                 actor_id=actor_id,

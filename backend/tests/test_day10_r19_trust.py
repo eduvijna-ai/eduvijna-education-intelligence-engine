@@ -111,10 +111,6 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
     )
     assert revision.storage_path
     stored_file = Path(storage_root) / revision.storage_path
-    stored_file.write_bytes(stored_file.read_bytes() + b"tamper")
-    record = load_revision_record(session, revision.id)
-    assert record is not None
-    assert not verify_revision_content_integrity(session, record, storage_root=storage_root)
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
     approval_ctx = MappingClaimApprovalContext(
@@ -129,13 +125,18 @@ def test_json_upload_tampered_storage_bytes_reject_mapping_claim(tmp_path: Path)
         actor_id,
         entry,
         source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
+        storage_root=storage_root,
     )
-    with pytest.raises(MappingClaimAuthorityError, match="integrity"):
+    stored_file.write_bytes(stored_file.read_bytes() + b"tamper")
+    record = load_revision_record(session, revision.id)
+    assert record is not None
+    assert not verify_revision_content_integrity(session, record, storage_root=storage_root)
+    with pytest.raises(MappingClaimAuthorityError, match="integrity|binding|snapshot"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=revision.id,
             entry=entry,
-            source_locator=_MAPPING_SOURCE_LOCATOR,
+            source_locator=FICTITIOUS_BOARD_MANDATORY_LOCATOR,
             mapping_registry_version="root-cause-mapping@v1",
             approval_context=approval_ctx,
             curator_decision_token=token,

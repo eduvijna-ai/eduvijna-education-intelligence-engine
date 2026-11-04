@@ -34,7 +34,10 @@ from app.root_cause_intelligence.mapping_evidence import (
     source_content_checksum,
     verify_revision_content_integrity,
 )
-from app.source_intelligence.approval_fingerprint import compute_revision_approval_fingerprint
+from app.source_intelligence.approval_fingerprint import (
+    compute_revision_approval_fingerprint,
+    verify_revision_stored_source_snapshot_checksum,
+)
 
 MANDATORY_POLICY_CLAIM_APPROVED_EVENT = "paper_mandatory_policy_claim_approved"
 MANDATORY_POLICY_CLAIM_REVOKED_EVENT = "paper_mandatory_policy_claim_revoked"
@@ -117,6 +120,11 @@ def mandatory_policy_approve_binding_payload(
     policy_key: str,
     value_checksum: str,
     rule_lifecycle_digest: str,
+    source_approval_fingerprint: str,
+    source_snapshot_checksum: str,
+    source_content_checksum: str,
+    mandatory_source_locator: str,
+    source_span_checksum: str,
 ) -> dict[str, Any]:
     return {
         "policy_rule_id": rule_id,
@@ -126,6 +134,42 @@ def mandatory_policy_approve_binding_payload(
         "policy_key": policy_key,
         "value_checksum": value_checksum,
         "rule_lifecycle_digest": rule_lifecycle_digest,
+        "source_approval_fingerprint": source_approval_fingerprint,
+        "source_snapshot_checksum": source_snapshot_checksum,
+        "source_content_checksum": source_content_checksum,
+        "mandatory_source_locator": mandatory_source_locator,
+        "source_span_checksum": source_span_checksum,
+    }
+
+
+def compute_mandatory_policy_evidence_binding(
+    session: Session,
+    revision: SourceRevision,
+    rule: PolicyRule,
+) -> dict[str, str]:
+    """Trusted source evidence at ticket issuance/consumption; fail-closed on tampering."""
+    _revision_meets_mandatory_source_gate(session, revision)
+    record = load_revision_record(session, revision.id)
+    if record is None:
+        raise MandatoryPolicyClaimAuthorityError("source revision record is missing")
+    if not verify_revision_content_integrity(session, record):
+        raise MandatoryPolicyClaimAuthorityError("source revision content integrity check failed")
+    content_checksum = source_content_checksum(record)
+    if not content_checksum:
+        raise MandatoryPolicyClaimAuthorityError("source revision has no content checksum")
+    locator = _mandatory_source_locator(rule)
+    try:
+        _, span_checksum = resolve_approved_source_span(session, record, locator)
+    except ValueError as exc:
+        raise MandatoryPolicyClaimAuthorityError(
+            "mandatory policy source locator is not grounded in approved source"
+        ) from exc
+    return {
+        "source_approval_fingerprint": str(revision.approval_fingerprint or ""),
+        "source_snapshot_checksum": str(revision.source_snapshot_checksum or ""),
+        "source_content_checksum": str(content_checksum),
+        "mandatory_source_locator": locator,
+        "source_span_checksum": span_checksum,
     }
 
 
@@ -186,7 +230,18 @@ def _revision_linked_to_rule(session: Session, *, rule_id: str, revision_id: str
     return linked is not None
 
 
+_MANDATORY_EVIDENCE_BINDING_KEYS = (
+    "source_approval_fingerprint",
+    "source_snapshot_checksum",
+    "source_content_checksum",
+    "mandatory_source_locator",
+    "source_span_checksum",
+)
+
+
 def _revision_live_source_matches_approved_snapshot(revision: SourceRevision) -> bool:
+    if not verify_revision_stored_source_snapshot_checksum(revision):
+        return False
     snapshot = (revision.metadata_json or {}).get("source_snapshot")
     if not isinstance(snapshot, dict):
         return False
@@ -503,6 +558,7 @@ def approve_mandatory_policy_claim(
 
     value_checksum = submitted_checksum
     lifecycle = _rule_lifecycle_digest(rule)
+    evidence = compute_mandatory_policy_evidence_binding(session, revision, rule)
     binding = mandatory_policy_approve_binding_payload(
         rule_id=rule_id,
         revision_id=revision_id,
@@ -511,6 +567,7 @@ def approve_mandatory_policy_claim(
         policy_key=policy_key,
         value_checksum=value_checksum,
         rule_lifecycle_digest=lifecycle,
+        **evidence,
     )
     scope = curator_scope_for_policy_rule(
         rule, organization_id=organization_id, institution_id=institution_id
@@ -723,6 +780,11 @@ def mandatory_policy_claim_active(
             policy_key=policy_key,
             value_checksum=value_checksum,
             rule_lifecycle_digest=lifecycle,
+            source_approval_fingerprint=str(payload.get("source_approval_fingerprint") or ""),
+            source_snapshot_checksum=str(payload.get("source_snapshot_checksum") or ""),
+            source_content_checksum=str(payload.get("source_content_checksum") or ""),
+            mandatory_source_locator=str(payload.get("mandatory_source_locator") or ""),
+            source_span_checksum=str(payload.get("source_span_checksum") or ""),
         )
         binding = {**binding, "claim_id": claim_id}
         expected_scope = None

@@ -12,13 +12,16 @@ from app.curator_auth.issuer import (
 )
 from app.curator_auth.roles import CuratorOperation, CuratorRole
 from app.models.policy import PolicyRule
+from app.models.source import SourceRevision
 from app.models.tenancy import AdminActor
 from app.paper_distribution.mandatory_policy_claim_authority import (
+    compute_mandatory_policy_evidence_binding,
     curator_scope_for_policy_rule,
     mandatory_policy_approve_binding_payload,
 )
 from app.root_cause_intelligence.mapping_claim_authority import (
     MappingClaimApprovalContext,
+    compute_mapping_evidence_binding,
     curator_scope_from_mapping_context,
     mapping_approve_binding_payload,
     mapping_revoke_binding_payload,
@@ -102,14 +105,22 @@ def issue_mapping_approve_decision(
     entry: MisconceptionConceptMapping,
     source_locator: str,
     mapping_registry_version: str,
+    storage_root: str | None = None,
 ) -> str:
     scope = curator_scope_from_mapping_context(approval_context)
+    evidence = compute_mapping_evidence_binding(
+        session,
+        revision_id,
+        source_locator,
+        storage_root=storage_root,
+    )
     binding = mapping_approve_binding_payload(
         revision_id=revision_id,
         entry=entry,
         source_locator=source_locator,
         mapping_registry_version=mapping_registry_version,
         approval_context=approval_context,
+        **evidence,
     )
     return issue_curator_write_decision(
         session,
@@ -156,9 +167,13 @@ def issue_mandatory_policy_approve_decision(
     value_checksum: str,
     rule_lifecycle_digest: str,
 ) -> str:
+    revision = session.get(SourceRevision, revision_id)
+    if revision is None:
+        raise ValueError("source revision is unknown")
     scope = curator_scope_for_policy_rule(
         rule, organization_id=organization_id, institution_id=institution_id
     )
+    evidence = compute_mandatory_policy_evidence_binding(session, revision, rule)
     binding = mandatory_policy_approve_binding_payload(
         rule_id=str(rule.id),
         revision_id=revision_id,
@@ -167,6 +182,7 @@ def issue_mandatory_policy_approve_decision(
         policy_key=str(rule.policy_key),
         value_checksum=value_checksum,
         rule_lifecycle_digest=rule_lifecycle_digest,
+        **evidence,
     )
     return issue_curator_write_decision(
         session,
@@ -206,6 +222,7 @@ def approve_mapping_with_curator(
         entry=entry,
         source_locator=source_locator,
         mapping_registry_version=mapping_registry_version,
+        storage_root=storage_root,
     )
     return approve_root_cause_mapping_claim(
         session,

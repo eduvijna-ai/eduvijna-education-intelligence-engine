@@ -76,6 +76,11 @@ def test_mutated_manual_metadata_excerpt_rejects_new_mapping_claim(tmp_path: Pat
     ensure_genuine_source_content_approval(
         session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
     )
+    entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
+    assert entry is not None
+    token = _mapping_decision_token(
+        session, ctx, actor_id, entry, source_locator=_MAPPING_SOURCE_LOCATOR
+    )
     revision = session.get(SourceRevision, ctx["source_revision_id"])
     assert revision is not None
     meta = dict(revision.metadata_json or {})
@@ -84,12 +89,10 @@ def test_mutated_manual_metadata_excerpt_rejects_new_mapping_claim(tmp_path: Pat
     meta["manual_metadata"] = manual
     revision.metadata_json = meta
     session.flush()
-    entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
-    assert entry is not None
-    token = _mapping_decision_token(
-        session, ctx, actor_id, entry, source_locator=_MAPPING_SOURCE_LOCATOR
-    )
-    with pytest.raises(MappingClaimAuthorityError, match="integrity|metadata excerpt"):
+    with pytest.raises(
+        MappingClaimAuthorityError,
+        match="integrity|metadata excerpt|snapshot|binding",
+    ):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],

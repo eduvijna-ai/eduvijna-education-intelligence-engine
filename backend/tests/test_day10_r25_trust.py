@@ -15,13 +15,11 @@ from day10_source_lifecycle import (
     FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     default_board_mandatory_excerpt,
     ensure_board_mandatory_source_evidence,
-    ensure_genuine_source_content_approval,
     ensure_mapping_curator_admin_actor,
     mandatory_board_policy_rule,
 )
 from sqlalchemy import select
 from test_day10_r8_trust import INST_A, INST_B, _seed_production_institution_graph, _session
-from test_day10_r11_trust import _MAPPING_SOURCE_LOCATOR
 from test_day10_r18_trust import _approve_mandatory_policy_for_rule
 
 from app.curator_auth.bootstrap import provision_operator_credential
@@ -74,8 +72,12 @@ def test_institution_only_credential_cannot_mint_board_mandatory_claim(tmp_path:
         ),
         board_scope_authorized=False,
     )
-    ensure_genuine_source_content_approval(
-        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    ensure_board_mandatory_source_evidence(
+        session,
+        tmp_path,
+        ctx["source_revision_id"],
+        board_code="cbse",
+        policy_excerpt=default_board_mandatory_excerpt(remember_exact_count=1),
     )
     inst = session.get(Institution, INST_A)
     assert inst is not None

@@ -41,3 +41,21 @@ def compute_revision_approval_fingerprint(
         ),
     }
     return _sha256(_canonical_json_bytes(payload))
+
+
+def compute_source_snapshot_checksum(snapshot: dict[str, Any]) -> str:
+    """Canonical checksum for approved source snapshot metadata (SourceIntelligenceService)."""
+    from app.source_intelligence.service import SourceIntelligenceService
+
+    return SourceIntelligenceService._snapshot_checksum(snapshot)
+
+
+def verify_revision_stored_source_snapshot_checksum(revision: SourceRevision) -> bool:
+    """Recompute checksum from stored snapshot metadata; detect tampered snapshot dict."""
+    snapshot = (revision.metadata_json or {}).get("source_snapshot")
+    if not isinstance(snapshot, dict):
+        return False
+    stored = str(revision.source_snapshot_checksum or "").strip()
+    if not stored:
+        return False
+    return compute_source_snapshot_checksum(snapshot) == stored

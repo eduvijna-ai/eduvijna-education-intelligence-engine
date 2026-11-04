@@ -65,9 +65,9 @@ def test_fake_locator_rejected_for_mapping_claim(tmp_path: Path) -> None:
     assert entry is not None
     fake_locator = "made-up/locator/path"
     token = _mapping_decision_token(
-        session, ctx, actor_id, entry, source_locator=fake_locator
+        session, ctx, actor_id, entry, source_locator=_MAPPING_SOURCE_LOCATOR
     )
-    with pytest.raises(MappingClaimAuthorityError, match="locator"):
+    with pytest.raises(MappingClaimAuthorityError, match="locator|binding|span"):
         approve_root_cause_mapping_claim(
             session,
             revision_id=ctx["source_revision_id"],

@@ -94,6 +94,9 @@ def test_decision_token_ttl_clamped_to_max_300_seconds(tmp_path: Path) -> None:
         institution_id=ctx["institution_id"],
         curriculum_version_id=ctx["curriculum_version_id"],
     )
+    ensure_genuine_source_content_approval(
+        session, tmp_path, ctx["source_revision_id"], source_locator=_MAPPING_SOURCE_LOCATOR
+    )
     entry = load_root_cause_mapping().resolve("MATH.ADD.WHOLE.OFF_BY_ONE_LOW")
     assert entry is not None
     approval_ctx = MappingClaimApprovalContext(
@@ -167,6 +170,10 @@ def test_tampered_durable_admin_actor_id_fails_read_verification(tmp_path: Path)
         source_locator=_MAPPING_SOURCE_LOCATOR,
         mapping_registry_version="root-cause-mapping@v1",
         approval_context=approval_ctx,
+        source_approval_fingerprint=str(tampered.get("source_approval_fingerprint") or ""),
+        source_snapshot_checksum=str(tampered.get("source_snapshot_checksum") or ""),
+        source_content_checksum=str(tampered.get("source_content_checksum") or ""),
+        source_span_checksum=str(tampered.get("source_span_checksum") or ""),
     )
     assert not verify_durable_curator_approval(
         session,

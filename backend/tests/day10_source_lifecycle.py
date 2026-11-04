@@ -245,6 +245,10 @@ def ensure_teacher_for_scope(
     return teacher
 
 
+FICTITIOUS_BOARD_MANDATORY_LOCATOR = "fictitious-board/cognitive-mandatory"
+EDUVIJNA_DEMO_BOARD_CODE = "eduvijna-demo-board"
+
+
 def mandatory_board_policy_rule(
     *,
     value_json: dict,
@@ -263,15 +267,12 @@ def mandatory_board_policy_rule(
     )
 
 
-FICTITIOUS_BOARD_MANDATORY_LOCATOR = "fictitious-board/cognitive-mandatory"
-
-
 def ensure_board_mandatory_source_evidence(
     session: Session,
     tmp_path: Path,
     revision_id: str,
     *,
-    board_code: str,
+    board_code: str = EDUVIJNA_DEMO_BOARD_CODE,
     source_locator: str = FICTITIOUS_BOARD_MANDATORY_LOCATOR,
     policy_excerpt: str,
     actor_id: str = "founder-day10-trust",

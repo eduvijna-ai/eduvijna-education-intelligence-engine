@@ -513,6 +513,16 @@ def _verify_claim_binding_consistency(
         if bound_codes is not None and body_codes is not None:
             if sorted(str(c) for c in bound_codes) != sorted(str(c) for c in body_codes):
                 raise CuratorAuthError("mapping claim body does not match binding")
+        for key in (
+            "source_approval_fingerprint",
+            "source_snapshot_checksum",
+            "source_content_checksum",
+            "source_span_checksum",
+        ):
+            if str(binding_payload.get(key) or "") != str(claim_body.get(key) or ""):
+                raise CuratorAuthError("mapping claim body does not match source evidence binding")
+            if not str(binding_payload.get(key) or "").strip():
+                raise CuratorAuthError("mapping approve binding missing source evidence")
     elif operation == CuratorOperation.MANDATORY_POLICY_APPROVE:
         for key in (
             "policy_rule_id",
@@ -522,9 +532,23 @@ def _verify_claim_binding_consistency(
             "policy_key",
             "value_checksum",
             "rule_lifecycle_digest",
+            "source_approval_fingerprint",
+            "source_snapshot_checksum",
+            "source_content_checksum",
+            "mandatory_source_locator",
+            "source_span_checksum",
         ):
             if str(binding_payload.get(key) or "") != str(claim_body.get(key) or ""):
                 raise CuratorAuthError("mandatory policy claim body does not match binding")
+        for key in (
+            "source_approval_fingerprint",
+            "source_snapshot_checksum",
+            "source_content_checksum",
+            "mandatory_source_locator",
+            "source_span_checksum",
+        ):
+            if not str(binding_payload.get(key) or "").strip():
+                raise CuratorAuthError("mandatory policy approve binding missing source evidence")
     elif operation in _DURABLE_REVOCATION_OPERATIONS:
         if str(binding_payload.get("claim_id") or "") != str(claim_id):
             raise CuratorAuthError("revocation claim_id does not match binding")

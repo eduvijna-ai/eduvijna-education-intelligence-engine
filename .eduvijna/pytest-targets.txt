@@ -25,6 +25,7 @@ tests/test_day10_r24_trust.py
 tests/test_day10_r25_trust.py
 tests/test_day10_r26_trust.py
 tests/test_day10_r27_trust.py
+tests/test_day10_r28_trust.py
 tests/test_day9_diagnostic.py
 tests/test_day9_service_integrity.py
 tests/test_day9_r4_acceptance.py
