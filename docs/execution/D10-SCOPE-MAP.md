@@ -1,6 +1,8 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R32 FOCUSED MANDATORY-AUTH + ORG-ACTIVE REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+Status: **R33 FOCUSED MANDATORY HISTORY/LIFECYCLE REPAIR** (Founder Option A). Source: `docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md`, issue #28.
+
+**R33 deltas (vs `a1b8c09`):** historic mandatory obligations keyed by stable **`policy_rule_id`** + signed audit/durable lineage at rest (not current mutable rule body or revision link); forged copied **`claim_id`** without matching event/JTI/signature ignored; **`revoke_and_retire_mandatory_policy_rule`** signed lifecycle; bare **`rule.active=False`** without signed retirement → **`mandatory_policy.retirement_unauthorized`**; **`test_day10_r33_trust.py`**. R32 org-active + source-drift fail-closed preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
 **R32 deltas (vs `39986598`):** active mandatory rules with **durable signed approval** fail closed when provenance/authorization breaks (`mandatory_policy.authorization_unavailable:*`), not silent quota drop; production scope requires **active parent Organization**; **`test_day10_r32_trust.py`**. R31 tenant/marks/weaken preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
