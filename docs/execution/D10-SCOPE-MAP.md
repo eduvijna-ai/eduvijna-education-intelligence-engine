@@ -1,6 +1,6 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **R35 CONSOLIDATED CLOSURE + D10-36 acceptance candidate** (Founder escalation 2026-11-09). Frozen HEAD `ca7815c16bd0122b7998c9b1cf2eabaed5f121b1`. **R35 closure:** mandatory approve historic discovery anchored on `CuratorDurableApprovalRecord` ↔ `SourceAuditEvent` (tampered top-level `claim_id`, `event_type`, `outcome` fail-closed); see `test_day10_r35_trust.py` (219 Day10 tests @ HEAD). **D10-36:** `docs/execution/D10-D36-ACCEPTANCE-CANDIDATE.md` — full historical pytest **12 failures** (Day3/4/6 migration subprocess), exit 1; **not** acceptance-ready. D10-35 **IMPLEMENTED**; D10-12/19/22/28/29/32/33 remain **PARTIAL**; D10-36 **PENDING**.
+Status: **D10-36 acceptance-candidate regression** (migration index parity `20261109_0018`). Prior HEAD `8f16350`: full pytest **12 fail** on `alembic check` drift (curator indexes). **Fix:** `20261109_0018_curator_model_index_parity.py`. Post-fix: **2058 passed**, exit 0. **D10-35 IMPLEMENTED**; **D10-12/19/22/28/29/32/33 PARTIAL**; **D10-36 PENDING** Founder/Chief Architect signoff. See `docs/execution/D10-D36-ACCEPTANCE-CANDIDATE.md`.
 
 **R33 deltas (vs `a1b8c09`):** historic mandatory obligations keyed by stable **`policy_rule_id`** + signed audit/durable lineage at rest (not current mutable rule body or revision link); forged copied **`claim_id`** without matching event/JTI/signature ignored; **`revoke_and_retire_mandatory_policy_rule`** signed lifecycle; bare **`rule.active=False`** without signed retirement → **`mandatory_policy.retirement_unauthorized`**; **`test_day10_r33_trust.py`**. R32 org-active + source-drift fail-closed preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
@@ -58,5 +58,5 @@ Status: **R35 CONSOLIDATED CLOSURE + D10-36 acceptance candidate** (Founder esca
 | D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |
 | D10-33 | Batch / replay / HITL | HITL → `root_cause_enrich` routing; replay idempotency | `test_day10_r21_trust.py` gateway/audit replay | PARTIAL |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
-| D10-35 | SQLite / Alembic portability | Alembic **`20261102_0015`–`20261103_0017`** (curator auth R23/R24) | `test_day10_r14_trust.py` Alembic head + PG DDL compile; `test_day10_r35_trust.py` durable mandatory closure | IMPLEMENTED |
-| D10-36 | Founder acceptance evidence | `docs/execution/D10-D36-ACCEPTANCE-CANDIDATE.md` | Full `pytest tests/` **12 fail** (migration harness) @ `ca7815c` — **PENDING** Founder disposition | PENDING |
+| D10-35 | SQLite / Alembic portability | Alembic **`20261102_0015`–`20261109_0018`** (curator indexes parity) | `test_day10_r14_trust.py` + full `pytest tests/` green @ fix HEAD | IMPLEMENTED |
+| D10-36 | Founder acceptance evidence | `D10-D36-ACCEPTANCE-CANDIDATE.md` | Full regression **2058 passed** @ fix HEAD; Partial tasks §3; Compose/live PG not run | PENDING (Founder) |
