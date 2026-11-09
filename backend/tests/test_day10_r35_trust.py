@@ -26,6 +26,7 @@ from app.models.tenancy import AdminActor
 from app.paper_distribution.enums import PaperDistributionVerdict
 from app.paper_distribution.mandatory_policy_claim_authority import (
     MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
+    _discover_mandatory_approve_audit_events,
     mandatory_policy_revoke_binding_payload,
     revoke_and_retire_mandatory_policy_rule,
 )
@@ -33,14 +34,17 @@ from app.paper_distribution.mandatory_policy_resolver import merge_scoped_mandat
 
 
 def _first_approve_event(session) -> SourceAuditEvent:
-    event = session.scalars(
-        select(SourceAuditEvent).where(
-            SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
-            SourceAuditEvent.outcome == "success",
-        )
-    ).first()
-    assert event is not None
-    return event
+    events = _discover_mandatory_approve_audit_events(session)
+    assert events
+    approve = next(
+        (
+            item
+            for item in events
+            if (item.payload_json or {}).get("curator_approval") is not None
+        ),
+        events[0],
+    )
+    return approve
 
 
 def _mutate_approve_top_level(session, event: SourceAuditEvent, **fields: object) -> None:
@@ -96,6 +100,44 @@ def _claim_ids_for_rule(session, rule_id: str) -> list[str]:
                 claim_ids.append(cid)
     assert len(claim_ids) >= 1
     return claim_ids
+
+
+def test_audit_event_type_tamper_still_enforces_mandate(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = _seed_production_institution_graph(session)
+    _seed_board_apply40(session, tmp_path, ctx)
+    event = _first_approve_event(session)
+    event.event_type = "source_amended"
+    session.flush()
+    _assert_mandatory_auth_unavailable(session, ctx)
+    session.commit()
+    _, result = _evaluate_apply_paper(session, ctx, apply_count=5, id_prefix="r35-ev-type")
+    assert result.verdict != PaperDistributionVerdict.PASS
+
+
+def test_audit_outcome_tamper_still_enforces_mandate(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = _seed_production_institution_graph(session)
+    _seed_board_apply40(session, tmp_path, ctx)
+    event = _first_approve_event(session)
+    event.outcome = "failed"
+    session.flush()
+    _assert_mandatory_auth_unavailable(session, ctx)
+    session.commit()
+    _, result = _evaluate_apply_paper(session, ctx, apply_count=5, id_prefix="r35-ev-out")
+    assert result.verdict != PaperDistributionVerdict.PASS
+
+
+def test_top_level_claim_id_tamper_still_enforces_mandate(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    ctx = _seed_production_institution_graph(session)
+    _seed_board_apply40(session, tmp_path, ctx)
+    event = _first_approve_event(session)
+    _mutate_approve_top_level(session, event, claim_id="forged-top-level-claim-id")
+    _assert_mandatory_auth_unavailable(session, ctx)
+    session.commit()
+    _, result = _evaluate_apply_paper(session, ctx, apply_count=5, id_prefix="r35-claim-id")
+    assert result.verdict != PaperDistributionVerdict.PASS
 
 
 def test_top_level_scope_code_tamper_still_enforces_mandate(tmp_path: Path) -> None:

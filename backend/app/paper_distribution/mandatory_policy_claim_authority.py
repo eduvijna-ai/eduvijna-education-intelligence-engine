@@ -808,6 +808,43 @@ def revoke_mandatory_policy_claim(
     session.flush()
 
 
+def _envelope_mandatory_claim_id(payload: dict[str, Any]) -> str:
+    approval = payload.get("curator_approval")
+    if isinstance(approval, dict):
+        claim = approval.get("claim")
+        if isinstance(claim, dict):
+            cid = str(claim.get("claim_id") or "").strip()
+            if cid:
+                return cid
+    return str(payload.get("claim_id") or "").strip()
+
+
+def _discover_mandatory_approve_audit_events(session: Session) -> list[SourceAuditEvent]:
+    """Anchor historic discovery on durable JTI ↔ audit event, not mutable audit selectors."""
+    discovered: dict[str, SourceAuditEvent] = {}
+    durables = session.scalars(
+        select(CuratorDurableApprovalRecord).where(
+            CuratorDurableApprovalRecord.operation
+            == CuratorOperation.MANDATORY_POLICY_APPROVE.value
+        )
+    ).all()
+    for durable in durables:
+        event_id = str(durable.source_audit_event_id or "")
+        if not event_id:
+            continue
+        event = session.get(SourceAuditEvent, event_id)
+        if event is not None:
+            discovered[event_id] = event
+    for event in session.scalars(
+        select(SourceAuditEvent).where(
+            SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
+            SourceAuditEvent.outcome == "success",
+        )
+    ).all():
+        discovered[str(event.id)] = event
+    return list(discovered.values())
+
+
 def _mandatory_approve_binding_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return mandatory_policy_approve_binding_payload(
         rule_id=str(payload.get("policy_rule_id") or ""),
@@ -887,8 +924,7 @@ def _mandatory_approve_trust_state(session: Session, event: SourceAuditEvent) ->
     if not isinstance(approval, dict):
         return "absent"
     jti = str(approval.get("jti") or "").strip()
-    claim_id = str(payload.get("claim_id") or "").strip()
-    if not jti or not claim_id:
+    if not jti:
         return "absent"
     durable = session.scalar(
         select(CuratorDurableApprovalRecord).where(
@@ -899,9 +935,12 @@ def _mandatory_approve_trust_state(session: Session, event: SourceAuditEvent) ->
         return "absent"
     if str(durable.source_audit_event_id or "") != str(event.id):
         return "absent"
-    if str(durable.claim_id) != claim_id:
-        return "absent"
     if str(durable.operation) != CuratorOperation.MANDATORY_POLICY_APPROVE.value:
+        return "absent"
+    envelope_claim_id = _envelope_mandatory_claim_id(payload)
+    if not envelope_claim_id:
+        return "absent"
+    if str(durable.claim_id) != envelope_claim_id:
         return "absent"
     return "damaged"
 
@@ -967,7 +1006,11 @@ def _event_applicable_mandatory_approval(
         return None
     if not _signed_mandatory_payload_effective_on(identity, on_date):
         return None
-    claim_id = str(identity.get("claim_id") or payload.get("claim_id") or "").strip()
+    claim_id = str(
+        identity.get("claim_id")
+        or _envelope_mandatory_claim_id(payload)
+        or ""
+    ).strip()
     if not claim_id:
         return None
     rule_id = str(identity.get("policy_rule_id") or payload.get("policy_rule_id") or "")
@@ -1059,13 +1102,7 @@ def mandatory_policy_historic_rule_ids_for_execution(
     on_date: date | None = None,
 ) -> set[str]:
     rule_ids: set[str] = set()
-    events = session.scalars(
-        select(SourceAuditEvent).where(
-            SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
-            SourceAuditEvent.outcome == "success",
-        )
-    ).all()
-    for event in events:
+    for event in _discover_mandatory_approve_audit_events(session):
         applicable = _event_applicable_mandatory_approval(
             session,
             event,
@@ -1203,16 +1240,8 @@ def _mandatory_approve_events_for_rule_id(
     session: Session,
     rule_id: str,
 ) -> list[SourceAuditEvent]:
-    events = session.scalars(
-        select(SourceAuditEvent)
-        .where(
-            SourceAuditEvent.event_type == MANDATORY_POLICY_CLAIM_APPROVED_EVENT,
-            SourceAuditEvent.outcome == "success",
-        )
-        .order_by(SourceAuditEvent.created_at.asc())
-    ).all()
     selected: list[SourceAuditEvent] = []
-    for event in events:
+    for event in _discover_mandatory_approve_audit_events(session):
         payload = event.payload_json or {}
         trust = _mandatory_approve_trust_state(session, event)
         if trust == "absent":
@@ -1223,7 +1252,7 @@ def _mandatory_approve_events_for_rule_id(
         )
         if event_rule_id == str(rule_id):
             selected.append(event)
-    return selected
+    return sorted(selected, key=lambda item: item.created_at or item.id)
 
 
 def mandatory_policy_unretired_obligation(
