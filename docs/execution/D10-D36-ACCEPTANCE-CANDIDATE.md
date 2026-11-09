@@ -1,6 +1,6 @@
 # Day 10 — D10-36 acceptance candidate report
 
-**Frozen HEAD:** `*(set on push — expect post-migration SHA)*`  
+**Frozen HEAD:** `dc482a0b8faabed4e9f36d0a12b40ea6f5ff200d`  
 **Branch:** `feature/day10-prerequisites-root-cause-diagnostics` (Draft PR #29)  
 **Verdict:** **Acceptance-candidate technical regression GREEN** @ migration fix; **D10-12/19/22/28/29/32/33 remain PARTIAL** per §3; **D10-36** awaits Chief Architect + Founder disposition (not self-approved).
 
