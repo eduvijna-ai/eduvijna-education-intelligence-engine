@@ -906,6 +906,76 @@ def _mandatory_approve_trust_state(session: Session, event: SourceAuditEvent) ->
     return "damaged"
 
 
+def _mandatory_event_canonical_identity(
+    payload: dict[str, Any],
+    *,
+    trust: str,
+) -> dict[str, Any] | None:
+    """Identity fields from the signed curator envelope claim, not top-level audit fields."""
+    if trust == "absent":
+        return None
+    approval = payload.get("curator_approval")
+    if not isinstance(approval, dict):
+        return None
+    claim = approval.get("claim")
+    if isinstance(claim, dict):
+        return claim
+    if trust == "verified":
+        return payload
+    return None
+
+
+def _canonical_identity_covers_scope(
+    identity: dict[str, Any],
+    *,
+    board_code: str | None,
+    institution: Institution | None,
+    teacher_id: str | None,
+) -> bool:
+    return _signed_mandatory_payload_covers_scope(
+        identity,
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+    )
+
+
+def _event_applicable_mandatory_approval(
+    session: Session,
+    event: SourceAuditEvent,
+    *,
+    board_code: str | None,
+    institution: Institution | None,
+    teacher_id: str | None,
+    on_date: date | None = None,
+) -> tuple[str, dict[str, Any], str] | None:
+    trust = _mandatory_approve_trust_state(session, event)
+    if trust == "absent":
+        return None
+    payload = event.payload_json or {}
+    identity = _mandatory_event_canonical_identity(payload, trust=trust)
+    if identity is None:
+        return None
+    if str(identity.get("policy_key") or "") != PAPER_MANDATORY_POLICY_KEY:
+        return None
+    if not _canonical_identity_covers_scope(
+        identity,
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+    ):
+        return None
+    if not _signed_mandatory_payload_effective_on(identity, on_date):
+        return None
+    claim_id = str(identity.get("claim_id") or payload.get("claim_id") or "").strip()
+    if not claim_id:
+        return None
+    rule_id = str(identity.get("policy_rule_id") or payload.get("policy_rule_id") or "")
+    if not rule_id:
+        return None
+    return rule_id, identity, claim_id
+
+
 def _signed_mandatory_payload_covers_scope(
     payload: dict[str, Any],
     *,
@@ -996,77 +1066,102 @@ def mandatory_policy_historic_rule_ids_for_execution(
         )
     ).all()
     for event in events:
-        payload = event.payload_json or {}
-        policy_key = str(payload.get("policy_key") or "")
-        if policy_key != PAPER_MANDATORY_POLICY_KEY:
-            continue
-        if not _signed_mandatory_payload_covers_scope(
-            payload,
+        applicable = _event_applicable_mandatory_approval(
+            session,
+            event,
             board_code=board_code,
             institution=institution,
             teacher_id=teacher_id,
-        ):
+            on_date=on_date,
+        )
+        if applicable is None:
             continue
-        if not _signed_mandatory_payload_effective_on(payload, on_date):
-            continue
-        if _mandatory_approve_trust_state(session, event) == "absent":
-            continue
-        rule_id = str(payload.get("policy_rule_id") or "").strip()
-        if rule_id:
-            rule_ids.add(rule_id)
+        rule_id, _, _ = applicable
+        rule_ids.add(rule_id)
     return rule_ids
 
 
 def mandatory_policy_enforcement_obligation_active(
     session: Session,
-    rule: PolicyRule,
+    rule_id: str,
     *,
     board_code: str | None,
     institution: Institution | None,
     teacher_id: str | None,
     on_date: date | None = None,
 ) -> bool:
-    for event in _mandatory_approve_events_for_rule_id(session, str(rule.id)):
-        payload = event.payload_json or {}
-        if str(payload.get("policy_key") or "") != PAPER_MANDATORY_POLICY_KEY:
-            continue
-        if not _signed_mandatory_payload_covers_scope(
-            payload,
+    for event in _mandatory_approve_events_for_rule_id(session, rule_id):
+        applicable = _event_applicable_mandatory_approval(
+            session,
+            event,
             board_code=board_code,
             institution=institution,
             teacher_id=teacher_id,
-        ):
+            on_date=on_date,
+        )
+        if applicable is None:
             continue
-        if not _signed_mandatory_payload_effective_on(payload, on_date):
-            continue
-        if _mandatory_approve_trust_state(session, event) == "absent":
-            continue
-        claim_id = str(payload.get("claim_id") or "")
-        if not claim_id:
-            continue
+        _, _, claim_id = applicable
         if _mandatory_signed_rule_retirement_revoke(
-            session, event, claim_id=claim_id, rule_id=str(rule.id)
+            session, event, claim_id=claim_id, rule_id=rule_id
         ):
             continue
         return True
     return False
 
 
+def mandatory_policy_all_applicable_obligations_retired(
+    session: Session,
+    rule_id: str,
+    *,
+    board_code: str | None,
+    institution: Institution | None,
+    teacher_id: str | None,
+    on_date: date | None = None,
+) -> bool:
+    applicable_claims: list[tuple[SourceAuditEvent, str]] = []
+    for event in _mandatory_approve_events_for_rule_id(session, rule_id):
+        parsed = _event_applicable_mandatory_approval(
+            session,
+            event,
+            board_code=board_code,
+            institution=institution,
+            teacher_id=teacher_id,
+            on_date=on_date,
+        )
+        if parsed is None:
+            continue
+        _, _, claim_id = parsed
+        applicable_claims.append((event, claim_id))
+    if not applicable_claims:
+        return True
+    for event, claim_id in applicable_claims:
+        if not _mandatory_signed_rule_retirement_revoke(
+            session, event, claim_id=claim_id, rule_id=rule_id
+        ):
+            return False
+    return True
+
+
 def mandatory_policy_signed_rule_retirement_recorded(
     session: Session,
     rule: PolicyRule,
+    *,
+    board_code: str | None = None,
+    institution: Institution | None = None,
+    teacher_id: str | None = None,
+    on_date: date | None = None,
 ) -> bool:
-    if not rule.active:
-        for event in _mandatory_approve_events_for_rule_id(session, str(rule.id)):
-            payload = event.payload_json or {}
-            claim_id = str(payload.get("claim_id") or "")
-            if not claim_id:
-                continue
-            if _mandatory_signed_rule_retirement_revoke(
-                session, event, claim_id=claim_id, rule_id=str(rule.id)
-            ):
-                return True
-    return False
+    if rule.active:
+        return False
+    return mandatory_policy_all_applicable_obligations_retired(
+        session,
+        str(rule.id),
+        board_code=board_code,
+        institution=institution,
+        teacher_id=teacher_id,
+        on_date=on_date,
+    )
 
 
 def _mandatory_claim_superseded_by_signed_revoke(
@@ -1119,9 +1214,15 @@ def _mandatory_approve_events_for_rule_id(
     selected: list[SourceAuditEvent] = []
     for event in events:
         payload = event.payload_json or {}
-        if str(payload.get("policy_rule_id") or "") != str(rule_id):
+        trust = _mandatory_approve_trust_state(session, event)
+        if trust == "absent":
             continue
-        selected.append(event)
+        identity = _mandatory_event_canonical_identity(payload, trust=trust) or {}
+        event_rule_id = str(
+            identity.get("policy_rule_id") or payload.get("policy_rule_id") or ""
+        )
+        if event_rule_id == str(rule_id):
+            selected.append(event)
     return selected
 
 
@@ -1137,7 +1238,7 @@ def mandatory_policy_unretired_obligation(
     """Backward-compatible alias: active signed mandate not explicitly rule-retired."""
     return mandatory_policy_enforcement_obligation_active(
         session,
-        rule,
+        str(rule.id),
         board_code=board_code,
         institution=institution,
         teacher_id=teacher_id,

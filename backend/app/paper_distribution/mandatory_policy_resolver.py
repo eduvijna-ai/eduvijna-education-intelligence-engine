@@ -253,19 +253,18 @@ def _resolve_authorized_mandatory_rules(
     )
     selected: list[PolicyRule] = []
     auth_errors: list[str] = []
-    seen_rule_ids: set[str] = set()
     candidate_rules: list[PolicyRule] = list(active_candidates)
     for rule in obligation_scope:
         if rule.id not in {item.id for item in candidate_rules}:
             candidate_rules.append(rule)
     for rule_id in historic_rule_ids:
-        if rule_id in seen_rule_ids:
-            continue
         extra = session.get(PolicyRule, rule_id)
         if extra is not None and extra.id not in {item.id for item in candidate_rules}:
             candidate_rules.append(extra)
+    processed_rule_ids: set[str] = set()
     for rule in candidate_rules:
-        seen_rule_ids.add(str(rule.id))
+        rid = str(rule.id)
+        processed_rule_ids.add(rid)
         if rule.active and _revision_authorized_for_policy(
             session, rule, execution_context
         ):
@@ -273,7 +272,7 @@ def _resolve_authorized_mandatory_rules(
             continue
         if not mandatory_policy_enforcement_obligation_active(
             session,
-            rule,
+            rid,
             board_code=board_code,
             institution=institution,
             teacher_id=teacher_id,
@@ -281,11 +280,31 @@ def _resolve_authorized_mandatory_rules(
         ):
             continue
         if not rule.active:
-            if mandatory_policy_signed_rule_retirement_recorded(session, rule):
+            if mandatory_policy_signed_rule_retirement_recorded(
+                session,
+                rule,
+                board_code=board_code,
+                institution=institution,
+                teacher_id=teacher_id,
+                on_date=effective,
+            ):
                 continue
             auth_errors.append(f"mandatory_policy.retirement_unauthorized:{rule.id}")
             continue
         auth_errors.append(f"mandatory_policy.authorization_unavailable:{rule.id}")
+    for rule_id in historic_rule_ids:
+        if rule_id in processed_rule_ids:
+            continue
+        if not mandatory_policy_enforcement_obligation_active(
+            session,
+            rule_id,
+            board_code=board_code,
+            institution=institution,
+            teacher_id=teacher_id,
+            on_date=effective,
+        ):
+            continue
+        auth_errors.append(f"mandatory_policy.authorization_unavailable:{rule_id}")
     deduped_errors = list(dict.fromkeys(auth_errors))
     return (
         sorted(
