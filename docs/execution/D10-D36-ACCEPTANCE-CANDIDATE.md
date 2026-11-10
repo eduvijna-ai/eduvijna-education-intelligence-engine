@@ -1,9 +1,9 @@
 # Day 10 — D10-36 acceptance candidate report
 
 **Branch:** `feature/day10-prerequisites-root-cause-diagnostics` (Draft PR #29)  
-**Frozen HEAD (seven-item push):** `262a60cc28676b9dd0b6c8cbb740e901e09e23b8`  
+**Accepted code candidate (before governance-only commits):** `4989994d7dbda1c2645bb79365544365fa20df4e`  
 **Seven-item closure:** Founder 2026-11-10 — **D10-12/19/22/28/29/32/33 IMPLEMENTED** (`D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md`).  
-**D10-36:** PENDING Chief Architect + Founder disposition (not self-approved).
+**D10-36:** **COMPLETE — Founder conditional completion/signoff instruction on 2026-11-10 following clean Chief AI Architect review.** This approves Day-10 engineering only. PR #29 merge remains separately pending; Day 11 not activated; localhost/Docker UAT and live PostgreSQL are not marked passed.
 
 ## 1. Migration head
 
@@ -43,10 +43,10 @@ See **`docs/execution/D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md`** for per-subcriterio
 
 ## 4. Governance
 
-- `founder_approval:false` — **unchanged**
+- `founder_approval:true` — **recorded from the Founder's 2026-11-10 conditional completion instruction after clean review**
 - Day **11 LOCKED**; D5-DS01 **#16 OPEN**
 - No merge / no production
 
 ## 5. Recommendation
 
-**READY FOR CHIEF ARCHITECT REVIEW** on exact pushed HEAD for the seven authorized criteria only. **Not** Founder D10-36 signoff.
+**Day 10 D10-01…D10-36 COMPLETE (engineering and Founder acceptance recorded).** GitHub exact-code targeted CI [#42780248311](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/actions/runs/42780248311) succeeded. Cursor-reported full historical suite passed; not independently rerun in GitHub CI. PR merge remains a separate approval step; all-days Founder localhost UAT and live PostgreSQL validation remain outstanding release/deployment gates.
