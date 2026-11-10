@@ -76,7 +76,7 @@ review_loop_policy:
       - test_infrastructure_change
   auto_merge: false
   auto_unlock_next_day: false
-current_day: 10
+current_day: 11
 
 days:
   1:
@@ -387,13 +387,23 @@ days:
     depends_on: 9
   11:
     name: JEE Main
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
     tasklist_issue: 30
-    tasklist_status: DRAFT_PENDING_FOUNDER_APPROVAL
+    tasklist_status: APPROVED
+    tasklist_approval_date: "2026-11-10"
+    tasklist_approval_signal: "Approved to start cursor handoff."
+    approved_scope: D11-01..D11-36
     tasklist_planning_authorized: true
-    implementation_authorized: false
-    implementation_start_gate: EXPLICIT_FOUNDER_D11_TASKLIST_APPROVAL_REQUIRED
+    tasklist_spec: "docs/execution/D11-JEE-MAIN-EXAM-INTELLIGENCE.md"
+    implementation_branch: "feature/day11-jee-main-exam-intelligence"
+    implementation_status: IMPLEMENTATION_AUTHORIZED
+    reviewer_workflow: founder_manual_chatgpt_review
+    required_cursor_model: "Composer 2.5 (standard; not Fast)"
+    day12_unlock: false
+    founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
+    implementation_authorized: true
+    implementation_start_gate: FOUNDER_APPROVED_START_2026_11_10
     depends_on: 10
   12:
     name: JEE Advanced
