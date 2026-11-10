@@ -1,68 +1,65 @@
 # Day 11 — scope, implementation and evidence map
 
-**Status: FOUNDER-APPROVED FOR IMPLEMENTATION, ENGINEERING PENDING.** Founder authorization on **2026-11-10**: “Approved to start cursor handoff.” This map is a **baseline skeleton**, not proof that any Day11 feature is implemented.
+**Status:** IMPLEMENTATION IN PROGRESS (Cursor handoff), **not** Founder D11-36 signoff.
+**Founder authorization:** 2026-11-10 — “Approved to start cursor handoff.”
+**Branch:** `feature/day11-jee-main-exam-intelligence` (Draft PR #31 → `develop`).
 
 - Canonical specification: `docs/execution/D11-JEE-MAIN-EXAM-INTELLIGENCE.md` and [Issue #30](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/30).
-- Baseline: `develop` at `1f7bff808cbddd979a9161823d42458a5d68eb88`. Branch: `feature/day11-jee-main-exam-intelligence`; PR to remain Draft until final Founder signoff.
-- Hard authority gate: original NTA **2027** bulletin and syllabus `SourceRevision` review/approval required before any purported **official-pattern** replica. All draft values remain `NOT_VERIFIED` until sourced.
-- Count invariant: custom practice 10 = **exactly 10 validated**; full replica = officially verified subject/section quotas. Never silently reduce count or fill with off-topic/unvalidated questions.
-- Legacy reuse: `ExamPack`, `ExamVersion`, `ExamSection`, `ExamBlueprintRule`, `TestDefinition`, `TestQuestion`, source lifecycle, Day6/9/10 validators, Day8 checkpoint and AnythingLLM gateway.
-- Future-day exclusions: no JEE Advanced, CUET, CLAT, learner mastery, REST/MCP/UI, full Founder localhost UAT or production release.
-- Preserved backlog: Day4 official evidence [Issue #12](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/12) temporarily deferred by Founder; D5-DS01 Issue #16 stays open.
-- Review: Founder “Cursor completed” -> Chief AI Architect exact GitHub HEAD code/CI review; no self-approval/merge/Day12 unlock.
+- **NTA authority gate:** candidate 2027 bulletin/syllabus URLs registered via Day-3 source lifecycle (**STAGED**). Independent PDF review/activation for production official replica remains **NOT_VERIFIED**; synthetic harness activation is labelled and test-only.
+- Synthetic demonstrations: `backend/app/jee_main_exam_intelligence/fixtures.py`, tests under `backend/tests/test_day11_*.py`, `python -m app.day11_verify --json`.
 
-## Task acceptance matrix — update *actual* code/test paths and status as work lands
+## Task acceptance matrix
 
 | ID | Approved task | Evidence / implementation path | Status |
 |---|---|---|---|
-| D11-01 | Freeze Day11 scope/provenance matrix | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-02 | Register 2027 official information bulletin | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-03 | Register 2027 syllabus source | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-04 | Official extraction/review workflow | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-05 | Reuse canonical `ExamPack` and `ExamVersion` | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-06 | Section hierarchy in existing `ExamSection` | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-07 | Official blueprint/scoring `ExamBlueprintRule` | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-08 | Amendments and pattern drift | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-09 | Referential, tenant and author checks | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-10 | Subject selector and canonical catalogue | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-11 | Versioned official chapter/topic mapping | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-12 | Link existing curriculum nodes | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-13 | Syllabus/version guard | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-14 | Past-paper/answer-key source inventory | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-15 | Shift-level historical tagging | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-16 | Explainable historical frequency analytics | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-17 | Soft statistical priors versus official requirements | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-18 | Typed `PaperPlanRequest/Result` | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-19 | Single-subject **exact-count** practice | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-20 | Topic-filtered exact-count practice | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-21 | Full Paper-1 replica mode | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-22 | Section/type quotas | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-23 | Versioned marks and response rules | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-24 | Bounded quota allocator | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-25 | Difficulty/cognitive/competency distribution | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-26 | Infeasible-constraint verdict | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-27 | Reuse Day-8 LangGraph + AnythingLLM gateway | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-28 | Question/answer validity | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-29 | Repair and count invariants | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-30 | Evidence and provenance in each item | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-31 | Scoring simulation metadata | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-32 | Persist `TestDefinition` / `TestQuestion` safely | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-33 | Deterministic reference fixtures | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-34 | Adversarial matrix | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-35 | `day11_verify`, migrations and targeted CI | PENDING — identify exact source, code function and focused test when implemented | PENDING |
-| D11-36 | Chief Architect review + Founder signoff gate | PENDING — identify exact source, code function and focused test when implemented | PENDING |
+| D11-01 | Freeze Day11 scope/provenance matrix | `docs/execution/D11-SCOPE-MAP.md` (this file) | PARTIAL |
+| D11-02 | Register 2027 official information bulletin | `source_authority.register_nta_2027_candidate_sources` | PARTIAL |
+| D11-03 | Register 2027 syllabus source | same | PARTIAL |
+| D11-04 | Official extraction/review workflow | reuses `SourceIntelligenceService`; synthetic harness in `fixtures.synthetic_activate_nta_sources_for_harness` | PARTIAL |
+| D11-05 | Reuse canonical `ExamPack` and `ExamVersion` | `exam_catalogue.ensure_jee_main_exam_catalogue` | PASS |
+| D11-06 | Section hierarchy in existing `ExamSection` | `exam_catalogue._ensure_paper1_sections_and_rules` | PASS |
+| D11-07 | Official blueprint/scoring `ExamBlueprintRule` | typed rules in `exam_catalogue` (`verified_official: false` until NTA approval) | PARTIAL |
+| D11-08 | Amendments and pattern drift | `source_authority.detect_source_drift` | PARTIAL |
+| D11-09 | Referential, tenant and author checks | `source_authority.link_approved_revisions_to_exam_version`, planner tenant filter | PARTIAL |
+| D11-10 | Subject selector and canonical catalogue | `enums.JeeMainSubjectCode`, `syllabus_mapping.validate_subject_code` | PASS |
+| D11-11 | Versioned official chapter/topic mapping | `syllabus_mapping.OFFICIAL_JEE_MAIN_2027_TOPICS` (catalogue seed, not full NTA ingest) | PARTIAL |
+| D11-12 | Link existing curriculum nodes | not wired (deferred; no invented NTA↔CBSE edges) | PENDING |
+| D11-13 | Syllabus/version guard | `syllabus_mapping.syllabus_guard_passes` | PARTIAL |
+| D11-14 | Past-paper/answer-key source inventory | `historical_evidence.SYNTHETIC_HISTORICAL_INVENTORY` (metadata only) | PARTIAL |
+| D11-15 | Shift-level historical tagging | `HistoricalPaperProvenance` model | PARTIAL |
+| D11-16 | Explainable historical frequency analytics | `historical_evidence.build_historical_analytics_report` | PARTIAL |
+| D11-17 | Soft statistical priors versus official requirements | `is_mandatory_nta_quota: false` in priors | PASS |
+| D11-18 | Typed `PaperPlanRequest/Result` | `contracts.py` | PASS |
+| D11-19 | Single-subject exact-count practice | `planner._plan_practice`, `test_day11_planner.py::test_practice_mathematics_exactly_ten` | PASS |
+| D11-20 | Topic-filtered exact-count practice | derived `algebra` group, `test_practice_algebra_exactly_ten_no_filler` | PASS |
+| D11-21 | Full Paper-1 replica mode | `planner._plan_official_replica` + synthetic harness | PARTIAL |
+| D11-22 | Section/type quotas | `allocator.allocate_full_replica_slots` (60 MCQ / 15 numerical) | PASS |
+| D11-23 | Versioned marks and response rules | blueprint rules + `scoring.build_scoring_preview` | PARTIAL |
+| D11-24 | Bounded quota allocator | `allocator.py` | PASS |
+| D11-25 | Difficulty/cognitive/competency distribution | not integrated (Day10 evaluator hook deferred) | PENDING |
+| D11-26 | Infeasible-constraint verdict | issue codes + adversarial tests | PARTIAL |
+| D11-27 | Reuse Day-8 LangGraph + AnythingLLM gateway | fixture pool path; orchestration bridge stub in `generation.py` | PARTIAL |
+| D11-28 | Question/answer validity | `question_pool._answer_valid` | PARTIAL |
+| D11-29 | Repair and count invariants | count mismatch fail-closed; bounded repair not wired | PARTIAL |
+| D11-30 | Evidence and provenance in each item | question `metadata_json`, plan checksum | PARTIAL |
+| D11-31 | Scoring simulation metadata | `scoring.build_scoring_preview` | PARTIAL |
+| D11-32 | Persist `TestDefinition` / `TestQuestion` safely | `persistence.persist_paper_plan` | PARTIAL |
+| D11-33 | Deterministic reference fixtures | `fixtures.py`, `question_pool.seed_synthetic_question_pool` | PASS |
+| D11-34 | Adversarial matrix | `test_day11_adversarial.py`, `day11_verify._adversarial_matrix` | PARTIAL |
+| D11-35 | `day11_verify`, migrations and targeted CI | `app/day11_verify.py`, `tests/test_day11_*.py`, Alembic head unchanged `20261109_0018` | PARTIAL |
+| D11-36 | Chief Architect review + Founder signoff gate | **PENDING** Founder “Cursor completed” + manual review | PENDING |
 
-## Fixed acceptance gates (do not mark PASS until evidenced)
+## Fixed acceptance gates
 
 | Gate | Required proof | Current state |
 |---|---|---|
-| NTA 2027 bulletin/syllabus | Verified original PDFs, page locators, checksums, source approval, versioned exam blueprint | NOT_VERIFIED |
-| Practice 10 Mathematics | 10 **valid** and authorized Mathematics questions, no surplus or missing | PENDING |
-| Practice 10 Algebra | 10 valid mapped Algebra questions, zero off-topic filler | PENDING |
-| Full Paper-1 replica | Approved source-defined structure, count/type/marks/scoring, 75 only if officially confirmed | PENDING |
-| Syllabus/answer trust | Outside-source, wrong-answer, forged or stale rules fail closed | PENDING |
-| Replay/checkpoint | Exact-count stable paper/audit IDs with no duplicated successful gateway calls | PENDING |
-| Compatibility | SQLite/Alembic and PostgreSQL DDL, Ruff/Mypy, impacted historical tests | PENDING |
-| D11-36 | Final candidate SHA, one full historical regression, independent code review, Founder signoff | PENDING |
+| NTA 2027 bulletin/syllabus | Verified original PDFs, page locators, checksums, source approval, versioned exam blueprint | **NOT_VERIFIED** (URLs staged; synthetic JSON harness only in CI) |
+| Practice 10 Mathematics | 10 valid Mathematics questions | **PASS** (synthetic fixture harness) |
+| Practice 10 Algebra | 10 valid mapped Algebra questions | **PASS** (synthetic fixture harness) |
+| Full Paper-1 replica | Approved source-defined structure | **PARTIAL** (75/60+15 synthetic after harness activation only) |
+| Syllabus/answer trust | Fail closed on bad authority | **PARTIAL** |
+| Replay/checkpoint | Idempotent `TestDefinition` by plan checksum | **PARTIAL** |
+| Compatibility | SQLite, Ruff, Mypy on Day11 modules | **PASS** (focused) |
+| D11-36 | Final SHA, full regression, Founder signoff | **PENDING** |
 
-**UAT and deployment:** Founder localhost/Docker UAT is deferred to all-days acceptance and never presumed passed; live PostgreSQL is not evidenced. D11 completion/merge require a later explicit Founder authorization.
+**Governance:** `founder_approval` remains `false`; Day12 locked; Day4 Issue #12 evidence gate unchanged; live PostgreSQL / Founder UAT not run.
