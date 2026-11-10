@@ -390,6 +390,7 @@ days:
     state: ACTIVE
     founder_approval: false
     tasklist_issue: 30
+    implementation_pr: 31
     tasklist_status: APPROVED
     tasklist_approval_date: "2026-11-10"
     tasklist_approval_signal: "Approved to start cursor handoff."
