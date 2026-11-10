@@ -399,7 +399,7 @@ days:
     tasklist_spec: "docs/execution/D11-JEE-MAIN-EXAM-INTELLIGENCE.md"
     implementation_branch: "feature/day11-jee-main-exam-intelligence"
     implementation_status: IMPLEMENTATION_AUTHORIZED
-    reviewer_workflow: founder_manual_chatgpt_review
+    review_workflow: founder_manual_chatgpt_review
     required_cursor_model: "Composer 2.5 (standard; not Fast)"
     day12_unlock: false
     founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
