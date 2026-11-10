@@ -345,7 +345,7 @@ days:
     tasklist_spec: "docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md"
     approved_scope: D10-01..D10-36
     implementation_authorized: true
-    implementation_status: COMPLETE_FOUNDER_ACCEPTED_PENDING_MERGE
+    implementation_status: COMPLETE_FOUNDER_ACCEPTED_MERGED
     implementation_branch: "feature/day10-prerequisites-root-cause-diagnostics"
     implementation_issue: 28
     implementation_pr: 29
@@ -359,7 +359,15 @@ days:
     exact_head_targeted_ci_result: SUCCESS
     day10_test_evidence: "Cursor reported 225 passed; exact-code targeted GitHub CI verified"
     full_historical_regression_evidence: "Cursor reported pytest tests/ exit 0; not independently rerun in GitHub CI"
-    merge_status: PENDING_SEPARATE_AUTHORIZATION
+    merge_status: MERGED_TO_DEVELOP
+    founder_merge_authorization: "Merge authorized into develop. PR #29"
+    merge_commit_sha: "1c25312c78a39858fa4899c3fe5afac5b31a2328"
+    develop_postmerge_ci_run: 42783645367
+    develop_postmerge_ci_status: FAILED_DAY4_OFFICIAL_EVIDENCE_ONLY
+    develop_postmerge_backend_status: SUCCESS
+    develop_postmerge_frontend_status: SUCCESS
+    develop_postmerge_compose_smoke_status: SUCCESS
+    historical_source_evidence_followup_issue: 12
     deferred_uat_release_gate: "Founder localhost/Docker UAT deferred, not passed or waived"
     live_postgresql_status: NOT_RUN_STATIC_DDL_COMPILE_ONLY
     required_cursor_model: "Composer 2.5 (standard; not Fast)"
@@ -373,6 +381,11 @@ days:
     name: JEE Main
     state: LOCKED
     founder_approval: false
+    tasklist_issue: 30
+    tasklist_status: DRAFT_PENDING_FOUNDER_APPROVAL
+    tasklist_planning_authorized: true
+    implementation_authorized: false
+    implementation_start_gate: EXPLICIT_FOUNDER_D11_TASKLIST_APPROVAL_REQUIRED
     depends_on: 10
   12:
     name: JEE Advanced
