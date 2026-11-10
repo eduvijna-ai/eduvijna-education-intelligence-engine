@@ -104,6 +104,14 @@ days:
     founder_approval: false
     activation_signal: "Founder authorized Day 4 start"
     approval_signal: "Day 4 signoff. prepare day 5 tasks list"
+    official_source_evidence_status: TEMPORARILY_DEFERRED_BY_FOUNDER
+    official_source_evidence_deferral_date: "2026-11-10"
+    official_source_evidence_deferral_signal: "Approved to close Day 10 and skip Day 4 for some time."
+    official_source_evidence_followup_issue: 12
+    official_source_evidence_release_gate: MUST_VERIFY_BEFORE_PRODUCTION
+    official_source_evidence_last_ci_run: 42783645367
+    official_source_evidence_last_ci_result: FAILED_INCOMPLETE_OFFICIAL_SOURCE_COVERAGE
+    official_source_evidence_policy: "Do not mark official sources verified, disable source-integrity safeguards, or assert full CI green. Day11 planning may proceed."
     depends_on: 3
   5:
     name: Telangana Curricula
