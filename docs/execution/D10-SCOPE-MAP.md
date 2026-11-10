@@ -1,6 +1,6 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **Seven-item acceptance closure** (Founder 2026-11-10). Migration index parity `20261109_0018` preserved. **D10-12/19/22/28/29/32/33 IMPLEMENTED** — matrix `docs/execution/D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md`, anchor `test_day10_seven_item_acceptance.py`. **D10-35 IMPLEMENTED**; **D10-36 PENDING** Founder/Chief Architect signoff. See `D10-D36-ACCEPTANCE-CANDIDATE.md`.
+Status: **Seven-item acceptance closure** (Founder 2026-11-10). Migration index parity `20261109_0018` preserved. **D10-12/19/22/28/29/32/33 IMPLEMENTED** — matrix `docs/execution/D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md`, anchor `test_day10_seven_item_acceptance.py`. **D10-35 IMPLEMENTED**; **D10-36 COMPLETE — FOUNDER SIGNOFF RECORDED 2026-11-10** (Day-10 engineering accepted; PR #29 merge separately pending authorization). See `D10-D36-ACCEPTANCE-CANDIDATE.md`.
 
 **R33 deltas (vs `a1b8c09`):** historic mandatory obligations keyed by stable **`policy_rule_id`** + signed audit/durable lineage at rest (not current mutable rule body or revision link); forged copied **`claim_id`** without matching event/JTI/signature ignored; **`revoke_and_retire_mandatory_policy_rule`** signed lifecycle; bare **`rule.active=False`** without signed retirement → **`mandatory_policy.retirement_unauthorized`**; **`test_day10_r33_trust.py`**. R32 org-active + source-drift fail-closed preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
@@ -59,4 +59,4 @@ Status: **Seven-item acceptance closure** (Founder 2026-11-10). Migration index 
 | D10-33 | Batch / replay / HITL | audit idempotency; checkpoint resume | `test_day10_seven_item_acceptance.py`, `test_day10_r14/r21_trust.py` | IMPLEMENTED |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
 | D10-35 | SQLite / Alembic portability | Alembic **`20261102_0015`–`20261109_0018`** (curator indexes parity) | `test_day10_r14_trust.py` + full `pytest tests/` green @ fix HEAD | IMPLEMENTED |
-| D10-36 | Founder acceptance evidence | `D10-D36-ACCEPTANCE-CANDIDATE.md` | Full regression **2058 passed** @ fix HEAD; Partial tasks §3; Compose/live PG not run | PENDING (Founder) |
+| D10-36 | Founder acceptance evidence | `D10-D36-ACCEPTANCE-CANDIDATE.md` and Chief Architect exact-HEAD review | **D10-01…35 accepted; 225 Day10 tests Cursor-reported; local full historical suite exit 0; GitHub targeted CI #42780248311 SUCCESS at accepted code SHA `4989994`; 2026-11-10 conditional Founder completion instruction fulfilled.** Compose/live PostgreSQL/Founder localhost UAT deferred and NOT passed. PR #29 unmerged. | COMPLETE (Founder accepted, merge pending) |
