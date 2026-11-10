@@ -19,6 +19,14 @@ def diagnostics_finished(state: OrchestrationGraphState, request: OrchestrationR
             return False
     diagnostic = state.get("diagnostic_validation") or []
     if any(item.get("blocking") or item.get("repairable") for item in diagnostic):
+        if request.root_cause_enrichment_enabled() and request.metadata_json.get(
+            "partial_diagnostic_blocking_with_root_cause_pass"
+        ):
+            root_cause_results = state.get("root_cause_results") or []
+            if any(
+                str(entry.get("verdict_status")) == "pass" for entry in root_cause_results
+            ):
+                return True
         return False
     if any(item.get("review_required") for item in diagnostic):
         return bool(state.get("diagnostic_human_approved"))

@@ -1,3 +1,9 @@
+from app.models.curator_auth import (  # noqa: F401
+    CuratorBootstrapAuditEvent,
+    CuratorDecisionNonce,
+    CuratorDurableApprovalRecord,
+    CuratorOperatorCredential,
+)
 from app.models.curriculum import (
     Competency,
     ConceptPrerequisite,
@@ -39,6 +45,8 @@ __all__ = [
     "AdminActor",
     "ApiClient",
     "AssessmentEvidence",
+    "CuratorDecisionNonce",
+    "CuratorOperatorCredential",
     "Competency",
     "ConceptPrerequisite",
     "CurriculumAlignment",

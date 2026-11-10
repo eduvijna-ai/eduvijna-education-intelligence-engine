@@ -115,6 +115,11 @@ class DeterministicValidationSummary(BaseModel):
     repairable: bool
     review_required: bool
     issue_codes: list[str] = Field(default_factory=list)
+    day6_validation_run_id: str | None = None
+    input_hash: str | None = None
+    learning_outcome_ids: list[str] = Field(default_factory=list)
+    competency_codes: list[str] = Field(default_factory=list)
+    day6_content_fingerprint: str | None = None
 
 
 class DuplicateValidationSummary(BaseModel):
@@ -170,6 +175,9 @@ class OrchestrationRequest(BaseModel):
 
     def diagnostic_enrichment_enabled(self) -> bool:
         return bool(self.metadata_json.get("diagnostic_enrichment_enabled"))
+
+    def root_cause_enrichment_enabled(self) -> bool:
+        return bool(self.metadata_json.get("root_cause_enrichment_enabled"))
 
     def diagnostic_fixture_scenario(self) -> str:
         value = self.metadata_json.get("diagnostic_fixture_scenario")
