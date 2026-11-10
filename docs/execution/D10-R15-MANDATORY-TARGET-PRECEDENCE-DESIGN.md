@@ -1,6 +1,6 @@
 # D10-R15 — Mandatory distribution target precedence (design proposal)
 
-**Status:** PARTIAL — board/institution/teacher resolver implemented in `mandatory_policy_resolver.py` (PolicyRule + `policy_rule_source_revisions`); full D10-28/29 audit/precedence matrix still incomplete.
+**Status:** IMPLEMENTED for D10-28/29 acceptance matrix — board/institution/teacher resolver in `mandatory_policy_resolver.py`; evidence in `test_day10_r27–r31_trust.py`, `test_day10_seven_item_acceptance.py`, and `D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md`.
 
 ## Gap
 

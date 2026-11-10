@@ -33,6 +33,14 @@ class RootCauseMappingRegistry(BaseModel):
         return None
 
 
+def mapping_catalogue(
+    version: str = DEFAULT_ROOT_CAUSE_MAPPING_VERSION,
+) -> tuple[str, list[MisconceptionConceptMapping]]:
+    """Enumerate configured misconception→concept mappings for the active registry version."""
+    registry = load_root_cause_mapping(version)
+    return registry.version, list(registry.mappings)
+
+
 @lru_cache(maxsize=4)
 def load_root_cause_mapping(
     version: str = DEFAULT_ROOT_CAUSE_MAPPING_VERSION,

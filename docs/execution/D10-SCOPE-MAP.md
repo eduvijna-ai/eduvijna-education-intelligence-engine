@@ -1,6 +1,6 @@
 # Day 10 — Scope, implementation and evidence map
 
-Status: **D10-36 acceptance-candidate regression** (migration index parity `20261109_0018`). Prior HEAD `8f16350`: full pytest **12 fail** on `alembic check` drift (curator indexes). **Fix:** `20261109_0018_curator_model_index_parity.py`. Post-fix: **2058 passed**, exit 0. **D10-35 IMPLEMENTED**; **D10-12/19/22/28/29/32/33 PARTIAL**; **D10-36 PENDING** Founder/Chief Architect signoff. See `docs/execution/D10-D36-ACCEPTANCE-CANDIDATE.md`.
+Status: **Seven-item acceptance closure** (Founder 2026-11-10). Migration index parity `20261109_0018` preserved. **D10-12/19/22/28/29/32/33 IMPLEMENTED** — matrix `docs/execution/D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md`, anchor `test_day10_seven_item_acceptance.py`. **D10-35 IMPLEMENTED**; **D10-36 PENDING** Founder/Chief Architect signoff. See `D10-D36-ACCEPTANCE-CANDIDATE.md`.
 
 **R33 deltas (vs `a1b8c09`):** historic mandatory obligations keyed by stable **`policy_rule_id`** + signed audit/durable lineage at rest (not current mutable rule body or revision link); forged copied **`claim_id`** without matching event/JTI/signature ignored; **`revoke_and_retire_mandatory_policy_rule`** signed lifecycle; bare **`rule.active=False`** without signed retirement → **`mandatory_policy.retirement_unauthorized`**; **`test_day10_r33_trust.py`**. R32 org-active + source-drift fail-closed preserved. D10-12/19/22/28/29/32/33 **PARTIAL**; D10-36 **PENDING**.
 
@@ -35,28 +35,28 @@ Status: **D10-36 acceptance-candidate regression** (migration index parity `2026
 | D10-09 | Bounded graph traversal | `app/prerequisite_intelligence/traversal.py` | `test_day10_graph.py` | IMPLEMENTED |
 | D10-10 | Graph quality audit | `app/prerequisite_intelligence/audit.py` | `day10_verify` graph_quality_pass | IMPLEMENTED |
 | D10-11 | Diagnostic request contract | `app/root_cause_intelligence/contracts.py` | `test_day10_root_cause.py` | IMPLEMENTED |
-| D10-12 | Misconception → concept mapping | `mapping_registry.py`, `mapping_claim_authority.py`, `curator_auth/issuer.py`, `mapping_evidence.py` | `test_day10_r17_trust.py`, `test_day10_r23_trust.py` (signed curator decisions) | PARTIAL |
+| D10-12 | Misconception → concept mapping | `mapping_registry.py`, `mapping_claim_authority.py`, `curator_auth/issuer.py`, `mapping_evidence.py` | `test_day10_seven_item_acceptance.py`, `test_day10_r17/r11/r27_trust.py` | IMPLEMENTED |
 | D10-13 | Eligibility preflight | `app/root_cause_intelligence/preflight.py` | `test_day10_root_cause.py::test_correct_option_tag_is_blocked` | IMPLEMENTED |
 | D10-14 | Candidate prerequisite resolver | `ranking.py` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-15 | Bounded backward traversal | `traversal.bounded_ancestor_paths` | `day10_verify` alternate_prerequisite_paths | IMPLEMENTED |
 | D10-16 | Deterministic hypothesis ranking | `ranking.rank_root_cause_hypotheses` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-17 | Alternative hypotheses | `RootCauseHypothesis.alternatives` | `test_day10_root_cause.py` | IMPLEMENTED |
 | D10-18 | Contradiction / uncertainty | `service.py` verdict policy | `day10_verify` root_cause_verdict | IMPLEMENTED |
-| D10-19 | LO/competency consistency | `day6_binding_verify.py` production fail-closed | `test_day10_r17_trust.py`, `day10_day6_binding.py` | PARTIAL |
+| D10-19 | LO/competency consistency | `day6_binding_verify.py` production fail-closed | `test_day10_seven_item_acceptance.py`, `test_day10_r19/r17_trust.py` | IMPLEMENTED |
 | D10-20 | Day-7 provenance / tenant | `root_cause_trust.py` citation binding | `test_day10_r6_trust.py` | IMPLEMENTED |
 | D10-21 | Structured result/verdict/audit | `RootCauseResult` | `day10_verify` | IMPLEMENTED |
-| D10-22 | Day-8/9 integration | `root_cause.py` + graph compile + HITL route | `test_day10_r21_trust.py` compiled run (partial PASS/hypothesis matrix) | PARTIAL |
+| D10-22 | Day-8/9 integration | `root_cause.py` + graph compile + HITL route | `test_day10_seven_item_acceptance.py`, `test_day10_r21/r15/r12_trust.py` | IMPLEMENTED |
 | D10-23 | Paper distribution request/result | `app/paper_distribution/contracts.py` | `test_day10_paper_distribution.py` | IMPLEMENTED |
 | D10-24 | Cognitive actual distribution | `evaluator.py` | `test_demo_paper_matches_20_20_40_10_10` | IMPLEMENTED |
 | D10-25 | Competency distribution | `evaluator.py` | `test_fractional_multi_label_conserves_denominator` | IMPLEMENTED |
 | D10-26 | Multi-label policy | `enums.MultiLabelPolicy` | paper tests | IMPLEMENTED |
 | D10-27 | Count vs mark-weighted | `DimensionSummary` | `day10_verify` | IMPLEMENTED |
-| D10-28 | Generic target policy | `mandatory_policy_resolver.py` conflict + scope errors | `test_day10_r18_trust.py` (board exact_count/percent enforcement) | PARTIAL |
-| D10-29 | Integer target reconciliation | `reconcile_exact_counts` + policy merge | `test_day10_r9_trust.py` | PARTIAL |
+| D10-28 | Generic target policy | `mandatory_policy_resolver.py` conflict + scope errors | `test_day10_seven_item_acceptance.py`, `test_day10_r27–r35_trust.py` | IMPLEMENTED |
+| D10-29 | Integer target reconciliation | `reconcile_exact_counts` + policy merge | `test_day10_seven_item_acceptance.py`, `test_day10_r9–r12/r28_trust.py` | IMPLEMENTED |
 | D10-30 | Distribution audit verdict | `paper_distribution/audit.py` + session path | `test_day10_r6_trust.py` tenant isolation | IMPLEMENTED |
 | D10-31 | Deterministic positive fixtures | `prerequisite_intelligence/fixtures.py`, `paper_distribution/fixtures.py` | `day10_verify` | IMPLEMENTED |
-| D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, `test_day10_r6_trust.py` | targeted pytest | PARTIAL |
-| D10-33 | Batch / replay / HITL | HITL → `root_cause_enrich` routing; replay idempotency | `test_day10_r21_trust.py` gateway/audit replay | PARTIAL |
+| D10-32 | Adversarial fixtures | `test_day10_adversarial.py`, trust r6–r35 | `D10-SEVEN-ITEM-ACCEPTANCE-MATRIX.md` + `test_day10_seven_item_acceptance.py` | IMPLEMENTED |
+| D10-33 | Batch / replay / HITL | audit idempotency; checkpoint resume | `test_day10_seven_item_acceptance.py`, `test_day10_r14/r21_trust.py` | IMPLEMENTED |
 | D10-34 | `day10_verify` harness | `app/day10_verify.py` | CI verifier step | IMPLEMENTED |
 | D10-35 | SQLite / Alembic portability | Alembic **`20261102_0015`–`20261109_0018`** (curator indexes parity) | `test_day10_r14_trust.py` + full `pytest tests/` green @ fix HEAD | IMPLEMENTED |
 | D10-36 | Founder acceptance evidence | `D10-D36-ACCEPTANCE-CANDIDATE.md` | Full regression **2058 passed** @ fix HEAD; Partial tasks §3; Compose/live PG not run | PENDING (Founder) |
