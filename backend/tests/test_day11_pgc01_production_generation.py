@@ -174,18 +174,36 @@ def test_production_persist_rejects_solver_disagree_mcq() -> None:
             stem_text="What is 7+5?",
             options=_four_options("B"),
             source_revision_ids=[ctx["official_revision_id"]],
-            metadata_json={
-                "official_topic_codes": ["sets-relations-functions"],
-                "solver_proposed_answer_key": "A",
-                "day6_validation_run_id": run_id,
-                "day6_input_hash": validated["input_hash"],
-            },
+            metadata_json={"official_topic_codes": ["sets-relations-functions"]},
         )
+        disagree_trust = {
+            "pgc-solver-item": {
+                "deterministic": {
+                    "item_id": "pgc-solver-item",
+                    "blocking": False,
+                    "repairable": False,
+                    "review_required": False,
+                    "issue_codes": [],
+                    "day6_validation_run_id": run_id,
+                    "input_hash": validated["input_hash"],
+                    "learning_outcome_ids": ["00000000-0000-4000-8000-0000000000d6"],
+                    "competency_codes": ["knowledge"],
+                    "day6_content_fingerprint": validated["input_hash"],
+                },
+                "solver": {
+                    "item_id": "pgc-solver-item",
+                    "proposed_answer_key": "A",
+                    "check_status": "ok",
+                    "agrees_with_author": False,
+                },
+            }
+        }
         created, issues = persist_draft_items_as_jee_questions(
             session,
             items=[draft],
             request=request,
             source_revision_ids=[ctx["official_revision_id"]],
+            orchestration_trust=disagree_trust,
         )
         assert not created
         assert PaperPlanIssueCode.INVALID_ANSWER in issues
@@ -300,21 +318,27 @@ def test_durable_hitl_resume_no_duplicate_author_gateway_calls() -> None:
         paused = service_a.run(orch)
         assert paused.status == OrchestrationRunStatus.REVIEW_REQUIRED, paused.errors
         calls_at_pause = len(gateway.call_history())
+        service_a.close()
+        managed.close()
+        session.close()
 
-        factory = sessionmaker(bind=session.get_bind())
+        engine = create_engine(f"sqlite:///{db}")
+        enable_sqlite_foreign_keys(engine)
+        factory = sessionmaker(bind=engine)
         with factory() as session_b:
+            managed_b = build_managed_checkpointer(Settings(database_url=url), memory_only=False)
             service_b = build_orchestration_service(
                 session_b,
                 gateway=gateway,
                 knowledge_adapter=ki,
-                checkpointer=managed,
+                checkpointer=managed_b,
                 force_fake=True,
             )
             completed = service_b.run(
                 orch, resume=HumanResumeDecision(action="approve")
             )
             calls_after_resume = len(gateway.call_history())
+            service_b.close()
+            managed_b.close()
         assert completed.status == OrchestrationRunStatus.COMPLETED
         assert calls_after_resume == calls_at_pause
-        service_a.close()
-        managed.close()

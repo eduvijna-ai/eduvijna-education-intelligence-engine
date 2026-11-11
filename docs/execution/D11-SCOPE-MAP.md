@@ -1,6 +1,6 @@
 # Day 11 — scope, implementation and evidence map
 
-**Status:** PGC-01 production generation handback (factory path + validation gates), **not** D11-36 signoff.
+**Status:** PGC-02 production gateway + independent solver trust + durable restart, **not** D11-36 signoff.
 **Branch:** `feature/day11-jee-main-exam-intelligence` (Draft PR #31 → `develop`).
 
 **Arithmetic (36 tasks):** **13 PASS** · **22 PARTIAL** · **1 PENDING (D11-36)** — unchanged PASS count; repair IDs carry new test evidence where noted.
@@ -37,12 +37,12 @@
 | D11-24 | Bounded allocator | `allocator.py` | PASS | |
 | D11-25 | Day10 distribution | `paper_distribution_bridge` + `test_day11_r2.py`, `test_day11_focused_repair.py` | PARTIAL | Mandatory policy without targets → FAIL |
 | D11-26 | Infeasible constraints | `IMPOSSIBLE_QUOTA` + adversarial/focused tests | PARTIAL | |
-| D11-27 | LangGraph gateway | `acquire_orchestration_service` + `build_jee_production_orchestration_request`; `test_day11_pgc01_production_generation.py` | PARTIAL | Live factories w/ test inject; not live AnythingLLM |
-| D11-28 | Answer validity | Day6 binding + 4-option MCQ + solver disagree gate; PGC-01 tests | PARTIAL | |
-| D11-29 | Repair/restart | File-backed durable HITL resume `test_durable_hitl_resume_*` | PARTIAL | No process-level worker restart |
+| D11-27 | LangGraph gateway | `resolve_live_generation_gateway` on `JeeMainExamIntelligenceService.plan_paper`; `test_day11_pgc02_*` | PARTIAL | Live factories w/ test inject; not live AnythingLLM |
+| D11-28 | Answer validity | Orchestration trust envelope + Day6/solver chain; PGC-01/02 tests | PARTIAL | |
+| D11-29 | Repair/restart | Close/reopen file checkpoint `test_durable_hitl_reopens_*` | PARTIAL | Subprocess worker NOT RUN |
 | D11-30 | Item provenance | Day6 lookup before APPROVED; orchestration_origin metadata | PARTIAL | |
 | D11-31 | Scoring preview | `scoring.build_scoring_preview` | PASS | |
-| D11-32 | Persist TestDefinition | `test_persistence_*`, durable HITL `test_durable_hitl_resume_*`; gateway call equality on resume | PARTIAL | File SQLite checkpoint; no process restart |
+| D11-32 | Persist TestDefinition | `test_persistence_*`, PGC-02 checkpoint reopen + gateway call equality | PARTIAL | File SQLite checkpoint; no process restart |
 | D11-33 | Fixtures | `fixtures.py` | PASS | |
 | D11-34 | Adversarial | `test_day11_adversarial.py` | PASS | |
 | D11-35 | day11_verify + CI | `day11_verify`, targeted CI | PASS | |

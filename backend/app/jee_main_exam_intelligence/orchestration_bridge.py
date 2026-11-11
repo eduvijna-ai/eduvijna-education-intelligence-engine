@@ -30,10 +30,12 @@ from app.models.enums import QuestionStatus, QuestionType
 from app.models.question import Question, QuestionOption
 from app.orchestration.checkpoint import ManagedCheckpointer, build_managed_checkpointer
 from app.orchestration.contracts import (
+    DeterministicValidationSummary,
     DraftQuestionItem,
     OrchestrationRequest,
     OrchestrationResult,
     QuestionOptionDraft,
+    SolverResult,
 )
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
 from app.orchestration.exceptions import OrchestrationConfigurationError
@@ -42,6 +44,7 @@ from app.orchestration.fixtures import build_day8_test_service, build_orchestrat
 from app.orchestration.gateway.factory import build_generation_gateway
 from app.orchestration.gateway.protocol import GenerationGateway
 from app.orchestration.human_decision import HumanResumeDecision
+from app.orchestration.math_tools import deterministic_math_check
 from app.orchestration.service import OrchestrationService
 from app.root_cause_intelligence.day6_binding_verify import verify_production_day6_binding
 
@@ -66,12 +69,83 @@ def _production_mcq_distinct_and_valid(options: list[QuestionOptionDraft]) -> st
     return correct[0].option_key
 
 
-def _solver_agrees_with_mcq_answer(draft: DraftQuestionItem, answer_key: str) -> bool:
-    meta = draft.metadata_json or {}
-    proposed = meta.get("solver_proposed_answer_key") or meta.get("proposed_answer_key")
-    if proposed is None:
-        return True
-    return str(proposed).upper() == str(answer_key).upper()
+def trust_envelope_from_orchestration_result(
+    result: OrchestrationResult,
+) -> dict[str, dict[str, Any]]:
+    meta = result.metadata_json or {}
+    by_det = {
+        str(entry.get("item_id")): entry
+        for entry in (meta.get("deterministic_validation") or [])
+        if entry.get("item_id")
+    }
+    by_solver = {
+        str(entry.get("item_id")): entry
+        for entry in (meta.get("solver_results") or [])
+        if entry.get("item_id")
+    }
+    envelope: dict[str, dict[str, Any]] = {}
+    for item in result.items:
+        envelope[item.item_id] = {
+            "deterministic": by_det.get(item.item_id),
+            "solver": by_solver.get(item.item_id),
+        }
+    return envelope
+
+
+def _production_independent_trust_ok(
+    session: Session,
+    *,
+    draft: DraftQuestionItem,
+    request: PaperPlanRequest,
+    qtype_value: str,
+    answer_key: str | None,
+    trust: dict[str, Any] | None,
+    source_revision_ids: list[str],
+) -> tuple[bool, PaperPlanIssueCode | None]:
+    if trust is None:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    det_raw = trust.get("deterministic")
+    solver_raw = trust.get("solver")
+    if not isinstance(det_raw, dict) or not isinstance(solver_raw, dict):
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    det = DeterministicValidationSummary.model_validate(det_raw)
+    solver = SolverResult.model_validate(solver_raw)
+    if det.blocking or det.review_required or det.item_id != draft.item_id:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if not solver.agrees_with_author:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if not det.day6_validation_run_id or not det.input_hash:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if det.day6_content_fingerprint and det.day6_content_fingerprint != det.input_hash:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    ok, _ = verify_production_day6_binding(
+        session,
+        item_id=draft.item_id,
+        validation_run_id=det.day6_validation_run_id,
+        input_hash=det.input_hash,
+        learning_outcome_ids=list(det.learning_outcome_ids),
+        competency_codes=list(det.competency_codes),
+        organization_id=request.organization_id,
+        institution_id=request.institution_id,
+        curriculum_version_id=(request.metadata_json or {}).get("curriculum_version_id"),
+    )
+    if not ok:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if qtype_value == QuestionType.MULTIPLE_CHOICE.value:
+        if not answer_key or solver.proposed_answer_key is None:
+            return False, PaperPlanIssueCode.INVALID_ANSWER
+        if str(solver.proposed_answer_key).upper() != str(answer_key).upper():
+            return False, PaperPlanIssueCode.INVALID_ANSWER
+        check_status, mismatch = deterministic_math_check(draft, solver)
+        if mismatch or check_status not in {"ok"}:
+            return False, PaperPlanIssueCode.INVALID_ANSWER
+    else:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if draft.source_revision_ids:
+        allowed = set(source_revision_ids)
+        if allowed and not set(draft.source_revision_ids).issubset(allowed):
+            return False, PaperPlanIssueCode.INVALID_ANSWER
+    return True, None
 
 
 def _map_question_type(draft_type: str) -> tuple[str, JeeMainQuestionTypeQuota | None]:
@@ -95,7 +169,11 @@ def _mcq_answer_valid(
     return _production_mcq_distinct_and_valid(options)
 
 
-def _numerical_answer_valid(draft: DraftQuestionItem) -> dict[str, Any] | None:
+def _numerical_answer_valid(
+    draft: DraftQuestionItem, *, execution_mode: TrustExecutionMode
+) -> dict[str, Any] | None:
+    if execution_mode == TrustExecutionMode.PRODUCTION:
+        return None
     meta = draft.metadata_json or {}
     numeric = meta.get("numeric_answer") or meta.get("numeric_value")
     if numeric is None:
@@ -121,39 +199,6 @@ def lookup_day6_binding_for_item(session: Session, item_id: str) -> dict[str, An
     return None
 
 
-def _production_draft_trusted(
-    session: Session,
-    *,
-    draft: DraftQuestionItem,
-    request: PaperPlanRequest,
-    source_revision_ids: list[str],
-) -> tuple[bool, PaperPlanIssueCode | None]:
-    if not draft.source_revision_ids:
-        return False, PaperPlanIssueCode.INVALID_ANSWER
-    allowed = set(source_revision_ids)
-    if allowed and not set(draft.source_revision_ids).issubset(allowed):
-        return False, PaperPlanIssueCode.INVALID_ANSWER
-    if request.organization_id is None:
-        return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
-    binding = lookup_day6_binding_for_item(session, draft.item_id)
-    if binding is None:
-        return False, PaperPlanIssueCode.INVALID_ANSWER
-    ok, _ = verify_production_day6_binding(
-        session,
-        item_id=draft.item_id,
-        validation_run_id=binding["day6_validation_run_id"],
-        input_hash=binding["day6_input_hash"],
-        learning_outcome_ids=binding["learning_outcome_ids"],
-        competency_codes=binding["competency_codes"],
-        organization_id=request.organization_id,
-        institution_id=request.institution_id,
-        curriculum_version_id=(request.metadata_json or {}).get("curriculum_version_id"),
-    )
-    if not ok:
-        return False, PaperPlanIssueCode.INVALID_ANSWER
-    return True, None
-
-
 def _draft_answer_json(
     draft: DraftQuestionItem,
     qtype_value: str,
@@ -161,7 +206,7 @@ def _draft_answer_json(
     execution_mode: TrustExecutionMode,
 ) -> dict[str, Any] | None:
     if qtype_value == QuestionType.NUMERICAL.value:
-        return _numerical_answer_valid(draft)
+        return _numerical_answer_valid(draft, execution_mode=execution_mode)
     key = _mcq_answer_valid(list(draft.options), execution_mode=execution_mode)
     return {"correct_option": key} if key else None
 
@@ -251,6 +296,7 @@ def persist_draft_items_as_jee_questions(
     items: list[DraftQuestionItem],
     request: PaperPlanRequest,
     source_revision_ids: list[str],
+    orchestration_trust: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[Question], list[PaperPlanIssueCode]]:
     """Persist orchestration output without inventing answers, options, or production approval."""
     created: list[Question] = []
@@ -291,22 +337,35 @@ def persist_draft_items_as_jee_questions(
         if production:
             if qtype_value == QuestionType.MULTIPLE_CHOICE.value:
                 answer_key = answer.get("correct_option")
-                if not answer_key or not _solver_agrees_with_mcq_answer(draft, str(answer_key)):
-                    issues.append(PaperPlanIssueCode.INVALID_ANSWER)
-                    continue
-            trusted, trust_issue = _production_draft_trusted(
+            else:
+                answer_key = None
+            item_trust = (orchestration_trust or {}).get(draft.item_id)
+            trusted, trust_issue = _production_independent_trust_ok(
                 session,
                 draft=draft,
                 request=request,
+                qtype_value=qtype_value,
+                answer_key=str(answer_key) if answer_key else None,
+                trust=item_trust,
                 source_revision_ids=source_revision_ids,
             )
             if not trusted:
                 issues.append(trust_issue or PaperPlanIssueCode.INVALID_ANSWER)
                 continue
-            day6_binding = lookup_day6_binding_for_item(session, draft.item_id) or {}
-            if not day6_binding:
-                issues.append(PaperPlanIssueCode.INVALID_ANSWER)
-                continue
+            day6_binding = {
+                "day6_validation_run_id": str(
+                    (item_trust or {}).get("deterministic", {}).get("day6_validation_run_id")
+                ),
+                "day6_input_hash": str(
+                    (item_trust or {}).get("deterministic", {}).get("input_hash") or ""
+                ),
+                "learning_outcome_ids": list(
+                    (item_trust or {}).get("deterministic", {}).get("learning_outcome_ids") or []
+                ),
+                "competency_codes": list(
+                    (item_trust or {}).get("deterministic", {}).get("competency_codes") or []
+                ),
+            }
         else:
             day6_binding = {}
 
@@ -522,6 +581,7 @@ def fill_slots_via_orchestration(
     last_run_id = ""
     last_status = OrchestrationRunStatus.FAILED
     gateway_calls_before = len(gateway.call_history()) if hasattr(gateway, "call_history") else 0
+    orchestration_trust: dict[str, dict[str, Any]] = {}
     try:
         for batch_index in range(len(empty)):
             batch_idem = f"{idem}-slot-{batch_index:03d}"
@@ -550,6 +610,8 @@ def fill_slots_via_orchestration(
             if orch_result.status != OrchestrationRunStatus.COMPLETED:
                 issues.append(PaperPlanIssueCode.INSUFFICIENT_VALIDATED_POOL)
                 break
+            batch_trust = trust_envelope_from_orchestration_result(orch_result)
+            orchestration_trust.update(batch_trust)
             all_items.extend(orch_result.items)
             for rev in orch_result.source_revision_ids:
                 if rev not in source_revision_ids:
@@ -579,6 +641,7 @@ def fill_slots_via_orchestration(
         items=all_items,
         request=request,
         source_revision_ids=source_revision_ids,
+        orchestration_trust=orchestration_trust or None,
     )
     issues.extend(persist_issues)
     if len(questions) < len(empty):
