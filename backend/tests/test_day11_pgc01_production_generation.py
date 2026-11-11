@@ -23,7 +23,6 @@ from app.jee_main_exam_intelligence.enums import (
 )
 from app.jee_main_exam_intelligence.exam_catalogue import ensure_jee_main_exam_catalogue
 from app.jee_main_exam_intelligence.generation import assemble_paper_with_persistence
-from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
 from app.jee_main_exam_intelligence.orchestration_bridge import (
     _INJECT_CHECKPOINT_KEY,
     _INJECT_KI_KEY,
@@ -33,6 +32,7 @@ from app.jee_main_exam_intelligence.orchestration_bridge import (
     persist_draft_items_as_jee_questions,
 )
 from app.jee_main_exam_intelligence.source_authority import register_nta_2027_candidate_sources
+from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
 from app.models.enums import QuestionStatus
 from app.models.question import Question
 from app.orchestration.checkpoint import build_managed_checkpointer
