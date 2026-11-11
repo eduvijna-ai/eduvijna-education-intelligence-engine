@@ -23,9 +23,11 @@ from app.jee_main_exam_intelligence.enums import (
 )
 from app.jee_main_exam_intelligence.exam_catalogue import ensure_jee_main_exam_catalogue
 from app.jee_main_exam_intelligence.generation import assemble_paper_with_persistence
+from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
 from app.jee_main_exam_intelligence.orchestration_bridge import (
     _INJECT_CHECKPOINT_KEY,
     _INJECT_KI_KEY,
+    _draft_canonical_input_hash,
     acquire_orchestration_service,
     build_jee_production_orchestration_request,
     persist_draft_items_as_jee_questions,
@@ -150,13 +152,6 @@ def test_production_persist_rejects_solver_disagree_mcq() -> None:
         ensure_jee_main_exam_catalogue(session)
         session.commit()
         org = ctx["organization_id"]
-        run_id, validated = seed_production_day6_audit(
-            session,
-            item_id="pgc-solver-item",
-            organization_id=org,
-            institution_id=ctx["institution_id"],
-        )
-        session.commit()
         request = PaperPlanRequest(
             plan_id="solver-disagree",
             exam_version_code=JEE_MAIN_VERSION_2027,
@@ -167,6 +162,16 @@ def test_production_persist_rejects_solver_disagree_mcq() -> None:
             topic_code="sets-relations-functions",
             requested_count=1,
             execution_mode=TrustExecutionMode.PRODUCTION,
+            metadata_json={
+                "curriculum_version_id": ctx["curriculum_version_id"],
+                "allow_test_trust_envelope": True,
+                "deterministic_test_trust_harness": SYNTHETIC_JEE_MAIN_TRUST_TOKEN,
+                "orchestration_scope": {
+                    **ctx,
+                    "grade_year_code": "grade-8",
+                    "medium_code": "english",
+                },
+            },
         )
         draft = DraftQuestionItem(
             item_id="pgc-solver-item",
@@ -176,8 +181,20 @@ def test_production_persist_rejects_solver_disagree_mcq() -> None:
             source_revision_ids=[ctx["official_revision_id"]],
             metadata_json={"official_topic_codes": ["sets-relations-functions"]},
         )
+        canonical = _draft_canonical_input_hash(draft, request)
+        run_id, _ = seed_production_day6_audit(
+            session,
+            item_id="pgc-solver-item",
+            organization_id=org,
+            institution_id=ctx["institution_id"],
+            curriculum_version_id=ctx["curriculum_version_id"],
+            input_hash=canonical,
+        )
+        session.commit()
         disagree_trust = {
             "pgc-solver-item": {
+                "trust_source": "orchestration_result",
+                "orchestration_run_id": "pgc01-disagree-run",
                 "deterministic": {
                     "item_id": "pgc-solver-item",
                     "blocking": False,
@@ -185,10 +202,10 @@ def test_production_persist_rejects_solver_disagree_mcq() -> None:
                     "review_required": False,
                     "issue_codes": [],
                     "day6_validation_run_id": run_id,
-                    "input_hash": validated["input_hash"],
+                    "input_hash": canonical,
                     "learning_outcome_ids": ["00000000-0000-4000-8000-0000000000d6"],
                     "competency_codes": ["knowledge"],
-                    "day6_content_fingerprint": validated["input_hash"],
+                    "day6_content_fingerprint": canonical,
                 },
                 "solver": {
                     "item_id": "pgc-solver-item",

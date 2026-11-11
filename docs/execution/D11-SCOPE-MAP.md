@@ -1,6 +1,6 @@
 # Day 11 — scope, implementation and evidence map
 
-**Status:** PGC-02 production gateway + independent solver trust + durable restart, **not** D11-36 signoff.
+**Status:** D11-CLOSE-01 Milestone 1 production gates (pool-first gateway, canonical trust bind), **not** D11-36 signoff.
 **Branch:** `feature/day11-jee-main-exam-intelligence` (Draft PR #31 → `develop`).
 
 **Arithmetic (36 tasks):** **13 PASS** · **22 PARTIAL** · **1 PENDING (D11-36)** — unchanged PASS count; repair IDs carry new test evidence where noted.

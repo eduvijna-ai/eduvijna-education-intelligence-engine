@@ -160,8 +160,9 @@ def test_live_generation_boundary_uses_pool_without_gateway() -> None:
             update={"metadata_json": {"require_live_generation": True}}
         )
         result = assemble_paper_with_persistence(session, req, gateway=None, persist=False)
-        assert result.verdict == PaperPlanVerdict.FAIL
-        assert PaperPlanIssueCode.LIVE_GENERATION_NOT_CONFIGURED in result.issue_codes
+        assert result.verdict == PaperPlanVerdict.PASS
+        assert result.metadata_json.get("generation_path") == "validated_question_pool"
+        assert result.metadata_json.get("gateway_invoked") is False
 
 
 def test_live_generation_boundary_pool_path_with_gateway() -> None:

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanResult
 from app.jee_main_exam_intelligence.enums import PaperPlanIssueCode, PaperPlanVerdict
+from app.jee_main_exam_intelligence.gateway_resolve import resolve_live_generation_gateway
 from app.jee_main_exam_intelligence.orchestration_bridge import fill_slots_via_orchestration
 from app.jee_main_exam_intelligence.planner import plan_paper
 from app.orchestration.exceptions import IdempotencyConflictError
@@ -20,6 +21,30 @@ def complete_live_generation_plan(
     if not request.metadata_json.get("require_live_generation"):
         return result
 
+    shortage = max(0, (result.requested_count or 0) - result.actual_count)
+    if shortage <= 0 and result.slots:
+        shortage = len([s for s in result.slots if not s.question_id])
+
+    pool_complete = (
+        result.verdict == PaperPlanVerdict.PASS
+        and result.actual_count == result.requested_count
+        and shortage <= 0
+    )
+    if pool_complete:
+        return result.model_copy(
+            update={
+                "metadata_json": {
+                    **(result.metadata_json or {}),
+                    "generation_path": "validated_question_pool",
+                    "gateway_invoked": False,
+                }
+            }
+        )
+
+    if shortage <= 0:
+        return result
+
+    gateway = resolve_live_generation_gateway(session, request, gateway)
     if gateway is None:
         return result.model_copy(
             update={
@@ -34,26 +59,6 @@ def complete_live_generation_plan(
                 ),
             }
         )
-
-    if (
-        result.verdict == PaperPlanVerdict.PASS
-        and result.actual_count == result.requested_count
-    ):
-        return result.model_copy(
-            update={
-                "metadata_json": {
-                    **(result.metadata_json or {}),
-                    "generation_path": "validated_question_pool",
-                    "gateway_invoked": False,
-                }
-            }
-        )
-
-    shortage = max(0, (result.requested_count or 0) - result.actual_count)
-    if shortage <= 0 and result.slots:
-        shortage = len([s for s in result.slots if not s.question_id])
-    if shortage <= 0:
-        return result
 
     day8_ctx_raw = request.metadata_json.get("day8_fixture_context")
     day8_ctx = day8_ctx_raw if isinstance(day8_ctx_raw, dict) else None

@@ -28,6 +28,7 @@ from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFI
 from app.models.education_intelligence import ValidationAuditRun
 from app.models.enums import QuestionStatus, QuestionType
 from app.models.question import Question, QuestionOption
+from app.orchestration.canonical_mapping import draft_to_canonical
 from app.orchestration.checkpoint import ManagedCheckpointer, build_managed_checkpointer
 from app.orchestration.contracts import (
     DeterministicValidationSummary,
@@ -35,6 +36,7 @@ from app.orchestration.contracts import (
     OrchestrationRequest,
     OrchestrationResult,
     QuestionOptionDraft,
+    ResolvedScope,
     SolverResult,
 )
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
@@ -88,8 +90,52 @@ def trust_envelope_from_orchestration_result(
         envelope[item.item_id] = {
             "deterministic": by_det.get(item.item_id),
             "solver": by_solver.get(item.item_id),
+            "trust_source": "orchestration_result",
+            "orchestration_run_id": result.run_id,
         }
     return envelope
+
+
+def _scope_for_draft_trust(request: PaperPlanRequest) -> ResolvedScope:
+    meta = request.metadata_json or {}
+    scope_raw = meta.get("orchestration_scope")
+    scope_dict = scope_raw if isinstance(scope_raw, dict) else {}
+    return ResolvedScope(
+        curriculum_version_id=scope_dict.get("curriculum_version_id")
+        or meta.get("curriculum_version_id"),
+        organization_id=scope_dict.get("organization_id") or request.organization_id,
+        institution_id=scope_dict.get("institution_id") or request.institution_id,
+        grade_year_code=scope_dict.get("grade_year_code"),
+        medium_code=scope_dict.get("medium_code"),
+        subject_code=(
+            request.subject_code.value if request.subject_code else scope_dict.get("subject_code")
+        ),
+    )
+
+
+def _draft_canonical_input_hash(
+    draft: DraftQuestionItem, request: PaperPlanRequest
+) -> str:
+    scope = _scope_for_draft_trust(request)
+    marks_raw = (request.metadata_json or {}).get("marks")
+    marks = float(marks_raw) if marks_raw is not None else draft.marks
+    return draft_to_canonical(draft, scope, request_marks=marks).canonical_hash()
+
+
+def _production_trust_envelope_allowed(
+    request: PaperPlanRequest, trust: dict[str, Any] | None
+) -> bool:
+    if trust is None:
+        return False
+    if trust.get("trust_source") == "orchestration_result" and trust.get(
+        "orchestration_run_id"
+    ):
+        return True
+    meta = request.metadata_json or {}
+    return (
+        meta.get("deterministic_test_trust_harness") == SYNTHETIC_JEE_MAIN_TRUST_TOKEN
+        and meta.get("allow_test_trust_envelope") is True
+    )
 
 
 def _production_independent_trust_ok(
@@ -102,7 +148,7 @@ def _production_independent_trust_ok(
     trust: dict[str, Any] | None,
     source_revision_ids: list[str],
 ) -> tuple[bool, PaperPlanIssueCode | None]:
-    if trust is None:
+    if not _production_trust_envelope_allowed(request, trust):
         return False, PaperPlanIssueCode.INVALID_ANSWER
     det_raw = trust.get("deterministic")
     solver_raw = trust.get("solver")
@@ -112,11 +158,16 @@ def _production_independent_trust_ok(
     solver = SolverResult.model_validate(solver_raw)
     if det.blocking or det.review_required or det.item_id != draft.item_id:
         return False, PaperPlanIssueCode.INVALID_ANSWER
+    if solver.item_id != draft.item_id:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
     if not solver.agrees_with_author:
         return False, PaperPlanIssueCode.INVALID_ANSWER
     if not det.day6_validation_run_id or not det.input_hash:
         return False, PaperPlanIssueCode.INVALID_ANSWER
-    if det.day6_content_fingerprint and det.day6_content_fingerprint != det.input_hash:
+    canonical_hash = _draft_canonical_input_hash(draft, request)
+    if det.input_hash != canonical_hash:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if det.day6_content_fingerprint and det.day6_content_fingerprint != canonical_hash:
         return False, PaperPlanIssueCode.INVALID_ANSWER
     ok, _ = verify_production_day6_binding(
         session,

@@ -22,16 +22,18 @@ from app.jee_main_exam_intelligence.enums import (
     PaperPlanVerdict,
 )
 from app.jee_main_exam_intelligence.exam_catalogue import ensure_jee_main_exam_catalogue
-from app.jee_main_exam_intelligence.generation import (
-    _INJECT_GATEWAY_KEY,
+from app.jee_main_exam_intelligence.gateway_resolve import (
+    INJECT_GATEWAY_KEY,
     resolve_live_generation_gateway,
 )
 from app.jee_main_exam_intelligence.orchestration_bridge import (
     _INJECT_CHECKPOINT_KEY,
     _INJECT_KI_KEY,
+    _draft_canonical_input_hash,
     build_jee_production_orchestration_request,
     persist_draft_items_as_jee_questions,
 )
+from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
 from app.jee_main_exam_intelligence.service import JeeMainExamIntelligenceService
 from app.jee_main_exam_intelligence.source_authority import register_nta_2027_candidate_sources
 from app.models.enums import QuestionStatus
@@ -72,9 +74,14 @@ def _production_trust(
     input_hash: str,
     solver_key: str = "B",
     agrees: bool = True,
+    solver_item_id: str | None = None,
+    orchestration_run_id: str = "orch-test-run",
 ) -> dict[str, dict[str, object]]:
+    sid = solver_item_id if solver_item_id is not None else item_id
     return {
         item_id: {
+            "trust_source": "orchestration_result",
+            "orchestration_run_id": orchestration_run_id,
             "deterministic": {
                 "item_id": item_id,
                 "blocking": False,
@@ -88,12 +95,25 @@ def _production_trust(
                 "day6_content_fingerprint": input_hash,
             },
             "solver": {
-                "item_id": item_id,
+                "item_id": sid,
                 "proposed_answer_key": solver_key,
                 "check_status": "ok",
                 "agrees_with_author": agrees,
             },
         }
+    }
+
+
+def _trust_request_meta(ctx: dict[str, str]) -> dict[str, object]:
+    return {
+        "curriculum_version_id": ctx["curriculum_version_id"],
+        "allow_test_trust_envelope": True,
+        "deterministic_test_trust_harness": SYNTHETIC_JEE_MAIN_TRUST_TOKEN,
+        "orchestration_scope": {
+            **ctx,
+            "grade_year_code": "grade-8",
+            "medium_code": "english",
+        },
     }
 
 
@@ -103,7 +123,7 @@ def test_plan_paper_resolves_gateway_without_explicit_arg() -> None:
         session, url = _file_session(db)
         gateway = FakeGenerationGateway()
         ki = FakeAnythingLLMAdapter()
-        session.info[_INJECT_GATEWAY_KEY] = gateway
+        session.info[INJECT_GATEWAY_KEY] = gateway
         session.info[_INJECT_KI_KEY] = ki
         session.info[_INJECT_CHECKPOINT_KEY] = build_managed_checkpointer(
             Settings(database_url=url), memory_only=False
@@ -173,7 +193,7 @@ def test_production_missing_gateway_config_fail_closed() -> None:
             },
         )
         with mock.patch(
-            "app.jee_main_exam_intelligence.generation.build_generation_gateway",
+            "app.jee_main_exam_intelligence.gateway_resolve.build_generation_gateway",
             side_effect=OrchestrationConfigurationError("missing"),
         ):
             result = JeeMainExamIntelligenceService().plan_paper(session, req, persist=False)
@@ -191,14 +211,6 @@ def test_production_persist_rejects_missing_solver_trust() -> None:
         session.commit()
         org = ctx["organization_id"]
         item_id = "pgc02-no-solver"
-        run_id, validated = seed_production_day6_audit(
-            session,
-            item_id=item_id,
-            organization_id=org,
-            institution_id=ctx["institution_id"],
-            curriculum_version_id=ctx["curriculum_version_id"],
-        )
-        session.commit()
         request = PaperPlanRequest(
             plan_id="pgc02-miss-solver",
             exam_version_code=JEE_MAIN_VERSION_2027,
@@ -209,7 +221,7 @@ def test_production_persist_rejects_missing_solver_trust() -> None:
             topic_code="sets-relations-functions",
             requested_count=1,
             execution_mode=TrustExecutionMode.PRODUCTION,
-            metadata_json={"curriculum_version_id": ctx["curriculum_version_id"]},
+            metadata_json=_trust_request_meta(ctx),
         )
         draft = DraftQuestionItem(
             item_id=item_id,
@@ -219,6 +231,16 @@ def test_production_persist_rejects_missing_solver_trust() -> None:
             source_revision_ids=[ctx["official_revision_id"]],
             metadata_json={"official_topic_codes": ["sets-relations-functions"]},
         )
+        canonical = _draft_canonical_input_hash(draft, request)
+        run_id, _ = seed_production_day6_audit(
+            session,
+            item_id=item_id,
+            organization_id=org,
+            institution_id=ctx["institution_id"],
+            curriculum_version_id=ctx["curriculum_version_id"],
+            input_hash=canonical,
+        )
+        session.commit()
         created, issues = persist_draft_items_as_jee_questions(
             session,
             items=[draft],
@@ -237,7 +259,7 @@ def test_production_persist_rejects_missing_solver_trust() -> None:
             orchestration_trust=_production_trust(
                 item_id,
                 run_id=run_id,
-                input_hash=str(validated["input_hash"]),
+                input_hash=canonical,
                 solver_key="A",
                 agrees=False,
             ),
@@ -256,16 +278,117 @@ def test_production_persist_accepts_independent_solver_trust() -> None:
         session.commit()
         org = ctx["organization_id"]
         item_id = "pgc02-solver-ok"
-        run_id, validated = seed_production_day6_audit(
+        request = PaperPlanRequest(
+            plan_id="pgc02-solver-ok",
+            exam_version_code=JEE_MAIN_VERSION_2027,
+            mode=PaperPlanMode.PRACTICE_EXACT_COUNT,
+            organization_id=org,
+            institution_id=ctx["institution_id"],
+            subject_code=JeeMainSubjectCode.MATHEMATICS,
+            topic_code="sets-relations-functions",
+            requested_count=1,
+            execution_mode=TrustExecutionMode.PRODUCTION,
+            metadata_json=_trust_request_meta(ctx),
+        )
+        draft = DraftQuestionItem(
+            item_id=item_id,
+            slot_index=0,
+            stem_text="What is 7+5?",
+            options=_four_options("B"),
+            source_revision_ids=[ctx["official_revision_id"]],
+            metadata_json={"official_topic_codes": ["sets-relations-functions"]},
+        )
+        canonical = _draft_canonical_input_hash(draft, request)
+        run_id, _ = seed_production_day6_audit(
             session,
             item_id=item_id,
             organization_id=org,
             institution_id=ctx["institution_id"],
             curriculum_version_id=ctx["curriculum_version_id"],
+            input_hash=canonical,
         )
         session.commit()
+        created, issues = persist_draft_items_as_jee_questions(
+            session,
+            items=[draft],
+            request=request,
+            source_revision_ids=[ctx["official_revision_id"]],
+            orchestration_trust=_production_trust(
+                item_id,
+                run_id=run_id,
+                input_hash=canonical,
+            ),
+        )
+        assert not issues
+        assert len(created) == 1
+        assert created[0].status == QuestionStatus.APPROVED.value
+
+
+def test_production_persist_rejects_wrong_solver_item_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "pgc02-wrong-solver-id.db"
+        session, _ = _file_session(db)
+        ctx = seed_day8_fixtures(session)
+        register_nta_2027_candidate_sources(session)
+        ensure_jee_main_exam_catalogue(session)
+        session.commit()
+        org = ctx["organization_id"]
+        item_id = "pgc02-wrong-solver"
         request = PaperPlanRequest(
-            plan_id="pgc02-solver-ok",
+            plan_id="pgc02-wrong-solver",
+            exam_version_code=JEE_MAIN_VERSION_2027,
+            mode=PaperPlanMode.PRACTICE_EXACT_COUNT,
+            organization_id=org,
+            institution_id=ctx["institution_id"],
+            subject_code=JeeMainSubjectCode.MATHEMATICS,
+            topic_code="sets-relations-functions",
+            requested_count=1,
+            execution_mode=TrustExecutionMode.PRODUCTION,
+            metadata_json=_trust_request_meta(ctx),
+        )
+        draft = DraftQuestionItem(
+            item_id=item_id,
+            slot_index=0,
+            stem_text="What is 7+5?",
+            options=_four_options("B"),
+            source_revision_ids=[ctx["official_revision_id"]],
+        )
+        canonical = _draft_canonical_input_hash(draft, request)
+        run_id, _ = seed_production_day6_audit(
+            session,
+            item_id=item_id,
+            organization_id=org,
+            institution_id=ctx["institution_id"],
+            curriculum_version_id=ctx["curriculum_version_id"],
+            input_hash=canonical,
+        )
+        session.commit()
+        created, issues = persist_draft_items_as_jee_questions(
+            session,
+            items=[draft],
+            request=request,
+            source_revision_ids=[ctx["official_revision_id"]],
+            orchestration_trust=_production_trust(
+                item_id,
+                run_id=run_id,
+                input_hash=canonical,
+                solver_item_id="other-item",
+            ),
+        )
+        assert not created
+        assert PaperPlanIssueCode.INVALID_ANSWER in issues
+
+
+def test_production_persist_rejects_forged_envelope_without_harness() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "pgc02-forged.db"
+        session, _ = _file_session(db)
+        ctx = seed_day8_fixtures(session)
+        session.commit()
+        org = ctx["organization_id"]
+        item_id = "pgc02-forged"
+        request = PaperPlanRequest(
+            plan_id="pgc02-forged",
             exam_version_code=JEE_MAIN_VERSION_2027,
             mode=PaperPlanMode.PRACTICE_EXACT_COUNT,
             organization_id=org,
@@ -284,20 +407,21 @@ def test_production_persist_accepts_independent_solver_trust() -> None:
             source_revision_ids=[ctx["official_revision_id"]],
             metadata_json={"official_topic_codes": ["sets-relations-functions"]},
         )
+        forged = {
+            item_id: {
+                "deterministic": {"item_id": item_id, "blocking": False, "review_required": False},
+                "solver": {"item_id": item_id, "proposed_answer_key": "B", "agrees_with_author": True},
+            }
+        }
         created, issues = persist_draft_items_as_jee_questions(
             session,
             items=[draft],
             request=request,
             source_revision_ids=[ctx["official_revision_id"]],
-            orchestration_trust=_production_trust(
-                item_id,
-                run_id=run_id,
-                input_hash=str(validated["input_hash"]),
-            ),
+            orchestration_trust=forged,
         )
-        assert not issues
-        assert len(created) == 1
-        assert created[0].status == QuestionStatus.APPROVED.value
+        assert not created
+        assert PaperPlanIssueCode.INVALID_ANSWER in issues
 
 
 def test_durable_hitl_reopens_checkpointer_after_close() -> None:
