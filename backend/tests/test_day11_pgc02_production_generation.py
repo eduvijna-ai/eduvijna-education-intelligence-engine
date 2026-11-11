@@ -33,9 +33,9 @@ from app.jee_main_exam_intelligence.orchestration_bridge import (
     build_jee_production_orchestration_request,
     persist_draft_items_as_jee_questions,
 )
-from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
 from app.jee_main_exam_intelligence.service import JeeMainExamIntelligenceService
 from app.jee_main_exam_intelligence.source_authority import register_nta_2027_candidate_sources
+from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
 from app.models.enums import QuestionStatus
 from app.orchestration.checkpoint import build_managed_checkpointer
 from app.orchestration.contracts import DraftQuestionItem, QuestionOptionDraft
@@ -409,8 +409,16 @@ def test_production_persist_rejects_forged_envelope_without_harness() -> None:
         )
         forged = {
             item_id: {
-                "deterministic": {"item_id": item_id, "blocking": False, "review_required": False},
-                "solver": {"item_id": item_id, "proposed_answer_key": "B", "agrees_with_author": True},
+                "deterministic": {
+                    "item_id": item_id,
+                    "blocking": False,
+                    "review_required": False,
+                },
+                "solver": {
+                    "item_id": item_id,
+                    "proposed_answer_key": "B",
+                    "agrees_with_author": True,
+                },
             }
         }
         created, issues = persist_draft_items_as_jee_questions(
