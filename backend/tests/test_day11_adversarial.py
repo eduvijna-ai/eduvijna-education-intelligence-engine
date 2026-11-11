@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -56,8 +60,13 @@ def test_foreign_tenant_blocks_pool() -> None:
         ctx = seed_day11_fixture_context(session)
         session.commit()
         service = JeeMainExamIntelligenceService()
+        from app.common.trust_execution import TrustExecutionMode
+
         req = build_practice_math_ten_request(ctx).model_copy(
-            update={"organization_id": "tenant-b"}
+            update={
+                "organization_id": "tenant-b",
+                "execution_mode": TrustExecutionMode.PRODUCTION,
+            }
         )
         result = service.plan_paper(session, req, persist=False)
         assert result.verdict == PaperPlanVerdict.FAIL
@@ -80,3 +89,15 @@ def test_unknown_subject_rejected() -> None:
         req = req.model_copy(update={"subject_code": None})
         result = service.plan_paper(session, req, persist=False)
         assert result.verdict == PaperPlanVerdict.FAIL
+
+
+def test_day11_verify_exits_zero_on_synthetic_pass() -> None:
+    backend = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, "-m", "app.day11_verify", "--json"],
+        cwd=backend,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout

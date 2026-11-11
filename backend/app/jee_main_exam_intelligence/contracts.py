@@ -4,6 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.common.trust_execution import TrustExecutionMode
 from app.jee_main_exam_intelligence.enums import (
     JeeMainQuestionTypeQuota,
     JeeMainSectionCode,
@@ -44,6 +45,7 @@ class PaperPlanRequest(BaseModel):
     requested_count: int | None = Field(default=None, ge=1)
     allowed_source_revision_ids: list[str] = Field(default_factory=list)
     require_official_pattern_verified: bool = False
+    execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION
     idempotency_key: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 

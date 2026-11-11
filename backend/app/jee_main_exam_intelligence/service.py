@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.common.trust_execution import TrustExecutionMode
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanResult
 from app.jee_main_exam_intelligence.generation import assemble_paper_with_persistence
 from app.jee_main_exam_intelligence.historical_evidence import build_historical_analytics_report
@@ -17,16 +18,26 @@ class JeeMainExamIntelligenceService:
         return register_nta_2027_candidate_sources(session)
 
     def evaluate_official_authority(
-        self, session: Session, *, exam_version_code: str
+        self,
+        session: Session,
+        *,
+        exam_version_code: str,
+        execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
     ) -> dict[str, object]:
         from app.jee_main_exam_intelligence.exam_catalogue import get_exam_version
 
         version = get_exam_version(session, pack_code="jee-main", version_code=exam_version_code)
-        status, refs, detail = evaluate_official_pattern_authority(session, exam_version=version)
+        status, refs, detail = evaluate_official_pattern_authority(
+            session,
+            exam_version=version,
+            exam_version_code=exam_version_code,
+            execution_mode=execution_mode,
+        )
         return {
             "status": status.value,
             "sources": [r.model_dump() for r in refs],
             "detail": detail,
+            "official_2027_nta_approved": status.value == "verified",
         }
 
     def plan_paper(

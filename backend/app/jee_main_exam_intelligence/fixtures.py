@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.common.trust_execution import TrustExecutionMode
 from app.jee_main_exam_intelligence.constants import (
     DERIVED_TOPIC_ALGEBRA,
     JEE_MAIN_VERSION_2027,
@@ -29,7 +30,11 @@ def seed_day11_fixture_context(session: Session) -> dict[str, Any]:
     knowledge = seed_knowledge_fixtures(session)
     register_nta_2027_candidate_sources(session)
     catalogue = ensure_jee_main_exam_catalogue(session)
-    pool = seed_synthetic_question_pool(session, organization_id=knowledge.organization_id)
+    pool = seed_synthetic_question_pool(
+        session,
+        organization_id=knowledge.organization_id,
+        institution_id=knowledge.institution_id,
+    )
     session.flush()
     return {
         "organization_id": knowledge.organization_id,
@@ -50,6 +55,7 @@ def build_practice_math_ten_request(ctx: dict[str, Any]) -> PaperPlanRequest:
         subject_code=JeeMainSubjectCode.MATHEMATICS,
         requested_count=10,
         idempotency_key="d11-practice-math-10",
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
 
 
@@ -64,6 +70,7 @@ def build_practice_algebra_ten_request(ctx: dict[str, Any]) -> PaperPlanRequest:
         derived_topic_group=DERIVED_TOPIC_ALGEBRA,
         requested_count=10,
         idempotency_key="d11-practice-algebra-10",
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
 
 
@@ -105,6 +112,11 @@ def synthetic_activate_nta_sources_for_harness(
             raise AssertionError(f"NTA synthetic validation failed: {result.errors}")
         service.approve_revision(revision.id, actor_id="founder-day11-synthetic")
         service.activate_revision(revision.id, actor_id="founder-day11-synthetic")
+        revision.metadata_json = {
+            **(revision.metadata_json or {}),
+            "synthetic_nta_harness": True,
+        }
+        session.flush()
         revision_ids.append(revision.id)
     exam_version = session.get(ExamVersion, exam_version_id)
     if exam_version is not None:
@@ -112,6 +124,7 @@ def synthetic_activate_nta_sources_for_harness(
             session,
             exam_version=exam_version,
             revision_ids=revision_ids,
+            synthetic_demonstration_only=True,
         )
     return revision_ids
 
@@ -125,4 +138,5 @@ def build_official_replica_request(ctx: dict[str, Any]) -> PaperPlanRequest:
         institution_id=ctx["institution_id"],
         require_official_pattern_verified=True,
         idempotency_key="d11-official-replica-75",
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )

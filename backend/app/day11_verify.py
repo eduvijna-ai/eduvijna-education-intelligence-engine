@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
+from app.common.trust_execution import TrustExecutionMode
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.jee_main_exam_intelligence.constants import (
@@ -68,21 +69,33 @@ def build_verification_report(session: Session) -> dict[str, object]:
     ctx = seed_day11_fixture_context(session)
     session.commit()
 
-    replica_fail = service.plan_paper(session, build_official_replica_request(ctx), persist=False)
-    official_replica_blocked_unverified = (
-        replica_fail.verdict == PaperPlanVerdict.FAIL
-        and replica_fail.official_pattern_label == "official_pattern_not_verified"
+    prod_before = service.plan_paper(
+        session,
+        build_official_replica_request(ctx).model_copy(
+            update={"execution_mode": TrustExecutionMode.PRODUCTION}
+        ),
+        persist=False,
     )
+    official_replica_blocked_unverified = prod_before.verdict == PaperPlanVerdict.FAIL
 
     synthetic_activate_nta_sources_for_harness(session, exam_version_id=ctx["exam_version_2027_id"])
     session.commit()
     authority_after = service.evaluate_official_authority(
-        session, exam_version_code=JEE_MAIN_VERSION_2027
+        session,
+        exam_version_code=JEE_MAIN_VERSION_2027,
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
     )
 
     math_ten = service.plan_paper(session, build_practice_math_ten_request(ctx))
     algebra_ten = service.plan_paper(session, build_practice_algebra_ten_request(ctx))
     replica = service.plan_paper(session, build_official_replica_request(ctx))
+    prod_after = service.plan_paper(
+        session,
+        build_official_replica_request(ctx).model_copy(
+            update={"execution_mode": TrustExecutionMode.PRODUCTION}
+        ),
+        persist=False,
+    )
     session.commit()
 
     version = get_exam_version(
@@ -90,15 +103,23 @@ def build_verification_report(session: Session) -> dict[str, object]:
         pack_code=JEE_MAIN_EXAM_PACK_CODE,
         version_code=JEE_MAIN_VERSION_2027,
     )
-    status, _, _ = evaluate_official_pattern_authority(session, exam_version=version)
+    status, _, _ = evaluate_official_pattern_authority(
+        session,
+        exam_version=version,
+        exam_version_code=JEE_MAIN_VERSION_2027,
+        execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
+    )
 
     checks = {
         **sha_checks,
         "nta_candidate_sources_registered": bool(authority_before.get("sources")),
+        "official_2027_nta_approved": authority_before.get("official_2027_nta_approved") is False,
         "official_replica_fail_closed_before_synthetic_activation": (
             official_replica_blocked_unverified
         ),
-        "synthetic_harness_authority_verified": authority_after.get("status") == "verified",
+        "production_replica_fail_after_synthetic_json": prod_after.verdict == PaperPlanVerdict.FAIL,
+        "synthetic_fixture_authority_demonstration": authority_after.get("status")
+        == "synthetic_fixture_demonstration",
         "practice_math_exactly_ten": (
             math_ten.verdict == PaperPlanVerdict.PASS and math_ten.actual_count == 10
         ),
@@ -109,16 +130,25 @@ def build_verification_report(session: Session) -> dict[str, object]:
             replica.verdict == PaperPlanVerdict.PASS
             and replica.actual_count == CANDIDATE_PAPER1_TOTAL_QUESTIONS
         ),
-        "synthetic_official_pattern_label_present": bool(replica.official_pattern_label),
+        "synthetic_official_pattern_label": (
+            replica.official_pattern_label == "synthetic_fixture_demonstration"
+        ),
+        "synthetic_scoring_sixty_fifteen": (
+            replica.scoring_preview.get("mcq_slot_count") == 60
+            and replica.scoring_preview.get("numerical_slot_count") == 15
+        ),
         "historical_priors_not_mandatory_nta": not service.historical_analytics().get(
             "mandatory_nta_quotas_invented", True
         ),
-        "official_pattern_status_after_synthetic_link": status.value == "verified",
+        "official_pattern_synthetic_not_production_verified": (
+            status.value == "synthetic_fixture_demonstration"
+        ),
     }
 
     adversarial = _adversarial_matrix(session, ctx, service)
 
-    verdict = "PASS" if all(checks.values()) and adversarial["all_pass"] else "FAIL"
+    synthetic_pass = all(checks.values()) and adversarial["all_pass"]
+    verdict = "synthetic_fixture_pass" if synthetic_pass else "FAIL"
     return {
         "day": 11,
         "candidate_sha": candidate_sha,
@@ -138,6 +168,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "governance": {
             "founder_approval": False,
             "official_nta_pdf_independent_review": "NOT_CLAIMED_SYNTHETIC_HARNESS_ONLY",
+            "official_2027_nta_approved": False,
             "production_uat": "NOT_RUN",
         },
     }
@@ -173,7 +204,11 @@ def _adversarial_matrix(
     )
 
     foreign = build_practice_math_ten_request(ctx).model_copy(
-        update={"organization_id": "foreign-tenant", "plan_id": "adv-foreign"}
+        update={
+            "organization_id": "foreign-tenant",
+            "plan_id": "adv-foreign",
+            "execution_mode": TrustExecutionMode.PRODUCTION,
+        }
     )
     foreign_result = service.plan_paper(session, foreign, persist=False)
     cases["foreign_tenant_fail"] = (
@@ -185,7 +220,7 @@ def _adversarial_matrix(
     return {"cases": cases, "all_pass": all(cases.values())}
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Day 11 verification harness")
     parser.add_argument("--json", action="store_true", help="Emit JSON report")
     args = parser.parse_args()
@@ -197,8 +232,9 @@ def main() -> None:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(json.dumps(report, indent=2, sort_keys=True))
+        print("Day 11 verification:", report.get("verdict"))
+    return 0 if report.get("verdict") == "synthetic_fixture_pass" else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

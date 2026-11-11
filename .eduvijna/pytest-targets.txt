@@ -67,5 +67,6 @@ tests/test_day8_round4.py
 tests/test_day11_source_authority.py
 tests/test_day11_planner.py
 tests/test_day11_adversarial.py
+tests/test_day11_trust.py
 tests/test_day7_retrieval.py
 tests/test_day7_lifecycle_governance.py

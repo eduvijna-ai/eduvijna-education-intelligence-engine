@@ -20,6 +20,7 @@ class OfficialPatternAuthorityStatus(StrEnum):
 
     NOT_VERIFIED = "not_verified"
     OFFICIAL_PATTERN_NOT_VERIFIED = "official_pattern_not_verified"
+    SYNTHETIC_FIXTURE_DEMONSTRATION = "synthetic_fixture_demonstration"
     VERIFIED = "verified"
 
 

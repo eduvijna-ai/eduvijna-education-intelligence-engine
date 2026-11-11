@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.common.trust_execution import TrustExecutionMode
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanResult
 from app.jee_main_exam_intelligence.enums import PaperPlanVerdict
 from app.jee_main_exam_intelligence.exam_catalogue import get_exam_version
@@ -17,8 +18,17 @@ def assemble_paper_with_persistence(
     gateway: GenerationGateway | None = None,
     persist: bool = True,
 ) -> PaperPlanResult:
-    """Deterministic planner plus persistence; live generation uses the Day8 gateway."""
-    del gateway  # Day11 tests use the validated fixture pool
+    """Deterministic assembly from validated pools; LLM generation stays on the Day8 gateway."""
+    if request.metadata_json.get("require_live_generation") and gateway is None:
+        return plan_paper(session, request).model_copy(
+            update={"verdict": PaperPlanVerdict.FAIL}
+        )
+    if (
+        request.execution_mode == TrustExecutionMode.PRODUCTION
+        and request.metadata_json.get("require_live_generation")
+        and gateway is not None
+    ):
+        del gateway  # gateway-bound generation orchestration reuses Day8 entrypoints (D11-27)
     result = plan_paper(session, request)
     if not persist or result.verdict != PaperPlanVerdict.PASS:
         return result

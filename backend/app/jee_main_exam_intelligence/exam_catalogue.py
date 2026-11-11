@@ -74,6 +74,7 @@ def ensure_jee_main_exam_catalogue(session: Session) -> dict[str, Any]:
                 status=ExamStatus.DRAFT.value,
                 metadata_json={
                     "official_pattern_verified": official_verified,
+                    "nta_exam_version_code": version_code,
                     "candidate_total_questions": CANDIDATE_PAPER1_TOTAL_QUESTIONS,
                     "marking": {
                         "correct": CANDIDATE_MARKS_CORRECT,

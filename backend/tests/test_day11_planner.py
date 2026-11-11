@@ -54,11 +54,19 @@ def test_practice_algebra_exactly_ten_no_filler() -> None:
 
 
 def test_official_replica_fail_closed_until_verified() -> None:
+    from app.common.trust_execution import TrustExecutionMode
+
     with _session() as session:
         ctx = seed_day11_fixture_context(session)
         session.commit()
         service = JeeMainExamIntelligenceService()
-        result = service.plan_paper(session, build_official_replica_request(ctx), persist=False)
+        result = service.plan_paper(
+            session,
+            build_official_replica_request(ctx).model_copy(
+                update={"execution_mode": TrustExecutionMode.PRODUCTION}
+            ),
+            persist=False,
+        )
         assert result.verdict == PaperPlanVerdict.FAIL
         assert result.actual_count == 0
 
@@ -75,6 +83,7 @@ def test_synthetic_harness_official_replica_seventy_five(tmp_path: Path) -> None
         session.commit()
         assert result.verdict == PaperPlanVerdict.PASS
         assert result.actual_count == CANDIDATE_PAPER1_TOTAL_QUESTIONS
+        assert result.official_pattern_label == "synthetic_fixture_demonstration"
         mcq = sum(1 for s in result.slots if s.question_type and s.question_type.value == "mcq")
         numerical = sum(
             1

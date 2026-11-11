@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.trust_execution import TrustExecutionMode
 from app.jee_main_exam_intelligence.constants import DERIVED_TOPIC_ALGEBRA
 from app.jee_main_exam_intelligence.contracts import PaperPlanSlot
 from app.jee_main_exam_intelligence.enums import (
@@ -12,8 +13,15 @@ from app.jee_main_exam_intelligence.enums import (
     JeeMainSubjectCode,
     PaperPlanIssueCode,
 )
+from app.jee_main_exam_intelligence.syllabus_mapping import DERIVED_TOPIC_GROUPS
+from app.jee_main_exam_intelligence.trusted_validation import (
+    SYNTHETIC_JEE_MAIN_TRUST_TOKEN,
+    JeeMainQuestionTrustContext,
+    synthetic_trust_permitted,
+)
 from app.models.enums import QuestionStatus, QuestionType
 from app.models.question import Question, QuestionOption
+from app.root_cause_intelligence.day6_binding_verify import verify_production_day6_binding
 
 
 def _question_topic_tags(metadata: dict[str, Any]) -> set[str]:
@@ -21,9 +29,70 @@ def _question_topic_tags(metadata: dict[str, Any]) -> set[str]:
     return {str(t) for t in tags}
 
 
-def _question_derived_groups(metadata: dict[str, Any]) -> set[str]:
-    groups = metadata.get("derived_topic_groups") or []
-    return {str(g) for g in groups}
+def _canonical_quota_type(question: Question) -> str | None:
+    if question.question_type == QuestionType.MULTIPLE_CHOICE.value:
+        return JeeMainQuestionTypeQuota.MCQ.value
+    if question.question_type == QuestionType.NUMERICAL.value:
+        return JeeMainQuestionTypeQuota.NUMERICAL.value
+    return None
+
+
+def _trusts_item(
+    session: Session,
+    *,
+    question: Question,
+    execution_mode: TrustExecutionMode,
+    organization_id: str | None,
+    institution_id: str | None,
+    exam_version_id: str | None,
+    derived_topic_group: str | None,
+) -> tuple[bool, PaperPlanIssueCode | None]:
+    meta = question.metadata_json or {}
+    synthetic_ok = synthetic_trust_permitted(execution_mode)
+    if meta.get("synthetic_fixture") or meta.get("synthetic_only"):
+        if not synthetic_ok:
+            return False, PaperPlanIssueCode.INVALID_ANSWER
+        token = meta.get("jee_main_trust_harness_token")
+        if token != SYNTHETIC_JEE_MAIN_TRUST_TOKEN:
+            return False, PaperPlanIssueCode.INVALID_ANSWER
+        return True, None
+
+    if synthetic_ok:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+
+    if organization_id is None:
+        return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
+    if meta.get("organization_id") != organization_id:
+        return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
+    if institution_id and meta.get("institution_id") != institution_id:
+        return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
+    if exam_version_id and meta.get("exam_version_id") not in (None, exam_version_id):
+        return False, PaperPlanIssueCode.STALE_EXAM_VERSION
+
+    item_id = question.external_code or question.id
+    ok, _ = verify_production_day6_binding(
+        session,
+        item_id=item_id,
+        validation_run_id=meta.get("day6_validation_run_id"),
+        input_hash=meta.get("day6_input_hash"),
+        learning_outcome_ids=list(meta.get("learning_outcome_ids") or []),
+        competency_codes=list(meta.get("competency_codes") or []),
+        organization_id=organization_id,
+        institution_id=institution_id,
+        curriculum_version_id=meta.get("curriculum_version_id"),
+    )
+    if not ok:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+
+    if derived_topic_group:
+        group = DERIVED_TOPIC_GROUPS.get(derived_topic_group)
+        if group is None:
+            return False, PaperPlanIssueCode.UNKNOWN_TOPIC
+        allowed = set(group["constituent_official_topic_codes"])
+        if not _question_topic_tags(meta).intersection(allowed):
+            return False, PaperPlanIssueCode.OFF_TOPIC_FILLER
+
+    return True, None
 
 
 def load_validated_questions(
@@ -33,8 +102,11 @@ def load_validated_questions(
     topic_codes: list[str],
     derived_topic_group: str | None,
     organization_id: str | None,
+    institution_id: str | None,
+    exam_version_id: str | None,
     allowed_source_revision_ids: list[str],
     question_type_quota: JeeMainQuestionTypeQuota | None = None,
+    execution_mode: TrustExecutionMode = TrustExecutionMode.PRODUCTION,
 ) -> tuple[list[Question], list[PaperPlanIssueCode]]:
     issues: list[PaperPlanIssueCode] = []
     stmt = select(Question).where(Question.status == QuestionStatus.APPROVED.value)
@@ -45,28 +117,45 @@ def load_validated_questions(
     ]
     filtered: list[Question] = []
     for question in questions:
-        meta = question.metadata_json or {}
-        if organization_id and meta.get("organization_id") not in (None, organization_id):
-            issues.append(PaperPlanIssueCode.FOREIGN_TENANT_CONTENT)
+        trusted, trust_issue = _trusts_item(
+            session,
+            question=question,
+            execution_mode=execution_mode,
+            organization_id=organization_id,
+            institution_id=institution_id,
+            exam_version_id=exam_version_id,
+            derived_topic_group=derived_topic_group,
+        )
+        if not trusted:
+            if trust_issue == PaperPlanIssueCode.FOREIGN_TENANT_CONTENT:
+                issues.append(trust_issue)
             continue
+
+        meta = question.metadata_json or {}
         rev_ids = {str(r) for r in (meta.get("allowed_source_revision_ids") or [])}
         if allowed_source_revision_ids and not rev_ids.issuperset(set(allowed_source_revision_ids)):
             continue
+
         if derived_topic_group:
-            if derived_topic_group not in _question_derived_groups(meta):
-                continue
+            if synthetic_trust_permitted(execution_mode):
+                groups = meta.get("derived_topic_groups") or []
+                if derived_topic_group not in groups:
+                    continue
         elif topic_codes:
             if not _question_topic_tags(meta).intersection(topic_codes):
                 continue
+
         if not _answer_valid(question):
             continue
-        if not meta.get("day6_validated", False):
-            continue
+
         if question_type_quota is not None:
-            qmeta = meta.get("jee_main_question_type") or question.question_type
-            mapped = "mcq" if qmeta in (QuestionType.MULTIPLE_CHOICE.value, "mcq") else "numerical"
+            mapped = _canonical_quota_type(question)
             if mapped != question_type_quota.value:
                 continue
+            alias = meta.get("jee_main_question_type")
+            if alias and alias != mapped and not synthetic_trust_permitted(execution_mode):
+                continue
+
         filtered.append(question)
     return filtered, issues
 
@@ -115,24 +204,29 @@ def assign_questions_to_slots(
     return filled, issues
 
 
-def seed_synthetic_question_pool(session: Session, *, organization_id: str) -> dict[str, Any]:
-    """Seed deterministic approved questions for Day11 synthetic harness."""
+def seed_synthetic_question_pool(
+    session: Session, *, organization_id: str, institution_id: str
+) -> dict[str, Any]:
+    """Seed deterministic questions for the Day11 synthetic harness only."""
+    trust = JeeMainQuestionTrustContext.synthetic_fixture_harness()
     ctx: dict[str, Any] = {"question_ids": []}
     algebra_codes = ["complex-numbers-quadratic", "matrices-determinants"]
+    base_meta = {
+        "jee_main_trust_harness_token": trust.harness_token,
+        "synthetic_fixture": True,
+        "organization_id": organization_id,
+        "institution_id": institution_id,
+    }
     for index in range(1, 26):
         subject = JeeMainSubjectCode.MATHEMATICS
         is_algebra = index <= 12
         is_numerical = index > 20
         qtype = QuestionType.NUMERICAL if is_numerical else QuestionType.MULTIPLE_CHOICE
-        qmeta = "numerical" if is_numerical else "mcq"
         meta = {
+            **base_meta,
             "jee_main_subject_code": subject.value,
-            "jee_main_question_type": qmeta,
-            "organization_id": organization_id,
-            "day6_validated": True,
             "official_topic_codes": algebra_codes if is_algebra else ["sets-relations-functions"],
             "derived_topic_groups": [DERIVED_TOPIC_ALGEBRA] if is_algebra else [],
-            "synthetic_fixture": True,
         }
         q = Question(
             external_code=f"d11-math-{index:03d}",
@@ -171,7 +265,6 @@ def seed_synthetic_question_pool(session: Session, *, organization_id: str) -> d
                 if index <= int(count * 0.8)
                 else QuestionType.NUMERICAL
             )
-            qmeta = "mcq" if qtype == QuestionType.MULTIPLE_CHOICE else "numerical"
             q = Question(
                 external_code=f"{prefix}-{index:03d}",
                 origin_type="synthetic_fixture",
@@ -184,11 +277,8 @@ def seed_synthetic_question_pool(session: Session, *, organization_id: str) -> d
                 ),
                 status=QuestionStatus.APPROVED.value,
                 metadata_json={
+                    **base_meta,
                     "jee_main_subject_code": subj.value,
-                    "jee_main_question_type": qmeta,
-                    "organization_id": organization_id,
-                    "day6_validated": True,
-                    "synthetic_fixture": True,
                 },
             )
             session.add(q)

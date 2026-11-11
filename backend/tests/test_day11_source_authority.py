@@ -40,6 +40,10 @@ def test_nta_candidates_stage_without_verification() -> None:
         version = get_exam_version(
             session, pack_code=JEE_MAIN_EXAM_PACK_CODE, version_code=JEE_MAIN_VERSION_2027
         )
-        status, refs, _ = evaluate_official_pattern_authority(session, exam_version=version)
+        status, refs, _ = evaluate_official_pattern_authority(
+            session,
+            exam_version=version,
+            exam_version_code=JEE_MAIN_VERSION_2027,
+        )
         assert status == OfficialPatternAuthorityStatus.OFFICIAL_PATTERN_NOT_VERIFIED
         assert all(not r.verified_for_official_pattern for r in refs)
