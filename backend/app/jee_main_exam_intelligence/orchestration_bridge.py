@@ -148,7 +148,7 @@ def _production_independent_trust_ok(
     trust: dict[str, Any] | None,
     source_revision_ids: list[str],
 ) -> tuple[bool, PaperPlanIssueCode | None]:
-    if not _production_trust_envelope_allowed(request, trust):
+    if trust is None or not _production_trust_envelope_allowed(request, trust):
         return False, PaperPlanIssueCode.INVALID_ANSWER
     det_raw = trust.get("deterministic")
     solver_raw = trust.get("solver")
