@@ -65,3 +65,5 @@ class PaperPlanIssueCode(StrEnum):
     REPLAY_IDEMPOTENCY_CONFLICT = "replay_idempotency_conflict"
     FOREIGN_TENANT_CONTENT = "foreign_tenant_content"
     INVENTED_NTA_QUOTA = "invented_nta_quota"
+    COGNITIVE_DISTRIBUTION_VIOLATION = "cognitive_distribution_violation"
+    LIVE_GENERATION_NOT_CONFIGURED = "live_generation_not_configured"

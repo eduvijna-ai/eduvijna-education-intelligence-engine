@@ -1,6 +1,6 @@
 # Day 11 — scope, implementation and evidence map
 
-**Status:** R1 consolidated completion handback (P0/P1 trust fixes), **not** Founder D11-36 signoff.
+**Status:** R2 final bounded pass (CI + D11-25/27 boundary), **not** Founder D11-36 signoff.
 **Founder authorization:** 2026-11-10 — “Approved to start cursor handoff.”
 **Branch:** `feature/day11-jee-main-exam-intelligence` (Draft PR #31 → `develop`).
 
@@ -36,14 +36,14 @@
 | D11-22 | Section/type quotas | `allocator.allocate_full_replica_slots` (60 MCQ / 15 numerical) | PASS |
 | D11-23 | Versioned marks and response rules | `blueprint_snapshot.load_verified_blueprint_for_version`, scoring canonical slot types | PARTIAL |
 | D11-24 | Bounded quota allocator | `allocator.py` | PASS |
-| D11-25 | Difficulty/cognitive/competency distribution | not integrated (Day10 evaluator hook deferred) | PENDING |
+| D11-25 | Difficulty/cognitive/competency distribution | `paper_distribution_bridge.evaluate_plan_paper_distribution` + `test_day11_r2.py` | PARTIAL |
 | D11-26 | Infeasible-constraint verdict | issue codes + adversarial tests | PARTIAL |
-| D11-27 | Reuse Day-8 LangGraph + AnythingLLM gateway | fixture pool path; orchestration bridge stub in `generation.py` | PARTIAL |
+| D11-27 | Reuse Day-8 LangGraph + AnythingLLM gateway | `live_generation.apply_live_generation_boundary` + idempotent `claim_idempotency`; slot-fill graph NOT COMPLETE | PARTIAL |
 | D11-28 | Question/answer validity | `question_pool._answer_valid` | PARTIAL |
 | D11-29 | Repair and count invariants | count mismatch fail-closed; bounded repair not wired | PARTIAL |
 | D11-30 | Evidence and provenance in each item | question `metadata_json`, plan checksum | PARTIAL |
 | D11-31 | Scoring simulation metadata | `scoring.build_scoring_preview` 60 MCQ / 15 numerical (`test_synthetic_replica_passes_with_explicit_fixture_mode`) | PASS |
-| D11-32 | Persist `TestDefinition` / `TestQuestion` safely | tenant-scoped codes, owner checks, `REPLAY_IDEMPOTENCY_CONFLICT`, expanded checksum | PARTIAL |
+| D11-32 | Persist `TestDefinition` / `TestQuestion` safely | tenant scope, slot marks in checksum, replay/idempotency tests (`test_day11_r2.py`) | PARTIAL |
 | D11-33 | Deterministic reference fixtures | `fixtures.py`, `question_pool.seed_synthetic_question_pool` | PASS |
 | D11-34 | Adversarial matrix | `test_day11_*.py`, `day11_verify._adversarial_matrix` (foreign tenant under `PRODUCTION`) | PASS |
 | D11-35 | `day11_verify`, migrations and targeted CI | `verdict: synthetic_fixture_pass`, exit 0 on pass; `.github/workflows/targeted-ci.yml` step; Alembic `20261109_0018` | PASS |

@@ -28,6 +28,16 @@ def build_result_checksum(
     blueprint_rule_ids: list[str] | None = None,
 ) -> str:
     question_ids = sorted(s.question_id for s in slots if s.question_id)
+    slot_marks = [
+        {
+            "slot_id": s.slot_id,
+            "question_id": s.question_id,
+            "marks": s.marks,
+            "negative_marks": s.negative_marks,
+        }
+        for s in slots
+        if s.question_id
+    ]
     return plan_checksum(
         {
             "plan_id": request.plan_id,
@@ -43,6 +53,7 @@ def build_result_checksum(
             "institution_id": request.institution_id,
             "slot_ids": [s.slot_id for s in slots],
             "question_ids": question_ids,
+            "slot_marks": sorted(slot_marks, key=lambda row: row["slot_id"]),
             "source_revision_refs": sorted(source_revision_refs),
             "blueprint_rule_ids": sorted(blueprint_rule_ids or []),
         }

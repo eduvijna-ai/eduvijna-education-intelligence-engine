@@ -92,12 +92,21 @@ def test_unknown_subject_rejected() -> None:
 
 
 def test_day11_verify_exits_zero_on_synthetic_pass() -> None:
+    import json
+    import os
+
     backend = Path(__file__).resolve().parents[1]
+    child_env = os.environ.copy()
+    child_env.pop("EDUVIJNA_CANDIDATE_SHA", None)
     proc = subprocess.run(
         [sys.executable, "-m", "app.day11_verify", "--json"],
         cwd=backend,
         capture_output=True,
         text=True,
         check=False,
+        env=child_env,
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
+    payload = json.loads(proc.stdout)
+    assert payload.get("verdict") == "synthetic_fixture_pass"
+    assert payload.get("governance", {}).get("official_2027_nta_approved") is False

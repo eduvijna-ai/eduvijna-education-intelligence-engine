@@ -127,8 +127,6 @@ def load_validated_questions(
             derived_topic_group=derived_topic_group,
         )
         if not trusted:
-            if trust_issue == PaperPlanIssueCode.FOREIGN_TENANT_CONTENT:
-                issues.append(trust_issue)
             continue
 
         meta = question.metadata_json or {}
@@ -227,6 +225,9 @@ def seed_synthetic_question_pool(
             "jee_main_subject_code": subject.value,
             "official_topic_codes": algebra_codes if is_algebra else ["sets-relations-functions"],
             "derived_topic_groups": [DERIVED_TOPIC_ALGEBRA] if is_algebra else [],
+            "cognitive_level": "apply",
+            "competency_codes": ["knowledge"],
+            "primary_competency_code": "knowledge",
         }
         q = Question(
             external_code=f"d11-math-{index:03d}",

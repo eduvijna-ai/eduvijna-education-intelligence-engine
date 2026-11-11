@@ -30,6 +30,9 @@ from app.jee_main_exam_intelligence.enums import (
     PaperPlanVerdict,
 )
 from app.jee_main_exam_intelligence.exam_catalogue import get_exam_version
+from app.jee_main_exam_intelligence.paper_distribution_bridge import (
+    evaluate_plan_paper_distribution,
+)
 from app.jee_main_exam_intelligence.persistence import build_result_checksum
 from app.jee_main_exam_intelligence.question_pool import (
     assign_questions_to_slots,
@@ -304,6 +307,19 @@ def _plan_practice(
         verdict = PaperPlanVerdict.FAIL
     else:
         verdict = PaperPlanVerdict.PASS
+
+    dist_summary: dict[str, object] = {}
+    if verdict == PaperPlanVerdict.PASS:
+        dist_verdict, dist_issues, dist_summary = evaluate_plan_paper_distribution(
+            session,
+            request=request,
+            slots=filled,
+            execution_mode=request.execution_mode,
+        )
+        unique_issues.extend(dist_issues)
+        if dist_verdict != PaperPlanVerdict.PASS:
+            verdict = PaperPlanVerdict.FAIL
+
     return _result(
         request,
         verdict,
@@ -313,6 +329,7 @@ def _plan_practice(
         source_refs,
         blueprint_rule_ids=[],
         scoring_kwargs={},
+        extra_metadata={"paper_distribution": dist_summary} if dist_summary else {},
     )
 
 
@@ -326,6 +343,7 @@ def _result(
     *,
     blueprint_rule_ids: list[str],
     scoring_kwargs: dict[str, float],
+    extra_metadata: dict[str, object] | None = None,
 ) -> PaperPlanResult:
     requested = (
         request.requested_count
@@ -358,5 +376,6 @@ def _result(
         metadata_json={
             "authority_status": authority_status.value,
             "execution_mode": request.execution_mode.value,
+            **(extra_metadata or {}),
         },
     )
