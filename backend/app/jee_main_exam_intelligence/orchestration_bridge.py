@@ -6,14 +6,19 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
+from app.adapters.anythingllm.factory import build_anythingllm_adapter
+from app.adapters.anythingllm.protocol import AnythingLLMAdapter
+from app.adapters.anythingllm.types import AdapterError
 from app.common.trust_execution import TrustExecutionMode
+from app.core.config import get_settings
 from app.jee_main_exam_intelligence.blueprint_snapshot import VerifiedBlueprintSnapshot
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanSlot
 from app.jee_main_exam_intelligence.enums import (
     JeeMainQuestionTypeQuota,
+    JeeMainSubjectCode,
     PaperPlanIssueCode,
 )
+from app.jee_main_exam_intelligence.syllabus_mapping import resolve_topic_codes
 from app.jee_main_exam_intelligence.trusted_validation import (
     SYNTHETIC_JEE_MAIN_TRUST_TOKEN,
     synthetic_trust_permitted,
@@ -23,6 +28,7 @@ from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFI
 from app.models.education_intelligence import ValidationAuditRun
 from app.models.enums import QuestionStatus, QuestionType
 from app.models.question import Question, QuestionOption
+from app.orchestration.checkpoint import ManagedCheckpointer, build_managed_checkpointer
 from app.orchestration.contracts import (
     DraftQuestionItem,
     OrchestrationRequest,
@@ -30,8 +36,10 @@ from app.orchestration.contracts import (
     QuestionOptionDraft,
 )
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
+from app.orchestration.exceptions import OrchestrationConfigurationError
 from app.orchestration.factory import build_orchestration_service
 from app.orchestration.fixtures import build_day8_test_service, build_orchestration_request
+from app.orchestration.gateway.factory import build_generation_gateway
 from app.orchestration.gateway.protocol import GenerationGateway
 from app.orchestration.human_decision import HumanResumeDecision
 from app.orchestration.service import OrchestrationService
@@ -40,6 +48,30 @@ from app.root_cause_intelligence.day6_binding_verify import verify_production_da
 
 class OrchestrationScopeError(RuntimeError):
     """Production orchestration scope is incomplete."""
+
+
+_INJECT_KI_KEY = "eduvijna_pgc_test_inject_ki_adapter"
+_INJECT_CHECKPOINT_KEY = "eduvijna_pgc_test_inject_checkpointer"
+
+
+def _production_mcq_distinct_and_valid(options: list[QuestionOptionDraft]) -> str | None:
+    if len(options) < 4:
+        return None
+    texts = {o.text.strip().lower() for o in options}
+    if len(texts) < 4:
+        return None
+    correct = [o for o in options if o.is_correct]
+    if len(correct) != 1:
+        return None
+    return correct[0].option_key
+
+
+def _solver_agrees_with_mcq_answer(draft: DraftQuestionItem, answer_key: str) -> bool:
+    meta = draft.metadata_json or {}
+    proposed = meta.get("solver_proposed_answer_key") or meta.get("proposed_answer_key")
+    if proposed is None:
+        return True
+    return str(proposed).upper() == str(answer_key).upper()
 
 
 def _map_question_type(draft_type: str) -> tuple[str, JeeMainQuestionTypeQuota | None]:
@@ -52,13 +84,15 @@ def _map_question_type(draft_type: str) -> tuple[str, JeeMainQuestionTypeQuota |
 def _mcq_answer_valid(
     options: list[QuestionOptionDraft], *, execution_mode: TrustExecutionMode
 ) -> str | None:
-    min_options = 2 if synthetic_trust_permitted(execution_mode) else 4
-    if len(options) < min_options:
-        return None
-    correct = [o for o in options if o.is_correct]
-    if len(correct) != 1:
-        return None
-    return correct[0].option_key
+    if synthetic_trust_permitted(execution_mode):
+        min_options = 2
+        if len(options) < min_options:
+            return None
+        correct = [o for o in options if o.is_correct]
+        if len(correct) != 1:
+            return None
+        return correct[0].option_key
+    return _production_mcq_distinct_and_valid(options)
 
 
 def _numerical_answer_valid(draft: DraftQuestionItem) -> dict[str, Any] | None:
@@ -137,7 +171,7 @@ def acquire_orchestration_service(
     request: PaperPlanRequest,
     gateway: GenerationGateway,
 ) -> tuple[dict[str, str], OrchestrationService]:
-    """Fixture builder only for synthetic harness; production uses scoped factory wiring."""
+    """Synthetic harness uses Day8 fixture builder; production uses configured factories."""
     meta = request.metadata_json or {}
     if synthetic_trust_permitted(request.execution_mode):
         return build_day8_test_service(session, gateway=gateway, memory_checkpointer=True)
@@ -154,11 +188,39 @@ def acquire_orchestration_service(
     missing = [key for key in required if not scope_raw.get(key)]
     if missing:
         raise OrchestrationScopeError(f"orchestration_scope missing: {', '.join(missing)}")
+    if request.organization_id != scope_raw.get("organization_id"):
+        raise OrchestrationScopeError("organization scope mismatch")
+    for field in ("grade_year_code", "medium_code"):
+        if not scope_raw.get(field):
+            raise OrchestrationScopeError(f"orchestration_scope missing: {field}")
 
-    ki_adapter = session.info.get("eduvijna_jee_production_ki_adapter")
-    if ki_adapter is None:
-        ki_adapter = FakeAnythingLLMAdapter()
-        session.info["eduvijna_jee_production_ki_adapter"] = ki_adapter
+    settings = get_settings()
+    inject_ki = session.info.get(_INJECT_KI_KEY)
+    if inject_ki is not None:
+        ki_adapter: AnythingLLMAdapter = inject_ki
+    else:
+        try:
+            ki_adapter = build_anythingllm_adapter(settings, force_fake=False)
+        except AdapterError as exc:
+            raise OrchestrationConfigurationError(str(exc)) from exc
+
+    inject_checkpoint = session.info.get(_INJECT_CHECKPOINT_KEY)
+    managed: ManagedCheckpointer | None
+    if inject_checkpoint is not None:
+        managed = inject_checkpoint
+        memory_cp = False
+    else:
+        durable = bool(meta.get("orchestration_durable_checkpoint", True))
+        managed = build_managed_checkpointer(settings, memory_only=not durable)
+        memory_cp = not durable
+
+    gen_gateway = gateway
+    if gen_gateway is None:
+        try:
+            gen_gateway = build_generation_gateway(settings, force_fake=False)
+        except OrchestrationConfigurationError:
+            raise
+
     indexed: set[str] = session.info.setdefault("eduvijna_jee_production_ki_indexed", set())
     for rev_key in ("official_revision_id", "injection_revision_id"):
         rev_id = scope_raw.get(rev_key)
@@ -170,13 +232,15 @@ def acquire_orchestration_service(
                 retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
             )
             indexed.add(str(rev_id))
-    memory_cp = bool(meta.get("orchestration_memory_checkpoint", False))
+
     service = build_orchestration_service(
         session,
-        gateway=gateway,
+        settings,
+        gateway=gen_gateway,
         knowledge_adapter=ki_adapter,
+        checkpointer=managed,
         memory_checkpointer=memory_cp,
-        force_fake=True,
+        force_fake=None,
     )
     return dict(scope_raw), service
 
@@ -225,6 +289,11 @@ def persist_draft_items_as_jee_questions(
             continue
 
         if production:
+            if qtype_value == QuestionType.MULTIPLE_CHOICE.value:
+                answer_key = answer.get("correct_option")
+                if not answer_key or not _solver_agrees_with_mcq_answer(draft, str(answer_key)):
+                    issues.append(PaperPlanIssueCode.INVALID_ANSWER)
+                    continue
             trusted, trust_issue = _production_draft_trusted(
                 session,
                 draft=draft,
@@ -235,6 +304,9 @@ def persist_draft_items_as_jee_questions(
                 issues.append(trust_issue or PaperPlanIssueCode.INVALID_ANSWER)
                 continue
             day6_binding = lookup_day6_binding_for_item(session, draft.item_id) or {}
+            if not day6_binding:
+                issues.append(PaperPlanIssueCode.INVALID_ANSWER)
+                continue
         else:
             day6_binding = {}
 
@@ -296,6 +368,63 @@ def persist_draft_items_as_jee_questions(
         created.append(question)
     session.flush()
     return created, issues
+
+
+def build_jee_production_orchestration_request(
+    request: PaperPlanRequest,
+    scope: dict[str, str],
+    *,
+    shortage: int,
+    idempotency_key: str,
+    max_repairs: int = 2,
+) -> OrchestrationRequest:
+    meta = request.metadata_json or {}
+    subject = request.subject_code or JeeMainSubjectCode.MATHEMATICS
+    topic_codes, topic_issues = resolve_topic_codes(
+        subject_code=subject,
+        topic_code=request.topic_code,
+        derived_topic_group=request.derived_topic_group,
+    )
+    if topic_issues:
+        raise OrchestrationScopeError("unverified topic in production orchestration request")
+    revision_ids = list(meta.get("allowed_source_revision_ids") or [])
+    for key in ("official_revision_id", "injection_revision_id"):
+        rev = scope.get(key)
+        if rev and str(rev) not in revision_ids:
+            revision_ids.append(str(rev))
+    default_query = f"jee main {subject.value}"
+    if topic_codes:
+        default_query = f"{default_query} {' '.join(topic_codes)}"
+    retrieval_query = str(meta.get("retrieval_query") or default_query).strip()
+    return OrchestrationRequest(
+        idempotency_key=idempotency_key,
+        requested_count=min(shortage, 20),
+        curriculum_version_id=scope["curriculum_version_id"],
+        exam_version_id=scope.get("exam_version_id") or meta.get("exam_version_id"),
+        grade_year_code=str(scope["grade_year_code"]),
+        medium_code=str(scope["medium_code"]),
+        subject_code=subject.value,
+        topic_codes=topic_codes,
+        retrieval_profile_version=str(
+            scope.get("retrieval_profile_version") or DEFAULT_RETRIEVAL_PROFILE_VERSION
+        ),
+        retrieval_query=retrieval_query,
+        organization_id=scope["organization_id"],
+        institution_id=scope.get("institution_id") or request.institution_id,
+        marks=float(meta.get("marks") or 4),
+        max_repairs=max_repairs,
+        metadata_json={
+            "jee_plan_id": request.plan_id,
+            "jee_execution_mode": request.execution_mode.value,
+            "learning_outcome_ids": [scope["learning_outcome_id"]],
+            "allowed_source_revision_ids": revision_ids,
+            **(
+                {"fixture_scenario": str(meta["test_injected_generation_scenario"])}
+                if meta.get("test_injected_generation_scenario")
+                else {}
+            ),
+        },
+    )
 
 
 def build_jee_orchestration_request(
@@ -381,7 +510,7 @@ def fill_slots_via_orchestration(
 
     try:
         ctx, service = acquire_orchestration_service(session, request, gateway)
-    except OrchestrationScopeError:
+    except (OrchestrationScopeError, OrchestrationConfigurationError):
         issues.append(PaperPlanIssueCode.LIVE_GENERATION_NOT_CONFIGURED)
         return slots, issues, {"gateway_invoked": False, "orchestration_scope_error": True}
     if day8_ctx:
@@ -396,14 +525,23 @@ def fill_slots_via_orchestration(
     try:
         for batch_index in range(len(empty)):
             batch_idem = f"{idem}-slot-{batch_index:03d}"
-            orch_request = build_jee_orchestration_request(
-                request,
-                ctx,
-                shortage=1,
-                scenario=scenario,
-                idempotency_key=batch_idem[:128],
-                max_repairs=int(meta.get("max_repairs", 2)),
-            )
+            if synthetic_trust_permitted(request.execution_mode):
+                orch_request = build_jee_orchestration_request(
+                    request,
+                    ctx,
+                    shortage=1,
+                    scenario=scenario,
+                    idempotency_key=batch_idem[:128],
+                    max_repairs=int(meta.get("max_repairs", 2)),
+                )
+            else:
+                orch_request = build_jee_production_orchestration_request(
+                    request,
+                    ctx,
+                    shortage=1,
+                    idempotency_key=batch_idem[:128],
+                    max_repairs=int(meta.get("max_repairs", 2)),
+                )
             orch_result = _run_orchestration_batch(service, orch_request, request=request)
             last_run_id = orch_result.run_id
             last_status = orch_result.status

@@ -6,7 +6,9 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import app.models  # noqa: F401
+from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.common.trust_execution import TrustExecutionMode
+from app.core.config import Settings
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.jee_main_exam_intelligence.constants import JEE_MAIN_VERSION_2027
@@ -24,13 +26,16 @@ from app.jee_main_exam_intelligence.fixtures import (
 )
 from app.jee_main_exam_intelligence.generation import assemble_paper_with_persistence
 from app.jee_main_exam_intelligence.orchestration_bridge import (
+    _INJECT_CHECKPOINT_KEY,
+    _INJECT_KI_KEY,
     persist_draft_items_as_jee_questions,
 )
 from app.jee_main_exam_intelligence.service import JeeMainExamIntelligenceService
 from app.jee_main_exam_intelligence.source_authority import register_nta_2027_candidate_sources
 from app.models.question import TestDefinition as PersistedTestDefinition
+from app.orchestration.checkpoint import build_managed_checkpointer
 from app.orchestration.contracts import DraftQuestionItem, QuestionOptionDraft
-from app.orchestration.fixtures import build_day8_test_service
+from app.orchestration.fixtures import build_day8_test_service, seed_day8_fixtures
 from app.orchestration.gateway.fake import FakeGenerationGateway
 
 
@@ -98,8 +103,12 @@ def test_persist_rejects_invalid_mcq_without_placeholder_options() -> None:
 def test_production_live_gen_uses_factory_not_fixture_builder() -> None:
     with _memory_session() as session:
         gateway = FakeGenerationGateway()
-        day8, fixture_service = build_day8_test_service(session, gateway=gateway)
-        fixture_service.close()
+        ki = FakeAnythingLLMAdapter()
+        session.info[_INJECT_KI_KEY] = ki
+        session.info[_INJECT_CHECKPOINT_KEY] = build_managed_checkpointer(
+            Settings(database_url="sqlite:///:memory:"), memory_only=False
+        )
+        scope = seed_day8_fixtures(session, adapter=ki)
         register_nta_2027_candidate_sources(session)
         ensure_jee_main_exam_catalogue(session)
         session.commit()
@@ -107,15 +116,21 @@ def test_production_live_gen_uses_factory_not_fixture_builder() -> None:
             plan_id="prod-orch-path",
             exam_version_code=JEE_MAIN_VERSION_2027,
             mode=PaperPlanMode.PRACTICE_EXACT_COUNT,
-            organization_id=day8["organization_id"],
-            institution_id=day8["institution_id"],
+            organization_id=scope["organization_id"],
+            institution_id=scope["institution_id"],
             subject_code=JeeMainSubjectCode.MATHEMATICS,
+            topic_code="sets-relations-functions",
             requested_count=1,
             execution_mode=TrustExecutionMode.PRODUCTION,
             metadata_json={
                 "require_live_generation": True,
-                "orchestration_scope": day8,
+                "orchestration_scope": {
+                    **scope,
+                    "grade_year_code": "grade-8",
+                    "medium_code": "english",
+                },
                 "enforce_paper_distribution": False,
+                "retrieval_query": "jee sets relations",
             },
         )
         with mock.patch(
@@ -154,12 +169,14 @@ def test_human_review_resume_completes_without_extra_gateway_calls() -> None:
                 "enforce_paper_distribution": False,
             },
         )
-        before = len(gateway.call_history())
+        first_pass_calls = len(gateway.call_history())
         result = assemble_paper_with_persistence(session, req, gateway=gateway, persist=False)
-        after = len(gateway.call_history())
+        calls_after_assembly = len(gateway.call_history())
         assert result.verdict == PaperPlanVerdict.PASS
         assert result.actual_count == 1
-        assert after == before or after >= before
+        assemble_paper_with_persistence(session, req, gateway=gateway, persist=False)
+        assert len(gateway.call_history()) == calls_after_assembly
+        assert calls_after_assembly >= first_pass_calls
 
 
 def test_persistence_replay_survives_new_sqlalchemy_session() -> None:
