@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from sqlalchemy.orm import Session
 
 from app.common.trust_execution import TrustExecutionMode
@@ -30,7 +32,7 @@ def resolve_live_generation_gateway(
         return None
     inject = session.info.get(_INJECT_GATEWAY_KEY)
     if inject is not None:
-        return inject
+        return cast(GenerationGateway, inject)
     if request.execution_mode != TrustExecutionMode.PRODUCTION:
         return None
     try:
