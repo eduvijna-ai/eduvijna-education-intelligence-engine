@@ -35,6 +35,9 @@ def evaluate_plan_paper_distribution(
         return PaperPlanVerdict.PASS, issues, {}
 
     targets_cfg = meta.get("cognitive_targets") or []
+    competency_targets_cfg = meta.get("competency_targets") or []
+    if not targets_cfg and not competency_targets_cfg:
+        return PaperPlanVerdict.PASS, issues, {"skipped": "no_targets_configured"}
     competency_targets = meta.get("competency_targets") or []
     cognitive_targets = [
         DistributionTarget.model_validate(entry) for entry in targets_cfg

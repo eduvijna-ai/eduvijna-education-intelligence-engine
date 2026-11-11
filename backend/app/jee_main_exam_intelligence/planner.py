@@ -13,6 +13,8 @@ from app.jee_main_exam_intelligence.constants import (
     CANDIDATE_MARKS_INCORRECT,
     CANDIDATE_PAPER1_TOTAL_MARKS,
     CANDIDATE_PAPER1_TOTAL_QUESTIONS,
+    CANDIDATE_SECTION_A_MCQ,
+    CANDIDATE_SECTION_B_NUMERICAL,
     JEE_MAIN_EXAM_PACK_CODE,
 )
 from app.jee_main_exam_intelligence.contracts import (
@@ -162,7 +164,15 @@ def _plan_official_replica(
         expected_max = snapshot.total_marks
         blueprint_rule_ids = list(snapshot.blueprint_rule_ids)
 
-    slots, alloc_issues = allocate_full_replica_slots()
+    section_a = section_b = None
+    if production and snapshot is not None:
+        section_a, section_b = snapshot.section_a_mcq, snapshot.section_b_numerical
+    elif not production:
+        section_a, section_b = CANDIDATE_SECTION_A_MCQ, CANDIDATE_SECTION_B_NUMERICAL
+    slots, alloc_issues = allocate_full_replica_slots(
+        section_a_mcq=section_a,
+        section_b_numerical=section_b,
+    )
     issues.extend(alloc_issues)
     filled_slots: list[PaperPlanSlot] = []
     for subject in JeeMainSubjectCode:
@@ -308,11 +318,19 @@ def _plan_practice(
     else:
         verdict = PaperPlanVerdict.PASS
 
+    meta = request.metadata_json or {}
+    enforce_distribution = meta.get(
+        "enforce_paper_distribution",
+        meta.get("evaluate_paper_distribution", True),
+    )
     dist_summary: dict[str, object] = {}
-    if verdict == PaperPlanVerdict.PASS:
+    if verdict == PaperPlanVerdict.PASS and enforce_distribution:
+        dist_request = request.model_copy(
+            update={"metadata_json": {**meta, "evaluate_paper_distribution": True}}
+        )
         dist_verdict, dist_issues, dist_summary = evaluate_plan_paper_distribution(
             session,
-            request=request,
+            request=dist_request,
             slots=filled,
             execution_mode=request.execution_mode,
         )

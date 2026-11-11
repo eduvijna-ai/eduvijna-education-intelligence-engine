@@ -1,6 +1,6 @@
 # Day 11 — scope, implementation and evidence map
 
-**Status:** R2 final bounded pass (CI + D11-25/27 boundary), **not** Founder D11-36 signoff.
+**Status:** C1 Founder workstream handback (live orchestration fill + distribution defaults), **not** D11-36 signoff.
 **Founder authorization:** 2026-11-10 — “Approved to start cursor handoff.”
 **Branch:** `feature/day11-jee-main-exam-intelligence` (Draft PR #31 → `develop`).
 
@@ -36,9 +36,9 @@
 | D11-22 | Section/type quotas | `allocator.allocate_full_replica_slots` (60 MCQ / 15 numerical) | PASS |
 | D11-23 | Versioned marks and response rules | `blueprint_snapshot.load_verified_blueprint_for_version`, scoring canonical slot types | PARTIAL |
 | D11-24 | Bounded quota allocator | `allocator.py` | PASS |
-| D11-25 | Difficulty/cognitive/competency distribution | `paper_distribution_bridge.evaluate_plan_paper_distribution` + `test_day11_r2.py` | PARTIAL |
+| D11-25 | Difficulty/cognitive/competency distribution | Default enforce on practice; Day10 bridge + `test_day11_r2.py` / targets | PARTIAL |
 | D11-26 | Infeasible-constraint verdict | issue codes + adversarial tests | PARTIAL |
-| D11-27 | Reuse Day-8 LangGraph + AnythingLLM gateway | `live_generation.apply_live_generation_boundary` + idempotent `claim_idempotency`; slot-fill graph NOT COMPLETE | PARTIAL |
+| D11-27 | Reuse Day-8 LangGraph + AnythingLLM gateway | `orchestration_bridge.fill_slots_via_orchestration` + `test_day11_c1_live_generation.py` (FakeGenerationGateway) | PARTIAL |
 | D11-28 | Question/answer validity | `question_pool._answer_valid` | PARTIAL |
 | D11-29 | Repair and count invariants | count mismatch fail-closed; bounded repair not wired | PARTIAL |
 | D11-30 | Evidence and provenance in each item | question `metadata_json`, plan checksum | PARTIAL |

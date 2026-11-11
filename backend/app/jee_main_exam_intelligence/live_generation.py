@@ -4,19 +4,19 @@ from sqlalchemy.orm import Session
 
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanResult
 from app.jee_main_exam_intelligence.enums import PaperPlanIssueCode, PaperPlanVerdict
-from app.orchestration.contracts import OrchestrationRequest
+from app.jee_main_exam_intelligence.orchestration_bridge import fill_slots_via_orchestration
+from app.jee_main_exam_intelligence.planner import plan_paper
 from app.orchestration.exceptions import IdempotencyConflictError
 from app.orchestration.gateway.protocol import GenerationGateway
-from app.orchestration.idempotency import claim_idempotency
 
 
-def apply_live_generation_boundary(
+def complete_live_generation_plan(
     session: Session,
     request: PaperPlanRequest,
     result: PaperPlanResult,
     gateway: GenerationGateway | None,
 ) -> PaperPlanResult:
-    """D11-27–29: Day8 gateway boundary with idempotent claim before any model call."""
+    """D11-27–29: Day8 LangGraph fill for trusted pool shortages, then replan."""
     if not request.metadata_json.get("require_live_generation"):
         return result
 
@@ -35,7 +35,10 @@ def apply_live_generation_boundary(
             }
         )
 
-    if result.verdict == PaperPlanVerdict.PASS and result.actual_count == result.requested_count:
+    if (
+        result.verdict == PaperPlanVerdict.PASS
+        and result.actual_count == result.requested_count
+    ):
         return result.model_copy(
             update={
                 "metadata_json": {
@@ -46,29 +49,23 @@ def apply_live_generation_boundary(
             }
         )
 
-    raw = request.metadata_json.get("orchestration_request")
-    if not isinstance(raw, dict):
-        return result.model_copy(
-            update={
-                "verdict": PaperPlanVerdict.FAIL,
-                "issue_codes": list(
-                    dict.fromkeys(
-                        [
-                            *result.issue_codes,
-                            PaperPlanIssueCode.LIVE_GENERATION_NOT_CONFIGURED,
-                        ]
-                    )
-                ),
-                "metadata_json": {
-                    **(result.metadata_json or {}),
-                    "remaining_live_generation_gate": True,
-                },
-            }
-        )
+    shortage = max(0, (result.requested_count or 0) - result.actual_count)
+    if shortage <= 0 and result.slots:
+        shortage = len([s for s in result.slots if not s.question_id])
+    if shortage <= 0:
+        return result
 
-    orch_request = OrchestrationRequest.model_validate(raw)
+    day8_ctx_raw = request.metadata_json.get("day8_fixture_context")
+    day8_ctx = day8_ctx_raw if isinstance(day8_ctx_raw, dict) else None
+
     try:
-        terminal, run_id, status = claim_idempotency(session, orch_request)
+        _slots, fill_issues, audit = fill_slots_via_orchestration(
+            session,
+            request=request,
+            slots=result.slots,
+            gateway=gateway,
+            day8_ctx=day8_ctx,
+        )
     except IdempotencyConflictError:
         return result.model_copy(
             update={
@@ -84,14 +81,27 @@ def apply_live_generation_boundary(
             }
         )
 
+    session.flush()
+    replanned = plan_paper(session, request)
     meta = {
-        **(result.metadata_json or {}),
-        "generation_path": "day8_orchestration_boundary",
-        "orchestration_run_id": run_id,
-        "orchestration_status": status,
-        "gateway_invoked": status not in (None, "completed"),
-        "remaining_live_generation_gate": result.verdict != PaperPlanVerdict.PASS,
+        **(replanned.metadata_json or {}),
+        **audit,
+        "generation_path": "day8_orchestration",
+        "shortage_before_fill": shortage,
     }
-    if terminal is not None:
-        meta["orchestration_terminal_status"] = terminal.status.value
-    return result.model_copy(update={"metadata_json": meta})
+    issues = list(dict.fromkeys([*replanned.issue_codes, *fill_issues]))
+    return replanned.model_copy(
+        update={
+            "metadata_json": meta,
+            "issue_codes": issues,
+        }
+    )
+
+
+def apply_live_generation_boundary(
+    session: Session,
+    request: PaperPlanRequest,
+    result: PaperPlanResult,
+    gateway: GenerationGateway | None,
+) -> PaperPlanResult:
+    return complete_live_generation_plan(session, request, result, gateway)

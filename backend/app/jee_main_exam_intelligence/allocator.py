@@ -3,7 +3,6 @@ from __future__ import annotations
 from app.jee_main_exam_intelligence.constants import (
     CANDIDATE_SECTION_A_MCQ,
     CANDIDATE_SECTION_B_NUMERICAL,
-    CANDIDATE_SUBJECT_QUESTION_COUNT,
 )
 from app.jee_main_exam_intelligence.contracts import PaperPlanSlot
 from app.jee_main_exam_intelligence.enums import (
@@ -14,12 +13,20 @@ from app.jee_main_exam_intelligence.enums import (
 )
 
 
-def allocate_full_replica_slots() -> tuple[list[PaperPlanSlot], list[PaperPlanIssueCode]]:
+def allocate_full_replica_slots(
+    *,
+    section_a_mcq: int | None = None,
+    section_b_numerical: int | None = None,
+) -> tuple[list[PaperPlanSlot], list[PaperPlanIssueCode]]:
+    mcq_count = section_a_mcq if section_a_mcq is not None else CANDIDATE_SECTION_A_MCQ
+    numerical_count = (
+        section_b_numerical if section_b_numerical is not None else CANDIDATE_SECTION_B_NUMERICAL
+    )
     slots: list[PaperPlanSlot] = []
     issues: list[PaperPlanIssueCode] = []
     seq = 0
     for subject in JeeMainSubjectCode:
-        for _ in range(CANDIDATE_SECTION_A_MCQ):
+        for _ in range(mcq_count):
             seq += 1
             slots.append(
                 PaperPlanSlot(
@@ -29,7 +36,7 @@ def allocate_full_replica_slots() -> tuple[list[PaperPlanSlot], list[PaperPlanIs
                     question_type=JeeMainQuestionTypeQuota.MCQ,
                 )
             )
-        for _ in range(CANDIDATE_SECTION_B_NUMERICAL):
+        for _ in range(numerical_count):
             seq += 1
             slots.append(
                 PaperPlanSlot(
@@ -39,7 +46,7 @@ def allocate_full_replica_slots() -> tuple[list[PaperPlanSlot], list[PaperPlanIs
                     question_type=JeeMainQuestionTypeQuota.NUMERICAL,
                 )
             )
-    expected = CANDIDATE_SUBJECT_QUESTION_COUNT * len(JeeMainSubjectCode)
+    expected = (mcq_count + numerical_count) * len(JeeMainSubjectCode)
     if len(slots) != expected:
         issues.append(PaperPlanIssueCode.IMPOSSIBLE_QUOTA)
     return slots, issues
