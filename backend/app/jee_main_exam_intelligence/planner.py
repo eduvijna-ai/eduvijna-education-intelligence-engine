@@ -319,14 +319,21 @@ def _plan_practice(
         verdict = PaperPlanVerdict.PASS
 
     meta = request.metadata_json or {}
+    has_dist_targets = bool(meta.get("cognitive_targets") or meta.get("competency_targets"))
     enforce_distribution = meta.get(
         "enforce_paper_distribution",
-        meta.get("evaluate_paper_distribution", True),
+        bool(meta.get("evaluate_paper_distribution")) or has_dist_targets,
     )
     dist_summary: dict[str, object] = {}
-    if verdict == PaperPlanVerdict.PASS and enforce_distribution:
+    mandatory_distribution = bool(meta.get("mandatory_paper_distribution"))
+    if verdict == PaperPlanVerdict.PASS and (enforce_distribution or mandatory_distribution):
         dist_request = request.model_copy(
-            update={"metadata_json": {**meta, "evaluate_paper_distribution": True}}
+            update={
+                "metadata_json": {
+                    **meta,
+                    "evaluate_paper_distribution": True,
+                }
+            }
         )
         dist_verdict, dist_issues, dist_summary = evaluate_plan_paper_distribution(
             session,

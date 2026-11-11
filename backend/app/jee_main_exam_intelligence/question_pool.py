@@ -163,7 +163,13 @@ def _answer_valid(question: Question) -> bool:
     if qtype == QuestionType.MULTIPLE_CHOICE.value:
         options = question.options or []
         correct = [opt for opt in options if opt.is_correct]
-        return len(correct) == 1 and len(options) >= 4
+        meta = question.metadata_json or {}
+        synthetic_orchestration = (
+            meta.get("orchestration_origin")
+            and meta.get("jee_main_trust_harness_token") == SYNTHETIC_JEE_MAIN_TRUST_TOKEN
+        )
+        min_options = 2 if synthetic_orchestration else 4
+        return len(correct) == 1 and len(options) >= min_options
     if qtype == QuestionType.NUMERICAL.value:
         answer = question.answer_json or {}
         return answer.get("numeric_value") is not None

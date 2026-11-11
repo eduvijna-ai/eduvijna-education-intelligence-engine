@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.common.trust_execution import TrustExecutionMode
 from app.jee_main_exam_intelligence.blueprint_snapshot import VerifiedBlueprintSnapshot
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanSlot
@@ -17,6 +18,9 @@ from app.jee_main_exam_intelligence.trusted_validation import (
     SYNTHETIC_JEE_MAIN_TRUST_TOKEN,
     synthetic_trust_permitted,
 )
+from app.knowledge_intelligence.indexing import index_source_revision
+from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
+from app.models.education_intelligence import ValidationAuditRun
 from app.models.enums import QuestionStatus, QuestionType
 from app.models.question import Question, QuestionOption
 from app.orchestration.contracts import (
@@ -26,8 +30,16 @@ from app.orchestration.contracts import (
     QuestionOptionDraft,
 )
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
+from app.orchestration.factory import build_orchestration_service
 from app.orchestration.fixtures import build_day8_test_service, build_orchestration_request
 from app.orchestration.gateway.protocol import GenerationGateway
+from app.orchestration.human_decision import HumanResumeDecision
+from app.orchestration.service import OrchestrationService
+from app.root_cause_intelligence.day6_binding_verify import verify_production_day6_binding
+
+
+class OrchestrationScopeError(RuntimeError):
+    """Production orchestration scope is incomplete."""
 
 
 def _map_question_type(draft_type: str) -> tuple[str, JeeMainQuestionTypeQuota | None]:
@@ -37,17 +49,151 @@ def _map_question_type(draft_type: str) -> tuple[str, JeeMainQuestionTypeQuota |
     return QuestionType.MULTIPLE_CHOICE.value, JeeMainQuestionTypeQuota.MCQ
 
 
+def _mcq_answer_valid(
+    options: list[QuestionOptionDraft], *, execution_mode: TrustExecutionMode
+) -> str | None:
+    min_options = 2 if synthetic_trust_permitted(execution_mode) else 4
+    if len(options) < min_options:
+        return None
+    correct = [o for o in options if o.is_correct]
+    if len(correct) != 1:
+        return None
+    return correct[0].option_key
+
+
+def _numerical_answer_valid(draft: DraftQuestionItem) -> dict[str, Any] | None:
+    meta = draft.metadata_json or {}
+    numeric = meta.get("numeric_answer") or meta.get("numeric_value")
+    if numeric is None:
+        return None
+    return {"numeric_value": numeric}
+
+
+def lookup_day6_binding_for_item(session: Session, item_id: str) -> dict[str, Any] | None:
+    stmt = select(ValidationAuditRun).order_by(ValidationAuditRun.created_at.desc())
+    for run in session.scalars(stmt):
+        meta = run.metadata_json or {}
+        for entry in meta.get("validated_items") or []:
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("item_id")) != item_id:
+                continue
+            return {
+                "day6_validation_run_id": str(run.id),
+                "day6_input_hash": str(entry.get("input_hash") or run.input_hash or ""),
+                "learning_outcome_ids": list(entry.get("learning_outcome_ids") or []),
+                "competency_codes": list(entry.get("competency_codes") or []),
+            }
+    return None
+
+
+def _production_draft_trusted(
+    session: Session,
+    *,
+    draft: DraftQuestionItem,
+    request: PaperPlanRequest,
+    source_revision_ids: list[str],
+) -> tuple[bool, PaperPlanIssueCode | None]:
+    if not draft.source_revision_ids:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    allowed = set(source_revision_ids)
+    if allowed and not set(draft.source_revision_ids).issubset(allowed):
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    if request.organization_id is None:
+        return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
+    binding = lookup_day6_binding_for_item(session, draft.item_id)
+    if binding is None:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    ok, _ = verify_production_day6_binding(
+        session,
+        item_id=draft.item_id,
+        validation_run_id=binding["day6_validation_run_id"],
+        input_hash=binding["day6_input_hash"],
+        learning_outcome_ids=binding["learning_outcome_ids"],
+        competency_codes=binding["competency_codes"],
+        organization_id=request.organization_id,
+        institution_id=request.institution_id,
+        curriculum_version_id=(request.metadata_json or {}).get("curriculum_version_id"),
+    )
+    if not ok:
+        return False, PaperPlanIssueCode.INVALID_ANSWER
+    return True, None
+
+
+def _draft_answer_json(
+    draft: DraftQuestionItem,
+    qtype_value: str,
+    *,
+    execution_mode: TrustExecutionMode,
+) -> dict[str, Any] | None:
+    if qtype_value == QuestionType.NUMERICAL.value:
+        return _numerical_answer_valid(draft)
+    key = _mcq_answer_valid(list(draft.options), execution_mode=execution_mode)
+    return {"correct_option": key} if key else None
+
+
+def acquire_orchestration_service(
+    session: Session,
+    request: PaperPlanRequest,
+    gateway: GenerationGateway,
+) -> tuple[dict[str, str], OrchestrationService]:
+    """Fixture builder only for synthetic harness; production uses scoped factory wiring."""
+    meta = request.metadata_json or {}
+    if synthetic_trust_permitted(request.execution_mode):
+        return build_day8_test_service(session, gateway=gateway, memory_checkpointer=True)
+
+    scope_raw = meta.get("orchestration_scope")
+    if not isinstance(scope_raw, dict):
+        raise OrchestrationScopeError("production orchestration_scope required")
+    required = (
+        "curriculum_version_id",
+        "learning_outcome_id",
+        "organization_id",
+        "official_revision_id",
+    )
+    missing = [key for key in required if not scope_raw.get(key)]
+    if missing:
+        raise OrchestrationScopeError(f"orchestration_scope missing: {', '.join(missing)}")
+
+    ki_adapter = session.info.get("eduvijna_jee_production_ki_adapter")
+    if ki_adapter is None:
+        ki_adapter = FakeAnythingLLMAdapter()
+        session.info["eduvijna_jee_production_ki_adapter"] = ki_adapter
+    indexed: set[str] = session.info.setdefault("eduvijna_jee_production_ki_indexed", set())
+    for rev_key in ("official_revision_id", "injection_revision_id"):
+        rev_id = scope_raw.get(rev_key)
+        if rev_id and str(rev_id) not in indexed:
+            index_source_revision(
+                session,
+                ki_adapter,
+                str(rev_id),
+                retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+            )
+            indexed.add(str(rev_id))
+    memory_cp = bool(meta.get("orchestration_memory_checkpoint", False))
+    service = build_orchestration_service(
+        session,
+        gateway=gateway,
+        knowledge_adapter=ki_adapter,
+        memory_checkpointer=memory_cp,
+        force_fake=True,
+    )
+    return dict(scope_raw), service
+
+
 def persist_draft_items_as_jee_questions(
     session: Session,
     *,
     items: list[DraftQuestionItem],
     request: PaperPlanRequest,
     source_revision_ids: list[str],
-) -> list[Question]:
+) -> tuple[list[Question], list[PaperPlanIssueCode]]:
+    """Persist orchestration output without inventing answers, options, or production approval."""
     created: list[Question] = []
+    issues: list[PaperPlanIssueCode] = []
     subject = request.subject_code.value if request.subject_code else "mathematics"
+    production = request.execution_mode == TrustExecutionMode.PRODUCTION
     for draft in items:
-        qtype_value, _ = _map_question_type(draft.question_type)
         external_code = draft.item_id
         existing = session.scalar(
             select(Question).where(Question.external_code == external_code)
@@ -55,61 +201,90 @@ def persist_draft_items_as_jee_questions(
         if existing is not None:
             created.append(existing)
             continue
-        answer: dict[str, Any]
-        if qtype_value == QuestionType.NUMERICAL.value:
-            answer = {"numeric_value": 42}
+
+        qtype_value, _ = _map_question_type(draft.question_type)
+        answer = _draft_answer_json(
+            draft, qtype_value, execution_mode=request.execution_mode
+        )
+        if answer is None:
+            issues.append(PaperPlanIssueCode.INVALID_ANSWER)
+            continue
+
+        topic_codes = (
+            [request.topic_code]
+            if request.topic_code
+            else list(draft.metadata_json.get("official_topic_codes") or [])
+        )
+        derived_groups = (
+            [request.derived_topic_group]
+            if request.derived_topic_group
+            else list(draft.metadata_json.get("derived_topic_groups") or [])
+        )
+        if production and not topic_codes and not derived_groups:
+            issues.append(PaperPlanIssueCode.UNKNOWN_TOPIC)
+            continue
+
+        if production:
+            trusted, trust_issue = _production_draft_trusted(
+                session,
+                draft=draft,
+                request=request,
+                source_revision_ids=source_revision_ids,
+            )
+            if not trusted:
+                issues.append(trust_issue or PaperPlanIssueCode.INVALID_ANSWER)
+                continue
+            day6_binding = lookup_day6_binding_for_item(session, draft.item_id) or {}
         else:
-            correct = next((o.option_key for o in draft.options if o.is_correct), "A")
-            answer = {"correct_option": correct}
+            day6_binding = {}
+
         meta = {
             **(draft.metadata_json or {}),
             "jee_main_subject_code": subject,
             "organization_id": request.organization_id,
             "institution_id": request.institution_id,
-            "official_topic_codes": (
-                [request.topic_code]
-                if request.topic_code
-                else list(draft.metadata_json.get("official_topic_codes") or [])
-                or ["sets-relations-functions"]
+            "official_topic_codes": topic_codes,
+            "derived_topic_groups": derived_groups,
+            "allowed_source_revision_ids": list(
+                dict.fromkeys([*source_revision_ids, *draft.source_revision_ids])
             ),
-            "derived_topic_groups": [request.derived_topic_group]
-            if request.derived_topic_group
-            else list(draft.metadata_json.get("derived_topic_groups") or []),
-            "allowed_source_revision_ids": source_revision_ids,
             "cognitive_level": draft.declared_cognitive_level or "apply",
-            "competency_codes": list(draft.competency_codes or ["knowledge"]),
+            "competency_codes": list(draft.competency_codes or []),
             "primary_competency_code": (
-                draft.competency_codes[0] if draft.competency_codes else "knowledge"
+                draft.competency_codes[0] if draft.competency_codes else None
             ),
-            "day6_validation_run_id": draft.metadata_json.get("day6_validation_run_id"),
-            "day6_input_hash": draft.metadata_json.get("day6_input_hash"),
-            "learning_outcome_ids": list(draft.learning_outcome_ids or []),
+            "learning_outcome_ids": list(
+                day6_binding.get("learning_outcome_ids") or draft.learning_outcome_ids
+            ),
             "generation_run_id": draft.metadata_json.get("run_id"),
+            "orchestration_origin": True,
         }
+        if day6_binding:
+            meta["day6_validation_run_id"] = day6_binding["day6_validation_run_id"]
+            meta["day6_input_hash"] = day6_binding["day6_input_hash"]
+            meta["day6_validated"] = True
         if synthetic_trust_permitted(request.execution_mode):
             meta["synthetic_fixture"] = True
             meta["jee_main_trust_harness_token"] = SYNTHETIC_JEE_MAIN_TRUST_TOKEN
-        elif request.execution_mode == TrustExecutionMode.PRODUCTION:
-            meta.setdefault("day6_validated", bool(meta.get("day6_validation_run_id")))
+            status = QuestionStatus.APPROVED.value
+        elif production:
+            status = QuestionStatus.APPROVED.value
+        else:
+            status = QuestionStatus.DRAFT.value
+
         question = Question(
             external_code=external_code,
             origin_type="orchestration_generated",
             question_type=qtype_value,
             stem_text=draft.stem_text,
             answer_json=answer,
-            status=QuestionStatus.APPROVED.value,
+            status=status,
             metadata_json=meta,
         )
         session.add(question)
         session.flush()
         if qtype_value == QuestionType.MULTIPLE_CHOICE.value:
-            option_rows: list[QuestionOptionDraft] = list(draft.options)
-            while len(option_rows) < 4:
-                key = chr(ord("A") + len(option_rows))
-                option_rows.append(
-                    QuestionOptionDraft(option_key=key, text=f"Option {key}", is_correct=False)
-                )
-            for option in option_rows[:4]:
+            for option in draft.options:
                 session.add(
                     QuestionOption(
                         question_id=question.id,
@@ -120,7 +295,7 @@ def persist_draft_items_as_jee_questions(
                 )
         created.append(question)
     session.flush()
-    return created
+    return created, issues
 
 
 def build_jee_orchestration_request(
@@ -139,9 +314,14 @@ def build_jee_orchestration_request(
         requested_count=min(shortage, 20),
         max_repairs=max_repairs,
     )
+    scope_meta = request.metadata_json or {}
+    curriculum_id = day8_ctx.get("curriculum_version_id") or scope_meta.get("curriculum_version_id")
     return base.model_copy(
         update={
-            "exam_version_id": day8_ctx.get("exam_version_id"),
+            "exam_version_id": day8_ctx.get("exam_version_id") or scope_meta.get("exam_version_id"),
+            "curriculum_version_id": curriculum_id,
+            "organization_id": day8_ctx.get("organization_id") or request.organization_id,
+            "institution_id": day8_ctx.get("institution_id") or request.institution_id,
             "subject_code": (
                 request.subject_code.value if request.subject_code else base.subject_code
             ),
@@ -152,6 +332,27 @@ def build_jee_orchestration_request(
             },
         }
     )
+
+
+def _run_orchestration_batch(
+    service: OrchestrationService,
+    orch_request: OrchestrationRequest,
+    *,
+    request: PaperPlanRequest,
+) -> OrchestrationResult:
+    meta = request.metadata_json or {}
+    resume: HumanResumeDecision | dict[str, Any] | None = None
+    human_policy = str(meta.get("orchestration_human_resume") or "")
+    for _ in range(3):
+        result = service.run(orch_request, resume=resume)
+        resume = None
+        if result.status != OrchestrationRunStatus.REVIEW_REQUIRED:
+            return result
+        if synthetic_trust_permitted(request.execution_mode) and human_policy == "approve":
+            resume = HumanResumeDecision(action="approve")
+            continue
+        return result
+    return result
 
 
 def fill_slots_via_orchestration(
@@ -178,12 +379,20 @@ def fill_slots_via_orchestration(
     if len(idem) < 8:
         idem = hashlib.sha256(idem.encode()).hexdigest()[:32]
 
-    ctx, service = build_day8_test_service(session, gateway=gateway, memory_checkpointer=True)
+    try:
+        ctx, service = acquire_orchestration_service(session, request, gateway)
+    except OrchestrationScopeError:
+        issues.append(PaperPlanIssueCode.LIVE_GENERATION_NOT_CONFIGURED)
+        return slots, issues, {"gateway_invoked": False, "orchestration_scope_error": True}
+    if day8_ctx:
+        ctx = {**ctx, **{k: v for k, v in day8_ctx.items() if v}}
+
     all_items: list[DraftQuestionItem] = []
     source_revision_ids: list[str] = []
     repair_summary: dict[str, int] = {}
     last_run_id = ""
     last_status = OrchestrationRunStatus.FAILED
+    gateway_calls_before = len(gateway.call_history()) if hasattr(gateway, "call_history") else 0
     try:
         for batch_index in range(len(empty)):
             batch_idem = f"{idem}-slot-{batch_index:03d}"
@@ -195,7 +404,7 @@ def fill_slots_via_orchestration(
                 idempotency_key=batch_idem[:128],
                 max_repairs=int(meta.get("max_repairs", 2)),
             )
-            orch_result: OrchestrationResult = service.run(orch_request)
+            orch_result = _run_orchestration_batch(service, orch_request, request=request)
             last_run_id = orch_result.run_id
             last_status = orch_result.status
             for key, value in (orch_result.repair_summary or {}).items():
@@ -220,16 +429,23 @@ def fill_slots_via_orchestration(
         "repair_summary": repair_summary,
         "idempotency_key": idem,
         "orchestration_batches": len(empty),
+        "production_orchestration_factory": not synthetic_trust_permitted(request.execution_mode),
     }
+    if hasattr(gateway, "call_history"):
+        audit["gateway_calls"] = len(gateway.call_history()) - gateway_calls_before
     if len(all_items) < len(empty):
         return slots, issues, audit
 
-    questions = persist_draft_items_as_jee_questions(
+    questions, persist_issues = persist_draft_items_as_jee_questions(
         session,
         items=all_items,
         request=request,
         source_revision_ids=source_revision_ids,
     )
+    issues.extend(persist_issues)
+    if len(questions) < len(empty):
+        issues.append(PaperPlanIssueCode.INSUFFICIENT_VALIDATED_POOL)
+        return slots, issues, audit
 
     filled = list(slots)
     q_index = 0

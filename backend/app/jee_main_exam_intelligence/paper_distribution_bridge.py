@@ -31,12 +31,22 @@ def evaluate_plan_paper_distribution(
     """D11-25: Day10 cognitive/competency evaluator on assembled plan items."""
     issues: list[PaperPlanIssueCode] = []
     meta = request.metadata_json or {}
-    if not meta.get("evaluate_paper_distribution"):
-        return PaperPlanVerdict.PASS, issues, {}
-
     targets_cfg = meta.get("cognitive_targets") or []
     competency_targets_cfg = meta.get("competency_targets") or []
-    if not targets_cfg and not competency_targets_cfg:
+    has_targets = bool(targets_cfg or competency_targets_cfg)
+    should_evaluate = bool(meta.get("evaluate_paper_distribution"))
+    enforce = bool(meta.get("enforce_paper_distribution"))
+    mandatory = bool(meta.get("mandatory_paper_distribution"))
+    if not (should_evaluate or (enforce and has_targets) or mandatory):
+        return PaperPlanVerdict.PASS, issues, {}
+    if mandatory and not has_targets:
+        issues.append(PaperPlanIssueCode.IMPOSSIBLE_QUOTA)
+        return (
+            PaperPlanVerdict.FAIL,
+            issues,
+            {"reason": "mandatory_distribution_without_targets"},
+        )
+    if not has_targets:
         return PaperPlanVerdict.PASS, issues, {"skipped": "no_targets_configured"}
     competency_targets = meta.get("competency_targets") or []
     cognitive_targets = [
