@@ -37,6 +37,46 @@ class HistoricalFrequencyPrior(BaseModel):
     source_refs: list[str] = Field(default_factory=list)
 
 
+class HistoricalPaperDiscovery(BaseModel):
+    """Link-only NTA publication metadata, not approved question-level evidence."""
+
+    year: int
+    session: str
+    examination_date: str
+    shift: str
+    source_url: str
+    subject_codes: list[str]
+    status: str = "official_portal_link_discovered_pdf_not_curator_approved"
+    rights_status: str = "official_public_link_only_no_question_redistribution"
+
+
+# NTA's official JEE Main portal links to these nine April 2026 Paper-1 shifts.
+# Discovery is not source ingestion: SHA-256, original PDF review, answer-key
+# matching and topic adjudication must be completed before counting frequencies.
+# Link source: https://jeemain.nta.nic.in/ (Question Papers menu, 2026-11-12).
+OFFICIAL_2026_PAPER_DISCOVERY: list[HistoricalPaperDiscovery] = [
+    HistoricalPaperDiscovery(
+        year=2026,
+        session="session-2",
+        examination_date=day,
+        shift=shift,
+        source_url=url,
+        subject_codes=["mathematics", "physics", "chemistry"],
+    )
+    for day, shift, url in [
+        ("2026-04-02", "shift-1", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/202604092096865379.pdf"),
+        ("2026-04-02", "shift-2", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/20260409481957146.pdf"),
+        ("2026-04-04", "shift-1", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/202604091916616339.pdf"),
+        ("2026-04-04", "shift-2", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/20260409432593766.pdf"),
+        ("2026-04-05", "shift-1", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/20260409828731207.pdf"),
+        ("2026-04-05", "shift-2", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/20260409829414602.pdf"),
+        ("2026-04-06", "shift-1", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/202604092007095665.pdf"),
+        ("2026-04-06", "shift-2", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/20260409725707538.pdf"),
+        ("2026-04-08", "shift-2", "https://cdnbbsr.s3waas.gov.in/s3f8e59f4b2fe7c5705bf878bbd494ccdf/uploads/2026/04/20260409932754345.pdf"),
+    ]
+]
+
+
 # Lawful metadata-only inventory (no copyrighted paper text in Git).
 SYNTHETIC_HISTORICAL_INVENTORY: list[HistoricalPaperProvenance] = [
     HistoricalPaperProvenance(
@@ -70,5 +110,11 @@ def build_historical_analytics_report() -> dict[str, Any]:
     return {
         "inventory_count": len(SYNTHETIC_HISTORICAL_INVENTORY),
         "frequency_priors": [p.model_dump() for p in SYNTHETIC_FREQUENCY_PRIORS],
+        "official_2026_discovered_link_count": len(OFFICIAL_2026_PAPER_DISCOVERY),
+        "official_2026_discovered_links": [
+            item.model_dump(mode="json") for item in OFFICIAL_2026_PAPER_DISCOVERY
+        ],
+        "original_pdf_source_revisions_approved": 0,
+        "historical_topic_frequencies_verified": False,
         "mandatory_nta_quotas_invented": False,
     }
