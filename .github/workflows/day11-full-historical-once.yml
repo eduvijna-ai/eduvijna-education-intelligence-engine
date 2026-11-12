@@ -1,0 +1,41 @@
+name: Day11 Full Historical Regression (one-shot)
+
+on:
+  pull_request:
+    branches: [develop]
+    types: [synchronize]
+    paths:
+      - '.github/workflows/day11-full-historical-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  historical-pytest:
+    if: github.event.pull_request.head.ref == 'feature/day11-jee-main-exam-intelligence'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      EDUVIJNA_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout exact Day11 candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Verify exact candidate checkout
+        run: |
+          actual=$(git rev-parse HEAD)
+          echo "candidate_sha=$EDUVIJNA_CANDIDATE_SHA"
+          echo "checkout_sha=$actual"
+          test "$actual" = "$EDUVIJNA_CANDIDATE_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend
+        run: pip install -e '.[dev]'
+      - name: Full historical regression (all backend tests)
+        run: pytest -q tests/
