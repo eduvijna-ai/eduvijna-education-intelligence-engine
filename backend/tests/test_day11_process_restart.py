@@ -16,16 +16,27 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest
-from app.jee_main_exam_intelligence.enums import JeeMainSubjectCode, PaperPlanMode
+from app.jee_main_exam_intelligence.enums import (
+    JeeMainSubjectCode,
+    PaperPlanIssueCode,
+    PaperPlanMode,
+    PaperPlanVerdict,
+)
+from app.jee_main_exam_intelligence.fixtures import (
+    build_practice_math_ten_request,
+    seed_day11_fixture_context,
+)
 from app.jee_main_exam_intelligence.orchestration_bridge import (
     _production_trust_envelope_allowed,
     trust_envelope_from_orchestration_result,
 )
+from app.jee_main_exam_intelligence.service import JeeMainExamIntelligenceService
 from app.models.orchestration import (
     OrchestrationAuditEvent,
     OrchestrationGenerationCall,
     OrchestrationIdempotencyRecord,
 )
+from app.models.question import TestDefinition, TestQuestion
 from app.orchestration.checkpoint import build_managed_checkpointer
 from app.orchestration.contracts import OrchestrationRequest
 from app.orchestration.control_session import open_control_session
@@ -165,5 +176,89 @@ def test_day11_human_review_survives_independent_worker_process_restart() -> Non
         assert Path(str(database) + ".langgraph.sqlite").exists()
 
 
+
+def _paper_worker(db_path: Path, state_path: Path, phase: str) -> None:
+    """Verify persisted paper identity and idempotency across fresh processes."""
+    engine = create_engine(f"sqlite:///{db_path}")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        service = JeeMainExamIntelligenceService()
+        if phase == "paper-create":
+            ctx = seed_day11_fixture_context(session)
+            session.commit()
+            request = build_practice_math_ten_request(ctx).model_copy(
+                update={
+                    "plan_id": "day11-process-paper",
+                    "idempotency_key": "day11-process-paper-01",
+                }
+            )
+            result = service.plan_paper(session, request)
+            assert result.verdict == PaperPlanVerdict.PASS
+            assert result.actual_count == 10
+            session.commit()
+            assert result.test_definition_id is not None
+            assert _row_count(session, TestDefinition) == 1
+            assert _row_count(session, TestQuestion) == 10
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "request": request.model_dump(mode="json"),
+                        "test_definition_id": result.test_definition_id,
+                        "plan_checksum": result.plan_checksum,
+                        "question_ids": [s.question_id for s in result.slots],
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+        elif phase == "paper-replay":
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            request = PaperPlanRequest.model_validate(saved["request"])
+            before_definitions = _row_count(session, TestDefinition)
+            before_items = _row_count(session, TestQuestion)
+            result = service.plan_paper(session, request)
+            assert result.verdict == PaperPlanVerdict.PASS
+            assert result.test_definition_id == saved["test_definition_id"]
+            assert result.plan_checksum == saved["plan_checksum"]
+            assert [s.question_id for s in result.slots] == saved["question_ids"]
+            assert _row_count(session, TestDefinition) == before_definitions
+            assert _row_count(session, TestQuestion) == before_items
+            conflict_request = request.model_copy(update={"derived_topic_group": "algebra"})
+            conflict = service.plan_paper(session, conflict_request)
+            assert conflict.verdict == PaperPlanVerdict.FAIL
+            assert PaperPlanIssueCode.REPLAY_IDEMPOTENCY_CONFLICT in conflict.issue_codes
+            session.commit()
+            assert _row_count(session, TestDefinition) == before_definitions
+            assert _row_count(session, TestQuestion) == before_items
+        else:
+            raise AssertionError(f"unknown paper phase: {phase}")
+    engine.dispose()
+
+
+def test_day11_persisted_paper_replay_is_stable_across_worker_processes() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        database = root / "day11-paper.db"
+        state = root / "saved-paper.json"
+        for phase in ("paper-create", "paper-replay"):
+            completed = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()), str(database), str(state), phase],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=80,
+            )
+            assert completed.returncode == 0, (
+                f"Day11 {phase} process failed:\n"
+                f"stdout={completed.stdout[-2500:]}\n"
+                f"stderr={completed.stderr[-5000:]}"
+            )
+
+
+
 if __name__ == "__main__":
-    _worker(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+    if sys.argv[3].startswith("paper-"):
+        _paper_worker(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+    else:
+        _worker(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
