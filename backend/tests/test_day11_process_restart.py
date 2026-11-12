@@ -13,22 +13,22 @@ import app.models  # noqa: F401
 from app.adapters.anythingllm.fake_adapter import FakeAnythingLLMAdapter
 from app.common.trust_execution import TrustExecutionMode
 from app.core.config import Settings
+from app.db.base import Base
+from app.db.session import enable_sqlite_foreign_keys
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest
 from app.jee_main_exam_intelligence.enums import JeeMainSubjectCode, PaperPlanMode
 from app.jee_main_exam_intelligence.orchestration_bridge import (
     _production_trust_envelope_allowed,
     trust_envelope_from_orchestration_result,
 )
-from app.db.base import Base
-from app.db.session import enable_sqlite_foreign_keys
 from app.models.orchestration import (
     OrchestrationAuditEvent,
     OrchestrationGenerationCall,
     OrchestrationIdempotencyRecord,
 )
 from app.orchestration.checkpoint import build_managed_checkpointer
-from app.orchestration.control_session import open_control_session
 from app.orchestration.contracts import OrchestrationRequest
+from app.orchestration.control_session import open_control_session
 from app.orchestration.enums import OrchestrationRunStatus
 from app.orchestration.factory import build_orchestration_service
 from app.orchestration.fixtures import build_orchestration_request, seed_day8_fixtures
