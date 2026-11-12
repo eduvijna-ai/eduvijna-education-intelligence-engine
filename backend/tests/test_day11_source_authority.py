@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -18,12 +21,19 @@ from app.jee_main_exam_intelligence.exam_catalogue import (
     ensure_jee_main_exam_catalogue,
     get_exam_version,
 )
+from app.jee_main_exam_intelligence.fixtures import (
+    seed_day11_fixture_context,
+    synthetic_activate_nta_sources_for_harness,
+)
 from app.jee_main_exam_intelligence.historical_evidence import build_historical_analytics_report
 from app.jee_main_exam_intelligence.source_authority import (
+    _revision_is_production_nta_approved,
     evaluate_official_pattern_authority,
     register_nta_2027_candidate_sources,
 )
+from app.models.enums import SourceExtractionStatus, SourceIngestionMethod
 from app.models.examination import ExamBlueprintRule
+from app.models.source import SourceAuditEvent, SourceRevision
 
 
 def _session() -> Session:
@@ -127,3 +137,44 @@ def test_genuine_2026_national_testing_agency_links_are_discovery_only() -> None
     assert report["historical_topic_frequencies_verified"] is False
     assert report["original_pdf_source_revisions_approved"] == 0
     assert report["mandatory_nta_quotas_invented"] is False
+
+
+def test_pdf_metadata_and_fake_curator_fields_cannot_activate_json(tmp_path: Path) -> None:
+    with _session() as session:
+        ctx = seed_day11_fixture_context(session)
+        synthetic_activate_nta_sources_for_harness(
+            session, exam_version_id=ctx["exam_version_2027_id"], storage_root=tmp_path / "store"
+        )
+        session.flush()
+        candidates = session.scalars(select(SourceRevision)).all()
+        revision = next(
+            r for r in candidates
+            if (r.source.metadata_json or {}).get("eduvijna_source_code")
+            == NTA_2027_BULLETIN_SOURCE_CODE
+        )
+        revision.metadata_json = {
+            "page_locators": [{"page": 1, "section": "Paper 1"}],
+        }
+        revision.content_type = "application/pdf"
+        revision.ingestion_method = SourceIngestionMethod.PDF.value
+        revision.extraction_status = SourceExtractionStatus.SUCCEEDED.value
+        revision.validated_checksum = revision.checksum
+        revision.extracted_checksum = revision.checksum
+        revision.approved_by = "self-attested-curator"
+        revision.approved_at = datetime.now(UTC)
+        revision.activated_at = datetime.now(UTC)
+        revision.approval_fingerprint = "0" * 64
+        session.add(
+            SourceAuditEvent(
+                source_id=revision.source_id,
+                source_revision_id=revision.id,
+                event_type="source_approved",
+                outcome="success",
+                actor_id="self-attested-curator",
+                payload_json={},
+            )
+        )
+        session.flush()
+        assert not _revision_is_production_nta_approved(
+            session, revision, NTA_2027_BULLETIN_SOURCE_CODE
+        )
