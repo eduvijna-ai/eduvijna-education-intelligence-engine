@@ -32,7 +32,6 @@ from app.models.orchestration import OrchestrationIdempotencyRecord
 from app.models.question import Question, QuestionOption
 from app.orchestration.canonical_mapping import draft_to_canonical
 from app.orchestration.checkpoint import ManagedCheckpointer, build_managed_checkpointer
-from app.orchestration.control_session import open_control_session
 from app.orchestration.contracts import (
     DeterministicValidationSummary,
     DraftQuestionItem,
@@ -42,6 +41,7 @@ from app.orchestration.contracts import (
     ResolvedScope,
     SolverResult,
 )
+from app.orchestration.control_session import open_control_session
 from app.orchestration.enums import GenerationNodeRole, OrchestrationRunStatus
 from app.orchestration.exceptions import OrchestrationConfigurationError
 from app.orchestration.factory import build_orchestration_service
