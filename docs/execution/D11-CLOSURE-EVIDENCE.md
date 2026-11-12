@@ -54,3 +54,45 @@
 
 - No merge, `founder_approval: false`, Day12 locked until D11-36.
 - Founder authorization permits **work** on source tasks, not self-approval of NTA PDFs.
+
+
+## Chief Architect direct implementation (2026-11-12)
+
+**This is engineering/source-discovery progress, NOT D11-36 acceptance.** The
+Founder requested direct completion because Cursor is unavailable.
+
+| Area | Direct implementation | Evidence / limitation |
+|---|---|---|
+| Day8 production answer provenance (D11-09/28/30) | The Day11 trust envelope is now checked against a **completed persisted `OrchestrationIdempotencyRecord` and saved `OrchestrationResult`**, including the exact saved draft and solver/Day6 entries. Request-provided labels alone cannot impersonate a completed run. | `orchestration_bridge._production_trust_envelope_allowed`, targeted PGC02 tests; no claim that a generic JEE numerical solver is complete |
+| Test-harness separation | Deterministic trust-envelope bypass requires a **session-controlled test-only capability**, not merely a known metadata token in the request. | `_TEST_ENVELOPE_SESSION_FLAG`, PGC02 negative test |
+| Cross-tenant idempotency (D11-32) | An existing global `Question.external_code` must match tenant, exam version, question text, type, answer and options or it is rejected as a replay conflict. | `_existing_generated_question_matches`, collision regression |
+| Official blueprint integrity (D11-07/21/23) | Verified production snapshot now rejects any missing/duplicate subject-section rule, incomplete marking, absent pinned sources, inconsistent total, or unequal counts that the allocator cannot represent. It never substitutes candidate defaults. | `blueprint_snapshot.load_production_blueprint_snapshot`, synthetic test-only rule consistency regressions; real NTA approval still absent |
+| 2026 historical discovery (D11-14) | Nine NTA-linked April 2026 Paper-1 shift URLs are recorded without copying question text. | `historical_evidence.OFFICIAL_2026_PAPER_DISCOVERY`; status **LINK_DISCOVERED, not ORIGINAL_VERIFIED**; no hashes, rights clearance or topic counts |
+
+### Required non-delegable NTA curator evidence
+
+The official portal at https://jeemain.nta.nic.in/documents/ lists
+**Information Bulletin 2027** and **Syllabus 2027**, but the two candidate
+2027 PDF download URLs were not retrievable through the assistant's available
+PDF channels on 2026-11-12. **No original PDF bytes, SHA-256 checksum,
+publication/version text, page locators, or human curator signatures have
+been independently verified.** Do not set `approved_by`,
+`official_pattern_verified` or `verified_official` from this ledger.
+
+For each original document, an authorized person must obtain it from the
+official portal, run the existing `SourceIntelligenceService` PDF ingest,
+extraction, source diff and validation, review the actual extracted version and
+section locators, then perform *explicit* approve-and-activate actions with
+audited identity. Source checksum, source-diff, approval fingerprint and
+original storage bytes must be consistent. After that, pin the exact active
+revisions to the 2027 `ExamVersion` and review each versioned section rule.
+
+The nine 2026 paper links above require separate rights and original-file
+review before item-level tagging or statistical sampling. No 2027 examination
+shifts exist in November 2026, and historical topic weights must remain
+nonbinding until real paper-level evidence supports the counts.
+
+**Do not change task PASS counts or unlock production/Day12 on this basis.**
+A frozen-head full historical regression, live infrastructure/UAT evidence
+when available, full source-attested positive replica, independent final
+review and explicit Founder D11-36 approval remain required.
