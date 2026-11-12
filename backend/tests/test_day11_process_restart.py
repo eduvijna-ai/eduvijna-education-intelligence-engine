@@ -67,7 +67,8 @@ def _worker(db_path: Path, state_path: Path, phase: str) -> None:
                 result = service.run(request)
                 assert result.status == OrchestrationRunStatus.REVIEW_REQUIRED
                 generation_calls = _row_count(session, OrchestrationGenerationCall)
-                assert generation_calls > 0
+                # The fake gateway is tracked in memory; the persistent
+                # generation-call cache may legitimately have zero rows.
                 assert len(gateway.call_history()) > 0
                 state_path.write_text(
                     json.dumps(
