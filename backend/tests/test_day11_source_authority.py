@@ -19,6 +19,7 @@ from app.jee_main_exam_intelligence.exam_catalogue import (
     get_exam_version,
 )
 from app.models.examination import ExamBlueprintRule
+from app.jee_main_exam_intelligence.historical_evidence import build_historical_analytics_report
 from app.jee_main_exam_intelligence.source_authority import (
     evaluate_official_pattern_authority,
     register_nta_2027_candidate_sources,
@@ -109,3 +110,17 @@ def test_official_snapshot_rejects_mismatched_totals_and_unpinned_sources() -> N
         }
         session.flush()
         assert load_production_blueprint_snapshot(session, version) is None
+
+
+def test_genuine_2026_national_testing_agency_links_are_discovery_only() -> None:
+    report = build_historical_analytics_report()
+    papers = report["official_2026_discovered_links"]
+    assert report["official_2026_discovered_link_count"] == 9
+    assert len({entry["source_url"] for entry in papers}) == 9
+    assert all(entry["year"] == 2026 for entry in papers)
+    assert all(entry["status"].endswith("not_curator_approved") for entry in papers)
+    assert all(entry["source_url"].startswith("https://cdnbbsr.s3waas.gov.in/") for entry in papers)
+    assert all(entry["rights_status"] == "official_public_link_only_no_question_redistribution" for entry in papers)
+    assert report["historical_topic_frequencies_verified"] is False
+    assert report["original_pdf_source_revisions_approved"] == 0
+    assert report["mandatory_nta_quotas_invented"] is False
