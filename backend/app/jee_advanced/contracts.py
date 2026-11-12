@@ -111,6 +111,7 @@ class AdvancedPaperPlanResult(BaseModel):
     paper_codes: list[str]
     issue_codes: list[AdvancedIssueCode] = Field(default_factory=list)
     paper_checksums: dict[str, str] = Field(default_factory=dict)
+    paper_item_ids: dict[str, list[str]] = Field(default_factory=dict)
     origin_audit: dict[str, Any] = Field(default_factory=dict)
     result_fingerprint: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -14,10 +15,17 @@ class ScoreOutcome(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class SingleCorrectScoreRule:
+    correct_marks: float
+    incorrect_penalty: float
+
+
+@dataclass(frozen=True, slots=True)
 class MultiSelectScoreRule:
     full_marks: float
     partial_marks: float
     negative_marks: float
+    allow_proper_subset_partial: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,17 +36,29 @@ class NumericalScoreRule:
     significant_digits: int | None = None
 
 
+def validate_numerical_rule(rule: NumericalScoreRule) -> bool:
+    if not math.isfinite(rule.full_marks) or rule.full_marks < 0:
+        return False
+    if not math.isfinite(rule.negative_marks) or rule.negative_marks < 0:
+        return False
+    if not math.isfinite(rule.tolerance) or rule.tolerance < 0:
+        return False
+    if rule.significant_digits is not None and rule.significant_digits < 0:
+        return False
+    return True
+
+
 def score_single_correct(
     *,
     selected: str | None,
     correct: str,
-    rule_marks: float,
+    rule: SingleCorrectScoreRule,
 ) -> tuple[float, ScoreOutcome]:
     if selected is None or selected == "":
         return 0.0, ScoreOutcome.BLANK
     if selected == correct:
-        return rule_marks, ScoreOutcome.CORRECT
-    return -rule_marks, ScoreOutcome.INCORRECT
+        return rule.correct_marks, ScoreOutcome.CORRECT
+    return -rule.incorrect_penalty, ScoreOutcome.INCORRECT
 
 
 def score_multi_select(
@@ -51,10 +71,19 @@ def score_multi_select(
         return 0.0, ScoreOutcome.BLANK
     if selected == correct:
         return rule.full_marks, ScoreOutcome.CORRECT
-    if selected.issubset(correct) and selected:
+
+    wrong_options = selected - correct
+    if wrong_options:
+        return -rule.negative_marks, ScoreOutcome.INCORRECT
+
+    if (
+        rule.allow_proper_subset_partial
+        and selected
+        and selected.issubset(correct)
+        and selected != correct
+    ):
         return rule.partial_marks, ScoreOutcome.PARTIAL
-    if selected & correct:
-        return rule.partial_marks, ScoreOutcome.PARTIAL
+
     return -rule.negative_marks, ScoreOutcome.INCORRECT
 
 
@@ -64,9 +93,18 @@ def score_numerical(
     expected: float,
     rule: NumericalScoreRule,
 ) -> tuple[float, ScoreOutcome]:
+    if not validate_numerical_rule(rule):
+        return 0.0, ScoreOutcome.REVIEW_REQUIRED
     if submitted is None:
         return 0.0, ScoreOutcome.BLANK
-    if abs(submitted - expected) <= rule.tolerance:
+    if not math.isfinite(submitted) or not math.isfinite(expected):
+        return 0.0, ScoreOutcome.REVIEW_REQUIRED
+
+    rounded_submitted = submitted
+    if rule.significant_digits is not None:
+        rounded_submitted = round(submitted, rule.significant_digits)
+
+    if abs(rounded_submitted - expected) <= rule.tolerance:
         return rule.full_marks, ScoreOutcome.CORRECT
     return -rule.negative_marks, ScoreOutcome.INCORRECT
 

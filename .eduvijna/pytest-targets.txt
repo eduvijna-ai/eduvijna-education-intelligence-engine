@@ -70,3 +70,4 @@ tests/test_day12_m0_governance.py
 tests/test_day12_practice.py
 tests/test_day12_exam_profile.py
 tests/test_day12_adversarial.py
+tests/test_day12_scoring.py

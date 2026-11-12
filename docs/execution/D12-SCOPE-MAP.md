@@ -28,9 +28,9 @@
 | D12-19 | Topic-filtered practice | `backend/app/jee_advanced/practice_service.py` | PARTIAL | Synthetic Algebra×10; Eduvijna-derived topic group |
 | D12-20 | Paper 1 standalone planner | `backend/app/jee_advanced/planner.py` | NOT_STARTED | Authority shell only |
 | D12-21 | Paper 2 standalone planner | `backend/app/jee_advanced/planner.py` | NOT_STARTED | Authority shell only |
-| D12-22 | Two-paper combined simulation | `backend/app/jee_advanced/planner.py` | PARTIAL | Pair guard + synthetic checksums; `test_day12_adversarial.py` |
+| D12-22 | Two-paper combined simulation | `backend/app/jee_advanced/planner.py`, `synthetic_paper_assembly.py` | PARTIAL | Synthetic assembly with item IDs; full pair guard; `test_day12_adversarial.py` |
 | D12-23 | Evidence-backed answer families | — | NOT_STARTED | — |
-| D12-24 | Paper-/item-specific scoring rules | `backend/app/jee_advanced/scoring.py` | PARTIAL | MCQ/multi/numerical vectors; paper-specific pinning pending |
+| D12-24 | Paper-/item-specific scoring rules | `backend/app/jee_advanced/scoring.py` | PARTIAL | Multi-select wrong-extra fix; explicit MCQ penalty; `test_day12_scoring.py` |
 | D12-25 | Deterministic constrained allocator | — | NOT_STARTED | — |
 | D12-26 | Paper cognitive/competency review | — | NOT_STARTED | — |
 | D12-27 | Reuse Day8 AnythingLLM/LangGraph | — | NOT_STARTED | — |
@@ -41,7 +41,7 @@
 | D12-32 | Persist and replay two-paper TestDefinition | — | NOT_STARTED | — |
 | D12-33 | Synthetic reference fixtures | `backend/app/jee_advanced/synthetic_fixtures.py` | PARTIAL | Labelled pool; not two-paper full demo yet |
 | D12-34 | Adversarial acceptance suite | — | NOT_STARTED | — |
-| D12-35 | Day12 verifier and regression gates | `backend/app/day12_verify.py` | PARTIAL | Initial `--json` gates; full CI scope pending |
+| D12-35 | Day12 verifier and regression gates | `backend/app/day12_verify.py`, `.github/workflows/targeted-ci.yml` | PARTIAL | CI gate + nonzero exit; reference/2027 flags truthful |
 | D12-36 | Independent review and Founder signoff | — | NOT_STARTED | — |
 
 ## Acceptance rules

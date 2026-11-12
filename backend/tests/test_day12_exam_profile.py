@@ -1,12 +1,16 @@
-import app.models  # noqa: F401
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
+import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.jee_advanced.constants import JEE_ADVANCED_PACK_CODE, PAPER_1_CODE, PAPER_2_CODE
 from app.jee_advanced.enums import AdvancedProfileKind
-from app.jee_advanced.exam_profile import describe_exam_profile, ensure_exam_version, ensure_jee_advanced_exam_pack
+from app.jee_advanced.exam_profile import (
+    describe_exam_profile,
+    ensure_exam_version,
+    ensure_jee_advanced_exam_pack,
+)
 from app.models.examination import ExamPack, ExamSection
 
 
@@ -24,7 +28,9 @@ def test_d12_06_07_two_paper_pcm_hierarchy() -> None:
         )
         session.commit()
 
-        persisted_pack = session.scalar(select(ExamPack).where(ExamPack.code == JEE_ADVANCED_PACK_CODE))
+        persisted_pack = session.scalar(
+            select(ExamPack).where(ExamPack.code == JEE_ADVANCED_PACK_CODE)
+        )
         assert persisted_pack is not None
         assert persisted_pack.code == JEE_ADVANCED_PACK_CODE
 

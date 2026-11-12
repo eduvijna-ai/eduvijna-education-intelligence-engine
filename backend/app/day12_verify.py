@@ -110,18 +110,27 @@ def build_verification_report(session: Session) -> dict[str, object]:
         reference_sources_approved=False,
     )
 
+    pair_ok = (
+        pair_plan.verdict == AdvancedPlanVerdict.PASS
+        and not pair_plan.issue_codes
+        and pair_plan.metadata_json.get("assembly_mode") == "synthetic_assembled"
+    )
+    synthetic_ok = (
+        math10.verdict.value == "pass"
+        and math10.delivered_count == 10
+        and algebra10.verdict.value == "pass"
+        and algebra10.delivered_count == 10
+        and pair_ok
+    )
+
     return {
+        "ok": synthetic_ok,
         "candidate_sha": candidate_sha,
         "head_sha": head_sha,
         "sha_alignment": candidate_sha == head_sha,
         "governance": build_day12_governance_record(),
         "source_registry": build_source_registry_snapshot(),
-        "synthetic_fixture_pass": (
-            math10.verdict.value == "pass"
-            and math10.delivered_count == 10
-            and algebra10.verdict.value == "pass"
-            and algebra10.delivered_count == 10
-        ),
+        "synthetic_fixture_pass": synthetic_ok,
         "reference_2026_curator_approved": reference_evidence_ready(),
         "official_2027_approved": False,
         "official_2027_gate": {
@@ -134,6 +143,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
             "section_count": len(synthetic_version.sections),
         },
         "synthetic_pair_plan_verdict": pair_plan.verdict.value,
+        "synthetic_pair_assembled": pair_ok,
         "trust_separation": {
             "synthetic": JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE.value,
             "reference_2026": JeeAdvancedSourceTrustMode.HISTORICAL_REFERENCE_2026.value,
@@ -150,7 +160,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
     }
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Day 12 verification harness")
     parser.add_argument("--json", action="store_true", help="Emit JSON report")
     args = parser.parse_args()
@@ -164,8 +174,11 @@ def main() -> None:
     if args.json:
         print(json.dumps(report, indent=2, default=str))
     else:
+        print("Day 12 verification:", "PASS" if report.get("ok") else "FAIL")
         print(json.dumps(report, indent=2, default=str))
+
+    return 0 if report.get("ok") else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

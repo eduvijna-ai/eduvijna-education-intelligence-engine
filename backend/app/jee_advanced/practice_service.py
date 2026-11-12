@@ -27,6 +27,7 @@ from app.jee_advanced.scope_guard import (
 )
 from app.jee_advanced.source_registry import reference_evidence_ready
 from app.jee_advanced.synthetic_fixtures import SyntheticFixturePool, build_synthetic_fixture_pool
+from app.jee_advanced.trust_guard import validate_trust_coherence
 
 
 class JeeAdvancedPracticeService:
@@ -38,6 +39,20 @@ class JeeAdvancedPracticeService:
     def allocate_subject(self, request: SubjectPracticeRequest) -> SubjectPracticeResult:
         issues = list(validate_exam_pack_scope(request.exam_pack_code))
         issues.extend(validate_subject_scope(request.subject_code))
+        issues.extend(
+            validate_trust_coherence(
+                profile_kind=request.profile_kind,
+                trust_mode=request.trust_mode,
+                academic_year=request.metadata_json.get("academic_year", "2026"),
+            )
+        )
+        if issues:
+            return self._shortage_result_subject(
+                request,
+                verdict=AdvancedPlanVerdict.FAIL,
+                issues=issues,
+                delivered=[],
+            )
 
         if request.trust_mode is not JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE:
             needs_ref = request.profile_kind is AdvancedProfileKind.REFERENCE_2026
@@ -90,6 +105,25 @@ class JeeAdvancedPracticeService:
         issues.extend(
             validate_mathematics_topic(request.topic_group, subject_code=request.subject_code)
         )
+        issues.extend(
+            validate_trust_coherence(
+                profile_kind=request.profile_kind,
+                trust_mode=request.trust_mode,
+                academic_year=request.metadata_json.get("academic_year", "2026"),
+            )
+        )
+        if issues:
+            return TopicPracticeResult(
+                verdict=AdvancedPlanVerdict.FAIL,
+                subject_code=request.subject_code,
+                topic_group=request.topic_group,
+                requested_count=request.requested_count,
+                delivered_count=0,
+                questions=[],
+                issue_codes=issues,
+                trust_mode=request.trust_mode,
+                metadata_json={},
+            )
 
         if request.trust_mode is not JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE:
             return TopicPracticeResult(

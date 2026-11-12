@@ -1,6 +1,14 @@
-from app.jee_advanced.constants import EDUVIJNA_DERIVED_TOPIC_GROUP, JEE_ADVANCED_PACK_CODE, MATHEMATICS_SUBJECT
+from app.jee_advanced.constants import (
+    EDUVIJNA_DERIVED_TOPIC_GROUP,
+    JEE_ADVANCED_PACK_CODE,
+    MATHEMATICS_SUBJECT,
+)
 from app.jee_advanced.contracts import SubjectPracticeRequest, TopicPracticeRequest
-from app.jee_advanced.enums import AdvancedPlanVerdict, AdvancedProfileKind, JeeAdvancedSourceTrustMode
+from app.jee_advanced.enums import (
+    AdvancedPlanVerdict,
+    AdvancedProfileKind,
+    JeeAdvancedSourceTrustMode,
+)
 from app.jee_advanced.practice_service import JeeAdvancedPracticeService
 
 
@@ -50,3 +58,17 @@ def test_shortage_nine_of_ten_is_typed_shortage() -> None:
     )
     assert result.verdict == AdvancedPlanVerdict.SHORTAGE
     assert result.delivered_count < 25
+
+
+def test_trust_mismatch_rejects_historical_on_synthetic_profile() -> None:
+    svc = JeeAdvancedPracticeService()
+    result = svc.allocate_subject(
+        SubjectPracticeRequest(
+            exam_pack_code=JEE_ADVANCED_PACK_CODE,
+            profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+            trust_mode=JeeAdvancedSourceTrustMode.HISTORICAL_REFERENCE_2026,
+            subject_code=MATHEMATICS_SUBJECT,
+            requested_count=10,
+        )
+    )
+    assert result.verdict == AdvancedPlanVerdict.FAIL
