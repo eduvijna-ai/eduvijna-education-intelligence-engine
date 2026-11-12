@@ -49,3 +49,5 @@ class AdvancedIssueCode(StrEnum):
     EMPTY_PAPER_PLAN = "d12.paper.empty_plan"
     PAPER_QUOTA_SHORTAGE = "d12.paper.quota_shortage"
     MALFORMED_SCORING_RULE = "d12.scoring.malformed_rule"
+    INVALID_REQUESTED_COUNT = "d12.paper.invalid_requested_count"
+    COUNT_SURPLUS_REJECTED = "d12.paper.count_surplus"

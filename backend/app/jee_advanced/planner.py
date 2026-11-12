@@ -17,6 +17,7 @@ from app.jee_advanced.source_registry import reference_evidence_ready
 from app.jee_advanced.synthetic_paper_assembly import (
     assemble_synthetic_paper_items,
     paper_checksum_from_items,
+    validate_requested_counts,
 )
 from app.jee_advanced.trust_guard import validate_trust_coherence
 
@@ -134,7 +135,21 @@ class JeeAdvancedPaperPlanner:
                 phase="non_synthetic_placeholder",
             )
 
-        paper_items, assembly_issues = assemble_synthetic_paper_items(
+        count_issues = validate_requested_counts(
+            request.requested_counts,
+            paper_codes=papers,
+        )
+        if count_issues:
+            return self._result(
+                request,
+                verdict=AdvancedPlanVerdict.FAIL,
+                trust_mode=JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE,
+                paper_codes=papers,
+                issues=count_issues,
+                phase="invalid_requested_counts",
+            )
+
+        paper_items, assembly_issues, section_audit = assemble_synthetic_paper_items(
             paper_codes=papers,
             requested_counts=request.requested_counts or None,
         )
@@ -155,7 +170,7 @@ class JeeAdvancedPaperPlanner:
             )
 
         checksums = {
-            code: paper_checksum_from_items(code, ids) for code, ids in item_id_map.items()
+            code: paper_checksum_from_items(code, paper_items[code]) for code in papers
         }
         fingerprint = hashlib.sha256(
             json.dumps(checksums, sort_keys=True).encode()
@@ -172,8 +187,9 @@ class JeeAdvancedPaperPlanner:
             fingerprint=fingerprint,
             phase="synthetic_assembled",
             extra_metadata={
-                "assembly_mode": "synthetic_assembled",
+                "assembly_mode": "synthetic_assembled_pcm",
                 "demonstration_only": True,
+                "section_audit": section_audit,
             },
         )
 

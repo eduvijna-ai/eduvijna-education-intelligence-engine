@@ -41,6 +41,14 @@ def test_synthetic_full_pair_assembles_distinct_items() -> None:
     all_ids = [qid for ids in result.paper_item_ids.values() for qid in ids]
     assert len(all_ids) == len(set(all_ids))
     assert result.metadata_json.get("demonstration_only") is True
+    section = result.metadata_json.get("section_audit")
+    assert isinstance(section, dict)
+    for paper in (PAPER_1_CODE, PAPER_2_CODE):
+        audit = section[paper]
+        assert audit["delivered"] == 6
+        assert audit["subjects"]["physics"] == 2
+        assert audit["subjects"]["chemistry"] == 2
+        assert audit["subjects"]["mathematics"] == 2
 
 
 def test_invalid_paper_code_fails_not_pass() -> None:

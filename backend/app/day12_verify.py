@@ -34,6 +34,10 @@ from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanc
 from app.jee_advanced.governance import build_day12_governance_record
 from app.jee_advanced.planner import JeeAdvancedPaperPlanner
 from app.jee_advanced.practice_service import JeeAdvancedPracticeService
+from app.jee_advanced.source_lifecycle import (
+    register_discovery_sources,
+    sync_slot_evidence_from_session,
+)
 from app.jee_advanced.source_registry import (
     build_source_registry_snapshot,
     reference_evidence_ready,
@@ -85,6 +89,9 @@ def build_verification_report(session: Session) -> dict[str, object]:
         )
     )
 
+    register_discovery_sources(session)
+    sync_slot_evidence_from_session(session)
+
     pack = ensure_jee_advanced_exam_pack(session)
     synthetic_version = ensure_exam_version(
         session,
@@ -113,21 +120,23 @@ def build_verification_report(session: Session) -> dict[str, object]:
     pair_ok = (
         pair_plan.verdict == AdvancedPlanVerdict.PASS
         and not pair_plan.issue_codes
-        and pair_plan.metadata_json.get("assembly_mode") == "synthetic_assembled"
+        and pair_plan.metadata_json.get("assembly_mode") == "synthetic_assembled_pcm"
     )
+    sha_aligned = candidate_sha == head_sha and candidate_sha not in {"", "unknown"}
     synthetic_ok = (
         math10.verdict.value == "pass"
         and math10.delivered_count == 10
         and algebra10.verdict.value == "pass"
         and algebra10.delivered_count == 10
         and pair_ok
+        and sha_aligned
     )
 
     return {
         "ok": synthetic_ok,
         "candidate_sha": candidate_sha,
         "head_sha": head_sha,
-        "sha_alignment": candidate_sha == head_sha,
+        "sha_alignment": sha_aligned,
         "governance": build_day12_governance_record(),
         "source_registry": build_source_registry_snapshot(),
         "synthetic_fixture_pass": synthetic_ok,
