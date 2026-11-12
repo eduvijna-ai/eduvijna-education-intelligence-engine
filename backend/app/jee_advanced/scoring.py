@@ -63,6 +63,7 @@ def validate_multi_select_rule(rule: MultiSelectScoreRule, *, correct: set[str])
         and rule.full_marks >= 0
         and math.isfinite(rule.partial_marks)
         and rule.partial_marks >= 0
+        and rule.partial_marks <= rule.full_marks
         and math.isfinite(rule.negative_marks)
         and rule.negative_marks >= 0
     )
@@ -153,17 +154,36 @@ def score_numerical(
 def build_scoring_preview(
     rules: dict[str, Any],
     *,
+    session: Any | None = None,
     approved_source_revision_id: str | None = None,
     blueprint_rule_id: str | None = None,
+    exam_version_id: str | None = None,
 ) -> dict[str, Any]:
-    """Serialize scoring only when independently approved source evidence exists."""
+    """Serialize scoring; official pinning requires a session-bound attestation path."""
 
-    source_pinned = bool(
-        approved_source_revision_id and blueprint_rule_id and rules
-    )
+    from sqlalchemy.orm import Session
+
+    if (
+        session is not None
+        and isinstance(session, Session)
+        and approved_source_revision_id
+        and blueprint_rule_id
+        and rules
+    ):
+        from app.jee_advanced.source_attested_scoring import build_attested_scoring_preview
+
+        return build_attested_scoring_preview(
+            session,
+            rules=rules,
+            approved_source_revision_id=approved_source_revision_id,
+            blueprint_rule_id=blueprint_rule_id,
+            exam_version_id=exam_version_id,
+        )
+
     return {
         "rules": rules,
-        "source_pinned": source_pinned,
+        "source_pinned": False,
+        "demonstration_only": True,
         "approved_source_revision_id": approved_source_revision_id,
         "blueprint_rule_id": blueprint_rule_id,
     }

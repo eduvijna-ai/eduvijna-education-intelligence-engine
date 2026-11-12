@@ -73,3 +73,4 @@ tests/test_day12_adversarial.py
 tests/test_day12_scoring.py
 tests/test_day12_assembly.py
 tests/test_day12_verify_sha.py
+tests/test_day12_core.py

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy.orm import Session
+
 from app.jee_advanced.constants import VERSION_CANDIDATE_2027, VERSION_REFERENCE_2026
 from app.jee_advanced.enums import (
     AdvancedIssueCode,
@@ -9,6 +11,7 @@ from app.jee_advanced.enums import (
     AdvancedProfileKind,
     JeeAdvancedSourceTrustMode,
 )
+from app.jee_advanced.source_registry import reference_evidence_ready
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,9 +27,11 @@ def resolve_profile_authority(
     *,
     profile_kind: AdvancedProfileKind,
     academic_year: str,
-    reference_sources_approved: bool,
+    session: Session | None = None,
 ) -> ProfileAuthorityDecision:
     """D12-05: 2026 reference vs 2027 candidate authority (fail-closed)."""
+
+    reference_sources_approved = reference_evidence_ready(session)
 
     if profile_kind is AdvancedProfileKind.CANDIDATE_2027 or academic_year == "2027":
         return ProfileAuthorityDecision(

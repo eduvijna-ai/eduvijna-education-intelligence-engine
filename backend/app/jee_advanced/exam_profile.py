@@ -76,7 +76,7 @@ def ensure_exam_version(
         metadata_json={
             "profile_kind": profile_kind.value,
             "trust_mode": trust_mode,
-            "reference_sources_approved": reference_evidence_ready(),
+            "reference_sources_approved": reference_evidence_ready(session),
             "blueprint_counts_pinned": False,
             "note": "Per-paper question counts require approved paper-specific instructions.",
         },

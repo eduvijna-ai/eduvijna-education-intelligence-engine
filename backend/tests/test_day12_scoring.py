@@ -71,14 +71,22 @@ def test_significant_figures_not_decimal_places() -> None:
 
 
 def test_scoring_preview_requires_approved_source() -> None:
-    pinned = build_scoring_preview(
+    forged = build_scoring_preview(
         {"full_marks": 4},
         approved_source_revision_id="rev-1",
         blueprint_rule_id="rule-1",
     )
-    assert pinned["source_pinned"] is True
+    assert forged["source_pinned"] is False
+    assert forged["demonstration_only"] is True
     unpinned = build_scoring_preview({"full_marks": 4})
     assert unpinned["source_pinned"] is False
+
+
+def test_multi_select_partial_cannot_exceed_full() -> None:
+    from app.jee_advanced.scoring import validate_multi_select_rule
+
+    rule = MultiSelectScoreRule(full_marks=2.0, partial_marks=5.0, negative_marks=1.0)
+    assert validate_multi_select_rule(rule, correct={"A"}) is False
 
 
 def test_malformed_single_correct_rule_review() -> None:

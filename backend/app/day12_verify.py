@@ -114,7 +114,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
     official_2027 = resolve_profile_authority(
         profile_kind=AdvancedProfileKind.CANDIDATE_2027,
         academic_year="2027",
-        reference_sources_approved=False,
+        session=session,
     )
 
     pair_ok = (
@@ -138,9 +138,9 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "head_sha": head_sha,
         "sha_alignment": sha_aligned,
         "governance": build_day12_governance_record(),
-        "source_registry": build_source_registry_snapshot(),
+        "source_registry": build_source_registry_snapshot(session),
         "synthetic_fixture_pass": synthetic_ok,
-        "reference_2026_curator_approved": reference_evidence_ready(),
+        "reference_2026_curator_approved": reference_evidence_ready(session),
         "official_2027_approved": False,
         "official_2027_gate": {
             "verdict": official_2027.verdict.value if official_2027.verdict else None,

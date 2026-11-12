@@ -17,7 +17,6 @@ def test_d12_05_2027_fail_closed() -> None:
     decision = resolve_profile_authority(
         profile_kind=AdvancedProfileKind.CANDIDATE_2027,
         academic_year="2027",
-        reference_sources_approved=False,
     )
     assert decision.verdict == AdvancedPlanVerdict.OFFICIAL_PATTERN_NOT_VERIFIED
     assert not decision.allow_official_2027_replica
@@ -28,6 +27,5 @@ def test_reference_2026_without_curator_is_not_ready() -> None:
     decision = resolve_profile_authority(
         profile_kind=AdvancedProfileKind.REFERENCE_2026,
         academic_year="2026",
-        reference_sources_approved=False,
     )
     assert decision.verdict == AdvancedPlanVerdict.REFERENCE_NOT_VERIFIED

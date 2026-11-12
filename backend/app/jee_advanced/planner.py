@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from sqlalchemy.orm import Session
+
 from app.jee_advanced.authority import resolve_profile_authority
 from app.jee_advanced.constants import JEE_ADVANCED_PACK_CODE, PAPER_1_CODE, PAPER_2_CODE
 from app.jee_advanced.contracts import AdvancedPaperPlanRequest, AdvancedPaperPlanResult
@@ -55,7 +57,12 @@ def _normalize_paper_codes(
 class JeeAdvancedPaperPlanner:
     """D12-20..D12-22 planner — synthetic assembly with explicit demonstration item IDs."""
 
-    def plan(self, request: AdvancedPaperPlanRequest) -> AdvancedPaperPlanResult:
+    def plan(
+        self,
+        request: AdvancedPaperPlanRequest,
+        *,
+        session: Session | None = None,
+    ) -> AdvancedPaperPlanResult:
         issues = list(validate_exam_pack_scope(request.exam_pack_code))
         if request.exam_pack_code != JEE_ADVANCED_PACK_CODE:
             issues.append(AdvancedIssueCode.WRONG_EXAM_PACK)
@@ -71,7 +78,7 @@ class JeeAdvancedPaperPlanner:
         authority = resolve_profile_authority(
             profile_kind=request.profile_kind,
             academic_year=request.academic_year,
-            reference_sources_approved=reference_evidence_ready(),
+            session=session,
         )
 
         if authority.trust_mode != request.trust_mode and request.profile_kind in {
@@ -88,6 +95,7 @@ class JeeAdvancedPaperPlanner:
                 paper_codes=request.paper_codes,
                 issues=[*issues, *authority.issue_codes],
                 phase="authority_gate",
+                session=session,
             )
 
         papers = _normalize_paper_codes(request, issues)
@@ -99,6 +107,7 @@ class JeeAdvancedPaperPlanner:
                 paper_codes=[],
                 issues=issues,
                 phase="empty_paper_plan",
+                session=session,
             )
 
         if issues:
@@ -109,6 +118,7 @@ class JeeAdvancedPaperPlanner:
                 paper_codes=papers,
                 issues=issues,
                 phase="paper_validation",
+                session=session,
             )
 
         is_reference = request.profile_kind is AdvancedProfileKind.REFERENCE_2026
@@ -123,6 +133,7 @@ class JeeAdvancedPaperPlanner:
                     AdvancedIssueCode.BLUEPRINT_UNPINNED,
                 ],
                 phase="reference_gate",
+                session=session,
             )
 
         if request.profile_kind is not AdvancedProfileKind.SYNTHETIC_DEMO:
@@ -133,6 +144,7 @@ class JeeAdvancedPaperPlanner:
                 paper_codes=papers,
                 issues=[],
                 phase="non_synthetic_placeholder",
+                session=session,
             )
 
         count_issues = validate_requested_counts(
@@ -147,6 +159,7 @@ class JeeAdvancedPaperPlanner:
                 paper_codes=papers,
                 issues=count_issues,
                 phase="invalid_requested_counts",
+                session=session,
             )
 
         paper_items, assembly_issues, section_audit = assemble_synthetic_paper_items(
@@ -167,6 +180,7 @@ class JeeAdvancedPaperPlanner:
                 issues=all_issues,
                 paper_item_ids=item_id_map,
                 phase="synthetic_assembly_failed",
+                session=session,
             )
 
         checksums = {
@@ -191,6 +205,7 @@ class JeeAdvancedPaperPlanner:
                 "demonstration_only": True,
                 "section_audit": section_audit,
             },
+            session=session,
         )
 
     @staticmethod
@@ -202,6 +217,7 @@ class JeeAdvancedPaperPlanner:
         paper_codes: list[str],
         issues: list[AdvancedIssueCode],
         phase: str,
+        session: Session | None = None,
         paper_item_ids: dict[str, list[str]] | None = None,
         paper_checksums: dict[str, str] | None = None,
         fingerprint: str | None = None,
@@ -225,7 +241,7 @@ class JeeAdvancedPaperPlanner:
             paper_item_ids=paper_item_ids or {},
             paper_checksums=paper_checksums or {},
             origin_audit={
-                "reference_sources_approved": reference_evidence_ready(),
+                "reference_sources_approved": reference_evidence_ready(session),
                 "demonstration_only": metadata.get("demonstration_only", False),
             },
             result_fingerprint=fingerprint,

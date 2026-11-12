@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.jee_advanced.constants import (
     OFFICIAL_DISCOVERY_URLS,
     SOURCE_SLOT_BROCHURE,
@@ -13,6 +16,18 @@ from app.jee_advanced.constants import (
     SOURCE_SLOT_SYLLABUS,
 )
 from app.jee_advanced.enums import JeeAdvancedSourceTrustMode
+from app.models import Source, SourceRevision
+from app.models.enums import SourceRevisionStatus
+
+
+def _find_slot_source(session: Session, slot_id: str) -> Source | None:
+    candidates = session.scalars(
+        select(Source).where(Source.board_or_exam == "jee_advanced")
+    ).all()
+    for source in candidates:
+        if source.metadata_json.get("slot_id") == slot_id:
+            return source
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,34 +71,46 @@ JEE_ADVANCED_2026_SOURCE_SLOTS: tuple[SourceSlotDescriptor, ...] = (
     _slot(SOURCE_SLOT_KEY_PAPER2, "JEE Advanced 2026 final answer key Paper 2", "site_home"),
 )
 
-# Runtime overlay populated by Day3 lifecycle sync (never forge approval).
-_SLOT_RUNTIME: dict[str, dict[str, str | None]] = {}
+
+def reference_evidence_ready(session: Session | None = None) -> bool:
+    """True only when every required slot passes persisted authority checks."""
+
+    from app.jee_advanced.source_authority import reference_evidence_ready as _ready
+
+    return _ready(session)
 
 
-def apply_runtime_slot_evidence(evidence: dict[str, dict[str, str | None]]) -> None:
-    _SLOT_RUNTIME.clear()
-    _SLOT_RUNTIME.update(evidence)
-
-
-def reference_evidence_ready() -> bool:
-    """True only when every required slot has an approved revision (no fabricated approval)."""
-
-    for slot in JEE_ADVANCED_2026_SOURCE_SLOTS:
-        runtime = _SLOT_RUNTIME.get(slot.slot_id, {})
-        approved = runtime.get("approved_revision_id") or slot.approved_revision_id
-        if not approved:
-            return False
-    return True
-
-
-def build_source_registry_snapshot() -> dict[str, Any]:
+def build_source_registry_snapshot(session: Session | None = None) -> dict[str, Any]:
     """D12-02/03 staging metadata without claiming ingest or curator approval."""
 
+    from app.jee_advanced.source_authority import evaluate_reference_authority
+
+    authority = evaluate_reference_authority(session)
     slots: list[dict[str, Any]] = []
     for slot in JEE_ADVANCED_2026_SOURCE_SLOTS:
-        runtime = _SLOT_RUNTIME.get(slot.slot_id, {})
-        staged_sha = runtime.get("staged_sha256") or slot.staged_sha256
-        approved = runtime.get("approved_revision_id") or slot.approved_revision_id
+        slot_auth = next((s for s in authority.slots if s.slot_id == slot.slot_id), None)
+        approved = slot_auth.revision_id if slot_auth and slot_auth.trusted else None
+        staged_sha: str | None = None
+        source_id = slot_auth.source_id if slot_auth else None
+        if session is not None and slot_auth and slot_auth.revision_id:
+            revision = session.get(SourceRevision, slot_auth.revision_id)
+            if revision is not None:
+                staged_sha = revision.checksum
+        elif session is not None:
+            source = _find_slot_source(session, slot.slot_id)
+            if source is not None:
+                source_id = str(source.id)
+                revision = session.scalar(
+                    select(SourceRevision)
+                    .where(
+                        SourceRevision.source_id == source.id,
+                        SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
+                    )
+                    .order_by(SourceRevision.revision_number.desc())
+                )
+                if revision is not None:
+                    staged_sha = revision.checksum
+                    approved = None
         slots.append(
             {
                 "slot_id": slot.slot_id,
@@ -91,8 +118,9 @@ def build_source_registry_snapshot() -> dict[str, Any]:
                 "discovery_url": slot.discovery_url,
                 "staged_sha256": staged_sha,
                 "approved_revision_id": approved,
-                "source_id": runtime.get("source_id") or slot.source_id,
-                "status": "SOURCE_PENDING" if not approved else "APPROVED",
+                "source_id": source_id,
+                "status": "APPROVED" if approved else "SOURCE_PENDING",
+                "authority_issues": list(slot_auth.issues) if slot_auth else [],
             }
         )
 
@@ -100,5 +128,6 @@ def build_source_registry_snapshot() -> dict[str, Any]:
         "trust_boundary": "curator_approved_bytes_required_for_reference_replica",
         "slot_count": len(slots),
         "slots": slots,
-        "reference_evidence_ready": reference_evidence_ready(),
+        "reference_evidence_ready": authority.ready,
+        "authority_issues": list(authority.issues),
     }

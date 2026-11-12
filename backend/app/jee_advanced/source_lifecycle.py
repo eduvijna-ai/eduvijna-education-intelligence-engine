@@ -2,29 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.jee_advanced.constants import JEE_ADVANCED_AUTHORITY
-from app.jee_advanced.source_registry import (
-    JEE_ADVANCED_2026_SOURCE_SLOTS,
-    apply_runtime_slot_evidence,
-    reference_evidence_ready,
-)
-from app.models import Source, SourceRevision
-from app.models.enums import SourceRevisionStatus, SourceTrustTier, SourceType
+from app.jee_advanced.source_authority import evaluate_reference_authority
+from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS, _find_slot_source
+from app.models.enums import SourceTrustTier, SourceType
 from app.schemas.source_intelligence import SourceRegistrationInput
 from app.source_intelligence.service import SourceIntelligenceService
-
-
-def _find_slot_source(session: Session, slot_id: str) -> Source | None:
-    candidates = session.scalars(
-        select(Source).where(Source.board_or_exam == "jee_advanced")
-    ).all()
-    for source in candidates:
-        if source.metadata_json.get("slot_id") == slot_id:
-            return source
-    return None
 
 
 def register_discovery_sources(session: Session) -> list[str]:
@@ -69,36 +54,21 @@ def register_discovery_sources(session: Session) -> list[str]:
 
 
 def sync_slot_evidence_from_session(session: Session) -> dict[str, Any]:
-    """Read persisted revisions; record SHA only from stored bytes, not fabricated."""
+    """Read-only authority evaluation; does not cache approval in module globals."""
 
+    authority = evaluate_reference_authority(session)
     evidence: dict[str, dict[str, str | None]] = {}
-    for slot in JEE_ADVANCED_2026_SOURCE_SLOTS:
-        source = _find_slot_source(session, slot.slot_id)
-        if source is None:
-            evidence[slot.slot_id] = {
-                "source_id": None,
-                "staged_sha256": None,
-                "approved_revision_id": None,
-            }
-            continue
-
-        revision = session.scalar(
-            select(SourceRevision)
-            .where(
-                SourceRevision.source_id == source.id,
-                SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
-            )
-            .order_by(SourceRevision.revision_number.desc())
-        )
-        approved_id = str(revision.id) if revision is not None else None
-        evidence[slot.slot_id] = {
-            "source_id": str(source.id),
-            "staged_sha256": revision.checksum if revision else None,
-            "approved_revision_id": approved_id,
+    for slot_result in authority.slots:
+        evidence[slot_result.slot_id] = {
+            "source_id": slot_result.source_id,
+            "staged_sha256": None,
+            "approved_revision_id": (
+                slot_result.revision_id if slot_result.trusted else None
+            ),
+            "trusted": "true" if slot_result.trusted else "false",
         }
-
-    apply_runtime_slot_evidence(evidence)
     return {
         "slots_synced": len(evidence),
-        "reference_evidence_ready": reference_evidence_ready(),
+        "reference_evidence_ready": authority.ready,
+        "authority_issues": list(authority.issues),
     }
