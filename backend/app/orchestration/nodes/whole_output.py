@@ -168,6 +168,8 @@ def whole_output_node(
                 and eligible_count_meta == 0
                 and len(state.get("root_cause_results") or []) == 0
             ),
+            "deterministic_validation": list(state.get("deterministic_validation") or []),
+            "solver_results": list(state.get("solver_results") or []),
         },
     )
     return timed_update(

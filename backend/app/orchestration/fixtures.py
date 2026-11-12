@@ -148,6 +148,41 @@ def build_orchestration_request(
     )
 
 
+def _reload_day8_ctx_from_session(session: Session) -> dict[str, str]:
+    from sqlalchemy import select
+
+    from app.models import Institution, Organization
+    from app.models.curriculum import CurriculumVersion, LearningOutcome
+    from app.models.source import Source, SourceRevision
+
+    org = session.scalar(select(Organization).where(Organization.code == "ki-org-a"))
+    if org is None:
+        raise RuntimeError("day8_fixture_context_missing")
+    curriculum_version = session.scalar(select(CurriculumVersion).limit(1))
+    lo = session.scalar(select(LearningOutcome).limit(1))
+    inst = session.scalar(select(Institution).where(Institution.organization_id == org.id))
+    official = session.scalar(
+        select(SourceRevision)
+        .join(Source, SourceRevision.source_id == Source.id)
+        .where(Source.title == "Synthetic analytical reference")
+        .limit(1)
+    )
+    injection = session.scalar(
+        select(SourceRevision)
+        .join(Source, SourceRevision.source_id == Source.id)
+        .where(Source.title == "Synthetic injection sample")
+        .limit(1)
+    )
+    return {
+        "curriculum_version_id": curriculum_version.id if curriculum_version else "",
+        "learning_outcome_id": lo.id if lo else "",
+        "organization_id": org.id,
+        "institution_id": inst.id if inst else "",
+        "official_revision_id": official.id if official else "",
+        "injection_revision_id": injection.id if injection else "",
+    }
+
+
 def build_day8_test_service(
     session: Session,
     *,
@@ -156,8 +191,37 @@ def build_day8_test_service(
     force_fake: bool = True,
 ) -> tuple[dict[str, str], OrchestrationService]:
     """Seed fixtures and return a service sharing the same in-memory KI adapter."""
-    ki_adapter = FakeAnythingLLMAdapter()
-    ctx = seed_day8_fixtures(session, adapter=ki_adapter)
+    from sqlalchemy import select
+
+    from app.models import Organization
+
+    ki_adapter = session.info.get("eduvijna_day8_ki_adapter")
+    if ki_adapter is None:
+        ki_adapter = FakeAnythingLLMAdapter()
+        session.info["eduvijna_day8_ki_adapter"] = ki_adapter
+    existing = session.scalar(select(Organization).where(Organization.code == "ki-org-a"))
+    if existing is None:
+        ctx = seed_day8_fixtures(session, adapter=ki_adapter)
+        session.info["eduvijna_day8_ki_indexed"] = True
+    else:
+        ctx = _reload_day8_ctx_from_session(session)
+        if not session.info.get("eduvijna_day8_ki_indexed"):
+            if ctx.get("official_revision_id"):
+                index_source_revision(
+                    session,
+                    ki_adapter,
+                    ctx["official_revision_id"],
+                    retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+                )
+            if ctx.get("injection_revision_id"):
+                index_source_revision(
+                    session,
+                    ki_adapter,
+                    ctx["injection_revision_id"],
+                    retrieval_profile_version=DEFAULT_RETRIEVAL_PROFILE_VERSION,
+                )
+            session.info["eduvijna_day8_ki_indexed"] = True
+            session.flush()
     service = build_orchestration_service(
         session,
         gateway=gateway,
