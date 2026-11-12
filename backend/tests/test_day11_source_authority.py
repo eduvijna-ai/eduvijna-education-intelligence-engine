@@ -120,7 +120,10 @@ def test_genuine_2026_national_testing_agency_links_are_discovery_only() -> None
     assert all(entry["year"] == 2026 for entry in papers)
     assert all(entry["status"].endswith("not_curator_approved") for entry in papers)
     assert all(entry["source_url"].startswith("https://cdnbbsr.s3waas.gov.in/") for entry in papers)
-    assert all(entry["rights_status"] == "official_public_link_only_no_question_redistribution" for entry in papers)
+    assert all(
+        entry["rights_status"] == "official_public_link_only_no_question_redistribution"
+        for entry in papers
+    )
     assert report["historical_topic_frequencies_verified"] is False
     assert report["original_pdf_source_revisions_approved"] == 0
     assert report["mandatory_nta_quotas_invented"] is False
