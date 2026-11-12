@@ -2,7 +2,7 @@
 
 **Baseline HEAD (start):** `c962d4cafd7577b160f94b18883f7928a3d912f5`  
 **Matrix:** 13 PASS / 22 PARTIAL / 1 PENDING (D11-36)  
-**Updated:** 2026-11-11 — Milestone 0–1 in progress
+**Updated:** 2026-11-12 — targeted and prior full regression passed; original-source approval still pending
 
 ## Legend
 
@@ -19,7 +19,7 @@
 |----|----------|-------|---------|---------|
 | D11-27 | `live_generation.complete_live_generation_plan` pool-first before gateway; `gateway_resolve.resolve_live_generation_gateway` only on shortage | `test_live_generation_boundary_*`, `test_day11_pgc02_*` | PARTIAL | Live AnythingLLM not run |
 | D11-28 | `_production_independent_trust_ok` binds canonical hash + solver item_id; orchestration-only trust envelope | `test_production_persist_*` in PGC-01/02 | PARTIAL | General JEE solver; numerical fail-closed |
-| D11-29/32 | File checkpoint close/reopen HITL | `test_durable_hitl_reopens_*` | PARTIAL | Subprocess worker restart NOT RUN |
+| D11-29/32 | Separate-process SQLite checkpoint resume, no duplicate gateway calls, stable persisted 10-question paper/checksum across two Python workers | `tests/test_day11_process_restart.py` | PARTIAL | Live provider and PostgreSQL recovery not run |
 | D11-09/30 | Day6 + orchestration trust required for APPROVED | PGC-02 persist tests | PARTIAL | Day9 veto on generated boundary not fully evidenced |
 
 ## Milestone 2 — NTA 2027 source (SOURCE_PENDING until curator)
@@ -38,7 +38,7 @@
 | Item | Status |
 |------|--------|
 | 2027 historical exams | **N/A** (future vs 2026-11-11) |
-| Prior-year metadata | PARTIAL — synthetic inventory only until lawful ingest |
+| Prior-year metadata | PARTIAL — nine NTA 2026 Paper-1 shift links discovered; original PDFs, answers, rights and item-level tags not approved |
 | D11-14,15,16 | SOURCE_PENDING / PARTIAL |
 
 ## Milestone 5 — regression
@@ -46,7 +46,7 @@
 | Check | Status |
 |-------|--------|
 | Targeted `.eduvijna/pytest-targets.txt` | Run each closure push |
-| Full `pytest tests/` | **NOT RUN** until engineering+source gates ready |
+| Full `pytest tests/` | **PASS** [GitHub #43138935311](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/actions/runs/43138935311) at exact `9b7806de4a928af0d83f5c1f446c12d475f70368`; newer code still requires frozen-head recheck before D11-36 |
 | `day11_verify` | `synthetic_fixture_pass`; `official_2027_nta_approved: false` |
 | D11-36 | **PENDING** Founder signoff |
 
@@ -96,3 +96,13 @@ nonbinding until real paper-level evidence supports the counts.
 A frozen-head full historical regression, live infrastructure/UAT evidence
 when available, full source-attested positive replica, independent final
 review and explicit Founder D11-36 approval remain required.
+
+
+## Further Chief Architect review — 2026-11-12 (official source/constraint safeguards)
+
+- Verified practice-vs-replica behavior remains distinct; **real official NTA 2027 production replica remains blocked** without original curator-approved bulletin/syllabus.
+- D11-21 now loads only question-pool candidates bound to **pinned verified** source revisions. Missing/inconsistent bulletin+syllabus authority produces typed `OFFICIAL_SOURCE_NOT_VERIFIED`; it never selects unscoped questions just because the request omitted an allow-list.
+- A synthetic, test-only **78-question hypothetical blueprint** verifies that `requested_count` follows versioned approved rules rather than a hardcoded 75. This is expressly NOT an NTA 2027 pattern claim. Regression: `tests/test_day11_verified_replica_binding.py`.
+- D11-25/26: explicitly supplied cognitive/competency targets are always evaluated even when the caller supplies `enforce_paper_distribution: false`. The same guard is applied to the Day10 evaluator entry point; regression: `test_explicit_distribution_targets_cannot_be_disabled_by_false_flag`.
+- [Targeted PR CI #43148436965](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/actions/runs/43148436965) PASS at `f098ace689e953d04615feabaae103f854cbffc0` (Ruff, Mypy, configured tests, Day8–11 verifier). The prior full-regression success does not certify later untested future changes. One-shot full suite now runs only at final review readiness or manual dispatch, rather than on every Draft synchronization.
+- **No authentic NTA 2027 source hash, approval event, authorized official replica, numerical solution coverage or final Founder D11-36 approval has been supplied.**
