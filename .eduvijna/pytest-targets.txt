@@ -74,5 +74,6 @@ tests/test_day11_focused_repair.py
 tests/test_day11_pgc01_production_generation.py
 tests/test_day11_pgc02_production_generation.py
 tests/test_day11_process_restart.py
+tests/test_day11_verified_replica_binding.py
 tests/test_day7_retrieval.py
 tests/test_day7_lifecycle_governance.py
