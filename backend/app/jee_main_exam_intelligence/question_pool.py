@@ -67,7 +67,7 @@ def _trusts_item(
         return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
     if institution_id and meta.get("institution_id") != institution_id:
         return False, PaperPlanIssueCode.FOREIGN_TENANT_CONTENT
-    if exam_version_id and meta.get("exam_version_id") not in (None, exam_version_id):
+    if exam_version_id is None or meta.get("exam_version_id") != exam_version_id:
         return False, PaperPlanIssueCode.STALE_EXAM_VERSION
 
     item_id = question.external_code or question.id

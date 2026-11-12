@@ -239,9 +239,28 @@ def test_production_practice_ten_with_persisted_day6_binding() -> None:
             requested_count=10,
             execution_mode=TrustExecutionMode.PRODUCTION,
         )
-        result = JeeMainExamIntelligenceService().plan_paper(session, req, persist=False)
+        service = JeeMainExamIntelligenceService()
+        result = service.plan_paper(session, req, persist=False)
         assert result.verdict == PaperPlanVerdict.PASS
         assert result.actual_count == 10
+
+        # Removing the version binding from otherwise Day6-approved rows must
+        # not allow those rows into a different or unversioned paper.
+        approved = [
+            q for q in session.scalars(select(Question))
+            if (q.metadata_json or {}).get("jee_main_subject_code") == "mathematics"
+            and not (q.metadata_json or {}).get("synthetic_fixture")
+        ]
+        assert len(approved) == 10
+        for row in approved[:2]:
+            metadata = dict(row.metadata_json or {})
+            metadata.pop("exam_version_id", None)
+            row.metadata_json = metadata
+        session.commit()
+        rejected = service.plan_paper(session, req, persist=False)
+        assert rejected.verdict == PaperPlanVerdict.FAIL
+        assert rejected.actual_count < 10
+        assert PaperPlanIssueCode.COUNT_MISMATCH in rejected.issue_codes
 
 
 def test_explicit_distribution_targets_cannot_be_disabled_by_false_flag() -> None:

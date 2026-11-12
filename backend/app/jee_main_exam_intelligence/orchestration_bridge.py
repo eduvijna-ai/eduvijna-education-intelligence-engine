@@ -14,6 +14,7 @@ from app.common.trust_execution import TrustExecutionMode
 from app.core.config import get_settings
 from app.jee_main_exam_intelligence.blueprint_snapshot import VerifiedBlueprintSnapshot
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanSlot
+from app.jee_main_exam_intelligence.exam_catalogue import get_exam_version
 from app.jee_main_exam_intelligence.enums import (
     JeeMainQuestionTypeQuota,
     JeeMainSubjectCode,
@@ -395,6 +396,9 @@ def _existing_generated_question_matches(
             meta.get("organization_id") != request.organization_id,
             meta.get("institution_id") != request.institution_id,
             meta.get("exam_version_code") != request.exam_version_code,
+            meta.get("exam_version_id") != existing.exam_version_id
+            if request.execution_mode == TrustExecutionMode.PRODUCTION
+            else False,
             meta.get("jee_main_subject_code") != subject,
             existing.stem_text != draft.stem_text,
         )
@@ -429,6 +433,11 @@ def persist_draft_items_as_jee_questions(
     issues: list[PaperPlanIssueCode] = []
     subject = request.subject_code.value if request.subject_code else "mathematics"
     production = request.execution_mode == TrustExecutionMode.PRODUCTION
+    exam_version = get_exam_version(
+        session, pack_code=request.exam_pack_code, version_code=request.exam_version_code
+    )
+    if production and exam_version is None:
+        return [], [PaperPlanIssueCode.STALE_EXAM_VERSION]
     for draft in items:
         external_code = draft.item_id
         existing = session.scalar(
@@ -502,6 +511,7 @@ def persist_draft_items_as_jee_questions(
             **(draft.metadata_json or {}),
             "jee_main_subject_code": subject,
             "exam_version_code": request.exam_version_code,
+            "exam_version_id": exam_version.id if exam_version else None,
             "organization_id": request.organization_id,
             "institution_id": request.institution_id,
             "official_topic_codes": topic_codes,
@@ -536,6 +546,7 @@ def persist_draft_items_as_jee_questions(
         question = Question(
             external_code=external_code,
             origin_type="orchestration_generated",
+            exam_version_id=exam_version.id if production and exam_version else None,
             question_type=qtype_value,
             stem_text=draft.stem_text,
             answer_json=answer,
