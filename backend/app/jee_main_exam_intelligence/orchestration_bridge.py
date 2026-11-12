@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,6 +28,7 @@ from app.knowledge_intelligence.indexing import index_source_revision
 from app.knowledge_intelligence.retrieval_profile import DEFAULT_RETRIEVAL_PROFILE_VERSION
 from app.models.education_intelligence import ValidationAuditRun
 from app.models.enums import QuestionStatus, QuestionType
+from app.models.orchestration import OrchestrationIdempotencyRecord
 from app.models.question import Question, QuestionOption
 from app.orchestration.canonical_mapping import draft_to_canonical
 from app.orchestration.checkpoint import ManagedCheckpointer, build_managed_checkpointer
@@ -57,6 +59,7 @@ class OrchestrationScopeError(RuntimeError):
 
 _INJECT_KI_KEY = "eduvijna_pgc_test_inject_ki_adapter"
 _INJECT_CHECKPOINT_KEY = "eduvijna_pgc_test_inject_checkpointer"
+_TEST_ENVELOPE_SESSION_FLAG = "eduvijna_day11_test_trust_envelope_enabled"
 
 
 def _production_mcq_distinct_and_valid(options: list[QuestionOptionDraft]) -> str | None:
@@ -123,19 +126,49 @@ def _draft_canonical_input_hash(
 
 
 def _production_trust_envelope_allowed(
-    request: PaperPlanRequest, trust: dict[str, Any] | None
+    session: Session,
+    request: PaperPlanRequest,
+    draft: DraftQuestionItem,
+    trust: dict[str, Any] | None,
 ) -> bool:
+    """Authenticate orchestration evidence against its persisted terminal run.
+
+    The explicitly injected test envelope is available only in a trusted test
+    session; request metadata alone can never enable the bypass.
+    """
     if trust is None:
         return False
-    if trust.get("trust_source") == "orchestration_result" and trust.get(
-        "orchestration_run_id"
+    meta = request.metadata_json or {}
+    if (
+        session.info.get(_TEST_ENVELOPE_SESSION_FLAG) is True
+        and meta.get("deterministic_test_trust_harness") == SYNTHETIC_JEE_MAIN_TRUST_TOKEN
+        and meta.get("allow_test_trust_envelope") is True
     ):
         return True
-    meta = request.metadata_json or {}
-    return (
-        meta.get("deterministic_test_trust_harness") == SYNTHETIC_JEE_MAIN_TRUST_TOKEN
-        and meta.get("allow_test_trust_envelope") is True
+    run_id = trust.get("orchestration_run_id")
+    if trust.get("trust_source") != "orchestration_result" or not isinstance(run_id, str):
+        return False
+    if not run_id:
+        return False
+    record = session.scalar(
+        select(OrchestrationIdempotencyRecord).where(
+            OrchestrationIdempotencyRecord.run_id == run_id,
+            OrchestrationIdempotencyRecord.status == "completed",
+        )
     )
+    if record is None or not record.result_json:
+        return False
+    try:
+        stored = OrchestrationResult.model_validate(record.result_json)
+    except (ValidationError, TypeError, ValueError):
+        return False
+    if stored.run_id != run_id or stored.status != OrchestrationRunStatus.COMPLETED:
+        return False
+    saved_item = next((item for item in stored.items if item.item_id == draft.item_id), None)
+    if saved_item is None or saved_item.model_dump(mode="json") != draft.model_dump(mode="json"):
+        return False
+    recorded_envelope = trust_envelope_from_orchestration_result(stored).get(draft.item_id)
+    return recorded_envelope == trust
 
 
 def _production_independent_trust_ok(
@@ -148,7 +181,7 @@ def _production_independent_trust_ok(
     trust: dict[str, Any] | None,
     source_revision_ids: list[str],
 ) -> tuple[bool, PaperPlanIssueCode | None]:
-    if trust is None or not _production_trust_envelope_allowed(request, trust):
+    if trust is None or not _production_trust_envelope_allowed(session, request, draft, trust):
         return False, PaperPlanIssueCode.INVALID_ANSWER
     det_raw = trust.get("deterministic")
     solver_raw = trust.get("solver")
@@ -341,6 +374,42 @@ def acquire_orchestration_service(
     return dict(scope_raw), service
 
 
+def _existing_generated_question_matches(
+    existing: Question,
+    draft: DraftQuestionItem,
+    request: PaperPlanRequest,
+    subject: str,
+) -> bool:
+    """Never silently reuse a global external code for another paper or tenant."""
+    meta = existing.metadata_json or {}
+    if existing.status != QuestionStatus.APPROVED.value:
+        return False
+    if any(
+        (
+            meta.get("organization_id") != request.organization_id,
+            meta.get("institution_id") != request.institution_id,
+            meta.get("exam_version_code") != request.exam_version_code,
+            meta.get("jee_main_subject_code") != subject,
+            existing.stem_text != draft.stem_text,
+        )
+    ):
+        return False
+    if request.execution_mode == TrustExecutionMode.PRODUCTION and meta.get("synthetic_fixture"):
+        return False
+    qtype, _ = _map_question_type(draft.question_type)
+    if existing.question_type != qtype:
+        return False
+    expected_answer = _draft_answer_json(draft, qtype, execution_mode=request.execution_mode)
+    if expected_answer is None or existing.answer_json != expected_answer:
+        return False
+    if qtype == QuestionType.MULTIPLE_CHOICE.value:
+        stored = sorted((o.option_key, o.text, o.is_correct) for o in existing.options)
+        incoming = sorted((o.option_key, o.text, o.is_correct) for o in draft.options)
+        if stored != incoming:
+            return False
+    return True
+
+
 def persist_draft_items_as_jee_questions(
     session: Session,
     *,
@@ -360,7 +429,10 @@ def persist_draft_items_as_jee_questions(
             select(Question).where(Question.external_code == external_code)
         )
         if existing is not None:
-            created.append(existing)
+            if _existing_generated_question_matches(existing, draft, request, subject):
+                created.append(existing)
+            else:
+                issues.append(PaperPlanIssueCode.REPLAY_IDEMPOTENCY_CONFLICT)
             continue
 
         qtype_value, _ = _map_question_type(draft.question_type)
@@ -423,6 +495,7 @@ def persist_draft_items_as_jee_questions(
         meta = {
             **(draft.metadata_json or {}),
             "jee_main_subject_code": subject,
+            "exam_version_code": request.exam_version_code,
             "organization_id": request.organization_id,
             "institution_id": request.institution_id,
             "official_topic_codes": topic_codes,
