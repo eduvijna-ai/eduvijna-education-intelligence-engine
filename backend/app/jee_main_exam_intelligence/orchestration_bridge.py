@@ -32,6 +32,7 @@ from app.models.orchestration import OrchestrationIdempotencyRecord
 from app.models.question import Question, QuestionOption
 from app.orchestration.canonical_mapping import draft_to_canonical
 from app.orchestration.checkpoint import ManagedCheckpointer, build_managed_checkpointer
+from app.orchestration.control_session import open_control_session
 from app.orchestration.contracts import (
     DeterministicValidationSummary,
     DraftQuestionItem,
@@ -150,16 +151,21 @@ def _production_trust_envelope_allowed(
         return False
     if not run_id:
         return False
-    record = session.scalar(
-        select(OrchestrationIdempotencyRecord).where(
-            OrchestrationIdempotencyRecord.run_id == run_id,
-            OrchestrationIdempotencyRecord.status == "completed",
+    # Day8's file-backed SQLite control records live in a separate
+    # *.orchestration.sqlite database; the domain Session cannot read them.
+    # PostgreSQL uses a committed independent control transaction too.
+    with open_control_session(session) as control:
+        record = control.scalar(
+            select(OrchestrationIdempotencyRecord).where(
+                OrchestrationIdempotencyRecord.run_id == run_id,
+                OrchestrationIdempotencyRecord.status == "completed",
+            )
         )
-    )
-    if record is None or not record.result_json:
+        persisted_result = dict(record.result_json or {}) if record else None
+    if not persisted_result:
         return False
     try:
-        stored = OrchestrationResult.model_validate(record.result_json)
+        stored = OrchestrationResult.model_validate(persisted_result)
     except (ValidationError, TypeError, ValueError):
         return False
     if stored.run_id != run_id or stored.status != OrchestrationRunStatus.COMPLETED:
