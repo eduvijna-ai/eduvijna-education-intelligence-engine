@@ -19,15 +19,17 @@ from app.jee_main_exam_intelligence.constants import (
 from app.jee_main_exam_intelligence.contracts import OfficialSourceRegistrationRef
 from app.jee_main_exam_intelligence.enums import OfficialPatternAuthorityStatus
 from app.models.enums import (
+    SourceExtractionStatus,
     SourceIngestionMethod,
     SourceRevisionStatus,
     SourceTrustTier,
     SourceType,
 )
 from app.models.examination import ExamVersion
-from app.models.source import Source, SourceRevision
+from app.models.source import Source, SourceAuditEvent, SourceRevision
 from app.schemas.source_intelligence import SourceRegistrationInput
 from app.source_intelligence.service import SourceIntelligenceService
+from app.source_intelligence.storage import SourceStorageError
 
 _PDF_CONTENT_TYPES = {"application/pdf"}
 
@@ -82,7 +84,7 @@ def _revision_row(
     checksum = revision.checksum
     verified = False
     if production:
-        verified = _revision_is_production_nta_approved(revision, logical_code)
+        verified = _revision_is_production_nta_approved(session, revision, logical_code)
     else:
         verified = _revision_is_synthetic_demonstration(revision)
     return OfficialSourceRegistrationRef(
@@ -111,27 +113,82 @@ def _revision_is_synthetic_demonstration(revision: SourceRevision) -> bool:
     return False
 
 
-def _revision_is_production_nta_approved(revision: SourceRevision, logical_code: str) -> bool:
+def _revision_is_production_nta_approved(
+    session: Session, revision: SourceRevision, logical_code: str
+) -> bool:
+    """Prove real stored PDF bytes and an intact signed source lifecycle.
+
+    Metadata claims, a PDF MIME string or a curator name alone never activate
+    the production NTA exam blueprint.
+    """
     if revision.status != SourceRevisionStatus.ACTIVE.value:
         return False
     meta = revision.metadata_json or {}
     manual = meta.get("manual_metadata") or {}
     if meta.get("synthetic_nta_harness") or manual.get("synthetic_nta_harness"):
         return False
-    if revision.ingestion_method == SourceIngestionMethod.JSON.value:
+    if revision.ingestion_method in (
+        SourceIngestionMethod.JSON.value,
+        SourceIngestionMethod.MANUAL.value,
+    ):
         return False
     if revision.content_type not in _PDF_CONTENT_TYPES:
         return False
+    if revision.extraction_status != SourceExtractionStatus.SUCCEEDED.value:
+        return False
+    if not revision.storage_path or revision.byte_size <= 0:
+        return False
     source = revision.source
     source_meta = source.metadata_json or {}
-    if source_meta.get("eduvijna_source_code") != logical_code:
+    expected_type = (
+        SourceType.OFFICIAL_EXAM_BULLETIN.value
+        if logical_code == NTA_2027_BULLETIN_SOURCE_CODE
+        else SourceType.OFFICIAL_SYLLABUS.value
+    )
+    if (
+        source_meta.get("eduvijna_source_code") != logical_code
+        or source.source_type != expected_type
+        or source.trust_tier != SourceTrustTier.OFFICIAL_PRIMARY.value
+        or source.authority != "National Testing Agency"
+    ):
         return False
     locators = meta.get("page_locators") or manual.get("page_locators")
-    if not locators:
+    if not locators or not revision.approved_by or not revision.approved_at:
         return False
-    if not revision.approved_by:
+    if not revision.activated_at or not revision.approval_fingerprint:
         return False
-    return bool(revision.checksum)
+    if (
+        not revision.checksum
+        or revision.validated_checksum != revision.checksum
+        or revision.extracted_checksum != revision.checksum
+    ):
+        return False
+
+    # The original source lifecycle records an actual approval audit event.
+    approval = session.scalar(
+        select(SourceAuditEvent)
+        .where(
+            SourceAuditEvent.source_revision_id == revision.id,
+            SourceAuditEvent.event_type == "source_approved",
+            SourceAuditEvent.outcome == "success",
+            SourceAuditEvent.actor_id == revision.approved_by,
+        )
+        .order_by(SourceAuditEvent.created_at.desc())
+    )
+    if approval is None:
+        return False
+    service = SourceIntelligenceService(session)
+    try:
+        payload, checksum, intact = service._content_integrity(revision)
+        expected_fingerprint = service._approval_fingerprint(revision)
+    except (OSError, SourceStorageError, ValueError):
+        return False
+    return (
+        intact
+        and payload.startswith(b"%PDF-")
+        and checksum == revision.checksum
+        and revision.approval_fingerprint == expected_fingerprint
+    )
 
 
 def _candidate_url_for_code(logical_code: str) -> str:
