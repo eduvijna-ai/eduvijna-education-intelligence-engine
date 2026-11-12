@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import select
@@ -159,20 +160,54 @@ def load_validated_questions(
 
 
 def _answer_valid(question: Question) -> bool:
+    """Fail closed on inconsistent answers in *stored* paper-pool questions.
+
+    Day6 provenance alone cannot certify a malformed option/answer mapping.
+    This is a structural gate; independent academic solving remains separate.
+    """
     qtype = question.question_type
+    answer = question.answer_json or {}
     if qtype == QuestionType.MULTIPLE_CHOICE.value:
         options = question.options or []
-        correct = [opt for opt in options if opt.is_correct]
         meta = question.metadata_json or {}
         synthetic_orchestration = (
             meta.get("orchestration_origin")
             and meta.get("jee_main_trust_harness_token") == SYNTHETIC_JEE_MAIN_TRUST_TOKEN
+            and meta.get("synthetic_fixture") is True
         )
-        min_options = 2 if synthetic_orchestration else 4
-        return len(correct) == 1 and len(options) >= min_options
+        if synthetic_orchestration:
+            if len(options) < 2:
+                return False
+        elif len(options) != 4:
+            return False
+
+        keys = [str(option.option_key).strip().upper() for option in options]
+        texts = [str(option.text).strip().casefold() for option in options]
+        if (
+            any(not key for key in keys)
+            or any(not text for text in texts)
+            or len(keys) != len(set(keys))
+            or len(texts) != len(set(texts))
+        ):
+            return False
+        correct = [option for option in options if option.is_correct]
+        expected = answer.get("correct_option")
+        return (
+            len(correct) == 1
+            and isinstance(expected, str)
+            and expected.strip().upper() == str(correct[0].option_key).strip().upper()
+        )
+
     if qtype == QuestionType.NUMERICAL.value:
-        answer = question.answer_json or {}
-        return answer.get("numeric_value") is not None
+        numeric = answer.get("numeric_value")
+        if numeric is None or isinstance(numeric, bool):
+            return False
+        if not isinstance(numeric, (str, int, float, Decimal)):
+            return False
+        try:
+            return Decimal(str(numeric)).is_finite()
+        except (InvalidOperation, ValueError):
+            return False
     return False
 
 
