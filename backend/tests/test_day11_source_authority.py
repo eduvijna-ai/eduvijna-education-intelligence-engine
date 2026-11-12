@@ -18,12 +18,12 @@ from app.jee_main_exam_intelligence.exam_catalogue import (
     ensure_jee_main_exam_catalogue,
     get_exam_version,
 )
-from app.models.examination import ExamBlueprintRule
 from app.jee_main_exam_intelligence.historical_evidence import build_historical_analytics_report
 from app.jee_main_exam_intelligence.source_authority import (
     evaluate_official_pattern_authority,
     register_nta_2027_candidate_sources,
 )
+from app.models.examination import ExamBlueprintRule
 
 
 def _session() -> Session:
