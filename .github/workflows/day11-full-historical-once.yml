@@ -1,11 +1,12 @@
 name: Day11 Full Historical Regression (one-shot)
 
+# Run the expensive full suite only at the final review gate (or manually),
+# not on every synchronization of the existing Draft PR.
 on:
   pull_request:
     branches: [develop]
-    types: [synchronize]
-    paths:
-      - '.github/workflows/day11-full-historical-once.yml'
+    types: [ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read

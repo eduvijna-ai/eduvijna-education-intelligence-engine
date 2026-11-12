@@ -242,3 +242,27 @@ def test_production_practice_ten_with_persisted_day6_binding() -> None:
         result = JeeMainExamIntelligenceService().plan_paper(session, req, persist=False)
         assert result.verdict == PaperPlanVerdict.PASS
         assert result.actual_count == 10
+
+
+def test_explicit_distribution_targets_cannot_be_disabled_by_false_flag() -> None:
+    with _session() as session:
+        ctx = seed_day11_fixture_context(session)
+        session.commit()
+        req = build_practice_math_ten_request(ctx).model_copy(
+            update={
+                "metadata_json": {
+                    "enforce_paper_distribution": False,
+                    "evaluate_paper_distribution": False,
+                    "cognitive_targets": [
+                        {
+                            "dimension": "cognitive",
+                            "key": "remember",
+                            "exact_percent": 100.0,
+                        }
+                    ],
+                }
+            }
+        )
+        result = JeeMainExamIntelligenceService().plan_paper(session, req, persist=False)
+        assert result.verdict == PaperPlanVerdict.FAIL
+        assert PaperPlanIssueCode.COGNITIVE_DISTRIBUTION_VIOLATION in result.issue_codes

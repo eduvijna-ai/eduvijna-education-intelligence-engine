@@ -347,9 +347,13 @@ def _plan_practice(
 
     meta = request.metadata_json or {}
     has_dist_targets = bool(meta.get("cognitive_targets") or meta.get("competency_targets"))
-    enforce_distribution = meta.get(
-        "enforce_paper_distribution",
-        bool(meta.get("evaluate_paper_distribution")) or has_dist_targets,
+    # Targets supplied by the user are constraints, not optional
+    # diagnostics that a false enforcement flag can silently disable.
+    enforce_distribution = (
+        has_dist_targets
+        or bool(meta.get("mandatory_paper_distribution"))
+        or bool(meta.get("evaluate_paper_distribution"))
+        or bool(meta.get("enforce_paper_distribution"))
     )
     dist_summary: dict[str, object] = {}
     mandatory_distribution = bool(meta.get("mandatory_paper_distribution"))

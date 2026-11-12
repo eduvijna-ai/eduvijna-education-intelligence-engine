@@ -37,7 +37,9 @@ def evaluate_plan_paper_distribution(
     should_evaluate = bool(meta.get("evaluate_paper_distribution"))
     enforce = bool(meta.get("enforce_paper_distribution"))
     mandatory = bool(meta.get("mandatory_paper_distribution"))
-    if not (should_evaluate or (enforce and has_targets) or mandatory):
+    # Any explicit cognitive/competency target must be checked, regardless
+    # of a caller-supplied false enforcement flag.
+    if not (should_evaluate or has_targets or enforce or mandatory):
         return PaperPlanVerdict.PASS, issues, {}
     if mandatory and not has_targets:
         issues.append(PaperPlanIssueCode.IMPOSSIBLE_QUOTA)
