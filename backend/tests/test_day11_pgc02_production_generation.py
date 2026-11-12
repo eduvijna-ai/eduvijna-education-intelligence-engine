@@ -29,6 +29,7 @@ from app.jee_main_exam_intelligence.gateway_resolve import (
 from app.jee_main_exam_intelligence.orchestration_bridge import (
     _INJECT_CHECKPOINT_KEY,
     _INJECT_KI_KEY,
+    _TEST_ENVELOPE_SESSION_FLAG,
     _draft_canonical_input_hash,
     build_jee_production_orchestration_request,
     persist_draft_items_as_jee_questions,
@@ -36,7 +37,8 @@ from app.jee_main_exam_intelligence.orchestration_bridge import (
 from app.jee_main_exam_intelligence.service import JeeMainExamIntelligenceService
 from app.jee_main_exam_intelligence.source_authority import register_nta_2027_candidate_sources
 from app.jee_main_exam_intelligence.trusted_validation import SYNTHETIC_JEE_MAIN_TRUST_TOKEN
-from app.models.enums import QuestionStatus
+from app.models.enums import QuestionStatus, QuestionType
+from app.models.question import Question
 from app.orchestration.checkpoint import build_managed_checkpointer
 from app.orchestration.contracts import DraftQuestionItem, QuestionOptionDraft
 from app.orchestration.enums import OrchestrationRunStatus
@@ -53,7 +55,9 @@ def _file_session(db_path: Path) -> tuple[Session, str]:
     engine = create_engine(url)
     enable_sqlite_foreign_keys(engine)
     Base.metadata.create_all(engine)
-    return Session(engine), url
+    session = Session(engine)
+    session.info[_TEST_ENVELOPE_SESSION_FLAG] = True
+    return session, url
 
 
 def _four_options(correct: str = "B") -> list[QuestionOptionDraft]:
@@ -308,6 +312,22 @@ def test_production_persist_accepts_independent_solver_trust() -> None:
             input_hash=canonical,
         )
         session.commit()
+        # A request-provided label must not impersonate a persisted Day8 run.
+        session.info.pop(_TEST_ENVELOPE_SESSION_FLAG, None)
+        rejected, rejected_issues = persist_draft_items_as_jee_questions(
+            session,
+            items=[draft],
+            request=request,
+            source_revision_ids=[ctx["official_revision_id"]],
+            orchestration_trust=_production_trust(
+                item_id,
+                run_id=run_id,
+                input_hash=canonical,
+            ),
+        )
+        assert not rejected
+        assert PaperPlanIssueCode.INVALID_ANSWER in rejected_issues
+        session.info[_TEST_ENVELOPE_SESSION_FLAG] = True
         created, issues = persist_draft_items_as_jee_questions(
             session,
             items=[draft],
@@ -508,3 +528,52 @@ def test_durable_hitl_reopens_checkpointer_after_close() -> None:
         assert completed.status == OrchestrationRunStatus.COMPLETED
         assert completed.run_id == paused_run_id
         assert calls_after_resume == calls_at_pause
+
+
+def test_question_external_code_collision_cannot_reuse_foreign_content() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "pgc-global-code.db"
+        session, _ = _file_session(db)
+        try:
+            question = Question(
+                external_code="day11-global-collision",
+                origin_type="teacher",
+                question_type=QuestionType.MULTIPLE_CHOICE.value,
+                stem_text="Foreign organization question",
+                answer_json={"correct_option": "B"},
+                status=QuestionStatus.APPROVED.value,
+                metadata_json={
+                    "organization_id": "foreign-organization",
+                    "institution_id": "foreign-institution",
+                    "exam_version_code": JEE_MAIN_VERSION_2027,
+                    "jee_main_subject_code": "mathematics",
+                },
+            )
+            session.add(question)
+            session.flush()
+            draft = DraftQuestionItem(
+                item_id="day11-global-collision",
+                slot_index=0,
+                stem_text="Own organization question",
+                options=_four_options("B"),
+            )
+            req = PaperPlanRequest(
+                plan_id="collision",
+                exam_version_code=JEE_MAIN_VERSION_2027,
+                mode=PaperPlanMode.PRACTICE_EXACT_COUNT,
+                organization_id="own-organization",
+                institution_id="own-institution",
+                subject_code=JeeMainSubjectCode.MATHEMATICS,
+                requested_count=1,
+                execution_mode=TrustExecutionMode.SYNTHETIC_FIXTURE,
+            )
+            items, issues = persist_draft_items_as_jee_questions(
+                session,
+                items=[draft],
+                request=req,
+                source_revision_ids=[],
+            )
+            assert items == []
+            assert PaperPlanIssueCode.REPLAY_IDEMPOTENCY_CONFLICT in issues
+        finally:
+            session.close()
