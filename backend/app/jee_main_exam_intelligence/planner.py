@@ -164,6 +164,32 @@ def _plan_official_replica(
         expected_max = snapshot.total_marks
         blueprint_rule_ids = list(snapshot.blueprint_rule_ids)
 
+    # An official replica must select only questions bound to the accepted
+    # bulletin/syllabus revisions, even when the caller did not provide a
+    # source allow-list. Never silently switch to an unscoped question pool.
+    official_source_ids = list(request.allowed_source_revision_ids)
+    if production:
+        assert snapshot is not None
+        source_pin_ids = set(snapshot.source_revision_ids)
+        authority_ids = {
+            ref.revision_id
+            for ref in source_refs
+            if ref.revision_id is not None and ref.verified_for_official_pattern
+        }
+        if len(authority_ids) < 2 or not authority_ids.issubset(source_pin_ids):
+            issues.append(PaperPlanIssueCode.OFFICIAL_SOURCE_NOT_VERIFIED)
+            return _result(
+                request,
+                PaperPlanVerdict.FAIL,
+                [],
+                issues,
+                authority_status,
+                source_refs,
+                blueprint_rule_ids=blueprint_rule_ids,
+                scoring_kwargs={},
+            )
+        official_source_ids = sorted(source_pin_ids)
+
     section_a = section_b = None
     if production and snapshot is not None:
         section_a, section_b = snapshot.section_a_mcq, snapshot.section_b_numerical
@@ -190,7 +216,7 @@ def _plan_official_replica(
                 organization_id=request.organization_id,
                 institution_id=request.institution_id,
                 exam_version_id=exam_version_id,
-                allowed_source_revision_ids=request.allowed_source_revision_ids,
+                allowed_source_revision_ids=official_source_ids,
                 question_type_quota=qtype,
                 execution_mode=request.execution_mode,
             )
@@ -225,6 +251,7 @@ def _plan_official_replica(
             "marks_incorrect": marks_incorrect,
             "expected_maximum": expected_max,
         },
+        replica_requested_count=total_questions,
     )
 
 
@@ -369,11 +396,16 @@ def _result(
     blueprint_rule_ids: list[str],
     scoring_kwargs: dict[str, float],
     extra_metadata: dict[str, object] | None = None,
+    replica_requested_count: int | None = None,
 ) -> PaperPlanResult:
     requested = (
         request.requested_count
         if request.mode == PaperPlanMode.PRACTICE_EXACT_COUNT
-        else CANDIDATE_PAPER1_TOTAL_QUESTIONS
+        else (
+            replica_requested_count
+            if replica_requested_count is not None
+            else CANDIDATE_PAPER1_TOTAL_QUESTIONS
+        )
     )
     source_ids = [r.revision_id for r in source_refs if r.revision_id]
     checksum = build_result_checksum(
