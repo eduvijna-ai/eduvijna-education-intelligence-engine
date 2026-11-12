@@ -66,3 +66,11 @@ tests/test_day8_round3.py
 tests/test_day8_round4.py
 tests/test_day7_retrieval.py
 tests/test_day7_lifecycle_governance.py
+tests/test_day12_m0_governance.py
+tests/test_day12_practice.py
+tests/test_day12_exam_profile.py
+tests/test_day12_adversarial.py
+tests/test_day12_scoring.py
+tests/test_day12_assembly.py
+tests/test_day12_verify_sha.py
+tests/test_day12_core.py
