@@ -14,12 +14,12 @@ from app.common.trust_execution import TrustExecutionMode
 from app.core.config import get_settings
 from app.jee_main_exam_intelligence.blueprint_snapshot import VerifiedBlueprintSnapshot
 from app.jee_main_exam_intelligence.contracts import PaperPlanRequest, PaperPlanSlot
-from app.jee_main_exam_intelligence.exam_catalogue import get_exam_version
 from app.jee_main_exam_intelligence.enums import (
     JeeMainQuestionTypeQuota,
     JeeMainSubjectCode,
     PaperPlanIssueCode,
 )
+from app.jee_main_exam_intelligence.exam_catalogue import get_exam_version
 from app.jee_main_exam_intelligence.syllabus_mapping import resolve_topic_codes
 from app.jee_main_exam_intelligence.trusted_validation import (
     SYNTHETIC_JEE_MAIN_TRUST_TOKEN,
