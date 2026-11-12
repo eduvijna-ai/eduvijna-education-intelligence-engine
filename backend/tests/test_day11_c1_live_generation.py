@@ -159,6 +159,7 @@ def test_production_algebra_ten_with_day6_binding() -> None:
                     "jee_main_subject_code": "mathematics",
                     "organization_id": org,
                     "institution_id": inst,
+                    "exam_version_id": ctx["exam_version_2027_id"],
                     "official_topic_codes": algebra_codes,
                     "derived_topic_groups": [DERIVED_TOPIC_ALGEBRA],
                     "day6_validation_run_id": run_id,

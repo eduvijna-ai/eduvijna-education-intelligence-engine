@@ -404,6 +404,7 @@ def test_production_persist_rejects_forged_envelope_without_harness() -> None:
         db = Path(tmp) / "pgc02-forged.db"
         session, _ = _file_session(db)
         ctx = seed_day8_fixtures(session)
+        ensure_jee_main_exam_catalogue(session)
         session.commit()
         org = ctx["organization_id"]
         item_id = "pgc02-forged"
