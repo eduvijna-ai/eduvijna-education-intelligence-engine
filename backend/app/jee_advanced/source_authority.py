@@ -7,15 +7,49 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.jee_advanced.constants import (
+    JEE_ADVANCED_AUTHORITY,
+    SOURCE_SLOT_BROCHURE,
+    SOURCE_SLOT_KEY_PAPER1,
+    SOURCE_SLOT_KEY_PAPER2,
+    SOURCE_SLOT_PAPER1,
+    SOURCE_SLOT_PAPER2,
+    SOURCE_SLOT_SYLLABUS,
+)
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS
+from app.jee_advanced.source_storage import metadata_marks_synthetic, official_source_storage
 from app.models import Source, SourceAuditEvent, SourceRevision
-from app.models.enums import SourceExtractionStatus, SourceRevisionStatus, SourceStatus
+from app.models.enums import (
+    SourceExtractionStatus,
+    SourceRevisionStatus,
+    SourceStatus,
+    SourceTrustTier,
+    SourceType,
+)
 from app.source_intelligence.approval_fingerprint import (
     compute_revision_approval_fingerprint,
     verify_revision_stored_source_snapshot_checksum,
 )
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
+
+_SLOT_SOURCE_TYPE: dict[str, SourceType] = {
+    SOURCE_SLOT_BROCHURE: SourceType.OFFICIAL_EXAM_BULLETIN,
+    SOURCE_SLOT_SYLLABUS: SourceType.OFFICIAL_SYLLABUS,
+    SOURCE_SLOT_PAPER1: SourceType.OFFICIAL_PAPER,
+    SOURCE_SLOT_PAPER2: SourceType.OFFICIAL_PAPER,
+    SOURCE_SLOT_KEY_PAPER1: SourceType.ANSWER_KEY,
+    SOURCE_SLOT_KEY_PAPER2: SourceType.ANSWER_KEY,
+}
+
+_UNAUTHORIZED_APPROVER_SUBSTRINGS = (
+    "test",
+    "fixture",
+    "synthetic",
+    "engineer",
+    "founder-curator",
+    "cursor",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,8 +89,8 @@ def _active_revision(session: Session, source_id: str) -> SourceRevision | None:
     )
 
 
-def _has_curator_approve_audit(session: Session, revision_id: str) -> bool:
-    event = session.scalar(
+def _curator_approve_event(session: Session, revision_id: str) -> SourceAuditEvent | None:
+    return session.scalar(
         select(SourceAuditEvent)
         .where(
             SourceAuditEvent.source_revision_id == revision_id,
@@ -65,12 +99,58 @@ def _has_curator_approve_audit(session: Session, revision_id: str) -> bool:
         )
         .order_by(SourceAuditEvent.created_at.desc())
     )
-    if event is None:
+
+
+def _approver_is_authorized(actor_id: str | None, approved_by: str | None) -> bool:
+    if not actor_id or not approved_by:
         return False
-    return bool(event.actor_id and str(event.actor_id).strip())
+    actor = str(actor_id).strip().lower()
+    approver = str(approved_by).strip().lower()
+    if actor != approver:
+        return False
+    combined = f"{actor}|{approver}"
+    return not any(marker in combined for marker in _UNAUTHORIZED_APPROVER_SUBSTRINGS)
 
 
-def evaluate_slot_authority(session: Session, slot_id: str) -> SlotAuthorityResult:
+def _slot_official_policy_issues(
+    slot_id: str,
+    source: Source,
+    revision: SourceRevision,
+    *,
+    for_official_reference: bool,
+) -> list[str]:
+    issues: list[str] = []
+    expected_type = _SLOT_SOURCE_TYPE.get(slot_id)
+    if expected_type is not None and source.source_type != expected_type.value:
+        issues.append("wrong_source_type")
+    if source.trust_tier != SourceTrustTier.OFFICIAL_PRIMARY.value:
+        issues.append("wrong_trust_tier")
+    if (source.authority or "").strip().lower() != JEE_ADVANCED_AUTHORITY.lower():
+        issues.append("wrong_authority")
+    if source.academic_year not in ("2026", "2026-27"):
+        issues.append("wrong_academic_year")
+
+    source_meta = dict(source.metadata_json or {})
+    revision_meta = dict(revision.metadata_json or {})
+    if metadata_marks_synthetic(source_meta) or metadata_marks_synthetic(revision_meta):
+        issues.append("synthetic_evidence_marker")
+
+    if for_official_reference:
+        if not revision.content_type.lower().startswith("application/pdf"):
+            issues.append("not_original_pdf_mime")
+        rights = str(source_meta.get("copyright_classification") or "").strip()
+        if not rights:
+            issues.append("missing_rights_classification")
+
+    return issues
+
+
+def evaluate_slot_authority(
+    session: Session,
+    slot_id: str,
+    *,
+    for_official_reference: bool = True,
+) -> SlotAuthorityResult:
     """Independently verify one required 2026 evidence slot from persisted records."""
 
     issues: list[str] = []
@@ -93,8 +173,6 @@ def evaluate_slot_authority(session: Session, slot_id: str) -> SlotAuthorityResu
         issues.append("slot_id_mismatch")
     if source.board_or_exam != "jee_advanced":
         issues.append("wrong_board_or_exam")
-    if source.academic_year not in ("2026", "2026-27"):
-        issues.append("wrong_academic_year")
 
     revision = _active_revision(session, str(source.id))
     if revision is None:
@@ -106,6 +184,12 @@ def evaluate_slot_authority(session: Session, slot_id: str) -> SlotAuthorityResu
             source_id=str(source.id),
             issues=tuple(issues),
         )
+
+    issues.extend(
+        _slot_official_policy_issues(
+            slot_id, source, revision, for_official_reference=for_official_reference
+        )
+    )
 
     if revision.status != SourceRevisionStatus.ACTIVE.value:
         issues.append("revision_not_active")
@@ -129,19 +213,57 @@ def evaluate_slot_authority(session: Session, slot_id: str) -> SlotAuthorityResu
     if not verify_revision_stored_source_snapshot_checksum(revision):
         issues.append("source_snapshot_checksum_invalid")
 
-    if not _has_curator_approve_audit(session, str(revision.id)):
+    approve_event = _curator_approve_event(session, str(revision.id))
+    if approve_event is None:
         issues.append("missing_curator_approve_audit")
+    elif not _approver_is_authorized(approve_event.actor_id, revision.approved_by):
+        issues.append("unauthorized_curator_actor")
 
-    storage = session.info.get("jee_core_storage")
-    if not isinstance(storage, LocalSourceStorage):
+    storage = official_source_storage() if for_official_reference else None
+    if storage is None:
         issues.append("storage_backend_unavailable")
-        return SlotAuthorityResult(
-            slot_id=slot_id,
-            trusted=False,
-            revision_id=str(revision.id),
-            source_id=str(source.id),
-            issues=tuple(issues),
-        )
+    else:
+        service = SourceIntelligenceService(session, storage=storage)
+        try:
+            _, actual_checksum, integrity_ok = service._content_integrity(revision)
+        except Exception:
+            issues.append("storage_unreadable")
+            integrity_ok = False
+            actual_checksum = ""
+
+        if not integrity_ok:
+            issues.append("stored_bytes_integrity_failed")
+        elif revision.checksum != actual_checksum:
+            issues.append("checksum_mismatch")
+        elif revision.validated_checksum != actual_checksum:
+            issues.append("validated_checksum_drift")
+
+    trusted = len(issues) == 0
+    return SlotAuthorityResult(
+        slot_id=slot_id,
+        trusted=trusted,
+        revision_id=str(revision.id),
+        source_id=str(source.id),
+        issues=tuple(issues),
+    )
+
+
+def evaluate_slot_storage_integrity(
+    session: Session,
+    slot_id: str,
+    *,
+    storage: LocalSourceStorage,
+) -> SlotAuthorityResult:
+    """Test-only helper: byte integrity without granting official reference readiness."""
+
+    issues: list[str] = []
+    source = _find_slot_source(session, slot_id)
+    if source is None:
+        return SlotAuthorityResult(slot_id, False, None, None, ("source_missing",))
+    revision = _active_revision(session, str(source.id))
+    if revision is None:
+        return SlotAuthorityResult(slot_id, False, None, str(source.id), ("no_active_revision",))
+
     service = SourceIntelligenceService(session, storage=storage)
     try:
         _, actual_checksum, integrity_ok = service._content_integrity(revision)
@@ -149,18 +271,14 @@ def evaluate_slot_authority(session: Session, slot_id: str) -> SlotAuthorityResu
         issues.append("storage_unreadable")
         integrity_ok = False
         actual_checksum = ""
-
     if not integrity_ok:
         issues.append("stored_bytes_integrity_failed")
     elif revision.checksum != actual_checksum:
         issues.append("checksum_mismatch")
-    elif revision.validated_checksum != actual_checksum:
-        issues.append("validated_checksum_drift")
 
-    trusted = len(issues) == 0
     return SlotAuthorityResult(
         slot_id=slot_id,
-        trusted=trusted,
+        trusted=len(issues) == 0,
         revision_id=str(revision.id),
         source_id=str(source.id),
         issues=tuple(issues),
@@ -179,7 +297,7 @@ def evaluate_reference_authority(session: Session | None) -> ReferenceAuthorityR
     slot_results: list[SlotAuthorityResult] = []
     flat_issues: list[str] = []
     for slot in JEE_ADVANCED_2026_SOURCE_SLOTS:
-        result = evaluate_slot_authority(session, slot.slot_id)
+        result = evaluate_slot_authority(session, slot.slot_id, for_official_reference=True)
         slot_results.append(result)
         if not result.trusted:
             flat_issues.extend(f"{slot.slot_id}:{issue}" for issue in result.issues)
@@ -215,5 +333,5 @@ def evaluate_revision_trusted(session: Session, revision_id: str) -> bool:
     slot_id = str((source.metadata_json or {}).get("slot_id") or "")
     if not slot_id:
         return False
-    result = evaluate_slot_authority(session, slot_id)
+    result = evaluate_slot_authority(session, slot_id, for_official_reference=True)
     return result.trusted and result.revision_id == revision_id

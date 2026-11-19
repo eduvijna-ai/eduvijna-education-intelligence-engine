@@ -63,36 +63,6 @@ class JeeAdvancedPracticeService:
                 delivered=[],
             )
 
-        if request.metadata_json.get("use_persisted_pool") and session and exam_version_id:
-            org = str(request.organization_id or "")
-            if not org:
-                return self._shortage_result_subject(
-                    request,
-                    verdict=AdvancedPlanVerdict.FAIL,
-                    issues=[AdvancedIssueCode.TENANT_ISOLATION],
-                    delivered=[],
-                )
-            selected, alloc_issues, verdict = select_trusted_questions(
-                session,
-                organization_id=org,
-                institution_id=request.metadata_json.get("institution_id"),
-                exam_version_id=exam_version_id,
-                subject_code=request.subject_code,
-                topic_group=None,
-                requested_count=request.requested_count,
-            )
-            return SubjectPracticeResult(
-                verdict=verdict,
-                subject_code=request.subject_code,
-                requested_count=request.requested_count,
-                delivered_count=len(selected),
-                questions=selected,
-                issue_codes=alloc_issues,
-                trust_mode=request.trust_mode,
-                result_fingerprint=self._fingerprint(request.model_dump(), selected),
-                metadata_json={"persisted_selection": True},
-            )
-
         if request.trust_mode is not JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE:
             needs_ref = request.profile_kind is AdvancedProfileKind.REFERENCE_2026
             if needs_ref and not reference_evidence_ready(session):
@@ -109,12 +79,43 @@ class JeeAdvancedPracticeService:
                 delivered=[],
             )
 
-        if issues:
-            return self._shortage_result_subject(
-                request,
-                verdict=AdvancedPlanVerdict.FAIL,
-                issues=issues,
-                delivered=[],
+        if request.metadata_json.get("use_persisted_pool") and session and exam_version_id:
+            org = str(request.organization_id or "")
+            if not org:
+                return self._shortage_result_subject(
+                    request,
+                    verdict=AdvancedPlanVerdict.FAIL,
+                    issues=[AdvancedIssueCode.TENANT_ISOLATION],
+                    delivered=[],
+                )
+            if not request.metadata_json.get("allow_labeled_test_fixtures"):
+                return self._shortage_result_subject(
+                    request,
+                    verdict=AdvancedPlanVerdict.FAIL,
+                    issues=[AdvancedIssueCode.UNVALIDATED_QUESTION],
+                    delivered=[],
+                )
+            selected, alloc_issues, verdict = select_trusted_questions(
+                session,
+                organization_id=org,
+                institution_id=str(request.metadata_json.get("institution_id") or ""),
+                exam_version_id=exam_version_id,
+                subject_code=request.subject_code,
+                topic_group=None,
+                requested_count=request.requested_count,
+                trust_mode=request.trust_mode,
+                allow_labeled_test_fixtures=True,
+            )
+            return SubjectPracticeResult(
+                verdict=verdict,
+                subject_code=request.subject_code,
+                requested_count=request.requested_count,
+                delivered_count=len(selected),
+                questions=selected,
+                issue_codes=alloc_issues,
+                trust_mode=request.trust_mode,
+                result_fingerprint=self._fingerprint(request.model_dump(), selected),
+                metadata_json={"persisted_selection": True},
             )
 
         if request.subject_code.lower() != MATHEMATICS_SUBJECT:
@@ -170,6 +171,21 @@ class JeeAdvancedPracticeService:
                 metadata_json={},
             )
 
+        if request.trust_mode is not JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE:
+            return TopicPracticeResult(
+                verdict=AdvancedPlanVerdict.SOURCE_PENDING
+                if request.profile_kind is AdvancedProfileKind.REFERENCE_2026
+                else AdvancedPlanVerdict.REFERENCE_NOT_VERIFIED,
+                subject_code=request.subject_code,
+                topic_group=request.topic_group,
+                requested_count=request.requested_count,
+                delivered_count=0,
+                questions=[],
+                issue_codes=[*issues, AdvancedIssueCode.UNAPPROVED_SOURCE],
+                trust_mode=request.trust_mode,
+                metadata_json={},
+            )
+
         if request.metadata_json.get("use_persisted_pool") and session and exam_version_id:
             org = str(request.organization_id or "")
             if not org:
@@ -184,14 +200,28 @@ class JeeAdvancedPracticeService:
                     trust_mode=request.trust_mode,
                     metadata_json={},
                 )
+            if not request.metadata_json.get("allow_labeled_test_fixtures"):
+                return TopicPracticeResult(
+                    verdict=AdvancedPlanVerdict.FAIL,
+                    subject_code=request.subject_code,
+                    topic_group=request.topic_group,
+                    requested_count=request.requested_count,
+                    delivered_count=0,
+                    questions=[],
+                    issue_codes=[AdvancedIssueCode.UNVALIDATED_QUESTION],
+                    trust_mode=request.trust_mode,
+                    metadata_json={},
+                )
             selected, alloc_issues, verdict = select_trusted_questions(
                 session,
                 organization_id=org,
-                institution_id=request.metadata_json.get("institution_id"),
+                institution_id=str(request.metadata_json.get("institution_id") or ""),
                 exam_version_id=exam_version_id,
                 subject_code=request.subject_code,
                 topic_group=request.topic_group,
                 requested_count=request.requested_count,
+                trust_mode=request.trust_mode,
+                allow_labeled_test_fixtures=True,
             )
             return TopicPracticeResult(
                 verdict=verdict,
@@ -204,32 +234,6 @@ class JeeAdvancedPracticeService:
                 trust_mode=request.trust_mode,
                 result_fingerprint=self._fingerprint(request.model_dump(), selected),
                 metadata_json={"persisted_selection": True},
-            )
-
-        if request.trust_mode is not JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE:
-            return TopicPracticeResult(
-                verdict=AdvancedPlanVerdict.SOURCE_PENDING,
-                subject_code=request.subject_code,
-                topic_group=request.topic_group,
-                requested_count=request.requested_count,
-                delivered_count=0,
-                questions=[],
-                issue_codes=[*issues, AdvancedIssueCode.UNAPPROVED_SOURCE],
-                trust_mode=request.trust_mode,
-                metadata_json={},
-            )
-
-        if issues:
-            return TopicPracticeResult(
-                verdict=AdvancedPlanVerdict.FAIL,
-                subject_code=request.subject_code,
-                topic_group=request.topic_group,
-                requested_count=request.requested_count,
-                delivered_count=0,
-                questions=[],
-                issue_codes=issues,
-                trust_mode=JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE,
-                metadata_json={},
             )
 
         if request.topic_group.lower() != EDUVIJNA_DERIVED_TOPIC_GROUP:

@@ -41,7 +41,10 @@ from app.jee_advanced.reference_allocator import (
     allocate_reference_two_paper,
 )
 from app.jee_advanced.scoring import build_scoring_preview
-from app.jee_advanced.source_authority import evaluate_reference_authority
+from app.jee_advanced.source_authority import (
+    evaluate_reference_authority,
+    evaluate_slot_storage_integrity,
+)
 from app.jee_advanced.source_registry import reference_evidence_ready
 from app.models import ExamBlueprintRule
 from app.models.enums import BlueprintRuleType
@@ -73,11 +76,26 @@ def test_core01_partial_slot_never_ready(db_session: Session) -> None:
     assert not reference_evidence_ready(db_session)
 
 
-def test_core01_all_slots_test_fixture_can_be_trusted(db_session: Session) -> None:
+def test_core01_synthetic_slots_never_official_ready(db_session: Session) -> None:
     seed_all_core_source_slots(db_session)
     report = evaluate_reference_authority(db_session)
-    assert report.ready is True
-    assert reference_evidence_ready(db_session)
+    assert report.ready is False
+    assert not reference_evidence_ready(db_session)
+    assert any("synthetic_evidence_marker" in issue for issue in report.issues)
+
+
+def test_core01_storage_integrity_isolated_from_official_ready(db_session: Session) -> None:
+    revision_id = seed_minimal_brochure_only(db_session)
+    storage = db_session.info["jee_core_storage"]
+    assert storage is not None
+    result = evaluate_slot_storage_integrity(
+        db_session,
+        "jee_advanced.2026.brochure",
+        storage=storage,
+    )
+    assert result.trusted is True
+    assert result.revision_id == revision_id
+    assert not reference_evidence_ready(db_session)
 
 
 def test_core03_persisted_math_and_algebra_ten(db_session: Session) -> None:
@@ -106,6 +124,7 @@ def test_core03_persisted_math_and_algebra_ten(db_session: Session) -> None:
             organization_id="org-core",
             metadata_json={
                 "use_persisted_pool": True,
+                "allow_labeled_test_fixtures": True,
                 "institution_id": "inst-core",
             },
         ),
@@ -127,6 +146,7 @@ def test_core03_persisted_math_and_algebra_ten(db_session: Session) -> None:
             organization_id="org-core",
             metadata_json={
                 "use_persisted_pool": True,
+                "allow_labeled_test_fixtures": True,
                 "institution_id": "inst-core",
             },
         ),
@@ -212,6 +232,7 @@ def test_core05_sqlite_pair_replay_cross_process(tmp_path: Path) -> None:
             ),
             source_revision_snapshot={},
             blueprint_snapshot={},
+            synthetic_labeled_test_mode=True,
         )
         first = persist_two_paper_pair(session, req)
         session.commit()
@@ -250,6 +271,7 @@ with Session(engine) as session:
         ),
         source_revision_snapshot={{}},
         blueprint_snapshot={{}},
+        synthetic_labeled_test_mode=True,
     )
     second = persist_two_paper_pair(session, req)
     print(second.outcome)
@@ -272,8 +294,7 @@ with Session(engine) as session:
         assert len(count) == 2
 
 
-def test_core02_attested_preview_with_db_rule(db_session: Session) -> None:
-    revision_ids = seed_all_core_source_slots(db_session)
+def test_core02_attested_preview_rejects_untrusted_revision(db_session: Session) -> None:
     pack = ensure_jee_advanced_exam_pack(db_session)
     version = ensure_exam_version(
         db_session,
@@ -281,13 +302,12 @@ def test_core02_attested_preview_with_db_rule(db_session: Session) -> None:
         profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
         academic_year="2026",
     )
-    revision_id = revision_ids[0]
     rule = ExamBlueprintRule(
         exam_version_id=str(version.id),
         rule_type=BlueprintRuleType.DIFFICULTY_DISTRIBUTION.value,
         min_count=1,
         max_count=5,
-        selector_json={"source_pinned_revision_id": revision_id},
+        selector_json={"source_pinned_revision_id": "00000000-0000-0000-0000-000000000099"},
     )
     db_session.add(rule)
     db_session.commit()
@@ -300,12 +320,83 @@ def test_core02_attested_preview_with_db_rule(db_session: Session) -> None:
             "correct_options": ["A"],
         },
         session=db_session,
-        approved_source_revision_id=revision_id,
+        approved_source_revision_id="00000000-0000-0000-0000-000000000099",
         blueprint_rule_id=str(rule.id),
         exam_version_id=str(version.id),
     )
-    assert preview["source_pinned"] is True
-    assert preview["demonstration_only"] is False
+    assert preview["source_pinned"] is False
+    assert preview["demonstration_only"] is True
+    assert "revision_not_trusted" in preview["attestation_issues"]
+
+
+def test_core02_attested_preview_rejects_non_marking_rule(db_session: Session) -> None:
+    pack = ensure_jee_advanced_exam_pack(db_session)
+    version = ensure_exam_version(
+        db_session,
+        pack=pack,
+        profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+        academic_year="2026",
+    )
+    rule = ExamBlueprintRule(
+        exam_version_id=str(version.id),
+        rule_type=BlueprintRuleType.DIFFICULTY_DISTRIBUTION.value,
+        min_count=1,
+        max_count=5,
+        selector_json={"source_pinned_revision_id": "00000000-0000-0000-0000-000000000099"},
+    )
+    db_session.add(rule)
+    db_session.commit()
+    preview = build_scoring_preview(
+        {"rule_type": "multi_select", "full_marks": 4, "partial_marks": 2, "negative_marks": 1},
+        session=db_session,
+        approved_source_revision_id="00000000-0000-0000-0000-000000000098",
+        blueprint_rule_id=str(rule.id),
+        exam_version_id=str(version.id),
+    )
+    assert preview["source_pinned"] is False
+    assert preview["attestation_issues"]
+
+
+def test_core03_reference_mode_cannot_use_labeled_test_pool(db_session: Session) -> None:
+    pack = ensure_jee_advanced_exam_pack(db_session)
+    version = ensure_exam_version(
+        db_session,
+        pack=pack,
+        profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+        academic_year="2026",
+    )
+    db_session.commit()
+    seed_persisted_math_questions(
+        db_session,
+        organization_id="org-core",
+        institution_id="inst-core",
+        exam_version_id=str(version.id),
+        math_count=10,
+        algebra_count=0,
+    )
+    svc = JeeAdvancedPracticeService(fixture_pool=None)
+    ref = svc.allocate_subject(
+        SubjectPracticeRequest(
+            exam_pack_code=JEE_ADVANCED_PACK_CODE,
+            profile_kind=AdvancedProfileKind.REFERENCE_2026,
+            trust_mode=JeeAdvancedSourceTrustMode.HISTORICAL_REFERENCE_2026,
+            subject_code=MATHEMATICS_SUBJECT,
+            requested_count=10,
+            organization_id="org-core",
+            metadata_json={
+                "use_persisted_pool": True,
+                "allow_labeled_test_fixtures": True,
+                "institution_id": "inst-core",
+            },
+        ),
+        session=db_session,
+        exam_version_id=str(version.id),
+    )
+    assert ref.verdict in {
+        AdvancedPlanVerdict.SOURCE_PENDING,
+        AdvancedPlanVerdict.REFERENCE_NOT_VERIFIED,
+    }
+    assert ref.delivered_count == 0
 
 
 def test_core05_conflict_on_tenant_change(db_session: Session) -> None:
@@ -342,6 +433,7 @@ def test_core05_conflict_on_tenant_change(db_session: Session) -> None:
         ),
         source_revision_snapshot={},
         blueprint_snapshot={},
+        synthetic_labeled_test_mode=True,
     )
     persist_two_paper_pair(db_session, req)
     db_session.commit()
@@ -356,6 +448,7 @@ def test_core05_conflict_on_tenant_change(db_session: Session) -> None:
             paper_definitions=req.paper_definitions,
             source_revision_snapshot={},
             blueprint_snapshot={},
+            synthetic_labeled_test_mode=True,
         ),
     )
     assert conflict.outcome == PaperPairOutcome.CONFLICT

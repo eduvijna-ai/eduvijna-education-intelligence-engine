@@ -5,23 +5,58 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.education_intelligence.enums import ValidationStatus
 from app.jee_advanced.constants import EDUVIJNA_DERIVED_TOPIC_GROUP, MATHEMATICS_SUBJECT
 from app.jee_advanced.contracts import PracticeQuestionRef
-from app.jee_advanced.enums import AdvancedIssueCode, AdvancedPlanVerdict
-from app.models import Question
+from app.jee_advanced.enums import (
+    AdvancedIssueCode,
+    AdvancedPlanVerdict,
+    JeeAdvancedSourceTrustMode,
+)
+from app.jee_advanced.source_storage import metadata_marks_synthetic
+from app.models import Question, ValidationAuditRun
 from app.models.enums import QuestionStatus
 
 
-def _day6_trusted(meta: dict[str, object]) -> bool:
-    audit = str(meta.get("day6_validation_audit_id") or "").strip()
-    solver = str(meta.get("day6_solver_evidence_id") or "").strip()
-    if not audit or not solver:
-        return False
-    if meta.get("day9_veto") is True:
-        return False
-    if not meta.get("d12_core_test_fixture"):
-        return False
-    return True
+def _question_has_correct_option(question: Question) -> bool:
+    return any(opt.is_correct for opt in question.options)
+
+
+def _validation_run_covers_item(
+    session: Session,
+    *,
+    run_id: str,
+    question_id: str,
+    organization_id: str,
+    institution_id: str | None,
+) -> tuple[bool, str | None]:
+    record = session.scalar(
+        select(ValidationAuditRun).where(ValidationAuditRun.run_id == run_id)
+    )
+    if record is None:
+        return False, "missing_validation_run"
+    if record.blocking_failure:
+        return False, "blocking_validation_failure"
+    if record.aggregate_status != ValidationStatus.PASS.value:
+        return False, "validation_not_pass"
+
+    meta = dict(record.metadata_json or {})
+    validated = meta.get("validated_items") or []
+    item_ids = {str(row.get("item_id")) for row in validated if isinstance(row, dict)}
+    if str(question_id) not in item_ids:
+        return False, "validation_run_item_mismatch"
+
+    scope = dict(meta.get("scope") or {})
+    scope_org = str(scope.get("organization_id") or meta.get("organization_id") or "")
+    if scope_org and scope_org != organization_id:
+        return False, "validation_org_mismatch"
+    if institution_id is not None:
+        scope_inst = str(
+            scope.get("institution_id") or record.institution_id or ""
+        ).strip()
+        if not scope_inst or scope_inst != institution_id:
+            return False, "validation_institution_mismatch"
+    return True, None
 
 
 def select_trusted_questions(
@@ -33,12 +68,21 @@ def select_trusted_questions(
     subject_code: str,
     topic_group: str | None,
     requested_count: int,
+    trust_mode: JeeAdvancedSourceTrustMode,
+    allow_labeled_test_fixtures: bool = False,
 ) -> tuple[list[PracticeQuestionRef], list[AdvancedIssueCode], AdvancedPlanVerdict]:
-    """Return persisted Question rows with provable Day6 test evidence metadata."""
+    """Return persisted Question rows with provable Day6 audit evidence."""
 
     issues: list[AdvancedIssueCode] = []
     if subject_code.lower() != MATHEMATICS_SUBJECT:
         return [], [AdvancedIssueCode.WRONG_SUBJECT], AdvancedPlanVerdict.FAIL
+
+    if trust_mode is not JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE:
+        return (
+            [],
+            [AdvancedIssueCode.UNAPPROVED_SOURCE],
+            AdvancedPlanVerdict.REFERENCE_NOT_VERIFIED,
+        )
 
     rows = session.scalars(
         select(Question)
@@ -56,11 +100,40 @@ def select_trusted_questions(
         org = str(meta.get("organization_id") or "")
         inst = meta.get("institution_id")
         if org != organization_id:
+            issues.append(AdvancedIssueCode.TENANT_ISOLATION)
             continue
-        if institution_id and inst and str(inst) != institution_id:
+        if institution_id is not None:
+            if inst is None or str(inst) != institution_id:
+                issues.append(AdvancedIssueCode.TENANT_ISOLATION)
+                continue
+
+        is_test_fixture = bool(meta.get("d12_core_test_fixture"))
+        if metadata_marks_synthetic(meta) and not is_test_fixture:
+            issues.append(AdvancedIssueCode.UNVALIDATED_QUESTION)
             continue
-        if not _day6_trusted(meta):
+        if is_test_fixture and not allow_labeled_test_fixtures:
             continue
+        if not is_test_fixture:
+            continue
+
+        run_id = str(meta.get("day6_validation_audit_id") or "").strip()
+        if not run_id:
+            continue
+        ok, _reason = _validation_run_covers_item(
+            session,
+            run_id=run_id,
+            question_id=str(row.id),
+            organization_id=organization_id,
+            institution_id=institution_id,
+        )
+        if not ok:
+            issues.append(AdvancedIssueCode.UNVALIDATED_QUESTION)
+            continue
+
+        if meta.get("day9_veto") is True:
+            issues.append(AdvancedIssueCode.UNVALIDATED_QUESTION)
+            continue
+
         subj = str(meta.get("subject_code") or "").lower()
         if subj != subject_code.lower():
             continue
@@ -71,7 +144,8 @@ def select_trusted_questions(
         if str(row.id) in seen:
             issues.append(AdvancedIssueCode.UNVALIDATED_QUESTION)
             continue
-        if not row.answer_json:
+        if not row.answer_json or not _question_has_correct_option(row):
+            issues.append(AdvancedIssueCode.UNVALIDATED_QUESTION)
             continue
         seen.add(str(row.id))
         chosen.append(
@@ -80,11 +154,11 @@ def select_trusted_questions(
                 subject_code=subject_code,
                 topic_group=topic_group,
                 independently_validated=True,
-                solver_audit_id=str(meta.get("day6_solver_evidence_id")),
+                solver_audit_id=str(meta.get("day6_solver_evidence_id") or ""),
                 metadata_json={
                     "persisted_selection": True,
-                    "d12_core_test_fixture": True,
-                    "day6_validation_audit_id": meta.get("day6_validation_audit_id"),
+                    "labeled_test_fixture": True,
+                    "day6_validation_audit_id": run_id,
                 },
             )
         )

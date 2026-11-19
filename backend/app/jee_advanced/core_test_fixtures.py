@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from sqlalchemy.orm import Session
 
+from app.education_intelligence.enums import ValidationStatus
 from app.jee_advanced.constants import (
     EDUVIJNA_DERIVED_TOPIC_GROUP,
     MATHEMATICS_SUBJECT,
@@ -16,6 +18,7 @@ from app.jee_advanced.constants import (
 )
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS, _find_slot_source
 from app.models import Question, QuestionOption
+from app.models.education_intelligence import ValidationAuditRun
 from app.models.enums import (
     QuestionOrigin,
     QuestionStatus,
@@ -119,6 +122,42 @@ def seed_all_core_source_slots(session: Session) -> list[str]:
     ]
 
 
+def _persist_day6_validation_run(
+    session: Session,
+    *,
+    run_id: str,
+    question: Question,
+    organization_id: str,
+    institution_id: str,
+) -> None:
+    record = ValidationAuditRun(
+        run_id=run_id,
+        input_hash=hashlib.sha256(question.stem_text.encode()).hexdigest(),
+        taxonomy_version="d12-core-test",
+        policy_version="d12-core-test",
+        aggregate_status=ValidationStatus.PASS.value,
+        blocking_failure=False,
+        institution_id=institution_id,
+        actor_id="test-harness",
+        results_json=[],
+        metadata_json={
+            "kind": "day6_validation",
+            "scope": {
+                "organization_id": organization_id,
+                "institution_id": institution_id,
+            },
+            "validated_items": [
+                {
+                    "item_id": str(question.id),
+                    "subject_code": question.metadata_json.get("subject_code"),
+                }
+            ],
+        },
+    )
+    session.add(record)
+    session.flush()
+
+
 def seed_persisted_math_questions(
     session: Session,
     *,
@@ -153,6 +192,13 @@ def seed_persisted_math_questions(
         )
         session.add(q)
         session.flush()
+        _persist_day6_validation_run(
+            session,
+            run_id=f"audit-math-{i}",
+            question=q,
+            organization_id=organization_id,
+            institution_id=institution_id,
+        )
         created.append(str(q.id))
 
     for i in range(algebra_count):
@@ -179,6 +225,13 @@ def seed_persisted_math_questions(
         )
         session.add(q)
         session.flush()
+        _persist_day6_validation_run(
+            session,
+            run_id=f"audit-alg-{i}",
+            question=q,
+            organization_id=organization_id,
+            institution_id=institution_id,
+        )
         created.append(str(q.id))
 
     session.commit()
