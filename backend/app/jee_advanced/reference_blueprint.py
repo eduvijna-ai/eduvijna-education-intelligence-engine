@@ -9,9 +9,10 @@ from app.jee_advanced.constants import (
     OFFICIAL_SUBJECTS,
     PAPER_1_CODE,
     PAPER_2_CODE,
+    SOURCE_SLOT_PAPER1,
+    SOURCE_SLOT_PAPER2,
     VERSION_REFERENCE_2026,
 )
-from app.jee_advanced.constants import SOURCE_SLOT_PAPER1, SOURCE_SLOT_PAPER2
 from app.jee_advanced.source_registry import _find_slot_source
 from app.models import ExamBlueprintRule, ExamVersion, SourceRevision
 from app.models.enums import BlueprintRuleType, SourceRevisionStatus

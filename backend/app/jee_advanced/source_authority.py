@@ -16,9 +16,8 @@ from app.jee_advanced.constants import (
     SOURCE_SLOT_PAPER2,
     SOURCE_SLOT_SYLLABUS,
 )
-from app.jee_advanced.enums import AdvancedProfileKind
-from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
-from app.jee_advanced.reference_blueprint import reference_blueprint_ready
+from app.jee_advanced.exam_profile import lookup_reference_exam_version
+from app.jee_advanced.reference_blueprint import reference_blueprint_issue_codes
 from app.jee_advanced.source_curator_verify import authorized_source_curator_verified
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS
 from app.jee_advanced.source_storage import metadata_marks_synthetic, official_source_storage
@@ -315,7 +314,7 @@ def evaluate_slot_storage_integrity(
 
 
 def evaluate_reference_authority(session: Session | None) -> ReferenceAuthorityReport:
-    """All six slots must pass independent persisted checks; no module-global overlay."""
+    """All six slots must pass independent persisted checks; read-only (no ensure/create)."""
 
     if session is None:
         return ReferenceAuthorityReport(
@@ -325,30 +324,32 @@ def evaluate_reference_authority(session: Session | None) -> ReferenceAuthorityR
 
     slot_results: list[SlotAuthorityResult] = []
     flat_issues: list[str] = []
-    for slot in JEE_ADVANCED_2026_SOURCE_SLOTS:
-        result = evaluate_slot_authority(session, slot.slot_id, for_official_reference=True)
-        slot_results.append(result)
-        if not result.trusted:
-            flat_issues.extend(f"{slot.slot_id}:{issue}" for issue in result.issues)
+    with session.no_autoflush:
+        for slot in JEE_ADVANCED_2026_SOURCE_SLOTS:
+            result = evaluate_slot_authority(
+                session, slot.slot_id, for_official_reference=True
+            )
+            slot_results.append(result)
+            if not result.trusted:
+                flat_issues.extend(f"{slot.slot_id}:{issue}" for issue in result.issues)
 
-    ready = all(r.trusted for r in slot_results) and len(slot_results) == len(
-        JEE_ADVANCED_2026_SOURCE_SLOTS
-    )
-
-    if ready:
-        pack = ensure_jee_advanced_exam_pack(session)
-        ref_version = ensure_exam_version(
-            session,
-            pack=pack,
-            profile_kind=AdvancedProfileKind.REFERENCE_2026,
-            academic_year="2026",
+        slots_ready = all(r.trusted for r in slot_results) and len(slot_results) == len(
+            JEE_ADVANCED_2026_SOURCE_SLOTS
         )
-        if not reference_blueprint_ready(session, str(ref_version.id)):
-            ready = False
-            flat_issues.append("reference_blueprint_incomplete")
+        ready = slots_ready
 
-    if not ready and not flat_issues:
-        flat_issues.append("incomplete_slot_set")
+        if slots_ready:
+            ref_version = lookup_reference_exam_version(session)
+            if ref_version is None:
+                ready = False
+                flat_issues.append("reference_exam_version_missing")
+            else:
+                blueprint_issues = reference_blueprint_issue_codes(session, str(ref_version.id))
+                if blueprint_issues:
+                    ready = False
+                    flat_issues.extend(f"reference_blueprint:{code}" for code in blueprint_issues)
+        elif not flat_issues:
+            flat_issues.append("incomplete_slot_set")
 
     return ReferenceAuthorityReport(
         ready=ready,

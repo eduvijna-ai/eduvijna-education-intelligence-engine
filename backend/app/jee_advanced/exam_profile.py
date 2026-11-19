@@ -13,9 +13,9 @@ from app.jee_advanced.constants import (
     PAPER_1_CODE,
     PAPER_2_CODE,
     REFERENCE_PAPER_DURATION_MINUTES,
+    VERSION_REFERENCE_2026,
 )
 from app.jee_advanced.enums import AdvancedProfileKind, JeeAdvancedSourceTrustMode
-from app.jee_advanced.source_registry import reference_evidence_ready
 from app.models.enums import ExamStatus
 from app.models.examination import ExamPack, ExamSection, ExamVersion
 
@@ -76,9 +76,9 @@ def ensure_exam_version(
         metadata_json={
             "profile_kind": profile_kind.value,
             "trust_mode": trust_mode,
-            "reference_sources_approved": reference_evidence_ready(session),
             "blueprint_counts_pinned": False,
             "note": "Per-paper question counts require approved paper-specific instructions.",
+            "reference_sources_approved_at_issuance": False,
         },
     )
     session.add(version)
@@ -122,6 +122,20 @@ def _ensure_two_paper_hierarchy(session: Session, version: ExamVersion) -> None:
                 )
             )
     session.flush()
+
+
+def lookup_reference_exam_version(session: Session) -> ExamVersion | None:
+    """Read-only: persisted reference-2026 ExamVersion, if any (no ensure/create)."""
+
+    pack = session.scalar(select(ExamPack).where(ExamPack.code == JEE_ADVANCED_PACK_CODE))
+    if pack is None:
+        return None
+    return session.scalar(
+        select(ExamVersion).where(
+            ExamVersion.exam_pack_id == pack.id,
+            ExamVersion.version_code == VERSION_REFERENCE_2026,
+        )
+    )
 
 
 def describe_exam_profile(version: ExamVersion) -> dict[str, Any]:
