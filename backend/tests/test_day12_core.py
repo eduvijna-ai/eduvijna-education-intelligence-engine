@@ -46,7 +46,7 @@ from app.jee_advanced.source_authority import (
     evaluate_slot_storage_integrity,
 )
 from app.jee_advanced.source_registry import reference_evidence_ready
-from app.models import ExamBlueprintRule
+from app.models import ExamBlueprintRule, Question
 from app.models.enums import BlueprintRuleType
 from app.models.question import TestDefinition as TestDefinitionRow
 from app.source_intelligence.storage import LocalSourceStorage
@@ -452,3 +452,151 @@ def test_core05_conflict_on_tenant_change(db_session: Session) -> None:
         ),
     )
     assert conflict.outcome == PaperPairOutcome.CONFLICT
+
+
+def test_core03_chiefcurator_name_does_not_bypass_authority(db_session: Session) -> None:
+    seed_all_core_source_slots(db_session, actor_id="chiefcurator")
+    report = evaluate_reference_authority(db_session)
+    assert report.ready is False
+    assert any("authorized_curator_not_verified" in issue for issue in report.issues)
+
+
+def test_core03_stale_validation_after_stem_change(db_session: Session) -> None:
+    pack = ensure_jee_advanced_exam_pack(db_session)
+    version = ensure_exam_version(
+        db_session,
+        pack=pack,
+        profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+        academic_year="2026",
+    )
+    db_session.commit()
+    qids = seed_persisted_math_questions(
+        db_session,
+        organization_id="org-core",
+        institution_id="inst-core",
+        exam_version_id=str(version.id),
+        math_count=1,
+        algebra_count=0,
+    )
+    question = db_session.get(Question, qids[0])
+    assert question is not None
+    question.stem_text = question.stem_text + " tampered"
+    db_session.commit()
+    svc = JeeAdvancedPracticeService(fixture_pool=None)
+    math = svc.allocate_subject(
+        SubjectPracticeRequest(
+            exam_pack_code=JEE_ADVANCED_PACK_CODE,
+            profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+            trust_mode=JeeAdvancedSourceTrustMode.SYNTHETIC_FIXTURE,
+            subject_code=MATHEMATICS_SUBJECT,
+            requested_count=1,
+            organization_id="org-core",
+            metadata_json={
+                "use_persisted_pool": True,
+                "allow_labeled_test_fixtures": True,
+                "institution_id": "inst-core",
+            },
+        ),
+        session=db_session,
+        exam_version_id=str(version.id),
+    )
+    assert math.verdict != AdvancedPlanVerdict.PASS
+
+
+def test_core02_incomplete_rule_fields_rejected(db_session: Session) -> None:
+    pack = ensure_jee_advanced_exam_pack(db_session)
+    version = ensure_exam_version(
+        db_session,
+        pack=pack,
+        profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+        academic_year="2026",
+    )
+    rule = ExamBlueprintRule(
+        exam_version_id=str(version.id),
+        rule_type=BlueprintRuleType.SCORING.value,
+        marks_per_question=None,
+        negative_marks=1,
+        selector_json={"source_pinned_revision_id": "00000000-0000-0000-0000-000000000099"},
+        metadata_json={"paper_code": PAPER_1_CODE},
+    )
+    db_session.add(rule)
+    db_session.commit()
+    preview = build_scoring_preview(
+        {"rule_type": "multi_select", "full_marks": 4, "partial_marks": 2, "negative_marks": 1},
+        session=db_session,
+        approved_source_revision_id="00000000-0000-0000-0000-000000000099",
+        blueprint_rule_id=str(rule.id),
+        exam_version_id=str(version.id),
+    )
+    assert preview["source_pinned"] is False
+    issues = preview["attestation_issues"]
+    assert "revision_not_trusted" in issues or "missing_persisted_full_marks" in issues
+
+
+def test_core05_replay_rejects_tampered_marks(db_session: Session) -> None:
+    pack = ensure_jee_advanced_exam_pack(db_session)
+    version = ensure_exam_version(
+        db_session,
+        pack=pack,
+        profile_kind=AdvancedProfileKind.SYNTHETIC_DEMO,
+        academic_year="2026",
+    )
+    qids = seed_persisted_math_questions(
+        db_session,
+        organization_id="org-core",
+        institution_id="inst-core",
+        exam_version_id=str(version.id),
+        math_count=2,
+        algebra_count=0,
+    )
+    base = PaperPairPersistRequest(
+        idempotency_key="idem-marks",
+        organization_id="org-core",
+        institution_id="inst-core",
+        exam_version_id=str(version.id),
+        pair_correlation_id="pair-marks",
+        paper_definitions=(
+            {
+                "paper_code": PAPER_1_CODE,
+                "question_items": [
+                    {"question_id": qids[0], "section_code": "A", "marks": 3.0}
+                ],
+            },
+            {
+                "paper_code": PAPER_2_CODE,
+                "question_items": [
+                    {"question_id": qids[1], "section_code": "B", "marks": 3.0}
+                ],
+            },
+        ),
+        source_revision_snapshot={"synthetic": "true"},
+        blueprint_snapshot={"demo": True},
+        synthetic_labeled_test_mode=True,
+    )
+    persist_two_paper_pair(db_session, base)
+    db_session.commit()
+    tampered = PaperPairPersistRequest(
+        idempotency_key=base.idempotency_key,
+        organization_id=base.organization_id,
+        institution_id=base.institution_id,
+        exam_version_id=base.exam_version_id,
+        pair_correlation_id=base.pair_correlation_id,
+        paper_definitions=(
+            {
+                "paper_code": PAPER_1_CODE,
+                "question_items": [
+                    {"question_id": qids[0], "section_code": "A", "marks": 4.0}
+                ],
+            },
+            base.paper_definitions[1],
+        ),
+        source_revision_snapshot=base.source_revision_snapshot,
+        blueprint_snapshot=base.blueprint_snapshot,
+        synthetic_labeled_test_mode=True,
+    )
+    conflict = persist_two_paper_pair(db_session, tampered)
+    assert conflict.outcome == PaperPairOutcome.CONFLICT
+    assert (
+        "marks_mismatch" in conflict.issue_codes
+        or "idempotency_payload_mismatch" in conflict.issue_codes
+    )

@@ -16,6 +16,10 @@ from app.jee_advanced.constants import (
     SOURCE_SLOT_PAPER2,
     SOURCE_SLOT_SYLLABUS,
 )
+from app.jee_advanced.enums import AdvancedProfileKind
+from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
+from app.jee_advanced.reference_blueprint import reference_blueprint_ready
+from app.jee_advanced.source_curator_verify import authorized_source_curator_verified
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS
 from app.jee_advanced.source_storage import metadata_marks_synthetic, official_source_storage
 from app.models import Source, SourceAuditEvent, SourceRevision
@@ -42,14 +46,14 @@ _SLOT_SOURCE_TYPE: dict[str, SourceType] = {
     SOURCE_SLOT_KEY_PAPER2: SourceType.ANSWER_KEY,
 }
 
-_UNAUTHORIZED_APPROVER_SUBSTRINGS = (
-    "test",
-    "fixture",
-    "synthetic",
-    "engineer",
-    "founder-curator",
-    "cursor",
-)
+_SLOT_PAGE_LOCATOR_KEYS = ("official_page_reference", "page_locator", "discovery_page_ref")
+
+_SLOT_PAPER_CODES: dict[str, str] = {
+    SOURCE_SLOT_PAPER1: "paper_1",
+    SOURCE_SLOT_PAPER2: "paper_2",
+    SOURCE_SLOT_KEY_PAPER1: "paper_1",
+    SOURCE_SLOT_KEY_PAPER2: "paper_2",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,15 +105,29 @@ def _curator_approve_event(session: Session, revision_id: str) -> SourceAuditEve
     )
 
 
-def _approver_is_authorized(actor_id: str | None, approved_by: str | None) -> bool:
+def _approver_is_authorized(
+    session: Session, actor_id: str | None, approved_by: str | None
+) -> bool:
     if not actor_id or not approved_by:
         return False
-    actor = str(actor_id).strip().lower()
-    approver = str(approved_by).strip().lower()
-    if actor != approver:
+    if str(actor_id).strip() != str(approved_by).strip():
         return False
-    combined = f"{actor}|{approver}"
-    return not any(marker in combined for marker in _UNAUTHORIZED_APPROVER_SUBSTRINGS)
+    return authorized_source_curator_verified(session, approved_by)
+
+
+def _slot_locator_present(source_meta: dict[str, object]) -> bool:
+    return any(str(source_meta.get(key) or "").strip() for key in _SLOT_PAGE_LOCATOR_KEYS)
+
+
+def _pdf_magic_valid(service: SourceIntelligenceService, revision: SourceRevision) -> bool:
+    try:
+        payload, _, ok = service._content_integrity(revision)
+    except Exception:
+        return False
+    if not ok or not payload:
+        return False
+    head = payload[:8]
+    return head.startswith(b"%PDF")
 
 
 def _slot_official_policy_issues(
@@ -141,6 +159,13 @@ def _slot_official_policy_issues(
         rights = str(source_meta.get("copyright_classification") or "").strip()
         if not rights:
             issues.append("missing_rights_classification")
+        if not _slot_locator_present(source_meta):
+            issues.append("missing_page_locator")
+        expected_paper = _SLOT_PAPER_CODES.get(slot_id)
+        if expected_paper is not None:
+            paper = str(source_meta.get("paper_code") or revision_meta.get("paper_code") or "")
+            if paper != expected_paper:
+                issues.append("wrong_paper_slot_binding")
 
     return issues
 
@@ -216,8 +241,10 @@ def evaluate_slot_authority(
     approve_event = _curator_approve_event(session, str(revision.id))
     if approve_event is None:
         issues.append("missing_curator_approve_audit")
-    elif not _approver_is_authorized(approve_event.actor_id, revision.approved_by):
-        issues.append("unauthorized_curator_actor")
+    elif not _approver_is_authorized(
+        session, approve_event.actor_id, revision.approved_by
+    ):
+        issues.append("authorized_curator_not_verified")
 
     storage = official_source_storage() if for_official_reference else None
     if storage is None:
@@ -237,6 +264,8 @@ def evaluate_slot_authority(
             issues.append("checksum_mismatch")
         elif revision.validated_checksum != actual_checksum:
             issues.append("validated_checksum_drift")
+        elif for_official_reference and not _pdf_magic_valid(service, revision):
+            issues.append("pdf_magic_invalid")
 
     trusted = len(issues) == 0
     return SlotAuthorityResult(
@@ -305,6 +334,19 @@ def evaluate_reference_authority(session: Session | None) -> ReferenceAuthorityR
     ready = all(r.trusted for r in slot_results) and len(slot_results) == len(
         JEE_ADVANCED_2026_SOURCE_SLOTS
     )
+
+    if ready:
+        pack = ensure_jee_advanced_exam_pack(session)
+        ref_version = ensure_exam_version(
+            session,
+            pack=pack,
+            profile_kind=AdvancedProfileKind.REFERENCE_2026,
+            academic_year="2026",
+        )
+        if not reference_blueprint_ready(session, str(ref_version.id)):
+            ready = False
+            flat_issues.append("reference_blueprint_incomplete")
+
     if not ready and not flat_issues:
         flat_issues.append("incomplete_slot_set")
 

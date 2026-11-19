@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.jee_advanced.constants import PAPER_1_CODE, PAPER_2_CODE
+from app.jee_advanced.enums import AdvancedProfileKind
 from app.jee_advanced.source_storage import metadata_marks_synthetic
-from app.models import Question, TestDefinition, TestQuestion
+from app.models import ExamVersion, Question, TestDefinition, TestQuestion
 from app.models.enums import TestStatus
 
 
@@ -79,8 +82,59 @@ def _paper_codes(request: PaperPairPersistRequest) -> list[str]:
     ]
 
 
+def _synthetic_test_persistence_allowed(session: Session, exam_version_id: str) -> bool:
+    version = session.get(ExamVersion, exam_version_id)
+    if version is None:
+        return False
+    profile = str((version.metadata_json or {}).get("profile_kind") or "")
+    return profile == AdvancedProfileKind.SYNTHETIC_DEMO.value
+
+
+def _item_marks_valid(item: dict[str, Any]) -> tuple[bool, str | None]:
+    for key in ("marks", "negative_marks"):
+        if key not in item or item[key] is None:
+            continue
+        val = item[key]
+        if not isinstance(val, (int, float)) or not math.isfinite(float(val)):
+            return False, f"nonfinite_{key}"
+        if float(val) < 0:
+            return False, f"negative_{key}"
+    return True, None
+
+
+def _paper_questions_match(
+    test: TestDefinition, paper: dict[str, Any]
+) -> tuple[bool, str | None]:
+    items = list(paper.get("question_items") or [])
+    ordered = sorted(test.questions, key=lambda row: row.sequence)
+    if len(ordered) != len(items):
+        return False, "question_row_count_mismatch"
+    for row, item in zip(ordered, items, strict=True):
+        if str(row.question_id) != str(item.get("question_id")):
+            return False, "question_id_mismatch"
+        if str(row.section_code or "") != str(item.get("section_code") or ""):
+            return False, "section_code_mismatch"
+        if item.get("marks") is not None:
+            row_marks = row.marks
+            if row_marks is None or not math.isclose(
+                float(row_marks), float(item["marks"]), rel_tol=0, abs_tol=1e-9
+            ):
+                return False, "marks_mismatch"
+        if item.get("negative_marks") is not None:
+            stored = row.negative_marks
+            if stored is None or not math.isclose(
+                float(stored), float(item["negative_marks"]), rel_tol=0, abs_tol=1e-9
+            ):
+                return False, "negative_marks_mismatch"
+    return True, None
+
+
 def _validate_request_shape(session: Session, request: PaperPairPersistRequest) -> tuple[str, ...]:
     issues: list[str] = []
+    if request.synthetic_labeled_test_mode and not _synthetic_test_persistence_allowed(
+        session, request.exam_version_id
+    ):
+        issues.append("synthetic_test_mode_not_allowed")
     codes = _paper_codes(request)
     if len(codes) != 2 or len(set(codes)) != 2:
         issues.append("invalid_paper_count")
@@ -90,6 +144,9 @@ def _validate_request_shape(session: Session, request: PaperPairPersistRequest) 
     used_questions: set[str] = set()
     for paper in request.paper_definitions:
         for item in paper.get("question_items") or []:
+            marks_ok, mark_issue = _item_marks_valid(item)
+            if not marks_ok:
+                issues.append(mark_issue or "invalid_item_marks")
             qid = str(item.get("question_id") or "")
             if not qid:
                 issues.append("missing_question_id")
@@ -102,6 +159,11 @@ def _validate_request_shape(session: Session, request: PaperPairPersistRequest) 
                 issues.append("unknown_question_id")
                 continue
             meta = dict(question.metadata_json or {})
+            q_org = str(meta.get("organization_id") or "")
+            if q_org and q_org != request.organization_id:
+                issues.append("question_tenant_mismatch")
+            if question.exam_version_id != request.exam_version_id:
+                issues.append("question_exam_version_mismatch")
             if request.synthetic_labeled_test_mode:
                 if not meta.get("d12_core_test_fixture"):
                     issues.append("unlabeled_test_question")
@@ -189,23 +251,41 @@ def persist_two_paper_pair(
                 issue_codes=("idempotency_payload_mismatch",),
             )
         by_paper: dict[str, list[str]] = {}
-        expected: dict[str, list[str]] = {}
-        for paper in request.paper_definitions:
-            code = str(paper.get("paper_code"))
-            expected[code] = [
-                str(item["question_id"]) for item in (paper.get("question_items") or [])
-            ]
+        paper_by_code = {
+            str(p.get("paper_code")): p for p in request.paper_definitions
+        }
         for test in loaded:
             paper_code = str((test.metadata_json or {}).get("paper_code") or "")
+            paper_def = paper_by_code.get(paper_code)
+            if paper_def is None:
+                return PaperPairPersistResult(
+                    outcome=PaperPairOutcome.CONFLICT,
+                    pair_correlation_id=request.pair_correlation_id,
+                    test_definition_ids=tuple(str(t.id) for t in loaded),
+                    checksum=stored_fp,
+                    question_ids_by_paper={},
+                    issue_codes=("unknown_paper_code",),
+                )
+            ok, mismatch = _paper_questions_match(test, paper_def)
             by_paper[paper_code] = _ordered_ids(test)
-            if by_paper[paper_code] != expected.get(paper_code, []):
+            if not ok:
                 return PaperPairPersistResult(
                     outcome=PaperPairOutcome.CONFLICT,
                     pair_correlation_id=request.pair_correlation_id,
                     test_definition_ids=tuple(str(t.id) for t in loaded),
                     checksum=stored_fp,
                     question_ids_by_paper=by_paper,
-                    issue_codes=("question_id_mismatch",),
+                    issue_codes=(mismatch or "question_payload_mismatch",),
+                )
+            stored_snap = (test.metadata_json or {}).get("source_revision_snapshot")
+            if stored_snap != request.source_revision_snapshot:
+                return PaperPairPersistResult(
+                    outcome=PaperPairOutcome.CONFLICT,
+                    pair_correlation_id=request.pair_correlation_id,
+                    test_definition_ids=tuple(str(t.id) for t in loaded),
+                    checksum=stored_fp,
+                    question_ids_by_paper=by_paper,
+                    issue_codes=("source_snapshot_drift",),
                 )
         return PaperPairPersistResult(
             outcome=PaperPairOutcome.REPLAYED,
@@ -217,52 +297,63 @@ def persist_two_paper_pair(
 
     test_ids: list[str] = []
     created_by_paper: dict[str, list[str]] = {}
-    for i, paper in enumerate(request.paper_definitions):
-        paper_code = str(paper.get("paper_code") or f"paper_{i + 1}")
-        code = _code_for_paper(request.idempotency_key, paper_code)
-        test = TestDefinition(
-            code=code,
-            title=str(paper.get("title") or f"JEE Advanced {paper_code}"),
-            exam_version_id=request.exam_version_id,
-            blueprint_json=dict(paper.get("blueprint_json") or {}),
-            status=TestStatus.DRAFT.value,
-            metadata_json={
-                "kind": PAIR_META_KIND,
-                "pair_correlation_id": request.pair_correlation_id,
-                "pair_fingerprint": fingerprint,
-                "organization_id": request.organization_id,
-                "institution_id": request.institution_id,
-                "paper_code": paper_code,
-                "idempotency_key": request.idempotency_key,
-                "source_revision_snapshot": request.source_revision_snapshot,
-                "blueprint_snapshot": request.blueprint_snapshot,
-                "demonstration_only": request.synthetic_labeled_test_mode,
-                "synthetic_labeled_test_mode": request.synthetic_labeled_test_mode,
-            },
-        )
-        session.add(test)
-        session.flush()
-        test_ids.append(str(test.id))
-        q_ids: list[str] = []
-        for seq, item in enumerate(paper.get("question_items") or [], start=1):
-            qid = str(item["question_id"])
-            q_ids.append(qid)
-            session.add(
-                TestQuestion(
-                    test_definition_id=test.id,
-                    question_id=qid,
-                    sequence=seq,
-                    section_code=str(item.get("section_code") or ""),
-                    marks=float(item.get("marks") or 0),
-                    negative_marks=float(item["negative_marks"])
-                    if item.get("negative_marks") is not None
-                    else None,
-                    metadata_json=dict(item.get("metadata_json") or {}),
-                )
+    try:
+        for i, paper in enumerate(request.paper_definitions):
+            paper_code = str(paper.get("paper_code") or f"paper_{i + 1}")
+            code = _code_for_paper(request.idempotency_key, paper_code)
+            test = TestDefinition(
+                code=code,
+                title=str(paper.get("title") or f"JEE Advanced {paper_code}"),
+                exam_version_id=request.exam_version_id,
+                blueprint_json=dict(paper.get("blueprint_json") or {}),
+                status=TestStatus.DRAFT.value,
+                metadata_json={
+                    "kind": PAIR_META_KIND,
+                    "pair_correlation_id": request.pair_correlation_id,
+                    "pair_fingerprint": fingerprint,
+                    "organization_id": request.organization_id,
+                    "institution_id": request.institution_id,
+                    "paper_code": paper_code,
+                    "idempotency_key": request.idempotency_key,
+                    "source_revision_snapshot": request.source_revision_snapshot,
+                    "blueprint_snapshot": request.blueprint_snapshot,
+                    "demonstration_only": request.synthetic_labeled_test_mode,
+                    "synthetic_labeled_test_mode": request.synthetic_labeled_test_mode,
+                },
             )
-        created_by_paper[paper_code] = q_ids
+            session.add(test)
+            session.flush()
+            test_ids.append(str(test.id))
+            q_ids: list[str] = []
+            for seq, item in enumerate(paper.get("question_items") or [], start=1):
+                qid = str(item["question_id"])
+                q_ids.append(qid)
+                session.add(
+                    TestQuestion(
+                        test_definition_id=test.id,
+                        question_id=qid,
+                        sequence=seq,
+                        section_code=str(item.get("section_code") or ""),
+                        marks=float(item.get("marks") or 0),
+                        negative_marks=float(item["negative_marks"])
+                        if item.get("negative_marks") is not None
+                        else None,
+                        metadata_json=dict(item.get("metadata_json") or {}),
+                    )
+                )
+            created_by_paper[paper_code] = q_ids
 
-    session.flush()
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=(),
+            checksum="",
+            question_ids_by_paper={},
+            issue_codes=("persistence_integrity_conflict",),
+        )
     return PaperPairPersistResult(
         outcome=PaperPairOutcome.CREATED,
         pair_correlation_id=request.pair_correlation_id,

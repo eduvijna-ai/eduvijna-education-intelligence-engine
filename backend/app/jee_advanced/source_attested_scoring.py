@@ -1,4 +1,4 @@
-"""D12-CORE-02: Source-attested scoring preview (no caller-forged IDs)."""
+"""D12-CORE-03: Source-attested scoring preview (complete persisted rubric required)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,7 @@ from app.jee_advanced.source_authority import evaluate_revision_trusted
 from app.models import ExamBlueprintRule
 from app.models.enums import BlueprintRuleType
 
-_MARKING_RULE_TYPES = frozenset(
-    {
-        BlueprintRuleType.SCORING.value,
-        BlueprintRuleType.QUESTION_TYPE.value,
-    }
-)
+_MARKING_RULE_TYPES = frozenset({BlueprintRuleType.SCORING.value})
 
 
 def _rules_marking_valid(rules: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -51,21 +46,38 @@ def _rules_marking_valid(rules: dict[str, Any]) -> tuple[bool, list[str]]:
     return len(issues) == 0, issues
 
 
+def _rule_field_completeness(rule_row: ExamBlueprintRule) -> tuple[bool, list[str]]:
+    issues: list[str] = []
+    if rule_row.marks_per_question is None:
+        issues.append("missing_persisted_full_marks")
+    if rule_row.negative_marks is None:
+        issues.append("missing_persisted_negative_marks")
+    selector = dict(rule_row.selector_json or {})
+    if selector.get("partial_marks") is None:
+        issues.append("missing_persisted_partial_policy")
+    if "allow_proper_subset_partial" not in selector:
+        issues.append("missing_partial_answer_policy")
+    if not str(selector.get("paper_code") or (rule_row.metadata_json or {}).get("paper_code")):
+        issues.append("missing_paper_binding")
+    return len(issues) == 0, issues
+
+
 def _marks_match_persisted_rule(
     rules: dict[str, Any], rule_row: ExamBlueprintRule
 ) -> tuple[bool, list[str]]:
     issues: list[str] = []
     selector = dict(rule_row.selector_json or {})
-    persisted_full = rule_row.marks_per_question
-    persisted_negative = rule_row.negative_marks
-    selector_full = selector.get("full_marks")
-    selector_negative = selector.get("negative_marks")
-    selector_partial = selector.get("partial_marks")
 
-    def _close(a: float | None, b: object | None) -> bool:
-        if a is None or b is None:
-            return False
-        if not isinstance(b, (int, float)):
+    complete, completeness_issues = _rule_field_completeness(rule_row)
+    if not complete:
+        return False, completeness_issues
+
+    persisted_full = float(rule_row.marks_per_question)  # type: ignore[arg-type]
+    persisted_negative = float(rule_row.negative_marks)  # type: ignore[arg-type]
+    selector_partial = float(selector["partial_marks"])  # guaranteed present
+
+    def _close(a: float, b: object | None) -> bool:
+        if b is None or not isinstance(b, (int, float)):
             return False
         try:
             return math.isclose(float(a), float(b), rel_tol=0, abs_tol=1e-9)
@@ -73,25 +85,28 @@ def _marks_match_persisted_rule(
             return False
 
     caller_full = rules.get("full_marks") or rules.get("correct_marks")
-    if caller_full is not None:
-        ref = persisted_full if persisted_full is not None else selector_full
-        if ref is not None and isinstance(caller_full, (int, float)):
-            if not _close(float(ref), caller_full):
-                issues.append("caller_full_marks_mismatch")
+    if caller_full is None or not isinstance(caller_full, (int, float)):
+        issues.append("caller_full_marks_missing")
+    elif not _close(persisted_full, caller_full):
+        issues.append("caller_full_marks_mismatch")
+
     caller_neg = rules.get("negative_marks")
-    if caller_neg is not None:
-        ref = persisted_negative if persisted_negative is not None else selector_negative
-        if ref is not None and isinstance(caller_neg, (int, float)):
-            if not _close(float(ref), caller_neg):
-                issues.append("caller_negative_marks_mismatch")
+    if caller_neg is None or not isinstance(caller_neg, (int, float)):
+        issues.append("caller_negative_marks_missing")
+    elif not _close(persisted_negative, caller_neg):
+        issues.append("caller_negative_marks_mismatch")
+
     caller_partial = rules.get("partial_marks")
-    if (
-        caller_partial is not None
-        and selector_partial is not None
-        and isinstance(caller_partial, (int, float))
-    ):
-        if not _close(float(selector_partial), caller_partial):
-            issues.append("caller_partial_marks_mismatch")
+    if caller_partial is None or not isinstance(caller_partial, (int, float)):
+        issues.append("caller_partial_marks_missing")
+    elif not _close(selector_partial, caller_partial):
+        issues.append("caller_partial_marks_mismatch")
+
+    if "allow_proper_subset_partial" in rules:
+        caller_partial_policy = bool(rules["allow_proper_subset_partial"])
+        stored_policy = bool(selector.get("allow_proper_subset_partial", True))
+        if caller_partial_policy != stored_policy:
+            issues.append("partial_policy_mismatch")
 
     return len(issues) == 0, issues
 
@@ -103,6 +118,8 @@ def build_attested_scoring_preview(
     approved_source_revision_id: str,
     blueprint_rule_id: str,
     exam_version_id: str | None = None,
+    paper_code: str | None = None,
+    section_code: str | None = None,
 ) -> dict[str, Any]:
     """Fetch and cross-check revision + blueprint rule; never trust caller-supplied truth."""
 
@@ -135,8 +152,18 @@ def build_attested_scoring_preview(
         base["attestation_issues"] = ["blueprint_exam_version_mismatch"]
         return base
 
-    selector = dict(rule_row.selector_json or {})
-    pinned_meta = selector.get("source_pinned_revision_id")
+    rule_meta = dict(rule_row.metadata_json or {})
+    selector_json = dict(rule_row.selector_json or {})
+    rule_paper = str(rule_meta.get("paper_code") or selector_json.get("paper_code") or "")
+    rule_section = str(rule_meta.get("section_code") or selector_json.get("section_code") or "")
+    if paper_code is not None and rule_paper and paper_code != rule_paper:
+        base["attestation_issues"] = ["paper_section_mismatch"]
+        return base
+    if section_code is not None and rule_section and section_code != rule_section:
+        base["attestation_issues"] = ["paper_section_mismatch"]
+        return base
+
+    pinned_meta = selector_json.get("source_pinned_revision_id")
     if not pinned_meta:
         base["attestation_issues"] = ["blueprint_source_pin_missing"]
         return base

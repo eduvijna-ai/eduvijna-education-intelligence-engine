@@ -1,6 +1,6 @@
 # Day 12 — JEE Advanced 36-task scope and evidence matrix
 
-**Status:** D12-CORE-02 candidate 2/3 (Issue #35). **0 PASS / 21 PARTIAL / 2 SOURCE_PENDING / 13 NOT_STARTED.** D12-36 PENDING Chief Architect + Founder signoff.
+**Status:** D12-CORE-03 final candidate 3/3 (Issue #35). **0 PASS / 21 PARTIAL / 2 SOURCE_PENDING / 13 NOT_STARTED.** D12-36 PENDING Chief Architect + Founder signoff.
 **Authoritative specification:** [Issue #33](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/33).
 **Branch:** `feature/day12-jee-advanced-intelligence` (PR #34). Day11 ON_HOLD; Day12 ACTIVE `founder_approval:false`; Day13 LOCKED.
 

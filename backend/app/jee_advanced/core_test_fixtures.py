@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from app.jee_advanced.constants import (
     MATHEMATICS_SUBJECT,
     SOURCE_SLOT_BROCHURE,
 )
+from app.jee_advanced.question_fingerprint import question_content_fingerprint
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS, _find_slot_source
 from app.models import Question, QuestionOption
 from app.models.education_intelligence import ValidationAuditRun
@@ -115,9 +115,9 @@ def approve_slot_with_test_pdf(
     return str(active.id)
 
 
-def seed_all_core_source_slots(session: Session) -> list[str]:
+def seed_all_core_source_slots(session: Session, *, actor_id: str = "founder-curator") -> list[str]:
     return [
-        approve_slot_with_test_pdf(session, slot.slot_id)
+        approve_slot_with_test_pdf(session, slot.slot_id, actor_id=actor_id)
         for slot in JEE_ADVANCED_2026_SOURCE_SLOTS
     ]
 
@@ -130,16 +130,24 @@ def _persist_day6_validation_run(
     organization_id: str,
     institution_id: str,
 ) -> None:
+    fingerprint = question_content_fingerprint(question)
+    solver_id = str((question.metadata_json or {}).get("day6_solver_evidence_id") or "")
     record = ValidationAuditRun(
         run_id=run_id,
-        input_hash=hashlib.sha256(question.stem_text.encode()).hexdigest(),
+        input_hash=fingerprint,
         taxonomy_version="d12-core-test",
         policy_version="d12-core-test",
         aggregate_status=ValidationStatus.PASS.value,
         blocking_failure=False,
         institution_id=institution_id,
         actor_id="test-harness",
-        results_json=[],
+        results_json=[
+            {
+                "kind": "independent_solver",
+                "evidence_id": solver_id,
+                "item_id": str(question.id),
+            }
+        ],
         metadata_json={
             "kind": "day6_validation",
             "scope": {
@@ -150,6 +158,7 @@ def _persist_day6_validation_run(
                 {
                     "item_id": str(question.id),
                     "subject_code": question.metadata_json.get("subject_code"),
+                    "input_hash": fingerprint,
                 }
             ],
         },

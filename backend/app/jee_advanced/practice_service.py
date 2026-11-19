@@ -106,6 +106,8 @@ class JeeAdvancedPracticeService:
                 trust_mode=request.trust_mode,
                 allow_labeled_test_fixtures=True,
             )
+            if verdict == AdvancedPlanVerdict.PASS and alloc_issues:
+                verdict = AdvancedPlanVerdict.FAIL
             return SubjectPracticeResult(
                 verdict=verdict,
                 subject_code=request.subject_code,
@@ -223,6 +225,8 @@ class JeeAdvancedPracticeService:
                 trust_mode=request.trust_mode,
                 allow_labeled_test_fixtures=True,
             )
+            if verdict == AdvancedPlanVerdict.PASS and alloc_issues:
+                verdict = AdvancedPlanVerdict.FAIL
             return TopicPracticeResult(
                 verdict=verdict,
                 subject_code=request.subject_code,
