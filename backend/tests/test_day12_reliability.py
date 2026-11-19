@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import create_database_engine
+from app.jee_advanced.authority import resolve_profile_authority
 from app.jee_advanced.constants import VERSION_REFERENCE_2026
 from app.jee_advanced.core_test_fixtures import seed_all_core_source_slots
-from app.jee_advanced.enums import AdvancedProfileKind
+from app.jee_advanced.enums import AdvancedPlanVerdict, AdvancedProfileKind
 from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
 from app.jee_advanced.source_authority import (
     ReferenceAuthorityReport,
@@ -22,7 +23,8 @@ from app.jee_advanced.source_authority import (
     evaluate_reference_authority,
 )
 from app.jee_advanced.source_registry import reference_evidence_ready
-from app.models.examination import ExamPack, ExamVersion
+from app.models import Source, SourceAuditEvent, SourceRevision
+from app.models.examination import ExamBlueprintRule, ExamPack, ExamVersion
 
 
 @pytest.fixture()
@@ -38,6 +40,53 @@ def db_session(tmp_path: Path) -> Session:
 
 def _count_rows(session: Session, model: type) -> int:
     return session.scalar(select(func.count()).select_from(model)) or 0
+
+
+def _authority_persistence_snapshot(session: Session) -> dict[str, object]:
+    """Read-only fingerprint of authority-related tables (for cross-session stability)."""
+
+    revisions = session.scalars(select(SourceRevision).order_by(SourceRevision.id)).all()
+    sources = session.scalars(select(Source).order_by(Source.id)).all()
+    audits = session.scalars(select(SourceAuditEvent).order_by(SourceAuditEvent.id)).all()
+    versions = session.scalars(select(ExamVersion).order_by(ExamVersion.id)).all()
+    rules = session.scalars(select(ExamBlueprintRule).order_by(ExamBlueprintRule.id)).all()
+
+    return {
+        "counts": {
+            "source": _count_rows(session, Source),
+            "source_revision": _count_rows(session, SourceRevision),
+            "source_audit_event": _count_rows(session, SourceAuditEvent),
+            "exam_pack": _count_rows(session, ExamPack),
+            "exam_version": _count_rows(session, ExamVersion),
+            "exam_blueprint_rule": _count_rows(session, ExamBlueprintRule),
+        },
+        "source_statuses": tuple(sorted(str(s.status) for s in sources)),
+        "revision_evidence": tuple(
+            sorted(
+                (
+                    str(r.id),
+                    str(r.status),
+                    str(r.checksum or ""),
+                    str(r.approved_by or ""),
+                    str(r.approval_fingerprint or ""),
+                )
+                for r in revisions
+            )
+        ),
+        "audit_outcomes": tuple(
+            sorted(
+                (
+                    str(a.source_revision_id),
+                    str(a.event_type),
+                    str(a.outcome),
+                    str(a.actor_id or ""),
+                )
+                for a in audits
+            )
+        ),
+        "version_codes": tuple(sorted(str(v.version_code) for v in versions)),
+        "rule_types": tuple(sorted(str(rule.rule_type) for rule in rules)),
+    }
 
 
 def _artificial_all_slots_trusted(
@@ -132,15 +181,19 @@ def test_rel_repeated_calls_stable_row_counts(tmp_path: Path) -> None:
         session.commit()
 
     with Session(engine) as session:
-        pack_count = _count_rows(session, ExamPack)
-        version_count = _count_rows(session, ExamVersion)
+        baseline = _authority_persistence_snapshot(session)
 
+    verdicts: list[bool] = []
     for _ in range(3):
         with Session(engine) as session:
-            assert not reference_evidence_ready(session)
-            assert not evaluate_reference_authority(session).ready
-            assert _count_rows(session, ExamPack) == pack_count
-            assert _count_rows(session, ExamVersion) == version_count
+            ready = reference_evidence_ready(session)
+            report = evaluate_reference_authority(session)
+            verdicts.append(ready)
+            assert ready is False
+            assert report.ready is False
+            assert _authority_persistence_snapshot(session) == baseline
+
+    assert len(set(verdicts)) == 1
 
 
 def test_rel_exam_version_metadata_no_stale_reference_flag(db_session: Session) -> None:
@@ -178,3 +231,76 @@ def test_rel_lookup_reference_version_readonly_helper(db_session: Session) -> No
     assert found is not None
     assert found.version_code == VERSION_REFERENCE_2026
     assert str(found.id) == str(ref.id)
+
+
+def test_rel_evidence_f01_forged_version_metadata_does_not_bypass_authority(
+    tmp_path: Path,
+) -> None:
+    """REL36-F01: metadata-only reference_sources_approved cannot override live checks."""
+
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'f01.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        pack = ensure_jee_advanced_exam_pack(session)
+        version = ensure_exam_version(
+            session,
+            pack=pack,
+            profile_kind=AdvancedProfileKind.REFERENCE_2026,
+            academic_year="2026",
+        )
+        version.metadata_json = {
+            **dict(version.metadata_json or {}),
+            "reference_sources_approved": True,
+            "reference_sources_approved_at_issuance": True,
+        }
+        session.commit()
+
+    with Session(engine) as session:
+        assert not reference_evidence_ready(session)
+        report = evaluate_reference_authority(session)
+        assert not report.ready
+        assert report.issues
+
+        ref_decision = resolve_profile_authority(
+            profile_kind=AdvancedProfileKind.REFERENCE_2026,
+            academic_year="2026",
+            session=session,
+        )
+        assert ref_decision.verdict == AdvancedPlanVerdict.REFERENCE_NOT_VERIFIED
+
+        y2027 = resolve_profile_authority(
+            profile_kind=AdvancedProfileKind.CANDIDATE_2027,
+            academic_year="2027",
+            session=session,
+        )
+        assert y2027.verdict == AdvancedPlanVerdict.OFFICIAL_PATTERN_NOT_VERIFIED
+
+
+def test_rel_evidence_f02_artificial_slots_never_mutate_authority_tables(
+    tmp_path: Path,
+) -> None:
+    """
+    REL36-F02: artificial test-double trusted slots; authority reads are read-only.
+    Not official IIT/JAB proof.
+    """
+
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'f02.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        baseline = _authority_persistence_snapshot(session)
+
+    verdicts: list[tuple[bool, tuple[str, ...]]] = []
+    for _ in range(3):
+        with Session(engine) as session:
+            with patch(
+                "app.jee_advanced.source_authority.evaluate_slot_authority",
+                side_effect=_artificial_all_slots_trusted,
+            ):
+                report = evaluate_reference_authority(session)
+                ready = reference_evidence_ready(session)
+            verdicts.append((ready, report.issues))
+            assert not ready
+            assert _authority_persistence_snapshot(session) == baseline
+
+    assert all(v[0] is False for v in verdicts)
+    assert len({v[0] for v in verdicts}) == 1

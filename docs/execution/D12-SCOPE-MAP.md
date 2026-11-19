@@ -1,6 +1,6 @@
 # Day 12 — JEE Advanced 36-task scope and evidence matrix
 
-**Status:** D12-RELIABILITY-01 candidate (Issue #36 REL-01…05). **0 PASS / 21 PARTIAL / 2 SOURCE_PENDING / 13 NOT_STARTED.** D12-36 and CORE #35 remain NOT ACCEPTED.
+**Status:** D12-REL-EVIDENCE-01 candidate (Issue #37). **0 PASS / 21 PARTIAL / 2 SOURCE_PENDING / 13 NOT_STARTED.** D12-36 and CORE #35 remain NOT ACCEPTED.
 **Authoritative specification:** [Issue #33](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/33).
 **Branch:** `feature/day12-jee-advanced-intelligence` (PR #34). Day11 ON_HOLD; Day12 ACTIVE `founder_approval:false`; Day13 LOCKED.
 
@@ -39,7 +39,7 @@
 | D12-31 | Bounded repair and dedup | — | NOT_STARTED | — |
 | D12-32 | Persist/replay two-paper TestDefinition | `paper_pair_persistence.py`, `test_day12_core.py` | PARTIAL | Pair shape/fingerprint replay gates; labeled synthetic persistence; PG live NOT_RUN |
 | D12-33 | Synthetic reference fixtures | `synthetic_fixtures.py`, assembly/adversarial tests | PARTIAL | PCM two-paper demo; explicit demonstration_only |
-| D12-34 | Adversarial acceptance suite | `test_day12_*.py` (8 files, 37 tests incl. B1–B5 negatives) | PARTIAL | CORE-02 bypass tests; full historical matrix NOT_RUN |
+| D12-34 | Adversarial acceptance suite | `tests/test_day12_*.py` (9 modules; `pytest --collect-only` scoped count) | PARTIAL | CORE + REL evidence tests; full historical matrix NOT_RUN |
 | D12-35 | Day12 verifier and CI gates | `day12_verify.py`, targeted-ci, `test_day12_verify_sha.py` | PARTIAL | sha_alignment required; DB authority; reference flags false |
 | D12-36 | Independent review and Founder signoff | — | NOT_STARTED | Awaiting Chief Architect exact-HEAD review |
 
