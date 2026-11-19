@@ -1,8 +1,12 @@
-"""D12-RELIABILITY-01: read-only authority and bootstrap regression tests."""
+"""D12-RELIABILITY / REL-F02-PROOF: read-only authority and bootstrap regression tests."""
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -17,13 +21,10 @@ from app.jee_advanced.constants import VERSION_REFERENCE_2026
 from app.jee_advanced.core_test_fixtures import seed_all_core_source_slots
 from app.jee_advanced.enums import AdvancedPlanVerdict, AdvancedProfileKind
 from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
-from app.jee_advanced.source_authority import (
-    ReferenceAuthorityReport,
-    SlotAuthorityResult,
-    evaluate_reference_authority,
-)
+from app.jee_advanced.source_authority import SlotAuthorityResult, evaluate_reference_authority
 from app.jee_advanced.source_registry import reference_evidence_ready
 from app.models import Source, SourceAuditEvent, SourceRevision
+from app.models.enums import BlueprintRuleType
 from app.models.examination import ExamBlueprintRule, ExamPack, ExamVersion
 
 
@@ -42,41 +43,52 @@ def _count_rows(session: Session, model: type) -> int:
     return session.scalar(select(func.count()).select_from(model)) or 0
 
 
-def _authority_persistence_snapshot(session: Session) -> dict[str, object]:
-    """Read-only fingerprint of authority-related tables (for cross-session stability)."""
+def _json_norm(value: Any) -> str:
+    return json.dumps(value if value is not None else {}, sort_keys=True, separators=(",", ":"))
 
-    revisions = session.scalars(select(SourceRevision).order_by(SourceRevision.id)).all()
+
+def _identity_persistence_snapshot(session: Session) -> dict[str, object]:
+    """Identity-bound read-only snapshot of all six authority-related models."""
+
     sources = session.scalars(select(Source).order_by(Source.id)).all()
+    revisions = session.scalars(select(SourceRevision).order_by(SourceRevision.id)).all()
     audits = session.scalars(select(SourceAuditEvent).order_by(SourceAuditEvent.id)).all()
+    packs = session.scalars(select(ExamPack).order_by(ExamPack.id)).all()
     versions = session.scalars(select(ExamVersion).order_by(ExamVersion.id)).all()
     rules = session.scalars(select(ExamBlueprintRule).order_by(ExamBlueprintRule.id)).all()
 
     return {
         "counts": {
-            "source": _count_rows(session, Source),
-            "source_revision": _count_rows(session, SourceRevision),
-            "source_audit_event": _count_rows(session, SourceAuditEvent),
-            "exam_pack": _count_rows(session, ExamPack),
-            "exam_version": _count_rows(session, ExamVersion),
-            "exam_blueprint_rule": _count_rows(session, ExamBlueprintRule),
+            "source": len(sources),
+            "source_revision": len(revisions),
+            "source_audit_event": len(audits),
+            "exam_pack": len(packs),
+            "exam_version": len(versions),
+            "exam_blueprint_rule": len(rules),
         },
-        "source_statuses": tuple(sorted(str(s.status) for s in sources)),
-        "revision_evidence": tuple(
+        "sources": tuple(
+            sorted((str(s.id), str(s.status)) for s in sources),
+        ),
+        "revisions": tuple(
             sorted(
                 (
                     str(r.id),
+                    str(r.source_id),
                     str(r.status),
                     str(r.checksum or ""),
+                    str(r.validated_checksum or ""),
+                    str(r.extracted_checksum or ""),
                     str(r.approved_by or ""),
                     str(r.approval_fingerprint or ""),
                 )
                 for r in revisions
             )
         ),
-        "audit_outcomes": tuple(
+        "audits": tuple(
             sorted(
                 (
-                    str(a.source_revision_id),
+                    str(a.id),
+                    str(a.source_revision_id or ""),
                     str(a.event_type),
                     str(a.outcome),
                     str(a.actor_id or ""),
@@ -84,45 +96,106 @@ def _authority_persistence_snapshot(session: Session) -> dict[str, object]:
                 for a in audits
             )
         ),
-        "version_codes": tuple(sorted(str(v.version_code) for v in versions)),
-        "rule_types": tuple(sorted(str(rule.rule_type) for rule in rules)),
+        "exam_packs": tuple(
+            sorted(
+                (str(p.id), str(p.code), str(bool(p.active))) for p in packs
+            )
+        ),
+        "exam_versions": tuple(
+            sorted(
+                (
+                    str(v.id),
+                    str(v.version_code),
+                    str(v.status),
+                    str(v.exam_pack_id),
+                )
+                for v in versions
+            )
+        ),
+        "blueprint_rules": tuple(
+            sorted(
+                (
+                    str(rule.id),
+                    str(rule.exam_version_id),
+                    str(rule.rule_type),
+                    str(rule.section_id or ""),
+                    _json_norm(rule.selector_json),
+                    str(rule.exact_count),
+                    str(rule.min_count),
+                    str(rule.max_count),
+                    str(rule.marks_per_question),
+                    str(rule.negative_marks),
+                )
+                for rule in rules
+            )
+        ),
     }
 
 
-def _artificial_all_slots_trusted(
-    _session: Session, slot_id: str, **_kw: object
-) -> SlotAuthorityResult:
-    return SlotAuthorityResult(
-        slot_id=slot_id,
-        trusted=True,
-        revision_id="artificial-revision",
-        source_id="artificial-source",
-        issues=(),
-    )
+def _authority_readout(session: Session) -> dict[str, object]:
+    report = evaluate_reference_authority(session)
+    ready = reference_evidence_ready(session)
+    return {
+        "reference_evidence_ready": ready,
+        "report_ready": report.ready,
+        "issues": tuple(report.issues),
+        "slots": tuple(
+            (slot.slot_id, slot.trusted, tuple(slot.issues)) for slot in report.slots
+        ),
+    }
+
+
+@contextmanager
+def _artificial_slot_patch() -> Iterator[None]:
+    """TEST DOUBLE: all six slots appear trusted; not official IIT/JAB evidence."""
+
+    def _trusted(_session: Session, slot_id: str, **_kw: object) -> SlotAuthorityResult:
+        return SlotAuthorityResult(
+            slot_id=slot_id,
+            trusted=True,
+            revision_id="artificial-revision",
+            source_id="artificial-source",
+            issues=(),
+        )
+
+    with patch(
+        "app.jee_advanced.source_authority.evaluate_slot_authority",
+        side_effect=_trusted,
+    ):
+        yield
+
+
+def _assert_readouts_identical(
+    readouts: list[dict[str, object]], *, expect_reference_version_missing: bool
+) -> None:
+    assert len(readouts) >= 3
+    first = readouts[0]
+    for item in readouts[1:]:
+        assert item == first
+    assert first["reference_evidence_ready"] is False
+    assert first["report_ready"] is False
+    if expect_reference_version_missing:
+        assert "reference_exam_version_missing" in first["issues"]
+        for _, trusted, issues in first["slots"]:
+            assert trusted is True
+            assert issues == ()
 
 
 def test_rel_authority_readonly_no_pack_no_inserts(db_session: Session) -> None:
     assert _count_rows(db_session, ExamPack) == 0
     assert _count_rows(db_session, ExamVersion) == 0
 
-    with patch(
-        "app.jee_advanced.source_authority.evaluate_slot_authority",
-        side_effect=_artificial_all_slots_trusted,
-    ):
-        report = evaluate_reference_authority(db_session)
+    with _artificial_slot_patch():
+        readout = _authority_readout(db_session)
 
-    assert isinstance(report, ReferenceAuthorityReport)
-    assert report.ready is False
-    assert "reference_exam_version_missing" in report.issues
+    assert readout["reference_evidence_ready"] is False
+    assert "reference_exam_version_missing" in readout["issues"]
     assert _count_rows(db_session, ExamPack) == 0
     assert _count_rows(db_session, ExamVersion) == 0
 
 
 def test_rel_authority_no_recursion_with_artificial_slots(db_session: Session) -> None:
-    with patch(
-        "app.jee_advanced.source_authority.evaluate_slot_authority",
-        side_effect=_artificial_all_slots_trusted,
-    ):
+    with _artificial_slot_patch():
         evaluate_reference_authority(db_session)
         evaluate_reference_authority(db_session)
 
@@ -138,20 +211,17 @@ def test_rel_pack_without_reference_version_non_pass(db_session: Session) -> Non
     db_session.commit()
     version_count = _count_rows(db_session, ExamVersion)
 
-    with patch(
-        "app.jee_advanced.source_authority.evaluate_slot_authority",
-        side_effect=_artificial_all_slots_trusted,
-    ):
-        report = evaluate_reference_authority(db_session)
+    with _artificial_slot_patch():
+        readout = _authority_readout(db_session)
 
-    assert report.ready is False
-    assert "reference_exam_version_missing" in report.issues
+    assert readout["reference_evidence_ready"] is False
+    assert "reference_exam_version_missing" in readout["issues"]
     assert _count_rows(db_session, ExamVersion) == version_count
 
 
 def test_rel_reference_version_incomplete_blueprint(db_session: Session) -> None:
     pack = ensure_jee_advanced_exam_pack(db_session)
-    ensure_exam_version(
+    ref = ensure_exam_version(
         db_session,
         pack=pack,
         profile_kind=AdvancedProfileKind.REFERENCE_2026,
@@ -161,16 +231,16 @@ def test_rel_reference_version_incomplete_blueprint(db_session: Session) -> None
     pack_count = _count_rows(db_session, ExamPack)
     version_count = _count_rows(db_session, ExamVersion)
 
-    with patch(
-        "app.jee_advanced.source_authority.evaluate_slot_authority",
-        side_effect=_artificial_all_slots_trusted,
-    ):
-        report = evaluate_reference_authority(db_session)
+    with _artificial_slot_patch():
+        readout = _authority_readout(db_session)
 
-    assert report.ready is False
-    assert any("reference_blueprint:" in issue for issue in report.issues)
+    assert readout["reference_evidence_ready"] is False
+    assert any("reference_blueprint:" in issue for issue in readout["issues"])
     assert _count_rows(db_session, ExamPack) == pack_count
     assert _count_rows(db_session, ExamVersion) == version_count
+    snap = _identity_persistence_snapshot(db_session)
+    version_ids = {row[0] for row in snap["exam_versions"]}  # type: ignore[index]
+    assert str(ref.id) in version_ids
 
 
 def test_rel_repeated_calls_stable_row_counts(tmp_path: Path) -> None:
@@ -178,22 +248,35 @@ def test_rel_repeated_calls_stable_row_counts(tmp_path: Path) -> None:
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         seed_all_core_source_slots(session)
+        pack = ensure_jee_advanced_exam_pack(session)
+        ref = ensure_exam_version(
+            session,
+            pack=pack,
+            profile_kind=AdvancedProfileKind.REFERENCE_2026,
+            academic_year="2026",
+        )
+        session.add(
+            ExamBlueprintRule(
+                exam_version_id=str(ref.id),
+                rule_type=BlueprintRuleType.QUESTION_COUNT.value,
+                exact_count=1,
+                selector_json={"labeled_test_fixture": True},
+                metadata_json={"incomplete_rel_fixture": True},
+            )
+        )
         session.commit()
 
     with Session(engine) as session:
-        baseline = _authority_persistence_snapshot(session)
+        baseline = _identity_persistence_snapshot(session)
 
-    verdicts: list[bool] = []
+    readouts: list[dict[str, object]] = []
     for _ in range(3):
         with Session(engine) as session:
-            ready = reference_evidence_ready(session)
-            report = evaluate_reference_authority(session)
-            verdicts.append(ready)
-            assert ready is False
-            assert report.ready is False
-            assert _authority_persistence_snapshot(session) == baseline
+            readouts.append(_authority_readout(session))
+            assert _identity_persistence_snapshot(session) == baseline
 
-    assert len(set(verdicts)) == 1
+    _assert_readouts_identical(readouts, expect_reference_version_missing=False)
+    assert readouts[0]["issues"]
 
 
 def test_rel_exam_version_metadata_no_stale_reference_flag(db_session: Session) -> None:
@@ -256,10 +339,9 @@ def test_rel_evidence_f01_forged_version_metadata_does_not_bypass_authority(
         session.commit()
 
     with Session(engine) as session:
-        assert not reference_evidence_ready(session)
-        report = evaluate_reference_authority(session)
-        assert not report.ready
-        assert report.issues
+        readout = _authority_readout(session)
+        assert readout["reference_evidence_ready"] is False
+        assert readout["issues"]
 
         ref_decision = resolve_profile_authority(
             profile_kind=AdvancedProfileKind.REFERENCE_2026,
@@ -280,27 +362,64 @@ def test_rel_evidence_f02_artificial_slots_never_mutate_authority_tables(
     tmp_path: Path,
 ) -> None:
     """
-    REL36-F02: artificial test-double trusted slots; authority reads are read-only.
+    REL37-F02a: artificial test-double trusted slots; full issue readout stable.
     Not official IIT/JAB proof.
     """
 
     engine = create_database_engine(f"sqlite:///{tmp_path / 'f02.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
-        baseline = _authority_persistence_snapshot(session)
+        baseline = _identity_persistence_snapshot(session)
 
-    verdicts: list[tuple[bool, tuple[str, ...]]] = []
+    readouts: list[dict[str, object]] = []
     for _ in range(3):
         with Session(engine) as session:
-            with patch(
-                "app.jee_advanced.source_authority.evaluate_slot_authority",
-                side_effect=_artificial_all_slots_trusted,
-            ):
-                report = evaluate_reference_authority(session)
-                ready = reference_evidence_ready(session)
-            verdicts.append((ready, report.issues))
-            assert not ready
-            assert _authority_persistence_snapshot(session) == baseline
+            with _artificial_slot_patch():
+                readouts.append(_authority_readout(session))
+            assert _identity_persistence_snapshot(session) == baseline
 
-    assert all(v[0] is False for v in verdicts)
-    assert len({v[0] for v in verdicts}) == 1
+    _assert_readouts_identical(readouts, expect_reference_version_missing=True)
+    for _, trusted, issues in readouts[0]["slots"]:  # type: ignore[index]
+        assert trusted is True
+        assert issues == ()
+
+
+def test_rel_f02a_identity_snapshot_sensitive_to_fixture_rows(
+    tmp_path: Path,
+) -> None:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'snap.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        empty = _identity_persistence_snapshot(session)
+        assert empty["counts"]["source"] == 0  # type: ignore[index]
+
+    with Session(engine) as session:
+        seed_all_core_source_slots(session)
+        pack = ensure_jee_advanced_exam_pack(session)
+        ref = ensure_exam_version(
+            session,
+            pack=pack,
+            profile_kind=AdvancedProfileKind.REFERENCE_2026,
+            academic_year="2026",
+        )
+        session.commit()
+        seeded = _identity_persistence_snapshot(session)
+        assert seeded["counts"]["source"] == 6  # type: ignore[index]
+        assert seeded["counts"]["source_revision"] == 6  # type: ignore[index]
+        assert seeded["counts"]["exam_pack"] == 1  # type: ignore[index]
+        assert seeded != empty
+        assert reference_evidence_ready(session) is False
+
+        session.add(
+            ExamBlueprintRule(
+                exam_version_id=str(ref.id),
+                rule_type=BlueprintRuleType.QUESTION_COUNT.value,
+                min_count=1,
+                selector_json={"rel_f02a_labeled_fixture": True},
+            )
+        )
+        session.commit()
+        with_rule = _identity_persistence_snapshot(session)
+        assert with_rule["counts"]["exam_blueprint_rule"] == 1  # type: ignore[index]
+        assert with_rule != seeded
+        assert reference_evidence_ready(session) is False
