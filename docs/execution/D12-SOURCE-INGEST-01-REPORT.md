@@ -4,6 +4,8 @@
 
 **Issue #41 (STG41):** Per-hop `jeeadv.ac.in:443` validation on Day3 `SourceUrlFetcher.pre_hop_url_validator`; staged rights metadata is not reset on re-run; PDF identity uses parsed text (pypdf) with `IDENTITY_REVIEW_PENDING` when inconclusive; provenance inventory separates discovery URL, observed final URL, fetch MIME, and normalized upload MIME (`build_provenance_inventory_from_session`).
 
+**Issue #42 (STG42):** Approved/active/superseded revisions are immutable on duplicate staging (`TRUSTED_REVISION_IMMUTABLE`); parsed content must show year **2026** (`WRONG_DOCUMENT_YEAR` for 2025); missing/inconsistent rights fail closed; inventory uses `NOT_STAGED_HERE` unless `source_ingestion_failed` audit exists; `tests/test_source_intelligence.py` added to targeted pytest.
+
 **STG-03 reproduction:** Prior builder-private byte store is **not independently reproduced** on this handback. Rebuild locally with:
 
 `cd backend && python ../scripts/ingestion/jee_advanced_2026_private_stage.py`

@@ -51,11 +51,26 @@ class UntrustedOriginError(SourceFetchError):
 class SlotLifecycleStatus(StrEnum):
     DISCOVERED = "DISCOVERED"
     FETCH_BLOCKED = "FETCH_BLOCKED"
+    NOT_STAGED_HERE = "NOT_STAGED_HERE"
     STAGED = "STAGED"
     STAGED_WITH_ISSUES = "STAGED_WITH_ISSUES"
     IDENTITY_REVIEW_PENDING = "IDENTITY_REVIEW_PENDING"
+    TRUSTED_REVISION_IMMUTABLE = "TRUSTED_REVISION_IMMUTABLE"
     CURATOR_PENDING = "CURATOR_PENDING"
     RIGHTS_REVIEW_PENDING = "RIGHTS_REVIEW_PENDING"
+
+
+_PROTECTED_REVISION_STATUSES = frozenset(
+    {
+        SourceRevisionStatus.APPROVED.value,
+        SourceRevisionStatus.ACTIVE.value,
+        SourceRevisionStatus.SUPERSEDED.value,
+    }
+)
+
+
+def _revision_protected_from_staging_mutation(revision: SourceRevision) -> bool:
+    return revision.status in _PROTECTED_REVISION_STATUSES
 
 
 MANUAL_UPLOAD_INSTRUCTION = (
@@ -200,6 +215,7 @@ def _pdf_parsed_content_signals(content: bytes, *, max_pages: int = 8) -> dict[s
     signals: dict[str, Any] = {
         "parseable": False,
         "year_2026": False,
+        "year_2025": False,
         "year_2027": False,
         "p1_question": False,
         "p2_question": False,
@@ -228,6 +244,7 @@ def _pdf_parsed_content_signals(content: bytes, *, max_pages: int = 8) -> dict[s
             chunks.append(page.extract_text() or "")
         text = " ".join(chunks).lower()
         signals["year_2026"] = "2026" in text
+        signals["year_2025"] = "2025" in text and "2026" not in text
         signals["year_2027"] = "2027" in text and "2026" not in text
         signals["p1_question"] = "paper 1" in text or "paper1" in text or "p1_english" in text
         signals["p2_question"] = "paper 2" in text or "paper2" in text or "p2_english" in text
@@ -316,6 +333,11 @@ def slot_identity_issue_codes(
     if not content_sig.get("parseable"):
         issues.append("IDENTITY_REVIEW_PENDING")
     else:
+        if not content_sig.get("year_2026"):
+            if content_sig.get("year_2025"):
+                issues.append("WRONG_DOCUMENT_YEAR")
+            else:
+                issues.append("IDENTITY_REVIEW_PENDING")
         for key, required in _slot_content_expectations(slot_id).items():
             if required and not content_sig.get(key):
                 issues.append(f"content_slot_{key}_missing")
@@ -345,16 +367,35 @@ def verify_response_pdf_mime(content_type: str | None) -> tuple[str, ...]:
     return ()
 
 
+def _source_has_ingestion_failure_audit(session: Session, source_id: str) -> bool:
+    """True when persisted source_ingestion_failed audit exists (STG-42-04)."""
+
+    row = session.scalar(
+        select(SourceAuditEvent.id)
+        .where(
+            SourceAuditEvent.source_id == source_id,
+            SourceAuditEvent.event_type == "source_ingestion_failed",
+        )
+        .limit(1)
+    )
+    return row is not None
+
+
 def _rights_conflicts_if_any(source: Source) -> tuple[str, ...]:
-    """STG-41-02: detect inconsistent rights metadata without mutating the Source."""
+    """STG-41-02/42-03: detect inconsistent or incomplete rights without mutating."""
 
     meta = source.metadata_json or {}
     canonical = (source.copyright_classification or "").strip()
     meta_cc = str(meta.get("copyright_classification") or "").strip()
+    rights_status = str(meta.get("rights_review_status") or "").strip()
     issues: list[str] = []
-    if meta_cc and canonical and meta_cc != canonical:
+    if not canonical or not meta_cc:
+        issues.append("RIGHTS_REVIEW_PENDING")
+    elif meta_cc != canonical:
         issues.append("RIGHTS_METADATA_CONFLICT")
-    return tuple(issues)
+    if not rights_status:
+        issues.append("RIGHTS_REVIEW_PENDING")
+    return tuple(dict.fromkeys(issues))
 
 
 def _ensure_slot_source(
@@ -417,6 +458,8 @@ def _apply_fetch_provenance(
 ) -> None:
     """Persist immutable URL/MIME provenance; do not rewrite locked records."""
 
+    if _revision_protected_from_staging_mutation(revision):
+        return
     meta = dict(revision.metadata_json or {})
     if meta.get("fetch_provenance_locked"):
         return
@@ -561,6 +604,35 @@ def stage_official_slot(
             discovery_url=slot.discovery_url,
         )
 
+    if _revision_protected_from_staging_mutation(revision):
+        session.refresh(revision)
+        meta = source.metadata_json or {}
+        rev_meta = revision.metadata_json or {}
+        return SlotStagingReport(
+            slot_id=slot.slot_id,
+            lifecycle_status=SlotLifecycleStatus.TRUSTED_REVISION_IMMUTABLE.value,
+            discovery_url=slot.discovery_url,
+            final_url=rev_meta.get("final_url"),
+            sha256=revision.checksum,
+            byte_size=revision.byte_size,
+            content_type=rev_meta.get("fetch_response_content_type"),
+            source_id=str(source.id),
+            revision_id=str(revision.id),
+            rights_status=str(
+                meta.get("rights_review_status")
+                or SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value
+            ),
+            curator_status=SlotLifecycleStatus.CURATOR_PENDING.value,
+            issue_codes=("TRUSTED_REVISION_IMMUTABLE",),
+            pdf_magic_valid=pdf_magic_valid(fetched.content),
+            observed_final_url=str(rev_meta.get("final_url"))
+            if rev_meta.get("final_url")
+            else None,
+            fetch_response_content_type=rev_meta.get("fetch_response_content_type"),
+            normalized_revision_content_type=revision.content_type,
+            blocked_reason="TRUSTED_REVISION_IMMUTABLE",
+        )
+
     _apply_fetch_provenance(revision, slot=slot, fetched=fetched)
     session.flush()
 
@@ -608,6 +680,8 @@ def stage_official_slot(
         lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
     else:
         lifecycle = SlotLifecycleStatus.STAGED.value
+    if "WRONG_DOCUMENT_YEAR" in identity_issues:
+        lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
 
     retrieved_at: str | None = None
     if revision.retrieved_at is not None:
@@ -701,11 +775,23 @@ def build_provenance_inventory_from_session(
         source = _find_slot_source(session, slot.slot_id)
         revision = latest_staged_revision(session, slot.slot_id)
         if source is None or revision is None or not revision.storage_path:
-            blocked = "FETCH_BLOCKED" if source and not revision else "NOT_STAGED_HERE"
+            if source is None:
+                blocked = None
+                lifecycle = SlotLifecycleStatus.DISCOVERED.value
+            elif revision is None or not revision.storage_path:
+                if _source_has_ingestion_failure_audit(session, str(source.id)):
+                    blocked = SlotLifecycleStatus.FETCH_BLOCKED.value
+                    lifecycle = SlotLifecycleStatus.FETCH_BLOCKED.value
+                else:
+                    blocked = SlotLifecycleStatus.NOT_STAGED_HERE.value
+                    lifecycle = SlotLifecycleStatus.NOT_STAGED_HERE.value
+            else:
+                blocked = SlotLifecycleStatus.NOT_STAGED_HERE.value
+                lifecycle = SlotLifecycleStatus.NOT_STAGED_HERE.value
             reports.append(
                 SlotStagingReport(
                     slot_id=slot.slot_id,
-                    lifecycle_status=blocked if blocked != "NOT_STAGED_HERE" else "DISCOVERED",
+                    lifecycle_status=lifecycle,
                     discovery_url=slot.discovery_url,
                     final_url=None,
                     observed_final_url=None,
@@ -746,6 +832,8 @@ def build_provenance_inventory_from_session(
             lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
         else:
             lifecycle = SlotLifecycleStatus.STAGED.value
+        if "WRONG_DOCUMENT_YEAR" in identity_issues:
+            lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
         retrieved_at = (
             revision.retrieved_at.isoformat() if revision.retrieved_at is not None else None
         )

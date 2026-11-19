@@ -26,13 +26,15 @@ from app.jee_advanced.source_ingest_staging import (
     slot_identity_issue_codes,
     stage_official_slot,
 )
+from app.jee_advanced.source_lifecycle import register_discovery_sources
 from app.jee_advanced.source_registry import (
     JEE_ADVANCED_2026_SOURCE_SLOTS,
     SourceSlotDescriptor,
     _find_slot_source,
     reference_evidence_ready,
 )
-from app.models import Source, SourceAuditEvent
+from app.models import Source, SourceAuditEvent, SourceRevision
+from app.models.enums import SourceRevisionStatus
 from app.source_intelligence.security import (
     SourceUrlFetcher,
     UnsafeSourceUrl,
@@ -574,6 +576,140 @@ def test_stg41_provenance_inventory_truthful_fields(tmp_path: Path) -> None:
         assert "source.url" not in (row2["discovery_url"] or "")
     finally:
         session2.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg42_approved_revision_unchanged_on_duplicate_staging(tmp_path: Path) -> None:
+    """STG42-01: dedup must not mutate APPROVED revision metadata (missing provenance lock)."""
+
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if s.slot_id.endswith("paper_1"))
+    db_path = tmp_path / "immutable.sqlite"
+    engine = create_database_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    storage = LocalSourceStorage(tmp_path / "immutable-private")
+    session = Session(engine)
+    service = SourceIntelligenceService(session, storage=storage)
+    payload = _slot_pdf(slot)
+    service.fetcher = _mock_fetcher({"/p1_english.pdf": payload})
+    try:
+        first = stage_official_slot(session, service, slot)
+        session.commit()
+        revision = session.get(SourceRevision, first.revision_id)
+        assert revision is not None
+        preserved_meta = {"curator_binding": "test-only", "no_fetch_provenance_lock": True}
+        revision.metadata_json = preserved_meta
+        revision.status = SourceRevisionStatus.APPROVED.value
+        revision.approved_by = "human-curator-test"
+        revision.approval_fingerprint = "fingerprint-keep-001"
+        session.commit()
+        rev_id = str(revision.id)
+        fingerprint = revision.approval_fingerprint
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+    engine2 = create_database_engine(f"sqlite:///{db_path}")
+    session2 = Session(engine2)
+    service2 = SourceIntelligenceService(session2, storage=storage)
+    service2.fetcher = _mock_fetcher({"/p1_english.pdf": payload})
+    try:
+        second = stage_official_slot(session2, service2, slot)
+        session2.commit()
+        assert second.lifecycle_status == "TRUSTED_REVISION_IMMUTABLE"
+        assert "TRUSTED_REVISION_IMMUTABLE" in second.issue_codes
+        revision2 = session2.get(SourceRevision, rev_id)
+        assert revision2 is not None
+        assert revision2.metadata_json == preserved_meta
+        assert revision2.approval_fingerprint == fingerprint
+        assert revision2.status == SourceRevisionStatus.APPROVED.value
+    finally:
+        session2.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg42_parseable_2025_paper_rejected() -> None:
+    payload = _simple_pdf_bytes("JEE Advanced Paper 1 2025 p1_english")
+    issues = slot_identity_issue_codes(
+        "jee_advanced.2026.paper_1",
+        final_url="https://jeeadv.ac.in/documents/p1_english.pdf",
+        filename="p1_english.pdf",
+        content=payload,
+    )
+    assert "WRONG_DOCUMENT_YEAR" in issues
+
+
+def test_stg42_staging_2025_pdf_not_clean_staged(tmp_path: Path) -> None:
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if s.slot_id.endswith("paper_1"))
+    session, service = _session(tmp_path)
+    wrong_year = _simple_pdf_bytes("JEE Advanced Paper 1 2025 p1_english")
+    service.fetcher = _mock_fetcher({"/p1_english.pdf": wrong_year})
+    try:
+        report = stage_official_slot(session, service, slot)
+        assert "WRONG_DOCUMENT_YEAR" in report.issue_codes
+        assert report.lifecycle_status == "STAGED_WITH_ISSUES"
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg42_missing_rights_metadata_blocks_staging(tmp_path: Path) -> None:
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if "syllabus" in s.slot_id)
+    session, service = _session(tmp_path)
+    service.fetcher = _mock_fetcher({"/jee-advanced-2026-syllabus.pdf": _slot_pdf(slot)})
+    try:
+        stage_official_slot(session, service, slot)
+        source = _find_slot_source(session, slot.slot_id)
+        assert source is not None
+        source.copyright_classification = ""
+        meta = dict(source.metadata_json or {})
+        meta.pop("copyright_classification", None)
+        meta.pop("rights_review_status", None)
+        source.metadata_json = meta
+        session.commit()
+        report = stage_official_slot(session, service, slot)
+        assert "RIGHTS_REVIEW_PENDING" in report.issue_codes
+        assert report.lifecycle_status == "RIGHTS_REVIEW_PENDING"
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg42_inventory_not_staged_vs_fetch_blocked(tmp_path: Path) -> None:
+    db_path = tmp_path / "inv.sqlite"
+    engine = create_database_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    storage = LocalSourceStorage(tmp_path / "inv-private")
+    session = Session(engine)
+    try:
+        register_discovery_sources(session)
+        session.commit()
+        inventory = build_provenance_inventory_from_session(session, storage)
+        slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if "brochure" in s.slot_id)
+        row = next(r for r in inventory["slots"] if r["slot_id"] == slot.slot_id)
+        assert row["lifecycle_status"] == "NOT_STAGED_HERE"
+        assert row["blocked_reason"] == "NOT_STAGED_HERE"
+        assert row["observed_final_url"] is None
+        assert row["fetch_response_content_type"] is None
+
+        source = _find_slot_source(session, slot.slot_id)
+        assert source is not None
+        session.add(
+            SourceAuditEvent(
+                source_id=str(source.id),
+                event_type="source_ingestion_failed",
+                outcome="failure",
+                payload_json={"reason": "synthetic_test_failure"},
+            )
+        )
+        session.commit()
+        inventory_blocked = build_provenance_inventory_from_session(session, storage)
+        row_blocked = next(
+            r for r in inventory_blocked["slots"] if r["slot_id"] == slot.slot_id
+        )
+        assert row_blocked["lifecycle_status"] == "FETCH_BLOCKED"
+        assert row_blocked["blocked_reason"] == "FETCH_BLOCKED"
+    finally:
+        session.close()
         create_database_engine.cache_clear()
 
 
