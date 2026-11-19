@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.jee_advanced.constants import JEE_ADVANCED_AUTHORITY
+from app.jee_advanced.constants import COPYRIGHT_RIGHTS_RESERVED_REVIEW, JEE_ADVANCED_AUTHORITY
 from app.jee_advanced.source_authority import evaluate_reference_authority
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS, _find_slot_source
 from app.models.enums import SourceTrustTier, SourceType
@@ -22,15 +22,14 @@ def register_discovery_sources(session: Session) -> list[str]:
         if existing is not None:
             registered.append(str(existing.id))
             continue
-        source_type = (
-            SourceType.OFFICIAL_PAPER
-            if "paper" in slot.slot_id and "key" not in slot.slot_id
-            else SourceType.ANSWER_KEY
-            if "key" in slot.slot_id
-            else SourceType.OFFICIAL_SYLLABUS
-            if "syllabus" in slot.slot_id
-            else SourceType.OFFICIAL_EXAM_BULLETIN
-        )
+        if slot.source_type_label == "official_paper":
+            source_type = SourceType.OFFICIAL_PAPER
+        elif slot.source_type_label == "answer_key":
+            source_type = SourceType.ANSWER_KEY
+        elif slot.source_type_label == "official_syllabus":
+            source_type = SourceType.OFFICIAL_SYLLABUS
+        else:
+            source_type = SourceType.OFFICIAL_EXAM_BULLETIN
         payload = SourceRegistrationInput(
             source_type=source_type,
             title=slot.title,
@@ -39,11 +38,18 @@ def register_discovery_sources(session: Session) -> list[str]:
             country="IN",
             board_or_exam="jee_advanced",
             academic_year="2026",
+            copyright_classification=COPYRIGHT_RIGHTS_RESERVED_REVIEW,
             trust_tier=SourceTrustTier.OFFICIAL_PRIMARY,
             metadata_json={
                 "slot_id": slot.slot_id,
                 "jee_advanced_slot": True,
-                "ingest_status": "SOURCE_PENDING",
+                "ingest_status": "DISCOVERED",
+                "lifecycle_status": "DISCOVERED",
+                "rights_review_status": slot.rights_review_status,
+                "direct_pdf_url": slot.discovery_url,
+                "document_role": slot.document_role,
+                "paper_code": slot.paper_code,
+                "language": slot.language,
             },
         )
         source = service.register_source(payload)

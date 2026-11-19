@@ -23,13 +23,20 @@ OFFICIAL_SUBJECTS = (
 # Brochure Clause 17: two compulsory papers, three hours each (documented official fact).
 REFERENCE_PAPER_DURATION_MINUTES = 180
 
-# Discovery URLs for curator ingest — bytes and SHA are recorded only after real ingest.
+# Direct PDF URLs (Issue #39 / SRC-01) — discovery only until private staging records byte hashes.
 OFFICIAL_DISCOVERY_URLS: dict[str, str] = {
     "brochure_en_2026": "https://jeeadv.ac.in/documents/IBEnglish_2026.pdf",
     "syllabus_2026": "https://jeeadv.ac.in/documents/jee-advanced-2026-syllabus.pdf",
+    "paper1_en_2026": "https://jeeadv.ac.in/documents/p1_english.pdf",
+    "paper2_en_2026": "https://jeeadv.ac.in/documents/p2_english.pdf",
+    "key_paper1_final_2026": "https://jeeadv.ac.in/documents/p1_solutions_final.pdf",
+    "key_paper2_final_2026": "https://jeeadv.ac.in/documents/p2_solutions_final.pdf",
     "site_home": "https://jeeadv.ac.in/",
     "archive": "https://jeeadv.ac.in/archive.html",
 }
+
+JEE_ADVANCED_OFFICIAL_HOST = "jeeadv.ac.in"
+COPYRIGHT_RIGHTS_RESERVED_REVIEW = "rights_reserved_review_required"
 
 SOURCE_SLOT_BROCHURE = "jee_advanced.2026.brochure"
 SOURCE_SLOT_SYLLABUS = "jee_advanced.2026.syllabus"

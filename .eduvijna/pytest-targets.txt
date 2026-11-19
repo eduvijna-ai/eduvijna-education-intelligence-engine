@@ -75,3 +75,4 @@ tests/test_day12_assembly.py
 tests/test_day12_verify_sha.py
 tests/test_day12_core.py
 tests/test_day12_reliability.py
+tests/test_day12_source_ingest.py
