@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.jee_advanced.constants import (
+    COPYRIGHT_RIGHTS_RESERVED_REVIEW,
     JEE_ADVANCED_AUTHORITY,
     SOURCE_SLOT_BROCHURE,
     SOURCE_SLOT_KEY_PAPER1,
@@ -155,9 +156,18 @@ def _slot_official_policy_issues(
     if for_official_reference:
         if not revision.content_type.lower().startswith("application/pdf"):
             issues.append("not_original_pdf_mime")
-        rights = str(source_meta.get("copyright_classification") or "").strip()
+        rights = (source.copyright_classification or "").strip()
+        meta_rights = str(source_meta.get("copyright_classification") or "").strip()
         if not rights:
             issues.append("missing_rights_classification")
+        elif rights == COPYRIGHT_RIGHTS_RESERVED_REVIEW:
+            issues.append("rights_review_pending")
+        if meta_rights and meta_rights != rights:
+            issues.append("rights_metadata_mismatch")
+        if str(source_meta.get("rights_review_status") or "") == "RIGHTS_REVIEW_PENDING":
+            issues.append("rights_review_pending")
+        if not str(source_meta.get("human_rights_disposition") or "").strip():
+            issues.append("human_rights_disposition_missing")
         if not _slot_locator_present(source_meta):
             issues.append("missing_page_locator")
         expected_paper = _SLOT_PAPER_CODES.get(slot_id)

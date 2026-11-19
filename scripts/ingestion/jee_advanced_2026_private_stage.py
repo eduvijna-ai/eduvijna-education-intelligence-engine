@@ -13,7 +13,7 @@ sys.path.insert(0, str(BACKEND))
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.jee_advanced.source_ingest_staging import (
-    build_redacted_inventory,
+    build_provenance_inventory_from_session,
     curator_handback_pending_actions,
     stage_all_official_slots_private,
 )
@@ -29,9 +29,10 @@ def main() -> int:
     Base.metadata.create_all(engine)
     storage = LocalSourceStorage(storage_root / "source_bytes")
     with Session(engine) as session:
-        reports = stage_all_official_slots_private(session, storage)
+        stage_all_official_slots_private(session, storage)
         session.commit()
-        inventory = build_redacted_inventory(reports)
+        inventory = build_provenance_inventory_from_session(session, storage)
+        inventory["provenance_reproduced_in_builder"] = True
     print(
         json.dumps(
             {

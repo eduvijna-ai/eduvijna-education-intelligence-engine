@@ -1,6 +1,12 @@
 # D12-SOURCE-INGEST-01 — Redacted six-slot acquisition report
 
-**Issue #39** | **PR #34** | **Governance:** `reference_evidence_ready:false`, curator approval **not performed**, no PDF bytes in Git.
+**Issues #39 / #40 (STG)** | **PR #34** | **Governance:** `reference_evidence_ready:false`, curator approval **not performed**, no PDF bytes in Git.
+
+**STG-03 reproduction:** Prior builder-private byte store is **not independently reproduced** on this handback. Rebuild locally with:
+
+`cd backend && python ../scripts/ingestion/jee_advanced_2026_private_stage.py`
+
+Official-host staging enforces `https://jeeadv.ac.in` on discovery, redirect chain (mocked), and final URLs (`UNTRUSTED_ORIGIN` fail-closed).
 
 ## SRC-01 — Direct URL manifest
 
