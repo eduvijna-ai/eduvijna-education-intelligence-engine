@@ -1,6 +1,8 @@
 # D12-SOURCE-INGEST-01 — Redacted six-slot acquisition report
 
-**Issues #39 / #40 (STG)** | **PR #34** | **Governance:** `reference_evidence_ready:false`, curator approval **not performed**, no PDF bytes in Git.
+**Issues #39 / #40 / #41 (STG)** | **PR #34** | **Governance:** `reference_evidence_ready:false`, curator approval **not performed**, no PDF bytes in Git.
+
+**Issue #41 (STG41):** Per-hop `jeeadv.ac.in:443` validation on Day3 `SourceUrlFetcher.pre_hop_url_validator`; staged rights metadata is not reset on re-run; PDF identity uses parsed text (pypdf) with `IDENTITY_REVIEW_PENDING` when inconclusive; provenance inventory separates discovery URL, observed final URL, fetch MIME, and normalized upload MIME (`build_provenance_inventory_from_session`).
 
 **STG-03 reproduction:** Prior builder-private byte store is **not independently reproduced** on this handback. Rebuild locally with:
 

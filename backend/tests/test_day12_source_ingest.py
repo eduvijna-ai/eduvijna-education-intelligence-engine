@@ -14,11 +14,13 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.jee_advanced.constants import OFFICIAL_DISCOVERY_URLS, VERSION_CANDIDATE_2027
+from app.jee_advanced.core_test_fixtures import _simple_pdf_bytes
 from app.jee_advanced.source_ingest_staging import (
     MANUAL_UPLOAD_INSTRUCTION,
     UntrustedOriginError,
     assert_no_curator_approval_events,
     assert_official_jeeadv_https_url,
+    build_provenance_inventory_from_session,
     build_redacted_inventory,
     export_src01_manifest,
     slot_identity_issue_codes,
@@ -26,10 +28,16 @@ from app.jee_advanced.source_ingest_staging import (
 )
 from app.jee_advanced.source_registry import (
     JEE_ADVANCED_2026_SOURCE_SLOTS,
+    SourceSlotDescriptor,
+    _find_slot_source,
     reference_evidence_ready,
 )
 from app.models import Source, SourceAuditEvent
-from app.source_intelligence.security import SourceUrlFetcher, UnsafeSourceUrl, validate_source_url
+from app.source_intelligence.security import (
+    SourceUrlFetcher,
+    UnsafeSourceUrl,
+    validate_source_url,
+)
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
 
@@ -48,6 +56,22 @@ _PUBLIC_RESOLVER = lambda _h: ["93.184.216.34"]  # noqa: E731
 def _minimal_pdf(label: str = "slot") -> bytes:
     safe = label.replace("(", "[").replace(")", "]")
     return f"%PDF-1.4\n% {safe}\n%%EOF\n".encode()
+
+
+def _slot_pdf(slot: SourceSlotDescriptor) -> bytes:
+    if slot.slot_id.endswith("brochure"):
+        return _simple_pdf_bytes("JEE Advanced information brochure 2026 IBEnglish")
+    if "syllabus" in slot.slot_id:
+        return _simple_pdf_bytes("JEE Advanced official syllabus 2026")
+    if slot.slot_id.endswith("paper_1"):
+        return _simple_pdf_bytes("JEE Advanced Paper 1 2026 p1_english")
+    if slot.slot_id.endswith("paper_2"):
+        return _simple_pdf_bytes("JEE Advanced Paper 2 2026 p2_english")
+    if slot.slot_id.endswith("key_paper_1"):
+        return _simple_pdf_bytes("Paper 1 final answer key 2026 p1_solutions")
+    if slot.slot_id.endswith("key_paper_2"):
+        return _simple_pdf_bytes("Paper 2 final answer key 2026 p2_solutions")
+    return _simple_pdf_bytes(f"slot {slot.slot_id} 2026")
 
 
 def _session(tmp_path: Path) -> tuple[Session, SourceIntelligenceService]:
@@ -226,7 +250,9 @@ def test_stg02_filename_url_p1_p2_conflict_detected() -> None:
 def test_stg04_rights_review_pending_blocks_reference_ready(tmp_path: Path) -> None:
     slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if "syllabus" in s.slot_id)
     session, service = _session(tmp_path)
-    service.fetcher = _mock_fetcher({"/jee-advanced-2026-syllabus.pdf": _minimal_pdf("syllabus")})
+    service.fetcher = _mock_fetcher(
+        {"/jee-advanced-2026-syllabus.pdf": _slot_pdf(slot)}
+    )
     try:
         report = stage_official_slot(session, service, slot)
         session.commit()
@@ -245,14 +271,18 @@ def test_stg04_rights_review_pending_blocks_reference_ready(tmp_path: Path) -> N
 
 def test_private_staging_never_approves_or_sets_reference_ready(tmp_path: Path) -> None:
     slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if s.slot_id.endswith("syllabus"))
-    handlers = {"/jee-advanced-2026-syllabus.pdf": _minimal_pdf("syllabus")}
+    handlers = {"/jee-advanced-2026-syllabus.pdf": _slot_pdf(slot)}
     session, service = _session(tmp_path)
     service.fetcher = _mock_fetcher(handlers)
     try:
         report = stage_official_slot(session, service, slot)
         session.commit()
         assert report.sha256
-        assert report.lifecycle_status in {"STAGED", "STAGED_WITH_ISSUES"}
+        assert report.lifecycle_status in {
+            "STAGED",
+            "STAGED_WITH_ISSUES",
+            "IDENTITY_REVIEW_PENDING",
+        }
         assert report.curator_status == "CURATOR_PENDING"
         assert assert_no_curator_approval_events(session) == []
         assert reference_evidence_ready(session) is False
@@ -351,8 +381,8 @@ def test_checksum_drift_creates_new_revision(tmp_path: Path) -> None:
 
 def test_stage_all_builds_redacted_inventory(tmp_path: Path) -> None:
     handlers = {
-        url.rsplit("/", 1)[-1]: _minimal_pdf(name)
-        for name, url in _ISSUE_URLS.items()
+        slot.discovery_url.rsplit("/", 1)[-1]: _slot_pdf(slot)
+        for slot in JEE_ADVANCED_2026_SOURCE_SLOTS
     }
     engine = create_database_engine(f"sqlite:///{tmp_path / 'all.sqlite'}")
     Base.metadata.create_all(engine)
@@ -400,6 +430,153 @@ def test_2027_candidate_not_in_src01_manifest() -> None:
     assert "2027" not in joined
 
 
+def test_stg41_pre_hop_blocks_evil_redirect_without_foreign_connection() -> None:
+    """STG41-01: per-hop validator runs before each real-path connection attempt."""
+
+    attempted_hosts: list[str] = []
+
+    class _RedirectResponse:
+        status = 302
+
+        def getheader(self, name: str, default: str | None = None) -> str | None:
+            if name.lower() == "location":
+                return "https://evil.example/documents/payload.pdf"
+            return default
+
+    class _Connection:
+        def request(self, *_: object, **__: object) -> None:
+            return None
+
+        def getresponse(self) -> _RedirectResponse:
+            return _RedirectResponse()
+
+        def close(self) -> None:
+            return None
+
+    def factory(
+        _scheme: str,
+        hostname: str,
+        _port: int,
+        _timeout: float,
+        _pinned: str,
+    ) -> _Connection:
+        attempted_hosts.append(hostname)
+        return _Connection()
+
+    fetcher = SourceUrlFetcher(
+        timeout_seconds=2,
+        max_bytes=4096,
+        max_redirects=2,
+        resolver=_PUBLIC_RESOLVER,
+        transport=None,
+        connection_factory=factory,
+        pre_hop_url_validator=assert_official_jeeadv_https_url,
+    )
+    with pytest.raises(UntrustedOriginError):
+        fetcher.fetch("https://jeeadv.ac.in/documents/redirect-entry.pdf")
+    assert attempted_hosts == ["jeeadv.ac.in"]
+
+
+def test_stg41_rerun_staging_preserves_human_rights_across_sessions(tmp_path: Path) -> None:
+    """STG41-02: re-staging must not reset existing human rights metadata."""
+
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if "syllabus" in s.slot_id)
+    db_path = tmp_path / "rights.sqlite"
+    engine = create_database_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    storage = LocalSourceStorage(tmp_path / "rights-private")
+    session = Session(engine)
+    service = SourceIntelligenceService(session, storage=storage)
+    service.fetcher = _mock_fetcher({"/jee-advanced-2026-syllabus.pdf": _slot_pdf(slot)})
+    try:
+        stage_official_slot(session, service, slot)
+        source = _find_slot_source(session, slot.slot_id)
+        assert source is not None
+        source.copyright_classification = "founder_reviewed_reserved"
+        meta = dict(source.metadata_json or {})
+        meta["copyright_classification"] = "founder_reviewed_reserved"
+        meta["human_rights_disposition"] = "internal_use_only_pending_curator"
+        meta["rights_review_status"] = "HUMAN_REVIEW_RECORDED"
+        source.metadata_json = meta
+        session.commit()
+        rights_snapshot = {
+            "copyright_classification": source.copyright_classification,
+            "human_rights_disposition": meta.get("human_rights_disposition"),
+            "rights_review_status": meta.get("rights_review_status"),
+        }
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+    engine2 = create_database_engine(f"sqlite:///{db_path}")
+    session2 = Session(engine2)
+    service2 = SourceIntelligenceService(session2, storage=storage)
+    service2.fetcher = _mock_fetcher({"/jee-advanced-2026-syllabus.pdf": _slot_pdf(slot)})
+    try:
+        stage_official_slot(session2, service2, slot)
+        session2.commit()
+        source2 = _find_slot_source(session2, slot.slot_id)
+        assert source2 is not None
+        assert source2.copyright_classification == rights_snapshot["copyright_classification"]
+        meta2 = source2.metadata_json or {}
+        assert meta2.get("human_rights_disposition") == rights_snapshot["human_rights_disposition"]
+        assert meta2.get("rights_review_status") == rights_snapshot["rights_review_status"]
+        assert meta2.get("copyright_classification") == rights_snapshot["copyright_classification"]
+    finally:
+        session2.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg41_parseable_wrong_paper_content_flagged() -> None:
+    payload = _simple_pdf_bytes("JEE Advanced Paper 2 2026 p2_english")
+    issues = slot_identity_issue_codes(
+        "jee_advanced.2026.paper_1",
+        final_url="https://jeeadv.ac.in/documents/p1_english.pdf",
+        filename="p1_english.pdf",
+        content=payload,
+    )
+    assert "content_paper_slot_mismatch" in issues or "content_slot_p1_question_missing" in issues
+
+
+def test_stg41_provenance_inventory_truthful_fields(tmp_path: Path) -> None:
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if "syllabus" in s.slot_id)
+    db_path = tmp_path / "prov.sqlite"
+    engine = create_database_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    storage = LocalSourceStorage(tmp_path / "prov-private")
+    session = Session(engine)
+    service = SourceIntelligenceService(session, storage=storage)
+    service.fetcher = _mock_fetcher({"/jee-advanced-2026-syllabus.pdf": _slot_pdf(slot)})
+    try:
+        report = stage_official_slot(session, service, slot)
+        session.commit()
+        inventory = build_provenance_inventory_from_session(session, storage)
+        row = next(r for r in inventory["slots"] if r["slot_id"] == slot.slot_id)
+        assert row["discovery_url"] == slot.discovery_url
+        assert row["observed_final_url"] == report.observed_final_url
+        assert row["fetch_response_content_type"] == "application/pdf"
+        assert row["normalized_revision_content_type"] == "application/pdf"
+        assert row["sha256"] == report.sha256
+        assert row["storage_digest_verified"] is True
+        assert row["storage_byte_size_verified"] is True
+        sha_first = row["sha256"]
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+    engine2 = create_database_engine(f"sqlite:///{db_path}")
+    session2 = Session(engine2)
+    try:
+        inventory2 = build_provenance_inventory_from_session(session2, storage)
+        row2 = next(r for r in inventory2["slots"] if r["slot_id"] == slot.slot_id)
+        assert row2["sha256"] == sha_first
+        assert row2["observed_final_url"] is not None
+        assert "source.url" not in (row2["discovery_url"] or "")
+    finally:
+        session2.close()
+        create_database_engine.cache_clear()
+
+
 def test_redirect_final_url_recorded(tmp_path: Path) -> None:
     session, service = _session(tmp_path)
     slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if "syllabus" in s.slot_id)
@@ -415,7 +592,7 @@ def test_redirect_final_url_recorded(tmp_path: Path) -> None:
             200,
             request=request,
             headers={"content-type": "application/pdf"},
-            content=_minimal_pdf("syllabus"),
+            content=_slot_pdf(slot),
         )
 
     service.fetcher = SourceUrlFetcher(

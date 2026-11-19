@@ -12,9 +12,10 @@ import httpx
 
 Resolver = Callable[[str], list[str]]
 ConnectionFactory = Callable[
-    [str, str, int, float],
+    [str, str, int, float, str],
     http.client.HTTPConnection,
 ]
+PreHopUrlValidator = Callable[[str], None]
 
 
 class UnsafeSourceUrl(ValueError):
@@ -188,6 +189,7 @@ class SourceUrlFetcher:
             http.client.HTTPConnection,
         ]
         | None = None,
+        pre_hop_url_validator: PreHopUrlValidator | None = None,
     ) -> None:
         self.timeout_seconds = timeout_seconds
         self.max_bytes = max_bytes
@@ -195,6 +197,11 @@ class SourceUrlFetcher:
         self.resolver = resolver
         self.transport = transport
         self.connection_factory = connection_factory
+        self.pre_hop_url_validator = pre_hop_url_validator
+
+    def _apply_pre_hop_validator(self, url: str) -> None:
+        if self.pre_hop_url_validator is not None:
+            self.pre_hop_url_validator(url)
 
     @staticmethod
     def _filename_for_url(url: str) -> str:
@@ -231,6 +238,7 @@ class SourceUrlFetcher:
     def _fetch_real(self, url: str) -> FetchedSource:
         current = url
         for redirect_count in range(self.max_redirects + 1):
+            self._apply_pre_hop_validator(current)
             scheme, hostname, port, addresses = _validated_addresses(
                 current,
                 resolver=self.resolver,
@@ -342,6 +350,7 @@ class SourceUrlFetcher:
             trust_env=False,
         ) as client:
             for redirect_count in range(self.max_redirects + 1):
+                self._apply_pre_hop_validator(current)
                 validate_source_url(current, resolver=self.resolver)
                 try:
                     with client.stream("GET", current) as response:

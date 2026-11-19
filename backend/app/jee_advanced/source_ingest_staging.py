@@ -7,13 +7,13 @@ import io
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 
-import httpx
 from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.jee_advanced.constants import (
     COPYRIGHT_RIGHTS_RESERVED_REVIEW,
     JEE_ADVANCED_AUTHORITY,
@@ -34,7 +34,12 @@ from app.jee_advanced.source_registry import (
 from app.models import Source, SourceAuditEvent, SourceRevision
 from app.models.enums import SourceIngestionMethod, SourceRevisionStatus
 from app.schemas.source_intelligence import SourceRegistrationInput
-from app.source_intelligence.security import FetchedSource, SourceFetchError, UnsafeSourceUrl
+from app.source_intelligence.security import (
+    FetchedSource,
+    SourceFetchError,
+    SourceUrlFetcher,
+    UnsafeSourceUrl,
+)
 from app.source_intelligence.service import SourceIntelligenceService
 from app.source_intelligence.storage import LocalSourceStorage
 
@@ -79,69 +84,47 @@ class SlotStagingReport:
     curator_status: str
     issue_codes: tuple[str, ...]
     pdf_magic_valid: bool
+    observed_final_url: str | None = None
     page_count: int | None = None
     retrieved_at: str | None = None
     storage_digest_verified: bool = False
     mime_verified: bool = False
     blocked_reason: str | None = None
+    fetch_response_content_type: str | None = None
+    normalized_revision_content_type: str | None = None
+    storage_byte_size_verified: bool = False
 
 
 def assert_official_jeeadv_https_url(url: str) -> None:
-    """STG-01: only https://jeeadv.ac.in (exact host, no lookalikes)."""
+    """STG-41-01: exact https://jeeadv.ac.in on port 443 only."""
 
     parsed = urlsplit(url)
     if parsed.scheme != "https":
         raise UntrustedOriginError("UNTRUSTED_ORIGIN: official sources require HTTPS")
+    if parsed.username is not None or parsed.password is not None:
+        raise UntrustedOriginError("UNTRUSTED_ORIGIN: embedded credentials forbidden")
     host = (parsed.hostname or "").rstrip(".").lower()
     if host != JEE_ADVANCED_OFFICIAL_HOST:
         raise UntrustedOriginError("UNTRUSTED_ORIGIN: host is not jeeadv.ac.in")
+    port = parsed.port or 443
+    if port != 443:
+        raise UntrustedOriginError("UNTRUSTED_ORIGIN: official sources require port 443")
 
 
-class OfficialHostBoundFetcher:
-    """Wrap Day3 fetcher; validate initial and final URL before returning bytes."""
+def staging_url_fetcher(service: SourceIntelligenceService) -> SourceUrlFetcher:
+    """Build a fetcher with per-hop official-host validation for staging."""
 
-    def __init__(self, inner: Any) -> None:
-        self._inner = inner
-
-    def fetch(self, url: str) -> FetchedSource:
-        assert_official_jeeadv_https_url(url)
-        transport = getattr(self._inner, "transport", None)
-        if transport is not None:
-            self._assert_mock_redirect_chain_official(url, transport)
-        result: FetchedSource = self._inner.fetch(url)
-        assert_official_jeeadv_https_url(result.final_url)
-        return result
-
-    def _assert_mock_redirect_chain_official(
-        self,
-        url: str,
-        transport: httpx.BaseTransport,
-    ) -> None:
-        """Reject cross-host redirects before inner fetch stores bytes (tests + staging)."""
-
-        current = url
-        client = httpx.Client(
-            follow_redirects=False,
-            timeout=getattr(self._inner, "timeout_seconds", 5.0),
-            transport=transport,
-            headers={"user-agent": "Eduvijna-Source-Intelligence/1.0"},
-            trust_env=False,
-        )
-        try:
-            for _ in range(getattr(self._inner, "max_redirects", 3) + 1):
-                assert_official_jeeadv_https_url(current)
-                try:
-                    response = client.get(current)
-                except httpx.HTTPError:
-                    return
-                if response.status_code not in {301, 302, 303, 307, 308}:
-                    return
-                location = response.headers.get("location")
-                if not location:
-                    return
-                current = urljoin(current, location)
-        finally:
-            client.close()
+    inner = service.fetcher
+    settings = get_settings()
+    return SourceUrlFetcher(
+        timeout_seconds=settings.source_url_timeout_seconds,
+        max_bytes=settings.source_max_bytes,
+        max_redirects=settings.source_max_redirects,
+        resolver=inner.resolver,
+        transport=inner.transport,
+        connection_factory=getattr(inner, "connection_factory", None),
+        pre_hop_url_validator=assert_official_jeeadv_https_url,
+    )
 
 
 def export_src01_manifest() -> list[dict[str, Any]]:
@@ -211,14 +194,55 @@ def _filename_signals(filename: str | None) -> dict[str, bool]:
     return _path_signals(filename)
 
 
-def _content_signals(content: bytes) -> dict[str, bool]:
-    sample = content[:12_000].lower()
-    return {
-        "year_2027": b"2027" in sample and b"2026" not in sample[:4000],
-        "p1_question": b"p1_english" in sample or b"paper 1" in sample,
-        "p2_question": b"p2_english" in sample or b"paper 2" in sample,
-        "solutions": b"solutions" in sample or b"answer key" in sample,
+def _pdf_parsed_content_signals(content: bytes, *, max_pages: int = 8) -> dict[str, Any]:
+    """Parse PDF text/metadata for identity evidence (STG-41-03)."""
+
+    signals: dict[str, Any] = {
+        "parseable": False,
+        "year_2026": False,
+        "year_2027": False,
+        "p1_question": False,
+        "p2_question": False,
+        "p1_key": False,
+        "p2_key": False,
+        "solutions": False,
+        "brochure": False,
+        "syllabus": False,
+        "page_count": 0,
     }
+    if not pdf_magic_valid(content):
+        return signals
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        signals["page_count"] = len(reader.pages)
+        if signals["page_count"] <= 0:
+            return signals
+        signals["parseable"] = True
+        chunks: list[str] = []
+        if reader.metadata:
+            chunks.extend(
+                str(reader.metadata.get(key) or "")
+                for key in ("/Title", "/Subject", "/Keywords")
+            )
+        for page in reader.pages[:max_pages]:
+            chunks.append(page.extract_text() or "")
+        text = " ".join(chunks).lower()
+        signals["year_2026"] = "2026" in text
+        signals["year_2027"] = "2027" in text and "2026" not in text
+        signals["p1_question"] = "paper 1" in text or "paper1" in text or "p1_english" in text
+        signals["p2_question"] = "paper 2" in text or "paper2" in text or "p2_english" in text
+        signals["p1_key"] = "p1_solutions" in text or "paper 1 solution" in text
+        signals["p2_key"] = "p2_solutions" in text or "paper 2 solution" in text
+        signals["solutions"] = "solution" in text or "answer key" in text
+        signals["brochure"] = "information brochure" in text or "ibenglish" in text
+        signals["syllabus"] = "syllabus" in text
+    except Exception:
+        signals["parseable"] = False
+    return signals
+
+
+def _slot_content_expectations(slot_id: str) -> dict[str, bool]:
+    return _slot_url_expectations(slot_id)
 
 
 def _slot_url_expectations(slot_id: str) -> dict[str, bool]:
@@ -257,7 +281,7 @@ def slot_identity_issue_codes(
 
     url_sig = _url_path_signals(final_url)
     file_sig = _filename_signals(filename)
-    content_sig = _content_signals(content)
+    content_sig = _pdf_parsed_content_signals(content)
     expected = _slot_url_expectations(slot_id)
 
     for key, required in expected.items():
@@ -289,14 +313,25 @@ def slot_identity_issue_codes(
     if content_sig.get("year_2027"):
         issues.append("wrong_exam_year_in_content")
 
-    if slot_id == SOURCE_SLOT_PAPER1 and content_sig.get("p2_question") and not content_sig.get(
-        "p1_question"
-    ):
-        issues.append("content_paper_slot_mismatch")
-    if slot_id == SOURCE_SLOT_PAPER2 and content_sig.get("p1_question") and not content_sig.get(
-        "p2_question"
-    ):
-        issues.append("content_paper_slot_mismatch")
+    if not content_sig.get("parseable"):
+        issues.append("IDENTITY_REVIEW_PENDING")
+    else:
+        for key, required in _slot_content_expectations(slot_id).items():
+            if required and not content_sig.get(key):
+                issues.append(f"content_slot_{key}_missing")
+        if slot_id == SOURCE_SLOT_PAPER1 and content_sig.get("p2_question") and not content_sig.get(
+            "p1_question"
+        ):
+            issues.append("content_paper_slot_mismatch")
+        if slot_id == SOURCE_SLOT_PAPER2 and content_sig.get("p1_question") and not content_sig.get(
+            "p2_question"
+        ):
+            issues.append("content_paper_slot_mismatch")
+        if slot_id in {SOURCE_SLOT_KEY_PAPER1, SOURCE_SLOT_KEY_PAPER2} and (
+            content_sig.get("p1_question") or content_sig.get("p2_question")
+        ):
+            if not content_sig.get("solutions"):
+                issues.append("content_answer_key_question_mixup")
 
     return tuple(dict.fromkeys(issues))
 
@@ -310,15 +345,16 @@ def verify_response_pdf_mime(content_type: str | None) -> tuple[str, ...]:
     return ()
 
 
-def _sync_rights_metadata(source: Source) -> None:
-    """STG-04: keep metadata aligned with canonical copyright_classification."""
+def _rights_conflicts_if_any(source: Source) -> tuple[str, ...]:
+    """STG-41-02: detect inconsistent rights metadata without mutating the Source."""
 
-    source.metadata_json = {
-        **(source.metadata_json or {}),
-        "copyright_classification": source.copyright_classification,
-        "rights_review_status": SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value,
-        "human_rights_disposition": None,
-    }
+    meta = source.metadata_json or {}
+    canonical = (source.copyright_classification or "").strip()
+    meta_cc = str(meta.get("copyright_classification") or "").strip()
+    issues: list[str] = []
+    if meta_cc and canonical and meta_cc != canonical:
+        issues.append("RIGHTS_METADATA_CONFLICT")
+    return tuple(issues)
 
 
 def _ensure_slot_source(
@@ -328,10 +364,6 @@ def _ensure_slot_source(
 ) -> Source:
     existing = _find_slot_source(session, slot.slot_id)
     if existing is not None:
-        if existing.copyright_classification != COPYRIGHT_RIGHTS_RESERVED_REVIEW:
-            existing.copyright_classification = COPYRIGHT_RIGHTS_RESERVED_REVIEW
-            _sync_rights_metadata(existing)
-            session.flush()
         return existing
     from app.models.enums import SourceTrustTier, SourceType
 
@@ -373,9 +405,32 @@ def _ensure_slot_source(
         actor_id="source-ingest-staging",
         request_id=f"src-register-{slot.slot_id}",
     )
-    _sync_rights_metadata(source)
     session.flush()
     return source
+
+
+def _apply_fetch_provenance(
+    revision: SourceRevision,
+    *,
+    slot: SourceSlotDescriptor,
+    fetched: FetchedSource,
+) -> None:
+    """Persist immutable URL/MIME provenance; do not rewrite locked records."""
+
+    meta = dict(revision.metadata_json or {})
+    if meta.get("fetch_provenance_locked"):
+        return
+    meta.update(
+        {
+            "requested_url": slot.discovery_url,
+            "final_url": fetched.final_url,
+            "fetch_response_content_type": fetched.content_type,
+            "fetch_ingestion_method": "url_fetch",
+            "normalized_upload_content_type": revision.content_type,
+            "fetch_provenance_locked": True,
+        }
+    )
+    revision.metadata_json = meta
 
 
 def _blocked_report(
@@ -435,9 +490,32 @@ def stage_official_slot(
         )
 
     source = _ensure_slot_source(session, service, slot)
-    bound_fetcher = OfficialHostBoundFetcher(service.fetcher)
+    rights_conflicts = _rights_conflicts_if_any(source)
+    if rights_conflicts:
+        meta = source.metadata_json or {}
+        return SlotStagingReport(
+            slot_id=slot.slot_id,
+            lifecycle_status=SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value,
+            discovery_url=slot.discovery_url,
+            final_url=None,
+            sha256=None,
+            byte_size=None,
+            content_type=None,
+            source_id=str(source.id),
+            revision_id=None,
+            rights_status=str(
+                meta.get("rights_review_status")
+                or SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value
+            ),
+            curator_status=SlotLifecycleStatus.CURATOR_PENDING.value,
+            issue_codes=rights_conflicts,
+            pdf_magic_valid=False,
+            blocked_reason=rights_conflicts[0],
+        )
+
+    staging_fetcher = staging_url_fetcher(service)
     try:
-        fetched = bound_fetcher.fetch(slot.discovery_url)
+        fetched = staging_fetcher.fetch(slot.discovery_url)
     except UntrustedOriginError:
         return _blocked_report(
             slot,
@@ -483,10 +561,7 @@ def stage_official_slot(
             discovery_url=slot.discovery_url,
         )
 
-    meta = dict(revision.metadata_json or {})
-    meta["requested_url"] = slot.discovery_url
-    meta["final_url"] = fetched.final_url
-    revision.metadata_json = meta
+    _apply_fetch_provenance(revision, slot=slot, fetched=fetched)
     session.flush()
 
     if not revision.storage_path:
@@ -509,12 +584,15 @@ def stage_official_slot(
 
     content = service.storage.read(revision.storage_path)
     digest_verified = _sha256_bytes(content) == revision.checksum
+    size_verified = len(content) == int(revision.byte_size or 0)
     identity_issues: tuple[str, ...] = ()
     if not digest_verified:
         identity_issues = (*identity_issues, "stored_checksum_mismatch")
+    if not size_verified:
+        identity_issues = (*identity_issues, "stored_byte_size_mismatch")
     identity_issues = (
         *identity_issues,
-        *verify_response_pdf_mime(revision.content_type),
+        *verify_response_pdf_mime(fetched.content_type),
         *slot_identity_issue_codes(
             slot.slot_id,
             final_url=fetched.final_url,
@@ -535,23 +613,31 @@ def stage_official_slot(
     if revision.retrieved_at is not None:
         retrieved_at = revision.retrieved_at.isoformat()
 
+    meta = source.metadata_json or {}
     return SlotStagingReport(
         slot_id=slot.slot_id,
         lifecycle_status=lifecycle,
         discovery_url=slot.discovery_url,
         final_url=fetched.final_url,
+        observed_final_url=fetched.final_url,
         sha256=revision.checksum if digest_verified else _sha256_bytes(content),
         byte_size=len(content),
         content_type=fetched.content_type,
+        fetch_response_content_type=fetched.content_type,
+        normalized_revision_content_type=revision.content_type,
         source_id=str(source.id),
         revision_id=str(revision.id),
-        rights_status=SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value,
+        rights_status=str(
+            meta.get("rights_review_status")
+            or SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value
+        ),
         curator_status=SlotLifecycleStatus.CURATOR_PENDING.value,
         issue_codes=identity_issues,
         pdf_magic_valid=pdf_magic_valid(content),
         page_count=pages,
         retrieved_at=retrieved_at,
         storage_digest_verified=digest_verified,
+        storage_byte_size_verified=size_verified,
         mime_verified="response_mime_not_pdf" not in identity_issues,
     )
 
@@ -577,10 +663,13 @@ def build_redacted_inventory(reports: list[SlotStagingReport]) -> dict[str, Any]
                 "slot_id": report.slot_id,
                 "lifecycle_status": report.lifecycle_status,
                 "discovery_url": report.discovery_url,
-                "final_url": report.final_url,
+                "final_url": report.observed_final_url,
+                "observed_final_url": report.observed_final_url,
+                "fetch_response_content_type": report.fetch_response_content_type,
+                "normalized_revision_content_type": report.normalized_revision_content_type,
                 "sha256": report.sha256,
                 "byte_size": report.byte_size,
-                "content_type": report.content_type,
+                "content_type": report.fetch_response_content_type or report.content_type,
                 "source_id": report.source_id,
                 "revision_id": report.revision_id,
                 "rights_status": report.rights_status,
@@ -590,6 +679,7 @@ def build_redacted_inventory(reports: list[SlotStagingReport]) -> dict[str, Any]
                 "page_count": report.page_count,
                 "retrieved_at": report.retrieved_at,
                 "storage_digest_verified": report.storage_digest_verified,
+                "storage_byte_size_verified": report.storage_byte_size_verified,
                 "mime_verified": report.mime_verified,
                 "blocked_reason": report.blocked_reason,
                 "redacted": True,
@@ -611,54 +701,67 @@ def build_provenance_inventory_from_session(
         source = _find_slot_source(session, slot.slot_id)
         revision = latest_staged_revision(session, slot.slot_id)
         if source is None or revision is None or not revision.storage_path:
+            blocked = "FETCH_BLOCKED" if source and not revision else "NOT_STAGED_HERE"
             reports.append(
                 SlotStagingReport(
                     slot_id=slot.slot_id,
-                    lifecycle_status=SlotLifecycleStatus.DISCOVERED.value,
+                    lifecycle_status=blocked if blocked != "NOT_STAGED_HERE" else "DISCOVERED",
                     discovery_url=slot.discovery_url,
                     final_url=None,
+                    observed_final_url=None,
                     sha256=None,
                     byte_size=None,
                     content_type=None,
+                    fetch_response_content_type=None,
+                    normalized_revision_content_type=None,
                     source_id=str(source.id) if source else None,
                     revision_id=str(revision.id) if revision else None,
                     rights_status=SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value,
                     curator_status=SlotLifecycleStatus.CURATOR_PENDING.value,
                     issue_codes=(),
                     pdf_magic_valid=False,
-                    blocked_reason="not_staged_in_this_environment",
+                    blocked_reason=blocked,
                 )
             )
             continue
         content = service.storage.read(revision.storage_path)
         digest = _sha256_bytes(content)
         digest_verified = digest == revision.checksum
+        size_verified = len(content) == int(revision.byte_size or 0)
         meta = revision.metadata_json or {}
+        observed_final = meta.get("final_url")
         identity_issues = slot_identity_issue_codes(
             slot.slot_id,
-            final_url=str(meta.get("final_url") or source.url),
+            final_url=str(observed_final) if observed_final else None,
             filename=revision.original_filename,
             content=content,
         )
         if not digest_verified:
             identity_issues = (*identity_issues, "stored_checksum_mismatch")
-        lifecycle = (
-            SlotLifecycleStatus.STAGED_WITH_ISSUES.value
-            if identity_issues
-            else SlotLifecycleStatus.STAGED.value
-        )
+        if not size_verified:
+            identity_issues = (*identity_issues, "stored_byte_size_mismatch")
+        if "IDENTITY_REVIEW_PENDING" in identity_issues:
+            lifecycle = SlotLifecycleStatus.IDENTITY_REVIEW_PENDING.value
+        elif identity_issues:
+            lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
+        else:
+            lifecycle = SlotLifecycleStatus.STAGED.value
         retrieved_at = (
             revision.retrieved_at.isoformat() if revision.retrieved_at is not None else None
         )
+        fetch_mime = meta.get("fetch_response_content_type")
         reports.append(
             SlotStagingReport(
                 slot_id=slot.slot_id,
                 lifecycle_status=lifecycle,
-                discovery_url=source.url,
-                final_url=str(meta.get("final_url") or source.url),
+                discovery_url=slot.discovery_url,
+                final_url=str(observed_final) if observed_final else None,
+                observed_final_url=str(observed_final) if observed_final else None,
                 sha256=digest if digest_verified else revision.checksum,
                 byte_size=len(content),
-                content_type=revision.content_type,
+                content_type=str(fetch_mime) if fetch_mime else None,
+                fetch_response_content_type=str(fetch_mime) if fetch_mime else None,
+                normalized_revision_content_type=revision.content_type,
                 source_id=str(source.id),
                 revision_id=str(revision.id),
                 rights_status=str(
@@ -671,7 +774,11 @@ def build_provenance_inventory_from_session(
                 page_count=pdf_page_count(content),
                 retrieved_at=retrieved_at,
                 storage_digest_verified=digest_verified,
-                mime_verified=revision.content_type.lower().startswith("application/pdf"),
+                storage_byte_size_verified=size_verified,
+                mime_verified=(
+                    bool(fetch_mime)
+                    and str(fetch_mime).lower().startswith("application/pdf")
+                ),
             )
         )
     inventory = build_redacted_inventory(reports)
