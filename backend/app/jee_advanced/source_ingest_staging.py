@@ -73,6 +73,70 @@ def _revision_protected_from_staging_mutation(revision: SourceRevision) -> bool:
     return revision.status in _PROTECTED_REVISION_STATUSES
 
 
+def _find_protected_identity_revision(
+    session: Session,
+    source: Source,
+    content: bytes,
+) -> SourceRevision | None:
+    """STG-43-01: read-only duplicate lookup before Day3 ingest (avoids restore path)."""
+
+    checksum = _sha256_bytes(content)
+    snapshot = SourceIntelligenceService._source_snapshot(source)
+    snapshot_checksum = SourceIntelligenceService._snapshot_checksum(snapshot)
+    return session.scalar(
+        select(SourceRevision).where(
+            SourceRevision.source_id == source.id,
+            SourceRevision.checksum == checksum,
+            SourceRevision.source_snapshot_checksum == snapshot_checksum,
+            SourceRevision.status.in_(_PROTECTED_REVISION_STATUSES),
+        )
+    )
+
+
+def _trusted_revision_immutable_report(
+    slot: SourceSlotDescriptor,
+    source: Source,
+    revision: SourceRevision,
+    *,
+    fetched: FetchedSource | None = None,
+) -> SlotStagingReport:
+    meta = source.metadata_json or {}
+    rev_meta = revision.metadata_json or {}
+    return SlotStagingReport(
+        slot_id=slot.slot_id,
+        lifecycle_status=SlotLifecycleStatus.TRUSTED_REVISION_IMMUTABLE.value,
+        discovery_url=slot.discovery_url,
+        final_url=rev_meta.get("final_url"),
+        sha256=revision.checksum,
+        byte_size=revision.byte_size,
+        content_type=(
+            rev_meta.get("fetch_response_content_type")
+            or (fetched.content_type if fetched else None)
+        ),
+        source_id=str(source.id),
+        revision_id=str(revision.id),
+        rights_status=str(
+            meta.get("rights_review_status")
+            or SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value
+        ),
+        curator_status=SlotLifecycleStatus.CURATOR_PENDING.value,
+        issue_codes=(
+            "EXISTING_TRUSTED_REVISION_READ_ONLY",
+            "TRUSTED_REVISION_IMMUTABLE",
+        ),
+        pdf_magic_valid=pdf_magic_valid(
+            fetched.content if fetched is not None else b"%PDF"
+        ),
+        observed_final_url=str(rev_meta.get("final_url"))
+        if rev_meta.get("final_url")
+        else (fetched.final_url if fetched else None),
+        fetch_response_content_type=rev_meta.get("fetch_response_content_type")
+        or (fetched.content_type if fetched else None),
+        normalized_revision_content_type=revision.content_type,
+        blocked_reason="EXISTING_TRUSTED_REVISION_READ_ONLY",
+    )
+
+
 MANUAL_UPLOAD_INSTRUCTION = (
     "Place the original PDF bytes under SOURCE_STORAGE_DIR via "
     "SourceIntelligenceService.ingest_upload (PDF method) after Founder confirms "
@@ -244,8 +308,8 @@ def _pdf_parsed_content_signals(content: bytes, *, max_pages: int = 8) -> dict[s
             chunks.append(page.extract_text() or "")
         text = " ".join(chunks).lower()
         signals["year_2026"] = "2026" in text
-        signals["year_2025"] = "2025" in text and "2026" not in text
-        signals["year_2027"] = "2027" in text and "2026" not in text
+        signals["year_2025"] = "2025" in text
+        signals["year_2027"] = "2027" in text
         signals["p1_question"] = "paper 1" in text or "paper1" in text or "p1_english" in text
         signals["p2_question"] = "paper 2" in text or "paper2" in text or "p2_english" in text
         signals["p1_key"] = "p1_solutions" in text or "paper 1 solution" in text
@@ -327,17 +391,29 @@ def slot_identity_issue_codes(
             if not url_sig.get("solutions"):
                 issues.append("answer_key_question_paper_mixup")
 
-    if content_sig.get("year_2027"):
-        issues.append("wrong_exam_year_in_content")
-
     if not content_sig.get("parseable"):
         issues.append("IDENTITY_REVIEW_PENDING")
     else:
-        if not content_sig.get("year_2026"):
+        year_hits = sum(
+            1
+            for key in ("year_2026", "year_2025", "year_2027")
+            if content_sig.get(key)
+        )
+        if year_hits > 1:
+            issues.append("CONFLICTING_DOCUMENT_YEARS")
+        elif content_sig.get("year_2027"):
+            issues.append("wrong_exam_year_in_content")
+        elif not content_sig.get("year_2026"):
             if content_sig.get("year_2025"):
                 issues.append("WRONG_DOCUMENT_YEAR")
             else:
                 issues.append("IDENTITY_REVIEW_PENDING")
+        if content_sig.get("p1_question") and content_sig.get("p2_question"):
+            issues.append("content_conflicting_paper_tokens")
+        if content_sig.get("p1_question") and content_sig.get("p1_key"):
+            issues.append("content_question_paper_answer_key_mixup")
+        if content_sig.get("p2_question") and content_sig.get("p2_key"):
+            issues.append("content_question_paper_answer_key_mixup")
         for key, required in _slot_content_expectations(slot_id).items():
             if required and not content_sig.get(key):
                 issues.append(f"content_slot_{key}_missing")
@@ -349,6 +425,17 @@ def slot_identity_issue_codes(
             "p2_question"
         ):
             issues.append("content_paper_slot_mismatch")
+        if slot_id in {SOURCE_SLOT_PAPER1, SOURCE_SLOT_PAPER2} and (
+            content_sig.get("solutions")
+            or content_sig.get("p1_key")
+            or content_sig.get("p2_key")
+        ):
+            if slot_id == SOURCE_SLOT_PAPER1 and not content_sig.get("p1_key"):
+                if content_sig.get("solutions") or content_sig.get("p2_key"):
+                    issues.append("content_question_paper_answer_key_mixup")
+            if slot_id == SOURCE_SLOT_PAPER2 and not content_sig.get("p2_key"):
+                if content_sig.get("solutions") or content_sig.get("p1_key"):
+                    issues.append("content_question_paper_answer_key_mixup")
         if slot_id in {SOURCE_SLOT_KEY_PAPER1, SOURCE_SLOT_KEY_PAPER2} and (
             content_sig.get("p1_question") or content_sig.get("p2_question")
         ):
@@ -586,6 +673,13 @@ def stage_official_slot(
             discovery_url=slot.discovery_url,
         )
 
+    protected_preflight = _find_protected_identity_revision(session, source, fetched.content)
+    if protected_preflight is not None:
+        session.refresh(protected_preflight)
+        return _trusted_revision_immutable_report(
+            slot, source, protected_preflight, fetched=fetched
+        )
+
     try:
         revision = service.ingest_upload(
             str(source.id),
@@ -606,31 +700,8 @@ def stage_official_slot(
 
     if _revision_protected_from_staging_mutation(revision):
         session.refresh(revision)
-        meta = source.metadata_json or {}
-        rev_meta = revision.metadata_json or {}
-        return SlotStagingReport(
-            slot_id=slot.slot_id,
-            lifecycle_status=SlotLifecycleStatus.TRUSTED_REVISION_IMMUTABLE.value,
-            discovery_url=slot.discovery_url,
-            final_url=rev_meta.get("final_url"),
-            sha256=revision.checksum,
-            byte_size=revision.byte_size,
-            content_type=rev_meta.get("fetch_response_content_type"),
-            source_id=str(source.id),
-            revision_id=str(revision.id),
-            rights_status=str(
-                meta.get("rights_review_status")
-                or SlotLifecycleStatus.RIGHTS_REVIEW_PENDING.value
-            ),
-            curator_status=SlotLifecycleStatus.CURATOR_PENDING.value,
-            issue_codes=("TRUSTED_REVISION_IMMUTABLE",),
-            pdf_magic_valid=pdf_magic_valid(fetched.content),
-            observed_final_url=str(rev_meta.get("final_url"))
-            if rev_meta.get("final_url")
-            else None,
-            fetch_response_content_type=rev_meta.get("fetch_response_content_type"),
-            normalized_revision_content_type=revision.content_type,
-            blocked_reason="TRUSTED_REVISION_IMMUTABLE",
+        return _trusted_revision_immutable_report(
+            slot, source, revision, fetched=fetched
         )
 
     _apply_fetch_provenance(revision, slot=slot, fetched=fetched)
@@ -680,7 +751,10 @@ def stage_official_slot(
         lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
     else:
         lifecycle = SlotLifecycleStatus.STAGED.value
-    if "WRONG_DOCUMENT_YEAR" in identity_issues:
+    if (
+        "WRONG_DOCUMENT_YEAR" in identity_issues
+        or "CONFLICTING_DOCUMENT_YEARS" in identity_issues
+    ):
         lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
 
     retrieved_at: str | None = None
@@ -832,7 +906,10 @@ def build_provenance_inventory_from_session(
             lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
         else:
             lifecycle = SlotLifecycleStatus.STAGED.value
-        if "WRONG_DOCUMENT_YEAR" in identity_issues:
+        if (
+            "WRONG_DOCUMENT_YEAR" in identity_issues
+            or "CONFLICTING_DOCUMENT_YEARS" in identity_issues
+        ):
             lifecycle = SlotLifecycleStatus.STAGED_WITH_ISSUES.value
         retrieved_at = (
             revision.retrieved_at.isoformat() if revision.retrieved_at is not None else None

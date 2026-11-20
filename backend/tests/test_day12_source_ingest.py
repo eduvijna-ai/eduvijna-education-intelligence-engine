@@ -617,6 +617,7 @@ def test_stg42_approved_revision_unchanged_on_duplicate_staging(tmp_path: Path) 
         session2.commit()
         assert second.lifecycle_status == "TRUSTED_REVISION_IMMUTABLE"
         assert "TRUSTED_REVISION_IMMUTABLE" in second.issue_codes
+        assert "EXISTING_TRUSTED_REVISION_READ_ONLY" in second.issue_codes
         revision2 = session2.get(SourceRevision, rev_id)
         assert revision2 is not None
         assert revision2.metadata_json == preserved_meta
@@ -708,6 +709,126 @@ def test_stg42_inventory_not_staged_vs_fetch_blocked(tmp_path: Path) -> None:
         )
         assert row_blocked["lifecycle_status"] == "FETCH_BLOCKED"
         assert row_blocked["blocked_reason"] == "FETCH_BLOCKED"
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def _audit_event_types(session: Session) -> list[str]:
+    return list(
+        session.scalars(select(SourceAuditEvent.event_type)).all()
+    )
+
+
+@pytest.mark.parametrize(
+    "protected_status",
+    [
+        SourceRevisionStatus.APPROVED,
+        SourceRevisionStatus.SUPERSEDED,
+    ],
+)
+def test_stg43_preflight_skips_ingest_when_protected_blob_missing(
+    tmp_path: Path,
+    protected_status: SourceRevisionStatus,
+) -> None:
+    """STG43-01: missing blob on trusted revision must not trigger Day3 restore/ingest."""
+
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if s.slot_id.endswith("paper_1"))
+    db_path = tmp_path / f"preflight-{protected_status.value}.sqlite"
+    engine = create_database_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    storage = LocalSourceStorage(tmp_path / f"preflight-{protected_status.value}-private")
+    session = Session(engine)
+    service = SourceIntelligenceService(session, storage=storage)
+    payload = _slot_pdf(slot)
+    service.fetcher = _mock_fetcher({"/p1_english.pdf": payload})
+    try:
+        first = stage_official_slot(session, service, slot)
+        session.commit()
+        revision = session.get(SourceRevision, first.revision_id)
+        assert revision is not None
+        preserved_meta = {"trusted_snapshot": protected_status.value, "no_lock": True}
+        revision.metadata_json = preserved_meta
+        revision.status = protected_status.value
+        revision.approved_by = "human-curator-test"
+        revision.approval_fingerprint = f"fp-{protected_status.value}"
+        storage_path = revision.storage_path
+        assert storage_path is not None
+        assert storage.exists(storage_path)
+        storage.delete(storage_path)
+        assert not storage.exists(storage_path)
+        session.commit()
+        rev_id = str(revision.id)
+        audits_before = _audit_event_types(session)
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+    engine2 = create_database_engine(f"sqlite:///{db_path}")
+    session2 = Session(engine2)
+    service2 = SourceIntelligenceService(session2, storage=storage)
+    service2.fetcher = _mock_fetcher({"/p1_english.pdf": payload})
+    try:
+        second = stage_official_slot(session2, service2, slot)
+        session2.commit()
+        assert second.lifecycle_status == "TRUSTED_REVISION_IMMUTABLE"
+        assert "EXISTING_TRUSTED_REVISION_READ_ONLY" in second.issue_codes
+        audits_after = _audit_event_types(session2)
+        assert audits_after == audits_before
+        forbidden = {
+            "source_content_restored",
+            "duplicate_content_detected",
+            "source_ingested",
+        }
+        assert forbidden.isdisjoint(set(audits_after) - set(audits_before))
+        revision2 = session2.get(SourceRevision, rev_id)
+        assert revision2 is not None
+        assert revision2.metadata_json == preserved_meta
+        assert revision2.approval_fingerprint == f"fp-{protected_status.value}"
+        assert not storage.exists(storage_path or "")
+    finally:
+        session2.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg43_conflicting_years_2026_and_2027_in_content() -> None:
+    payload = _simple_pdf_bytes(
+        "JEE Advanced Paper 1 2026 p1_english future reference 2027"
+    )
+    issues = slot_identity_issue_codes(
+        "jee_advanced.2026.paper_1",
+        final_url="https://jeeadv.ac.in/documents/p1_english.pdf",
+        filename="p1_english.pdf",
+        content=payload,
+    )
+    assert "CONFLICTING_DOCUMENT_YEARS" in issues
+
+
+def test_stg43_paper1_with_answer_key_text_not_clean_staged(tmp_path: Path) -> None:
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if s.slot_id.endswith("paper_1"))
+    session, service = _session(tmp_path)
+    mixed = _simple_pdf_bytes(
+        "JEE Advanced Paper 1 2026 p1_english final answer key p1_solutions"
+    )
+    service.fetcher = _mock_fetcher({"/p1_english.pdf": mixed})
+    try:
+        report = stage_official_slot(session, service, slot)
+        assert "content_question_paper_answer_key_mixup" in report.issue_codes
+        assert report.lifecycle_status == "STAGED_WITH_ISSUES"
+    finally:
+        session.close()
+        create_database_engine.cache_clear()
+
+
+def test_stg43_valid_2026_control_still_stages(tmp_path: Path) -> None:
+    slot = next(s for s in JEE_ADVANCED_2026_SOURCE_SLOTS if s.slot_id.endswith("paper_1"))
+    session, service = _session(tmp_path)
+    service.fetcher = _mock_fetcher({"/p1_english.pdf": _slot_pdf(slot)})
+    try:
+        report = stage_official_slot(session, service, slot)
+        assert report.sha256
+        assert "CONFLICTING_DOCUMENT_YEARS" not in report.issue_codes
+        assert "content_question_paper_answer_key_mixup" not in report.issue_codes
     finally:
         session.close()
         create_database_engine.cache_clear()

@@ -6,6 +6,8 @@
 
 **Issue #42 (STG42):** Approved/active/superseded revisions are immutable on duplicate staging (`TRUSTED_REVISION_IMMUTABLE`); parsed content must show year **2026** (`WRONG_DOCUMENT_YEAR` for 2025); missing/inconsistent rights fail closed; inventory uses `NOT_STAGED_HERE` unless `source_ingestion_failed` audit exists; `tests/test_source_intelligence.py` added to targeted pytest.
 
+**Issue #43 (STG43):** Preflight lookup blocks Day3 ingest/restore for byte-identical protected revisions (`EXISTING_TRUSTED_REVISION_READ_ONLY`); parsed PDF conflicts for mixed years and question-paper/answer-key text (`CONFLICTING_DOCUMENT_YEARS`, `content_question_paper_answer_key_mixup`).
+
 **STG-03 reproduction:** Prior builder-private byte store is **not independently reproduced** on this handback. Rebuild locally with:
 
 `cd backend && python ../scripts/ingestion/jee_advanced_2026_private_stage.py`
