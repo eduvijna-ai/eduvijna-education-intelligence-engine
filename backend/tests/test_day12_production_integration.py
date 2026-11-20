@@ -472,47 +472,33 @@ def test_prod47_03_integrated_pair_cross_process(tmp_path: Path) -> None:
         session.commit()
         assert integrated.persist.outcome == PaperPairOutcome.CREATED
         gateway_calls_first = integrated.gateway_calls_before_persist
-        assert gateway_calls_first >= 3
+        assert gateway_calls_first >= 6
 
     q0, q1 = test_ids
     script = f'''
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 import app.models  # noqa: F401
 from app.db.session import create_database_engine
-from app.jee_advanced.paper_pair_persistence import PaperPairPersistRequest, persist_two_paper_pair
-from app.jee_advanced.constants import PAPER_1_CODE, PAPER_2_CODE
-from app.models import TestDefinition
+from app.jee_advanced.production_orchestration import run_labeled_synthetic_pair_integration
+from app.orchestration.gateway.fake import FakeGenerationGateway
 
 engine = create_database_engine("sqlite:///{db_path}")
 with Session(engine) as session:
-    req = PaperPairPersistRequest(
-        idempotency_key="idem-p47",
+    gw = FakeGenerationGateway()
+    result = run_labeled_synthetic_pair_integration(
+        session,
+        gw,
         organization_id="org-int",
         institution_id="inst-int",
         exam_version_id="{version_id}",
+        question_ids=("{q0}", "{q1}"),
+        idempotency_key="idem-p47",
         pair_correlation_id="pair-p47",
-        paper_definitions=(
-            {{
-                "paper_code": PAPER_1_CODE,
-                "title": "Synthetic Paper 1",
-                "question_items": [{{"question_id": "{q0}", "section_code": "A", "marks": 3}}],
-            }},
-            {{
-                "paper_code": PAPER_2_CODE,
-                "title": "Synthetic Paper 2",
-                "question_items": [{{"question_id": "{q1}", "section_code": "B", "marks": 3}}],
-            }},
-        ),
-        source_revision_snapshot={{}},
-        blueprint_snapshot={{"demonstration_only": True}},
-        synthetic_labeled_test_mode=True,
     )
-    result = persist_two_paper_pair(session, req)
     session.commit()
-    rows = session.scalars(select(TestDefinition)).all()
-    print(result.outcome)
-    print(len(rows))
+    print(result.persist.outcome)
+    print(result.gateway_calls)
+    print(len(result.persist.test_definition_ids))
 '''
     proc = subprocess.run(
         [sys.executable, "-c", script],
@@ -523,7 +509,8 @@ with Session(engine) as session:
     assert proc.returncode == 0, proc.stderr
     lines = proc.stdout.strip().splitlines()
     assert lines[0] == "replayed"
-    assert lines[1] == "2"
+    assert lines[1] == "0"
+    assert lines[2] == "2"
     create_database_engine.cache_clear()
 
 

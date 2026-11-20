@@ -1,9 +1,17 @@
 # D12 consolidated evidence report (Issues #44–#47)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
-**Issue #47 start SHA:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
-**Issue #46 parent:** `a705e00f08f81ace53dcc874eb7fc3a448c769e0`  
+**Issue #48 start SHA:** `3c628f015734915c3fe4799b4abc2d91ce95c0ee`  
+**Issue #47 parent:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
+
+## Issue #48 issuance atomicity (P48-01…03)
+
+| Gate | Fix | Tests |
+|------|-----|-------|
+| P48-01 | `preflight_two_paper_pair` before gateway; replay = 0 gateway calls | `test_day12_issuance_atomicity.py` |
+| P48-02 | `pair_issuance_validation.py` both questions Day6/solver before issue | `test_p48_02_*` |
+| P48-03 | Integrated API cross-process replay | `test_p48_03_*` |
 
 ## Issue #47 production integration (PROD-47-01…04)
 

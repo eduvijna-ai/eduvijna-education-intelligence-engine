@@ -184,6 +184,147 @@ def _ordered_ids(test: TestDefinition) -> list[str]:
     return [str(row.question_id) for row in ordered]
 
 
+def _match_existing_pair(
+    session: Session, request: PaperPairPersistRequest
+) -> PaperPairPersistResult | None:
+    """Read-only pair resolution. None when no rows exist yet (issue #48 preflight)."""
+
+    fingerprint = _fingerprint(request)
+    existing_codes = [
+        _code_for_paper(request.idempotency_key, code) for code in _paper_codes(request)
+    ]
+
+    with session.no_autoflush:
+        loaded: list[TestDefinition] = []
+        for code in existing_codes:
+            row = session.scalar(select(TestDefinition).where(TestDefinition.code == code))
+            if row is not None:
+                loaded.append(row)
+
+    if not loaded:
+        return None
+
+    if len(loaded) != 2:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum="",
+            question_ids_by_paper={},
+            issue_codes=("incomplete_pair_rows",),
+        )
+    stored_fp = str((loaded[0].metadata_json or {}).get("pair_fingerprint") or "")
+    stored_org = str((loaded[0].metadata_json or {}).get("organization_id") or "")
+    stored_corr = str((loaded[0].metadata_json or {}).get("pair_correlation_id") or "")
+    stored_inst = str((loaded[0].metadata_json or {}).get("institution_id") or "")
+    if stored_org != request.organization_id:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=stored_fp,
+            question_ids_by_paper={},
+            issue_codes=("tenant_mismatch",),
+        )
+    if (request.institution_id or "") != stored_inst:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=stored_fp,
+            question_ids_by_paper={},
+            issue_codes=("institution_mismatch",),
+        )
+    if stored_corr != request.pair_correlation_id:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=stored_fp,
+            question_ids_by_paper={},
+            issue_codes=("pair_correlation_mismatch",),
+        )
+    if stored_fp != fingerprint:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=stored_fp,
+            question_ids_by_paper={},
+            issue_codes=("idempotency_payload_mismatch",),
+        )
+    by_paper: dict[str, list[str]] = {}
+    paper_by_code = {str(p.get("paper_code")): p for p in request.paper_definitions}
+    for test in loaded:
+        paper_code = str((test.metadata_json or {}).get("paper_code") or "")
+        paper_def = paper_by_code.get(paper_code)
+        if paper_def is None:
+            return PaperPairPersistResult(
+                outcome=PaperPairOutcome.CONFLICT,
+                pair_correlation_id=request.pair_correlation_id,
+                test_definition_ids=tuple(str(t.id) for t in loaded),
+                checksum=stored_fp,
+                question_ids_by_paper={},
+                issue_codes=("unknown_paper_code",),
+            )
+        ok, mismatch = _paper_questions_match(test, paper_def)
+        by_paper[paper_code] = _ordered_ids(test)
+        if not ok:
+            return PaperPairPersistResult(
+                outcome=PaperPairOutcome.CONFLICT,
+                pair_correlation_id=request.pair_correlation_id,
+                test_definition_ids=tuple(str(t.id) for t in loaded),
+                checksum=stored_fp,
+                question_ids_by_paper=by_paper,
+                issue_codes=(mismatch or "question_payload_mismatch",),
+            )
+        stored_snap = (test.metadata_json or {}).get("source_revision_snapshot")
+        if stored_snap != request.source_revision_snapshot:
+            return PaperPairPersistResult(
+                outcome=PaperPairOutcome.CONFLICT,
+                pair_correlation_id=request.pair_correlation_id,
+                test_definition_ids=tuple(str(t.id) for t in loaded),
+                checksum=stored_fp,
+                question_ids_by_paper=by_paper,
+                issue_codes=("source_snapshot_drift",),
+            )
+        stored_blue = (test.metadata_json or {}).get("blueprint_snapshot")
+        if stored_blue != request.blueprint_snapshot:
+            return PaperPairPersistResult(
+                outcome=PaperPairOutcome.CONFLICT,
+                pair_correlation_id=request.pair_correlation_id,
+                test_definition_ids=tuple(str(t.id) for t in loaded),
+                checksum=stored_fp,
+                question_ids_by_paper=by_paper,
+                issue_codes=("blueprint_snapshot_drift",),
+            )
+    return PaperPairPersistResult(
+        outcome=PaperPairOutcome.REPLAYED,
+        pair_correlation_id=stored_corr,
+        test_definition_ids=tuple(str(t.id) for t in loaded),
+        checksum=stored_fp,
+        question_ids_by_paper=by_paper,
+    )
+
+
+def preflight_two_paper_pair(
+    session: Session, request: PaperPairPersistRequest
+) -> PaperPairPersistResult | None:
+    """Shape-check and idempotent resolution before gateway; None when issuance may proceed."""
+
+    shape_issues = _validate_request_shape(session, request)
+    if shape_issues:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=(),
+            checksum="",
+            question_ids_by_paper={},
+            issue_codes=shape_issues,
+        )
+    return _match_existing_pair(session, request)
+
+
 def persist_two_paper_pair(
     session: Session,
     request: PaperPairPersistRequest,
@@ -200,100 +341,9 @@ def persist_two_paper_pair(
         )
 
     fingerprint = _fingerprint(request)
-    existing_codes = [
-        _code_for_paper(request.idempotency_key, code) for code in _paper_codes(request)
-    ]
-
-    loaded: list[TestDefinition] = []
-    for code in existing_codes:
-        row = session.scalar(select(TestDefinition).where(TestDefinition.code == code))
-        if row is not None:
-            loaded.append(row)
-
-    if loaded:
-        if len(loaded) != 2:
-            return PaperPairPersistResult(
-                outcome=PaperPairOutcome.CONFLICT,
-                pair_correlation_id=request.pair_correlation_id,
-                test_definition_ids=tuple(str(t.id) for t in loaded),
-                checksum="",
-                question_ids_by_paper={},
-                issue_codes=("incomplete_pair_rows",),
-            )
-        stored_fp = str((loaded[0].metadata_json or {}).get("pair_fingerprint") or "")
-        stored_org = str((loaded[0].metadata_json or {}).get("organization_id") or "")
-        stored_corr = str((loaded[0].metadata_json or {}).get("pair_correlation_id") or "")
-        if stored_org != request.organization_id:
-            return PaperPairPersistResult(
-                outcome=PaperPairOutcome.CONFLICT,
-                pair_correlation_id=request.pair_correlation_id,
-                test_definition_ids=tuple(str(t.id) for t in loaded),
-                checksum=stored_fp,
-                question_ids_by_paper={},
-                issue_codes=("tenant_mismatch",),
-            )
-        if stored_corr != request.pair_correlation_id:
-            return PaperPairPersistResult(
-                outcome=PaperPairOutcome.CONFLICT,
-                pair_correlation_id=request.pair_correlation_id,
-                test_definition_ids=tuple(str(t.id) for t in loaded),
-                checksum=stored_fp,
-                question_ids_by_paper={},
-                issue_codes=("pair_correlation_mismatch",),
-            )
-        if stored_fp != fingerprint:
-            return PaperPairPersistResult(
-                outcome=PaperPairOutcome.CONFLICT,
-                pair_correlation_id=request.pair_correlation_id,
-                test_definition_ids=tuple(str(t.id) for t in loaded),
-                checksum=stored_fp,
-                question_ids_by_paper={},
-                issue_codes=("idempotency_payload_mismatch",),
-            )
-        by_paper: dict[str, list[str]] = {}
-        paper_by_code = {
-            str(p.get("paper_code")): p for p in request.paper_definitions
-        }
-        for test in loaded:
-            paper_code = str((test.metadata_json or {}).get("paper_code") or "")
-            paper_def = paper_by_code.get(paper_code)
-            if paper_def is None:
-                return PaperPairPersistResult(
-                    outcome=PaperPairOutcome.CONFLICT,
-                    pair_correlation_id=request.pair_correlation_id,
-                    test_definition_ids=tuple(str(t.id) for t in loaded),
-                    checksum=stored_fp,
-                    question_ids_by_paper={},
-                    issue_codes=("unknown_paper_code",),
-                )
-            ok, mismatch = _paper_questions_match(test, paper_def)
-            by_paper[paper_code] = _ordered_ids(test)
-            if not ok:
-                return PaperPairPersistResult(
-                    outcome=PaperPairOutcome.CONFLICT,
-                    pair_correlation_id=request.pair_correlation_id,
-                    test_definition_ids=tuple(str(t.id) for t in loaded),
-                    checksum=stored_fp,
-                    question_ids_by_paper=by_paper,
-                    issue_codes=(mismatch or "question_payload_mismatch",),
-                )
-            stored_snap = (test.metadata_json or {}).get("source_revision_snapshot")
-            if stored_snap != request.source_revision_snapshot:
-                return PaperPairPersistResult(
-                    outcome=PaperPairOutcome.CONFLICT,
-                    pair_correlation_id=request.pair_correlation_id,
-                    test_definition_ids=tuple(str(t.id) for t in loaded),
-                    checksum=stored_fp,
-                    question_ids_by_paper=by_paper,
-                    issue_codes=("source_snapshot_drift",),
-                )
-        return PaperPairPersistResult(
-            outcome=PaperPairOutcome.REPLAYED,
-            pair_correlation_id=stored_corr,
-            test_definition_ids=tuple(str(t.id) for t in loaded),
-            checksum=stored_fp,
-            question_ids_by_paper=by_paper,
-        )
+    matched = _match_existing_pair(session, request)
+    if matched is not None:
+        return matched
 
     test_ids: list[str] = []
     created_by_paper: dict[str, list[str]] = {}
