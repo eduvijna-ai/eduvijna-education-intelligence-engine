@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.jee_advanced.constants import (
+    BROCHURE_DISCOVERY_URL_ALTERNATE,
+    BROCHURE_DISCOVERY_URL_PRIMARY,
     COPYRIGHT_RIGHTS_RESERVED_REVIEW,
     JEE_ADVANCED_AUTHORITY,
     JEE_ADVANCED_OFFICIAL_HOST,
@@ -83,14 +85,15 @@ def _find_protected_identity_revision(
     checksum = _sha256_bytes(content)
     snapshot = SourceIntelligenceService._source_snapshot(source)
     snapshot_checksum = SourceIntelligenceService._snapshot_checksum(snapshot)
-    return session.scalar(
-        select(SourceRevision).where(
-            SourceRevision.source_id == source.id,
-            SourceRevision.checksum == checksum,
-            SourceRevision.source_snapshot_checksum == snapshot_checksum,
-            SourceRevision.status.in_(_PROTECTED_REVISION_STATUSES),
+    with session.no_autoflush:
+        return session.scalar(
+            select(SourceRevision).where(
+                SourceRevision.source_id == source.id,
+                SourceRevision.checksum == checksum,
+                SourceRevision.source_snapshot_checksum == snapshot_checksum,
+                SourceRevision.status.in_(_PROTECTED_REVISION_STATUSES),
+            )
         )
-    )
 
 
 def _trusted_revision_immutable_report(
@@ -258,6 +261,7 @@ def _path_signals(path: str) -> dict[str, bool]:
         "brochure": "ibenglish" in lowered,
         "solutions": "solutions" in lowered,
         "year_2027": "2027" in lowered,
+        "year_2024": "2024" in lowered,
     }
 
 
@@ -280,6 +284,7 @@ def _pdf_parsed_content_signals(content: bytes, *, max_pages: int = 8) -> dict[s
         "parseable": False,
         "year_2026": False,
         "year_2025": False,
+        "year_2024": False,
         "year_2027": False,
         "p1_question": False,
         "p2_question": False,
@@ -309,6 +314,7 @@ def _pdf_parsed_content_signals(content: bytes, *, max_pages: int = 8) -> dict[s
         text = " ".join(chunks).lower()
         signals["year_2026"] = "2026" in text
         signals["year_2025"] = "2025" in text
+        signals["year_2024"] = "2024" in text
         signals["year_2027"] = "2027" in text
         signals["p1_question"] = "paper 1" in text or "paper1" in text or "p1_english" in text
         signals["p2_question"] = "paper 2" in text or "paper2" in text or "p2_english" in text
@@ -396,7 +402,7 @@ def slot_identity_issue_codes(
     else:
         year_hits = sum(
             1
-            for key in ("year_2026", "year_2025", "year_2027")
+            for key in ("year_2026", "year_2025", "year_2024", "year_2027")
             if content_sig.get(key)
         )
         if year_hits > 1:
@@ -563,6 +569,36 @@ def _apply_fetch_provenance(
     revision.metadata_json = meta
 
 
+def _slot_discovery_urls(slot: SourceSlotDescriptor) -> tuple[str, ...]:
+    """Ordered official discovery URLs (brochure alternate per Issue #44)."""
+
+    if slot.slot_id != SOURCE_SLOT_BROCHURE:
+        return (slot.discovery_url,) if slot.discovery_url else ()
+    ordered = [BROCHURE_DISCOVERY_URL_PRIMARY, BROCHURE_DISCOVERY_URL_ALTERNATE]
+    if slot.discovery_url and slot.discovery_url not in ordered:
+        ordered.insert(0, slot.discovery_url)
+    return tuple(dict.fromkeys(url for url in ordered if url))
+
+
+def _fetch_official_slot_bytes(
+    fetcher: SourceUrlFetcher,
+    slot: SourceSlotDescriptor,
+) -> FetchedSource | None:
+    """Try each discovery URL until one succeeds under the per-hop policy."""
+
+    last_error: Exception | None = None
+    for url in _slot_discovery_urls(slot):
+        try:
+            assert_official_jeeadv_https_url(url)
+            return fetcher.fetch(url)
+        except (UntrustedOriginError, SourceFetchError, UnsafeSourceUrl) as exc:
+            last_error = exc
+            continue
+    if last_error is not None:
+        raise last_error
+    return None
+
+
 def _blocked_report(
     slot: SourceSlotDescriptor,
     *,
@@ -645,7 +681,9 @@ def stage_official_slot(
 
     staging_fetcher = staging_url_fetcher(service)
     try:
-        fetched = staging_fetcher.fetch(slot.discovery_url)
+        fetched = _fetch_official_slot_bytes(staging_fetcher, slot)
+        if fetched is None:
+            raise SourceFetchError("no discovery url configured")
     except UntrustedOriginError:
         return _blocked_report(
             slot,

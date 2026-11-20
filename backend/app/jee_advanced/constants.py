@@ -24,8 +24,11 @@ OFFICIAL_SUBJECTS = (
 REFERENCE_PAPER_DURATION_MINUTES = 180
 
 # Direct PDF URLs (Issue #39 / SRC-01) — discovery only until private staging records byte hashes.
+BROCHURE_DISCOVERY_URL_PRIMARY = "https://jeeadv.ac.in/documents/IBEnglish_2026.pdf"
+BROCHURE_DISCOVERY_URL_ALTERNATE = "https://jeeadv.ac.in/documents/IBEnglish_2026_1.pdf"
+
 OFFICIAL_DISCOVERY_URLS: dict[str, str] = {
-    "brochure_en_2026": "https://jeeadv.ac.in/documents/IBEnglish_2026.pdf",
+    "brochure_en_2026": BROCHURE_DISCOVERY_URL_PRIMARY,
     "syllabus_2026": "https://jeeadv.ac.in/documents/jee-advanced-2026-syllabus.pdf",
     "paper1_en_2026": "https://jeeadv.ac.in/documents/p1_english.pdf",
     "paper2_en_2026": "https://jeeadv.ac.in/documents/p2_english.pdf",
