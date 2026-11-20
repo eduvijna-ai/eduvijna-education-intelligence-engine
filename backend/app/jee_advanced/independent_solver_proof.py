@@ -65,14 +65,18 @@ def validation_run_covers_question(
         return False, "validation_item_hash_mismatch"
 
     scope = dict(meta.get("scope") or {})
-    scope_org = str(scope.get("organization_id") or meta.get("organization_id") or "")
-    if scope_org and scope_org != organization_id:
+    scope_org = str(scope.get("organization_id") or meta.get("organization_id") or "").strip()
+    if not scope_org:
+        return False, "validation_record_org_missing"
+    if scope_org != organization_id.strip():
         return False, "validation_org_mismatch"
     if institution_id is not None:
         scope_inst = str(
             scope.get("institution_id") or record.institution_id or ""
         ).strip()
-        if not scope_inst or scope_inst != institution_id:
+        if not scope_inst:
+            return False, "validation_record_institution_missing"
+        if scope_inst != institution_id.strip():
             return False, "validation_institution_mismatch"
 
     solver_id = str((question.metadata_json or {}).get("day6_solver_evidence_id") or "")

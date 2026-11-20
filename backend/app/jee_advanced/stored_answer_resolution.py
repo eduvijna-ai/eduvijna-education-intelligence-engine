@@ -15,14 +15,18 @@ def stored_mcq_correct_keys(question: Question) -> frozenset[str]:
     return frozenset({key}) if key else frozenset()
 
 
-def stored_numerical_spec(question: Question) -> tuple[str | None, float | None, bool]:
+def stored_numerical_spec(
+    question: Question,
+) -> tuple[str | None, float | None, bool, str | None]:
     answer = question.answer_json or {}
     rubric = question.rubric_json or {}
     value = answer.get("value")
     if value is None:
         value = answer.get("numerical_answer")
     expected = str(value).strip() if value is not None else None
-    tol_raw = rubric.get("tolerance") or rubric.get("numerical_tolerance")
+    tol_raw = rubric.get("tolerance")
+    if tol_raw is None:
+        tol_raw = rubric.get("numerical_tolerance")
     tolerance: float | None = None
     if tol_raw is not None:
         try:
@@ -30,7 +34,38 @@ def stored_numerical_spec(question: Question) -> tuple[str | None, float | None,
         except (TypeError, ValueError):
             tolerance = None
     units_required = bool(rubric.get("units_required") or answer.get("units_required"))
-    return expected, tolerance, units_required
+    expected_units = str(
+        answer.get("units") or rubric.get("expected_units") or answer.get("unit") or ""
+    ).strip().lower() or None
+    return expected, tolerance, units_required, expected_units
+
+
+def submitted_numerical_parts(submitted: str) -> tuple[float | None, str | None]:
+    parts = submitted.strip().split(maxsplit=1)
+    try:
+        value = float(parts[0])
+    except (ValueError, IndexError):
+        return None, None
+    units = parts[1].strip().lower() if len(parts) > 1 else None
+    return value, units
+
+
+def numerical_units_acceptable(
+    *,
+    submitted: str,
+    expected_units: str | None,
+    units_required: bool,
+) -> tuple[bool, str | None]:
+    if not units_required:
+        return True, None
+    if not expected_units:
+        return False, "numerical_expected_units_missing"
+    _, sub_units = submitted_numerical_parts(submitted)
+    if not sub_units:
+        return False, "numerical_units_missing"
+    if sub_units != expected_units:
+        return False, "numerical_units_mismatch"
+    return True, None
 
 
 def selected_in_option_domain(question: Question, selected: str) -> bool:

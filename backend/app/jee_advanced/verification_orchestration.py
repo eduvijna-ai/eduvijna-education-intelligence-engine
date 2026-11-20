@@ -52,12 +52,20 @@ def run_scoped_generation_probe(
 ) -> tuple[VerificationVerdict, int]:
     """D12-27 / READY-03: injected AUTHOR→SOLVER→REVIEW chain with shared gateway."""
 
+    if not (organization_id or "").strip():
+        return (
+            VerificationVerdict(
+                outcome=VerificationOutcome.REVIEW_REQUIRED,
+                issue_codes=("organization_scope_missing",),
+            ),
+            0,
+        )
     gw = gateway or FakeGenerationGateway()
     result = run_injected_author_solver_review_chain(
         gw,
         item_id=item_id,
         run_id=run_id,
-        organization_id=organization_id or "org-required",
+        organization_id=organization_id,
         scenario=scenario,
     )
     return result.verdict, result.gateway_calls

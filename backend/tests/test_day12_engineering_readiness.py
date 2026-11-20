@@ -106,8 +106,8 @@ def test_ready01_numerical_stored_rubric_units(tmp_path: Path) -> None:
         exam_version_id=str(version.id),
         question_type="numerical",
         stem_text="compute",
-        answer_json={"value": "2.0", "units_required": True},
-        rubric_json={"tolerance": 0.1, "units_required": True},
+        answer_json={"value": "2.0", "units": "m", "units_required": True},
+        rubric_json={"tolerance": 0.1, "units_required": True, "expected_units": "m"},
         status="approved",
         metadata_json={
             "d12_core_test_fixture": True,

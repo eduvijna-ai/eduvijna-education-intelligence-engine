@@ -1,9 +1,18 @@
-# D12 consolidated evidence report (Issues #44 + #45)
+# D12 consolidated evidence report (Issues #44–#47)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
-**Issue #46 start SHA:** `a705e00f08f81ace53dcc874eb7fc3a448c769e0`  
-**Issue #45 parent:** `1d4c3e6b8bed446c9b707987f6218f242993bf09`  
+**Issue #47 start SHA:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
+**Issue #46 parent:** `a705e00f08f81ace53dcc874eb7fc3a448c769e0`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
+
+## Issue #47 production integration (PROD-47-01…04)
+
+| Gate | Fix | Tests |
+|------|-----|-------|
+| PROD-47-01 | `persisted_question_loader.py` + by-id verification; unit identity; zero tolerance; record org scope | `test_day12_production_integration.py` |
+| PROD-47-02 | `syllabus_graph.py` loads `CurriculumNode`, competency links, PCM coverage | `test_prod47_02_*` |
+| PROD-47-03 | Gateway protocol chain, affirmative review, `production_orchestration.py`, cross-process pair | `test_prod47_03_*` |
+| PROD-47-04 | Ruff/mypy/Day12/scoped targets; ledger unchanged | `test_prod47_04_*`, `test_ready04_*` |
 
 ## Ledger (mechanical, 36 rows)
 
@@ -33,7 +42,7 @@
 | Command | Result |
 |---------|--------|
 | `ruff check app tests` | PASS |
-| `mypy app` | PASS (311 files) |
+| `mypy app` | PASS (316 files) |
 | `pytest tests/test_day12_*.py` | PASS |
 | `pytest $(cat .eduvijna/pytest-targets.txt)` | PASS |
 | `pytest tests/` full historical | BUILDER: see `/opt/cursor/artifacts/full-pytest-issue45.txt` when completed |

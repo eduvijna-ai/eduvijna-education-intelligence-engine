@@ -39,41 +39,62 @@ class HistoricalInventoryReport:
     issue_codes: tuple[str, ...]
 
 
+def _parse_year(value: object | None) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _source_academic_year(source: Source) -> int | None:
+    column_year = _parse_year(source.academic_year)
+    if column_year is not None:
+        return column_year
+    meta = source.metadata_json or {}
+    return _parse_year(meta.get("academic_year"))
+
+
 def _registered_years(session: Session) -> set[int]:
     years: set[int] = set()
     sources = session.scalars(
         select(Source).where(Source.board_or_exam == JEE_ADVANCED_PACK_CODE)
     ).all()
     for source in sources:
-        meta = source.metadata_json or {}
-        year = meta.get("academic_year")
-        if isinstance(year, int):
+        year = _source_academic_year(source)
+        if year is not None:
             years.add(year)
-        elif isinstance(year, str) and year.isdigit():
-            years.add(int(year))
     return years
 
 
 def _year_for_slot(session: Session, slot: SourceSlotDescriptor) -> int | None:
-    source = session.scalars(
+    sources = session.scalars(
         select(Source).where(Source.board_or_exam == "jee_advanced")
     ).all()
-    for row in source:
-        if row.metadata_json.get("slot_id") == slot.slot_id:
-            year = row.metadata_json.get("academic_year")
-            if isinstance(year, int):
-                return year
-            if isinstance(year, str) and year.isdigit():
-                return int(year)
-    meta_year = None
-    for row in source:
-        if row.metadata_json.get("slot_id") == slot.slot_id:
-            y = row.metadata_json.get("academic_year")
-            if isinstance(y, int):
-                meta_year = y
-            elif isinstance(y, str) and y.isdigit():
-                meta_year = int(y)
-    return meta_year
+    for row in sources:
+        if (row.metadata_json or {}).get("slot_id") == slot.slot_id:
+            return _source_academic_year(row)
+    return None
+
+
+def list_historical_sources_by_year(
+    session: Session,
+    *,
+    years: tuple[int, ...] = (2023, 2024, 2025, 2026),
+) -> dict[int, list[Source]]:
+    """Enumerate registered JEE Advanced sources per canonical academic_year column."""
+
+    by_year: dict[int, list[Source]] = {y: [] for y in years}
+    sources = session.scalars(
+        select(Source).where(Source.board_or_exam == JEE_ADVANCED_PACK_CODE)
+    ).all()
+    for source in sources:
+        year = _source_academic_year(source)
+        if year is None:
+            continue
+        if year in by_year:
+            by_year[year].append(source)
+    return by_year
 
 
 def build_historical_inventory(session: Session) -> HistoricalInventoryReport:

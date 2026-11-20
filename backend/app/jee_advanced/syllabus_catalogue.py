@@ -92,7 +92,17 @@ def build_reference_syllabus_catalogue(session: Session) -> SyllabusCatalogueRep
             issue_codes=("learning_outcome_links_missing",),
         )
 
-    graph_issues = syllabus_graph_issue_codes(session, outcomes=outcomes)
+    curriculum_version_id = str(
+        (revision.metadata_json or {}).get("curriculum_version_id")
+        or (outcomes[0].curriculum_version_id if outcomes else "")
+    )
+    org_scope = str((revision.metadata_json or {}).get("organization_id") or "").strip() or None
+    graph_issues = syllabus_graph_issue_codes(
+        session,
+        outcomes=outcomes,
+        organization_id=org_scope,
+        curriculum_version_id=curriculum_version_id or None,
+    )
     if graph_issues:
         return SyllabusCatalogueReport(
             status=CatalogueStatus.MAPPING_REVIEW_PENDING,
