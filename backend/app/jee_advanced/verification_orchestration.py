@@ -11,10 +11,9 @@ from app.jee_advanced.independent_verification import (
     VerificationVerdict,
     verify_persisted_mcq,
 )
+from app.jee_advanced.orchestration_chain import run_injected_author_solver_review_chain
 from app.models import Question
-from app.orchestration.enums import GenerationNodeRole
 from app.orchestration.gateway.fake import FakeGenerationGateway
-from app.orchestration.gateway.types import GenerationRequest
 
 
 def cognitive_competency_review(
@@ -47,38 +46,21 @@ def run_scoped_generation_probe(
     *,
     item_id: str,
     run_id: str,
+    organization_id: str = "",
+    scenario: str = "clean_pass",
+    gateway: FakeGenerationGateway | None = None,
 ) -> tuple[VerificationVerdict, int]:
-    """D12-27: execute Day8 FakeGenerationGateway author→solver chain (not a type export)."""
+    """D12-27 / READY-03: injected AUTHOR→SOLVER→REVIEW chain with shared gateway."""
 
-    gateway = FakeGenerationGateway()
-    author_req = GenerationRequest(
-        role=GenerationNodeRole.AUTHOR,
-        prompt_version="jee-adv-probe@v1",
-        system_prompt="author",
-        user_payload={"item_id": item_id, "run_id": run_id, "allowed_source_revision_ids": []},
-        output_schema_name="author_item_v1",
-        scenario="clean_pass",
+    gw = gateway or FakeGenerationGateway()
+    result = run_injected_author_solver_review_chain(
+        gw,
+        item_id=item_id,
+        run_id=run_id,
+        organization_id=organization_id or "org-required",
+        scenario=scenario,
     )
-    author_resp = gateway.generate(author_req)
-    solver_req = GenerationRequest(
-        role=GenerationNodeRole.SOLVER,
-        prompt_version="jee-adv-probe@v1",
-        system_prompt="solver",
-        user_payload={"item_id": item_id, "run_id": run_id, "stem": author_resp.parsed},
-        output_schema_name="solver_item_v1",
-        scenario="clean_pass",
-    )
-    gateway.generate(solver_req)
-    calls = len(gateway.call_history())
-    if not author_resp.raw_text:
-        return (
-            VerificationVerdict(
-                outcome=VerificationOutcome.REVIEW_REQUIRED,
-                issue_codes=("gateway_empty_response",),
-            ),
-            calls,
-        )
-    return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=()), calls
+    return result.verdict, result.gateway_calls
 
 
 def verify_mcq_answer(
@@ -176,7 +158,6 @@ def verify_persisted_mcq_for_question(
     organization_id: str,
     institution_id: str | None,
     selected: str | None,
-    correct: str | None,
 ) -> VerificationVerdict:
     return verify_persisted_mcq(
         session,
@@ -184,7 +165,6 @@ def verify_persisted_mcq_for_question(
         organization_id=organization_id,
         institution_id=institution_id,
         selected=selected,
-        correct=correct,
     )
 
 

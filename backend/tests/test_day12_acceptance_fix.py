@@ -126,7 +126,6 @@ def test_f01_persisted_mcq_pass_and_stale_fail(tmp_path: Path) -> None:
         organization_id=org,
         institution_id=inst,
         selected="A",
-        correct="A",
     )
     assert ok.outcome == VerificationOutcome.PASS
     assert ok.demonstration_only is True
@@ -137,7 +136,6 @@ def test_f01_persisted_mcq_pass_and_stale_fail(tmp_path: Path) -> None:
         organization_id="other-org",
         institution_id=inst,
         selected="A",
-        correct="A",
     )
     assert foreign.outcome == VerificationOutcome.REVIEW_REQUIRED
 
@@ -149,7 +147,6 @@ def test_f01_persisted_mcq_pass_and_stale_fail(tmp_path: Path) -> None:
         organization_id=org,
         institution_id=inst,
         selected="A",
-        correct="A",
     )
     assert stale.outcome == VerificationOutcome.REVIEW_REQUIRED
 
@@ -181,7 +178,6 @@ def test_f01_multiselect_full_set(tmp_path: Path) -> None:
         organization_id=org,
         institution_id=inst,
         selected=frozenset({"A", "B"}),
-        correct=frozenset({"A"}),
     )
     assert miss.outcome == VerificationOutcome.FAIL
 
@@ -205,17 +201,41 @@ def test_f01_numerical_finite_tolerance(tmp_path: Path) -> None:
         algebra_count=0,
     )
     session.commit()
-    q = session.scalars(select(Question).limit(1)).first()
-    assert q is not None
+    q = Question(
+        external_code="accept-num-nan",
+        origin_type="generated",
+        exam_version_id=str(version.id),
+        question_type="numerical",
+        stem_text="value",
+        answer_json={"value": "1.0"},
+        rubric_json={"tolerance": float("nan")},
+        status="approved",
+        metadata_json={
+            "d12_core_test_fixture": True,
+            "organization_id": org,
+            "institution_id": inst,
+            "day6_validation_audit_id": "audit-nan",
+            "day6_solver_evidence_id": "solver-nan",
+        },
+    )
+    session.add(q)
+    session.flush()
+    from app.jee_advanced.core_test_fixtures import _persist_day6_validation_run
+
+    _persist_day6_validation_run(
+        session,
+        run_id="audit-nan",
+        question=q,
+        organization_id=org,
+        institution_id=inst,
+    )
+    session.commit()
     bad_tol = verify_persisted_numerical(
         session,
         question=q,
         organization_id=org,
         institution_id=inst,
         submitted="1.0",
-        expected="1.0",
-        tolerance=float("nan"),
-        units_required=False,
     )
     assert bad_tol.outcome == VerificationOutcome.REVIEW_REQUIRED
     assert not math.isfinite(float("nan"))
@@ -264,8 +284,12 @@ def test_f03_syllabus_not_ready_without_authority(tmp_path: Path) -> None:
 
 
 def test_f04_gateway_probe_executes_calls() -> None:
-    verdict, calls = run_scoped_generation_probe(item_id="probe-1", run_id="run-probe-1")
-    assert calls >= 2
+    verdict, calls = run_scoped_generation_probe(
+        item_id="probe-1",
+        run_id="run-probe-1",
+        organization_id="org-probe",
+    )
+    assert calls >= 3
     assert verdict.outcome == VerificationOutcome.PASS
 
 

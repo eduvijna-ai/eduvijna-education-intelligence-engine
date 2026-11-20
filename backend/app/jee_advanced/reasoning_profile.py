@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.models import Question
+from app.models import Question
 
 
 class ReasoningDemand(StrEnum):
@@ -36,7 +34,7 @@ def default_advanced_reasoning_profile() -> ReasoningProfile:
     )
 
 
-def reasoning_profile_for_question(question: "Question") -> ReasoningProfile:
+def reasoning_profile_for_question(question: Question) -> ReasoningProfile:
     """D12-12: bind metadata from persisted Question (Day6 taxonomy keys)."""
 
     meta = question.metadata_json or {}

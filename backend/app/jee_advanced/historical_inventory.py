@@ -65,8 +65,15 @@ def _year_for_slot(session: Session, slot: SourceSlotDescriptor) -> int | None:
                 return year
             if isinstance(year, str) and year.isdigit():
                 return int(year)
-    registered = _registered_years(session)
-    return 2026 if 2026 in registered else (min(registered) if registered else None)
+    meta_year = None
+    for row in source:
+        if row.metadata_json.get("slot_id") == slot.slot_id:
+            y = row.metadata_json.get("academic_year")
+            if isinstance(y, int):
+                meta_year = y
+            elif isinstance(y, str) and y.isdigit():
+                meta_year = int(y)
+    return meta_year
 
 
 def build_historical_inventory(session: Session) -> HistoricalInventoryReport:

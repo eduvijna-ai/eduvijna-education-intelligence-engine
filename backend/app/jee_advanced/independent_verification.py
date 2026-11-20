@@ -1,4 +1,4 @@
-"""Session-backed MCQ/multiselect/numerical verification (Issue #45 AC-F01)."""
+"""Session-backed MCQ/multiselect/numerical verification (Issue #45 / #46 READY-01)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,12 @@ from enum import StrEnum
 from sqlalchemy.orm import Session
 
 from app.jee_advanced.independent_solver_proof import validation_run_covers_question
+from app.jee_advanced.stored_answer_resolution import (
+    assert_scope_present,
+    question_day9_veto,
+    stored_mcq_correct_keys,
+    stored_numerical_spec,
+)
 from app.models import Question
 
 
@@ -38,6 +44,12 @@ def _require_persisted_proof(
     organization_id: str,
     institution_id: str | None,
 ) -> tuple[bool, tuple[str, ...], bool]:
+    scope_issues = assert_scope_present(organization_id, institution_id)
+    if scope_issues:
+        return False, scope_issues, _demo_labeled(question)
+    if question_day9_veto(question):
+        return False, ("day9_veto",), _demo_labeled(question)
+
     meta = question.metadata_json or {}
     run_id = str(meta.get("day6_validation_audit_id") or "").strip()
     if not run_id:
@@ -61,7 +73,6 @@ def verify_persisted_mcq(
     organization_id: str,
     institution_id: str | None,
     selected: str | None,
-    correct: str | None,
 ) -> VerificationVerdict:
     proved, issues, demo = _require_persisted_proof(
         session,
@@ -70,18 +81,37 @@ def verify_persisted_mcq(
         institution_id=institution_id,
     )
     if not proved:
+        outcome = (
+            VerificationOutcome.FAIL
+            if "day9_veto" in issues
+            else VerificationOutcome.REVIEW_REQUIRED
+        )
         return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
+            outcome=outcome,
             issue_codes=issues,
             demonstration_only=demo,
         )
-    if not selected or not correct:
+    if not selected:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
             issue_codes=("answer_domain_incomplete",),
             demonstration_only=demo,
         )
-    if selected.strip() == correct.strip():
+    stored = stored_mcq_correct_keys(question)
+    if not stored:
+        return VerificationVerdict(
+            outcome=VerificationOutcome.REVIEW_REQUIRED,
+            issue_codes=("stored_correct_answer_missing",),
+            demonstration_only=demo,
+        )
+    domain = {opt.option_key for opt in question.options if opt.option_key}
+    if domain and selected.strip() not in domain:
+        return VerificationVerdict(
+            outcome=VerificationOutcome.FAIL,
+            issue_codes=("selected_option_not_in_domain",),
+            demonstration_only=demo,
+        )
+    if selected.strip() in stored:
         return VerificationVerdict(
             outcome=VerificationOutcome.PASS,
             issue_codes=(),
@@ -101,7 +131,6 @@ def verify_persisted_multiselect(
     organization_id: str,
     institution_id: str | None,
     selected: frozenset[str],
-    correct: frozenset[str],
 ) -> VerificationVerdict:
     proved, issues, demo = _require_persisted_proof(
         session,
@@ -110,18 +139,30 @@ def verify_persisted_multiselect(
         institution_id=institution_id,
     )
     if not proved:
+        outcome = (
+            VerificationOutcome.FAIL
+            if "day9_veto" in issues
+            else VerificationOutcome.REVIEW_REQUIRED
+        )
         return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
+            outcome=outcome,
             issue_codes=issues,
             demonstration_only=demo,
         )
-    if not selected or not correct:
+    if not selected:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
             issue_codes=("multiselect_domain_incomplete",),
             demonstration_only=demo,
         )
-    if selected == correct:
+    stored = stored_mcq_correct_keys(question)
+    if not stored:
+        return VerificationVerdict(
+            outcome=VerificationOutcome.REVIEW_REQUIRED,
+            issue_codes=("stored_correct_answer_missing",),
+            demonstration_only=demo,
+        )
+    if selected == stored:
         return VerificationVerdict(
             outcome=VerificationOutcome.PASS,
             issue_codes=(),
@@ -141,9 +182,6 @@ def verify_persisted_numerical(
     organization_id: str,
     institution_id: str | None,
     submitted: str | None,
-    expected: str | None,
-    tolerance: float | None,
-    units_required: bool,
 ) -> VerificationVerdict:
     proved, issues, demo = _require_persisted_proof(
         session,
@@ -152,22 +190,24 @@ def verify_persisted_numerical(
         institution_id=institution_id,
     )
     if not proved:
+        outcome = (
+            VerificationOutcome.FAIL
+            if "day9_veto" in issues
+            else VerificationOutcome.REVIEW_REQUIRED
+        )
         return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
+            outcome=outcome,
             issue_codes=issues,
             demonstration_only=demo,
         )
+    expected, tolerance, units_required = stored_numerical_spec(question)
     if not submitted or not expected:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
             issue_codes=("numerical_domain_incomplete",),
             demonstration_only=demo,
         )
-    if (
-        tolerance is None
-        or not math.isfinite(tolerance)
-        or tolerance < 0
-    ):
+    if tolerance is None or not math.isfinite(tolerance) or tolerance < 0:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
             issue_codes=("numerical_tolerance_invalid",),

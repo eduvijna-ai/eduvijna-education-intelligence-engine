@@ -1,12 +1,22 @@
 # D12 consolidated evidence report (Issues #44 + #45)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
-**Issue #45 start SHA:** `1d4c3e6b8bed446c9b707987f6218f242993bf09`  
+**Issue #46 start SHA:** `a705e00f08f81ace53dcc874eb7fc3a448c769e0`  
+**Issue #45 parent:** `1d4c3e6b8bed446c9b707987f6218f242993bf09`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
 
 ## Ledger (mechanical, 36 rows)
 
 **0 PASS / 32 PARTIAL / 3 SOURCE_PENDING / 1 NOT_STARTED** — verified by `test_f05_scope_map_sums_to_36_rows` / `scope_ledger.load_repo_scope_counts`.
+
+## Issue #46 readiness gates (READY-01…04)
+
+| Gate | Fix | Tests |
+|------|-----|-------|
+| READY-01 | Stored answers from `Question` options/`answer_json`/`rubric_json`; no caller `correct` | `test_day12_engineering_readiness.py` |
+| READY-02 | `syllabus_graph.py` reviewed concept/LO/competency | `test_ready02_*` |
+| READY-03 | `orchestration_chain.py` AUTHOR→SOLVER→REVIEW | `test_ready03_*` |
+| READY-04 | Ruff UP037 fix; scope tally | `test_ready04_*` |
 
 ## Issue #45 closures (F01–F05)
 

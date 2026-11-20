@@ -8,8 +8,13 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.jee_advanced.constants import SOURCE_SLOT_SYLLABUS, VERSION_REFERENCE_2026
+from app.jee_advanced.constants import (
+    OFFICIAL_SUBJECTS,
+    SOURCE_SLOT_SYLLABUS,
+    VERSION_REFERENCE_2026,
+)
 from app.jee_advanced.source_authority import evaluate_slot_authority
+from app.jee_advanced.syllabus_graph import syllabus_graph_issue_codes
 from app.models.curriculum import LearningOutcome
 from app.models.enums import SourceRevisionStatus
 
@@ -87,9 +92,18 @@ def build_reference_syllabus_catalogue(session: Session) -> SyllabusCatalogueRep
             issue_codes=("learning_outcome_links_missing",),
         )
 
+    graph_issues = syllabus_graph_issue_codes(session, outcomes=outcomes)
+    if graph_issues:
+        return SyllabusCatalogueReport(
+            status=CatalogueStatus.MAPPING_REVIEW_PENDING,
+            exam_version_code=VERSION_REFERENCE_2026,
+            topics=(),
+            issue_codes=graph_issues,
+        )
+
     topics = [
         SyllabusTopicRef(
-            subject_code=str((lo.metadata_json or {}).get("subject_code") or "unknown"),
+            subject_code=str((lo.metadata_json or {}).get("subject_code") or "").strip(),
             topic_code=lo.code,
             concept_label=lo.text[:256],
             source_page_locator=lo.source_locator or page_locator,
@@ -97,7 +111,16 @@ def build_reference_syllabus_catalogue(session: Session) -> SyllabusCatalogueRep
             learning_outcome_id=str(lo.id),
         )
         for lo in outcomes
+        if str((lo.metadata_json or {}).get("subject_code") or "").strip().lower()
+        in {s.lower() for s in OFFICIAL_SUBJECTS}
     ]
+    if not topics:
+        return SyllabusCatalogueReport(
+            status=CatalogueStatus.MAPPING_REVIEW_PENDING,
+            exam_version_code=VERSION_REFERENCE_2026,
+            topics=(),
+            issue_codes=("syllabus_topic_rows_empty",),
+        )
     return SyllabusCatalogueReport(
         status=CatalogueStatus.READY,
         exam_version_code=VERSION_REFERENCE_2026,
@@ -114,4 +137,6 @@ def learning_outcome_bindings_available(session: Session) -> tuple[bool, tuple[s
         return False, report.issue_codes
     if not report.topics or not all(t.learning_outcome_id for t in report.topics):
         return False, ("learning_outcome_bindings_incomplete",)
+    if any(t.subject_code.lower() == "unknown" for t in report.topics):
+        return False, ("syllabus_subject_unknown",)
     return True, ()
