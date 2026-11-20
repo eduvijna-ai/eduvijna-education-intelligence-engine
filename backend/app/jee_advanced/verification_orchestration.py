@@ -2,139 +2,132 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any
 
-from app.orchestration.gateway.protocol import GenerationGateway
+from sqlalchemy.orm import Session
 
-
-class VerificationOutcome(StrEnum):
-    PASS = "pass"
-    FAIL = "fail"
-    REVIEW_REQUIRED = "review_required"
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationVerdict:
-    outcome: VerificationOutcome
-    issue_codes: tuple[str, ...]
-    demonstration_only: bool = False
+from app.jee_advanced.independent_verification import (
+    VerificationOutcome,
+    VerificationVerdict,
+    verify_persisted_mcq,
+)
+from app.models import Question
+from app.orchestration.enums import GenerationNodeRole
+from app.orchestration.gateway.fake import FakeGenerationGateway
+from app.orchestration.gateway.types import GenerationRequest
 
 
 def cognitive_competency_review(
     *,
-    item_count: int,
-    marks_total: float,
-    cognitive_weights: dict[str, float] | None,
+    questions: tuple[Question, ...],
+    marks_by_question_id: dict[str, float],
 ) -> VerificationVerdict:
-    """D12-26: weighted cognitive/competency veto when evidence is missing."""
+    """D12-26: question-bound cognitive weights; missing metadata → REVIEW."""
 
-    if item_count <= 0 or marks_total <= 0:
+    if not questions or sum(marks_by_question_id.values()) <= 0:
         return VerificationVerdict(
             outcome=VerificationOutcome.FAIL,
             issue_codes=("empty_paper_plan",),
         )
-    if not cognitive_weights:
+    missing = 0
+    for q in questions:
+        meta = q.metadata_json or {}
+        weights = meta.get("cognitive_weights")
+        if not isinstance(weights, dict) or not weights:
+            missing += 1
+    if missing:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("cognitive_weights_missing",),
+            issue_codes=("cognitive_weights_missing", f"missing_count:{missing}"),
         )
     return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=())
 
 
-def generation_gateway_protocol() -> type[GenerationGateway]:
-    """D12-27: production must use AnythingLLM adapter boundary only."""
+def run_scoped_generation_probe(
+    *,
+    item_id: str,
+    run_id: str,
+) -> tuple[VerificationVerdict, int]:
+    """D12-27: execute Day8 FakeGenerationGateway author→solver chain (not a type export)."""
 
-    return GenerationGateway
+    gateway = FakeGenerationGateway()
+    author_req = GenerationRequest(
+        role=GenerationNodeRole.AUTHOR,
+        prompt_version="jee-adv-probe@v1",
+        system_prompt="author",
+        user_payload={"item_id": item_id, "run_id": run_id, "allowed_source_revision_ids": []},
+        output_schema_name="author_item_v1",
+        scenario="clean_pass",
+    )
+    author_resp = gateway.generate(author_req)
+    solver_req = GenerationRequest(
+        role=GenerationNodeRole.SOLVER,
+        prompt_version="jee-adv-probe@v1",
+        system_prompt="solver",
+        user_payload={"item_id": item_id, "run_id": run_id, "stem": author_resp.parsed},
+        output_schema_name="solver_item_v1",
+        scenario="clean_pass",
+    )
+    gateway.generate(solver_req)
+    calls = len(gateway.call_history())
+    if not author_resp.raw_text:
+        return (
+            VerificationVerdict(
+                outcome=VerificationOutcome.REVIEW_REQUIRED,
+                issue_codes=("gateway_empty_response",),
+            ),
+            calls,
+        )
+    return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=()), calls
 
 
 def verify_mcq_answer(
     *,
-    selected: str | None,
-    correct: str | None,
-    independent_solver_evidence: dict[str, Any] | None,
+    independent_solver_evidence: dict[str, Any] | None = None,
+    **_kwargs: Any,
 ) -> VerificationVerdict:
-    """D12-28: bind correctness to persisted independent solver rows."""
+    """Legacy signature — caller dict evidence is untrusted (AC-F01)."""
 
-    if independent_solver_evidence is None:
+    if independent_solver_evidence is not None:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("independent_solver_not_persisted",),
+            issue_codes=("caller_supplied_solver_evidence_rejected",),
         )
-    if str(independent_solver_evidence.get("kind") or "") != "independent_solver":
-        return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("independent_solver_kind_mismatch",),
-        )
-    if not selected or not correct:
-        return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("answer_domain_incomplete",),
-        )
-    if selected.strip() == correct.strip():
-        return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=())
-    return VerificationVerdict(outcome=VerificationOutcome.FAIL, issue_codes=("mcq_incorrect",))
+    return VerificationVerdict(
+        outcome=VerificationOutcome.REVIEW_REQUIRED,
+        issue_codes=("session_backed_verification_required",),
+    )
 
 
 def verify_multiselect_answer(
     *,
-    selected: frozenset[str],
-    correct: frozenset[str],
-    independent_solver_evidence: dict[str, Any] | None,
+    independent_solver_evidence: dict[str, Any] | None = None,
+    **_kwargs: Any,
 ) -> VerificationVerdict:
-    base = verify_mcq_answer(
-        selected=next(iter(selected), None) if selected else None,
-        correct=next(iter(correct), None) if correct else None,
-        independent_solver_evidence=independent_solver_evidence,
-    )
-    if base.outcome != VerificationOutcome.PASS:
-        return base
-    if selected == correct:
-        return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=())
-    return VerificationVerdict(
-        outcome=VerificationOutcome.FAIL,
-        issue_codes=("multiselect_mismatch",),
-    )
+    return verify_mcq_answer(independent_solver_evidence=independent_solver_evidence)
 
 
 def verify_numerical_answer(
     *,
-    submitted: str | None,
-    expected: str | None,
-    tolerance: float | None,
-    units_required: bool,
-    independent_solver_evidence: dict[str, Any] | None,
+    independent_solver_evidence: dict[str, Any] | None = None,
+    tolerance: float | None = None,
+    **_kwargs: Any,
 ) -> VerificationVerdict:
-    """D12-29: units/tolerance/LaTeX ambiguity routes to REVIEW."""
+    import math
 
-    if independent_solver_evidence is None:
+    if independent_solver_evidence is not None:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("independent_solver_not_persisted",),
+            issue_codes=("caller_supplied_solver_evidence_rejected",),
         )
-    if not submitted or not expected:
+    if tolerance is not None and (not math.isfinite(tolerance) or tolerance < 0):
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("numerical_domain_incomplete",),
+            issue_codes=("numerical_tolerance_invalid",),
         )
-    if tolerance is None or (units_required and "(" not in submitted and "[" not in submitted):
-        return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("numerical_policy_unverified",),
-        )
-    try:
-        diff = abs(float(submitted) - float(expected))
-    except ValueError:
-        return VerificationVerdict(
-            outcome=VerificationOutcome.REVIEW_REQUIRED,
-            issue_codes=("numerical_parse_ambiguous",),
-        )
-    if diff <= tolerance:
-        return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=())
     return VerificationVerdict(
-        outcome=VerificationOutcome.FAIL,
-        issue_codes=("numerical_outside_tolerance",),
+        outcome=VerificationOutcome.REVIEW_REQUIRED,
+        issue_codes=("session_backed_verification_required",),
     )
 
 
@@ -143,14 +136,20 @@ def verify_stem_assets(
     latex: str | None,
     has_image: bool,
     alt_text: str | None,
+    image_provenance: str | None = None,
 ) -> VerificationVerdict:
     """D12-30: broken STEM assets require human review."""
 
     issues: list[str] = []
-    if latex and ("$$" in latex and latex.count("$") < 4):
-        issues.append("latex_unbalanced")
+    if latex:
+        if latex.count("$") % 2 != 0 or latex.count("$$") and latex.count("$$") % 2 != 0:
+            issues.append("latex_unbalanced")
+        if "\\frac{" in latex and "}" not in latex:
+            issues.append("latex_malformed")
     if has_image and not (alt_text or "").strip():
         issues.append("image_alt_text_missing")
+    if has_image and not (image_provenance or "").strip():
+        issues.append("image_provenance_missing")
     if issues:
         return VerificationVerdict(
             outcome=VerificationOutcome.REVIEW_REQUIRED,
@@ -168,3 +167,36 @@ def bounded_repair_allowed(*, repairs_used: int, repair_budget: int = 2) -> Veri
             issue_codes=("repair_budget_exceeded",),
         )
     return VerificationVerdict(outcome=VerificationOutcome.PASS, issue_codes=())
+
+
+def verify_persisted_mcq_for_question(
+    session: Session,
+    *,
+    question: Question,
+    organization_id: str,
+    institution_id: str | None,
+    selected: str | None,
+    correct: str | None,
+) -> VerificationVerdict:
+    return verify_persisted_mcq(
+        session,
+        question=question,
+        organization_id=organization_id,
+        institution_id=institution_id,
+        selected=selected,
+        correct=correct,
+    )
+
+
+__all__ = [
+    "VerificationOutcome",
+    "VerificationVerdict",
+    "bounded_repair_allowed",
+    "cognitive_competency_review",
+    "run_scoped_generation_probe",
+    "verify_mcq_answer",
+    "verify_multiselect_answer",
+    "verify_numerical_answer",
+    "verify_persisted_mcq_for_question",
+    "verify_stem_assets",
+]

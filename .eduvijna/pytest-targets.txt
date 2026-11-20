@@ -78,3 +78,4 @@ tests/test_day12_core.py
 tests/test_day12_reliability.py
 tests/test_day12_source_ingest.py
 tests/test_day12_one_shot_closure.py
+tests/test_day12_acceptance_fix.py

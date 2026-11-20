@@ -548,6 +548,7 @@ def _apply_fetch_provenance(
     *,
     slot: SourceSlotDescriptor,
     fetched: FetchedSource,
+    requested_url: str | None = None,
 ) -> None:
     """Persist immutable URL/MIME provenance; do not rewrite locked records."""
 
@@ -558,7 +559,7 @@ def _apply_fetch_provenance(
         return
     meta.update(
         {
-            "requested_url": slot.discovery_url,
+            "requested_url": requested_url or slot.discovery_url,
             "final_url": fetched.final_url,
             "fetch_response_content_type": fetched.content_type,
             "fetch_ingestion_method": "url_fetch",
@@ -583,14 +584,14 @@ def _slot_discovery_urls(slot: SourceSlotDescriptor) -> tuple[str, ...]:
 def _fetch_official_slot_bytes(
     fetcher: SourceUrlFetcher,
     slot: SourceSlotDescriptor,
-) -> FetchedSource | None:
+) -> tuple[FetchedSource, str] | None:
     """Try each discovery URL until one succeeds under the per-hop policy."""
 
     last_error: Exception | None = None
     for url in _slot_discovery_urls(slot):
         try:
             assert_official_jeeadv_https_url(url)
-            return fetcher.fetch(url)
+            return fetcher.fetch(url), url
         except (UntrustedOriginError, SourceFetchError, UnsafeSourceUrl) as exc:
             last_error = exc
             continue
@@ -681,9 +682,10 @@ def stage_official_slot(
 
     staging_fetcher = staging_url_fetcher(service)
     try:
-        fetched = _fetch_official_slot_bytes(staging_fetcher, slot)
-        if fetched is None:
+        fetch_pair = _fetch_official_slot_bytes(staging_fetcher, slot)
+        if fetch_pair is None:
             raise SourceFetchError("no discovery url configured")
+        fetched, requested_url = fetch_pair
     except UntrustedOriginError:
         return _blocked_report(
             slot,
@@ -742,7 +744,12 @@ def stage_official_slot(
             slot, source, revision, fetched=fetched
         )
 
-    _apply_fetch_provenance(revision, slot=slot, fetched=fetched)
+    _apply_fetch_provenance(
+        revision,
+        slot=slot,
+        fetched=fetched,
+        requested_url=requested_url,
+    )
     session.flush()
 
     if not revision.storage_path:

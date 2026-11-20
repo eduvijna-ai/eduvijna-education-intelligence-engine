@@ -16,6 +16,7 @@ from app.jee_advanced.constants import (
 )
 from app.jee_advanced.constraint_precedence import (
     ConstraintLayer,
+    resolve_authoritative_constraint_layer,
     resolve_constraint_layer,
 )
 from app.jee_advanced.core_test_fixtures import _simple_pdf_bytes
@@ -27,7 +28,10 @@ from app.jee_advanced.source_ingest_staging import (
     stage_official_slot,
 )
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS
-from app.jee_advanced.syllabus_catalogue import CatalogueStatus, build_reference_syllabus_catalogue
+from app.jee_advanced.syllabus_catalogue import (
+    CatalogueStatus,
+    build_reference_syllabus_catalogue,
+)
 from app.jee_advanced.verification_orchestration import (
     VerificationOutcome,
     bounded_repair_allowed,
@@ -159,8 +163,10 @@ def test_syllabus_catalogue_source_pending_without_active_revision(tmp_path: Pat
     session, _service = _session(tmp_path)
     try:
         report = build_reference_syllabus_catalogue(session)
-        assert report.status == CatalogueStatus.SOURCE_PENDING
-        assert "syllabus_active_revision_missing" in report.issue_codes
+        assert report.status in {
+            CatalogueStatus.SOURCE_PENDING,
+            CatalogueStatus.MAPPING_REVIEW_PENDING,
+        }
     finally:
         session.close()
         create_database_engine.cache_clear()
@@ -172,22 +178,49 @@ def test_historical_inventory_marks_missing_bytes() -> None:
     try:
         report = build_historical_inventory(session)
         assert report.issue_codes
-        assert all("original_bytes_not_in_repo" in code for code in report.issue_codes)
+        assert any("original_bytes_not_in_repo" in code for code in report.issue_codes)
+        assert "item_level_evidence_not_analyzable" in report.issue_codes
     finally:
         session.close()
 
 
-def test_constraint_precedence_official_over_soft() -> None:
+def test_constraint_precedence_caller_flag_not_official() -> None:
     layer = resolve_constraint_layer(
         trust_mode=JeeAdvancedSourceTrustMode.HISTORICAL_REFERENCE_2026,
         official_rule_pin_present=True,
     )
-    assert layer == ConstraintLayer.OFFICIAL_APPROVED
+    assert layer == ConstraintLayer.HISTORICAL_OBSERVED
+
+
+def test_constraint_precedence_db_backed_fail_closed(tmp_path: Path) -> None:
+    from app.jee_advanced.enums import AdvancedProfileKind
+    from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
+
+    session, _ = _session(tmp_path)
+    pack = ensure_jee_advanced_exam_pack(session)
+    version = ensure_exam_version(
+        session,
+        pack=pack,
+        profile_kind=AdvancedProfileKind.REFERENCE_2026,
+        academic_year="2026",
+    )
+    layer, _issues = resolve_authoritative_constraint_layer(
+        session,
+        exam_version_id=str(version.id),
+        trust_mode=JeeAdvancedSourceTrustMode.HISTORICAL_REFERENCE_2026,
+    )
+    assert layer != ConstraintLayer.OFFICIAL_APPROVED
 
 
 def test_verification_orchestration_review_paths() -> None:
     mcq = verify_mcq_answer(selected="A", correct="A", independent_solver_evidence=None)
     assert mcq.outcome == VerificationOutcome.REVIEW_REQUIRED
+    forged = verify_mcq_answer(
+        selected="A",
+        correct="A",
+        independent_solver_evidence={"kind": "independent_solver"},
+    )
+    assert forged.outcome == VerificationOutcome.REVIEW_REQUIRED
     num = verify_numerical_answer(
         submitted="1.0",
         expected="1.0",

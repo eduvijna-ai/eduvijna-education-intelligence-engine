@@ -1,8 +1,8 @@
 # Day 12 — JEE Advanced 36-task scope and evidence matrix
 
-**Status (Issue #44 one-shot):** **0 PASS / 28 PARTIAL / 6 SOURCE_PENDING / 1 NOT_STARTED (D12-36 process).** D12-36 and CORE #35 remain NOT ACCEPTED.  
+**Status (Issue #45 acceptance fix):** **0 PASS / 32 PARTIAL / 3 SOURCE_PENDING / 1 NOT_STARTED = 36 rows.** D12-36 and CORE #35 remain NOT ACCEPTED.  
 **Authoritative specification:** [Issue #33](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/33).  
-**Consolidated handoff:** [Issue #44](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/44).  
+**Consolidated handoff:** [Issue #44](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/44), [Issue #45](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/45).  
 **Branch:** `feature/day12-jee-advanced-intelligence` (PR #34). Day11 ON_HOLD; Day12 ACTIVE `founder_approval:false`; Day13 LOCKED.
 
 | ID | Approved task | Evidence / test IDs | State | Blocker / remaining proof |
@@ -22,7 +22,7 @@
 | D12-13 | Historical official-paper inventory | `historical_inventory.py`, `test_day12_one_shot_closure.py` | PARTIAL | Provenance rows; bytes not in repo |
 | D12-14 | Question type/marking evidence tagging | `synthetic_fixtures.py` | PARTIAL | Demo types; not source-backed items |
 | D12-15 | Explainable historical analytics | `historical_analytics.py`, `test_day12_assembly.py` | PARTIAL | `NOT_ANALYZABLE` default |
-| D12-16 | Official constraint vs soft-prior | `constraint_precedence.py`, `test_day12_one_shot_closure.py` | PARTIAL | Precedence logic; no live teacher prefs |
+| D12-16 | Official constraint vs soft-prior | `constraint_precedence.resolve_authoritative_constraint_layer`, `test_day12_acceptance_fix.py` | PARTIAL | DB-backed; no caller OFFICIAL flag |
 | D12-17 | Typed AdvancedPaperPlanRequest/Result | `contracts.py`, planner tests | PARTIAL | Contracts; no reference replica |
 | D12-18 | Exact-count subject practice | `practice_service.py`, `persisted_practice.py`, `test_day12_core.py` | PARTIAL | Day6 audit bind; synthetic pool only PASS |
 | D12-19 | Exact10 Algebra | `practice_service.py`, `test_day12_core.py` | PARTIAL | Same trust order as D12-18 |
@@ -34,14 +34,14 @@
 | D12-25 | Deterministic constrained allocator | `reference_allocator.py` | PARTIAL | Reference SOURCE_PENDING |
 | D12-26 | Paper cognitive/competency review | `verification_orchestration.cognitive_competency_review` | PARTIAL | Veto when weights missing |
 | D12-27 | Generation/RAG | `verification_orchestration.generation_gateway_protocol` | PARTIAL | Typed Day8 port; no live LLM |
-| D12-28 | Independent MCQ/multiselect | `verification_orchestration.verify_mcq_answer` | PARTIAL | REVIEW without solver evidence |
-| D12-29 | Independent numerical | `verification_orchestration.verify_numerical_answer` | PARTIAL | Units/tolerance REVIEW path |
+| D12-28 | Independent MCQ/multiselect | `independent_verification.py`, `test_day12_acceptance_fix.py` | PARTIAL | Session proof; dict evidence rejected |
+| D12-29 | Independent numerical | `independent_verification.py`, `test_day12_acceptance_fix.py` | PARTIAL | Finite tolerance; no inf PASS |
 | D12-30 | STEM integrity | `verification_orchestration.verify_stem_assets` | PARTIAL | LaTeX/alt-text REVIEW |
 | D12-31 | Bounded repairs/dedup | `verification_orchestration.bounded_repair_allowed` | PARTIAL | Repair budget gate |
 | D12-32 | Persist/replay two-paper pair | `paper_pair_persistence.py`, `test_day12_core.py` | PARTIAL | Cross-process demo; PG NOT_RUN |
 | D12-33 | Synthetic reference fixtures | `synthetic_fixtures.py`, assembly/adversarial tests | PARTIAL | `demonstration_only` |
 | D12-34 | Adversarial acceptance suite | `tests/test_day12_*.py` (11 modules) | PARTIAL | Issue #44 vectors added; not every #33 row E2E |
-| D12-35 | Day12 verifier and CI gates | `day12_verify.py`, `.eduvijna/pytest-targets.txt` | PARTIAL | Full historical pytest recorded in closure report |
+| D12-35 | Day12 verifier and CI gates | `day12_verify.py`, `scope_ledger.py`, `test_day12_acceptance_fix.py` | PARTIAL | 36-row tally test; await CI SHA |
 | D12-36 | Independent review and Founder signoff | `D12-ONE-SHOT-CLOSURE-REPORT.md` | NOT_STARTED | Awaiting Chief Architect + Founder |
 
 ## Acceptance rules
