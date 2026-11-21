@@ -518,14 +518,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--output-dir is required unless --list-only is set")
     try:
         require_absolute_output_dir(args.output_dir)
-        manifest, code = run_intake(args.output_dir, repo_root=args.repo_root)
     except ValueError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 3
-    vault = validate_private_output_dir(args.output_dir, repo_root=args.repo_root)
-    receipt = vault / RECEIPT_FILENAME
-    print(f"Receipt: {receipt}")
-    print("CAUTION: SOURCE_PENDING. RIGHTS_AND_CURATOR_APPROVAL_NOT_GIVEN.", file=sys.stderr)
-    for row in manifest.get("source_slots") or []:
-        print(f"{row.get('download_status')}: {row.get('slot_id')}", file=sys.stderr)
-    return code
+    # Merge-safety quarantine: preserve the offline harness and discovery command,
+    # but do not expose the known unsafe vault publication path to operators.
+    print(
+        "REFUSED: live private-source intake disabled pending security review. "
+        "Use --list-only; no download or receipt was written.",
+        file=sys.stderr,
+    )
+    return 3
