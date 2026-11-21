@@ -129,6 +129,18 @@ def test_main_rejects_relative_output_dir(tmp_path: Path) -> None:
     assert code == 3
 
 
+def test_live_cli_is_quarantined_without_network_or_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    vault = tmp_path / "not-created-vault"
+    with patch("urllib.request.OpenerDirector.open") as open_network:
+        code = main(["--output-dir", str(vault), "--repo-root", str(tmp_path / "non-repo")])
+    assert code == 3
+    assert "disabled pending security review" in capsys.readouterr().err
+    assert not vault.exists()
+    open_network.assert_not_called()
+
+
 def test_require_absolute_output_dir() -> None:
     with pytest.raises(ValueError, match="absolute"):
         require_absolute_output_dir(Path("relative/path"))
