@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.jee_advanced.chain_question_binding import stored_mcq_answer_key
 from app.jee_advanced.independent_solver_proof import validation_run_covers_question
-from app.jee_advanced.orchestration_chain import OrchestrationChainResult
+from app.jee_advanced.orchestration_chain import _AFFIRMATIVE_REVIEW, OrchestrationChainResult
 from app.jee_advanced.persisted_question_loader import (
     PersistedAnswerScope,
     load_persisted_question,
@@ -18,8 +18,13 @@ from app.jee_advanced.stored_answer_resolution import question_day9_veto
 from app.models import Question, TestDefinition
 from app.models.enums import QuestionStatus
 
+_AUTHORITATIVE_ISSUANCE_VERSION = "d12-f52-v1"
+
 _CHAIN_REQUIRED_FIELDS = (
     "audit_ids",
+    "gateway_author_id",
+    "gateway_solver_id",
+    "gateway_reviewer_id",
     "proposed_answer_key",
     "author_claimed_answer_key",
     "author_item_id",
@@ -28,6 +33,7 @@ _CHAIN_REQUIRED_FIELDS = (
     "persisted_visible_fingerprint",
     "content_fingerprint",
     "stored_answer_key",
+    "reviewer_verdict",
 )
 
 
@@ -71,11 +77,12 @@ def build_issuance_record(
             institution_id=request.institution_id,
         )
         snapshots[chain.item_id] = snap
-        author_gw = chain.audit_ids[0] if chain.audit_ids else ""
-        solver_gw = chain.audit_ids[1] if len(chain.audit_ids) > 1 else ""
-        reviewer_gw = chain.audit_ids[2] if len(chain.audit_ids) > 2 else ""
+        audit_ids = list(chain.audit_ids)
+        author_gw = audit_ids[0] if audit_ids else ""
+        solver_gw = audit_ids[1] if len(audit_ids) > 1 else ""
+        reviewer_gw = audit_ids[2] if len(audit_ids) > 2 else ""
         chain_evidence[chain.item_id] = {
-            "audit_ids": list(chain.audit_ids),
+            "audit_ids": audit_ids,
             "gateway_author_id": author_gw,
             "gateway_solver_id": solver_gw,
             "gateway_reviewer_id": reviewer_gw,
@@ -87,13 +94,14 @@ def build_issuance_record(
             "persisted_visible_fingerprint": chain.persisted_visible_fingerprint,
             "content_fingerprint": snap["content_fingerprint"],
             "stored_answer_key": snap["stored_answer_key"],
+            "reviewer_verdict": chain.reviewer_verdict or "",
         }
     ordered_ids: list[str] = []
     for paper in request.paper_definitions:
         for item in paper.get("question_items") or []:
             ordered_ids.append(str(item.get("question_id") or ""))
     return {
-        "issuance_record_version": "d12-f51-v1",
+        "issuance_record_version": _AUTHORITATIVE_ISSUANCE_VERSION,
         "pair_fingerprint": None,
         "ordered_question_ids": ordered_ids,
         "question_snapshots": snapshots,
@@ -133,6 +141,28 @@ def verify_sibling_test_metadata(tests: list[TestDefinition]) -> tuple[bool, tup
     return (not issues, tuple(issues))
 
 
+def _validate_chain_gateway_evidence(qid: str, ev: dict[str, Any], issues: list[str]) -> None:
+    audit_ids = ev.get("audit_ids")
+    if not isinstance(audit_ids, list) or len(audit_ids) != 3:
+        issues.append(f"chain_gateway_ids_incomplete:{qid}")
+        return
+    for idx, raw_id in enumerate(audit_ids):
+        if not str(raw_id or "").strip():
+            issues.append(f"chain_gateway_id_blank:{qid}:{idx}")
+    author_id = str(ev.get("gateway_author_id") or "")
+    solver_id = str(ev.get("gateway_solver_id") or "")
+    reviewer_id = str(ev.get("gateway_reviewer_id") or "")
+    if author_id != str(audit_ids[0]):
+        issues.append(f"chain_gateway_author_mismatch:{qid}")
+    if solver_id != str(audit_ids[1]):
+        issues.append(f"chain_gateway_solver_mismatch:{qid}")
+    if reviewer_id != str(audit_ids[2]):
+        issues.append(f"chain_gateway_reviewer_mismatch:{qid}")
+    verdict = str(ev.get("reviewer_verdict") or "").strip().lower()
+    if not verdict or verdict not in _AFFIRMATIVE_REVIEW:
+        issues.append(f"reviewer_verdict_invalid:{qid}")
+
+
 def verify_current_questions_for_replay(
     session: Session,
     request: Any,
@@ -142,12 +172,10 @@ def verify_current_questions_for_replay(
     """Re-verify live Question rows and chain evidence before returning REPLAYED."""
 
     issues: list[str] = []
-    if str(stored_record.get("issuance_record_version") or "") not in {
-        "d12-f51-v1",
-        "d12-f50-v1",
-        "d12-f49-v1",
-    }:
+    version = str(stored_record.get("issuance_record_version") or "")
+    if version != _AUTHORITATIVE_ISSUANCE_VERSION:
         issues.append("issuance_record_version_unsupported")
+        return False, tuple(issues)
 
     ordered_ids = _question_ids_from_request(request)
     stored_ordered = list(stored_record.get("ordered_question_ids") or [])
@@ -163,6 +191,10 @@ def verify_current_questions_for_replay(
     if not stored_chain or len(stored_chain) != len(ordered_ids):
         issues.append("chain_evidence_incomplete")
 
+    extra_chain = set(stored_chain.keys()) - set(ordered_ids)
+    if extra_chain:
+        issues.append("chain_evidence_extra_questions")
+
     for qid in ordered_ids:
         snap = snapshots.get(qid)
         if snap is None:
@@ -177,8 +209,8 @@ def verify_current_questions_for_replay(
             val = ev.get(field)
             if val is None or (isinstance(val, str) and not val.strip()):
                 issues.append(f"chain_evidence_field_missing:{qid}:{field}")
-            if field == "audit_ids" and isinstance(val, list) and len(val) < 3:
-                issues.append(f"chain_gateway_ids_incomplete:{qid}")
+
+        _validate_chain_gateway_evidence(qid, ev, issues)
 
         author_fp = str(ev.get("author_draft_fingerprint") or "")
         persisted_fp = str(ev.get("persisted_visible_fingerprint") or "")

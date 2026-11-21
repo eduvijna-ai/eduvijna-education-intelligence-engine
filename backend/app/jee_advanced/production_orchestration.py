@@ -10,10 +10,7 @@ from app.jee_advanced.author_draft_binding import (
     author_visible_fingerprint,
     display_candidate_from_question,
 )
-from app.jee_advanced.chain_question_binding import (
-    bind_chain_to_persisted_question,
-    stored_mcq_answer_key,
-)
+from app.jee_advanced.chain_question_binding import bind_chain_to_persisted_question
 from app.jee_advanced.constants import PAPER_1_CODE, PAPER_2_CODE
 from app.jee_advanced.issuance_snapshot import build_issuance_record
 from app.jee_advanced.orchestration_chain import (
@@ -178,9 +175,6 @@ def run_labeled_synthetic_pair_integration(
         author_ext: dict[str, object] = {}
         if scenario == "bound_synthetic_control":
             author_ext["bound_display"] = visible
-            answer_key = stored_mcq_answer_key(question)
-            if answer_key:
-                author_ext["bound_correct_key"] = answer_key
         chain = run_injected_author_solver_review_chain(
             gateway,
             item_id=item_id,

@@ -259,10 +259,11 @@ def test_core05_sqlite_pair_replay_cross_process(tmp_path: Path) -> None:
                 "persisted_visible_fingerprint": vis_fp,
                 "content_fingerprint": snap["content_fingerprint"],
                 "stored_answer_key": snap["stored_answer_key"],
+                "reviewer_verdict": "pass",
             }
 
         issuance_record = {
-            "issuance_record_version": "d12-f51-v1",
+            "issuance_record_version": "d12-f52-v1",
             "ordered_question_ids": [qids[0], qids[1]],
             "question_snapshots": {
                 qids[0]: question_issuance_snapshot(

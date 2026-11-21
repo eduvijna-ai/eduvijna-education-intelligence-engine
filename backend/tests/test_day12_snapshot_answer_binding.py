@@ -119,7 +119,10 @@ def test_f49_02_paper2_mismatch_vetoes_pair(tmp_path: Path) -> None:
         **_kw(vid, org, qids, "f49-p2"),
     )
     assert result.persist.outcome == PaperPairOutcome.CONFLICT
-    assert "solver_answer_mismatch" in result.persist.issue_codes
+    assert any(
+        c in result.persist.issue_codes
+        for c in ("solver_answer_mismatch", "author_solver_disagreement")
+    )
     assert session.scalar(select(func.count()).select_from(TestDefinition)) == 0
     session.close()
 

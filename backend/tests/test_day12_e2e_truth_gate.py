@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.jee_advanced.author_draft_binding import (
+    author_claimed_answer_key,
+    author_payload_has_answer_leak,
     display_candidate_from_question,
     solver_payload_has_answer_leak,
 )
@@ -67,9 +69,48 @@ def _kw(vid: str, org: str, qids: tuple[str, str], key: str) -> dict:
     )
 
 
+def test_author_claim_extractor_rejects_double_true_with_explicit() -> None:
+    key, issues = author_claimed_answer_key(
+        {
+            "options": [
+                {"option_key": "A", "is_correct": True},
+                {"option_key": "B", "is_correct": True},
+            ],
+            "answer_json": {"option_key": "A"},
+        }
+    )
+    assert key is None
+    assert "author_answer_ambiguous" in issues
+
+
+def test_author_claim_all_false_flags_with_explicit_key() -> None:
+    key, issues = author_claimed_answer_key(
+        {
+            "options": [
+                {"option_key": "A", "is_correct": False},
+                {"option_key": "B", "is_correct": False},
+            ],
+            "answer_json": {"option_key": "A"},
+        }
+    )
+    assert key is None
+    assert "author_answer_mismatch" in issues
+
+
+class _RecordingAuthorGateway(FakeGenerationGateway):
+    def __init__(self) -> None:
+        super().__init__()
+        self.author_payloads: list[dict[str, object]] = []
+
+    def generate(self, request):
+        if request.role == GenerationNodeRole.AUTHOR:
+            self.author_payloads.append(dict(request.user_payload))
+        return super().generate(request)
+
+
 def test_f51_01_triple_agreement_created(tmp_path: Path) -> None:
     session, vid, org, qids = _seed(tmp_path)
-    gateway = FakeGenerationGateway()
+    gateway = _RecordingAuthorGateway()
     first = run_labeled_synthetic_pair_integration(
         session, gateway, scenario=POSITIVE, **_kw(vid, org, qids, "f51-aaa")
     )
@@ -78,12 +119,16 @@ def test_f51_01_triple_agreement_created(tmp_path: Path) -> None:
     test_row = session.get(TestDefinition, first.persist.test_definition_ids[0])
     assert test_row is not None
     record = (test_row.metadata_json or {}).get("issuance_record")
-    assert record and record.get("issuance_record_version") == "d12-f51-v1"
+    assert record and record.get("issuance_record_version") == "d12-f52-v1"
     for qid in qids:
         ev = record["chain_evidence"][qid]
         assert ev["author_claimed_answer_key"] == "A"
         assert ev["proposed_answer_key"] == "A"
         assert ev["stored_answer_key"] == "A"
+        assert ev.get("reviewer_verdict")
+    assert gateway.author_payloads
+    assert all("bound_correct_key" not in p for p in gateway.author_payloads)
+    assert all(not author_payload_has_answer_leak(p) for p in gateway.author_payloads)
     session.close()
 
 
@@ -102,7 +147,10 @@ def test_f51_01_author_all_false_blocks(tmp_path: Path) -> None:
         session, gateway, scenario=POSITIVE, **_kw(vid, org, qids, "f51-nof")
     )
     assert result.persist.outcome == PaperPairOutcome.CONFLICT
-    assert "author_answer_missing" in result.persist.issue_codes
+    assert any(
+        c in result.persist.issue_codes
+        for c in ("author_answer_missing", "author_answer_mismatch")
+    )
     assert session.scalar(select(func.count()).select_from(TestDefinition)) == 0
     session.close()
 
@@ -154,16 +202,39 @@ def test_f51_01_solver_payload_no_leak(tmp_path: Path) -> None:
         run_id="leak",
         organization_id=org,
         scenario=POSITIVE,
-        author_user_extensions={
-            "bound_display": visible,
-            "bound_correct_key": "A",
-        },
+        author_user_extensions={"bound_display": visible},
         persisted_visible_fingerprint="x",
     )
     assert len(gateway.call_history()) >= 2
     assert not solver_payload_has_answer_leak(
         {"display_candidate": visible, "item_id": qids[0], "run_id": "leak"}
     )
+    session.close()
+
+
+def test_f51_02_replay_rejects_legacy_f51_record_version(tmp_path: Path) -> None:
+    session, vid, org, qids = _seed(tmp_path)
+    gateway = FakeGenerationGateway()
+    first = run_labeled_synthetic_pair_integration(
+        session, gateway, scenario=POSITIVE, **_kw(vid, org, qids, "f51-legacy")
+    )
+    session.commit()
+    assert first.persist.outcome == PaperPairOutcome.CREATED
+    for tid in first.persist.test_definition_ids:
+        t = session.get(TestDefinition, tid)
+        assert t is not None
+        meta = dict(t.metadata_json or {})
+        record = dict(meta.get("issuance_record") or {})
+        record["issuance_record_version"] = "d12-f51-v1"
+        meta["issuance_record"] = record
+        t.metadata_json = meta
+    session.commit()
+    replay = run_labeled_synthetic_pair_integration(
+        session, gateway, scenario=POSITIVE, **_kw(vid, org, qids, "f51-legacy")
+    )
+    assert replay.persist.outcome == PaperPairOutcome.CONFLICT
+    assert "issuance_record_version_unsupported" in replay.persist.issue_codes
+    assert replay.gateway_calls == 0
     session.close()
 
 

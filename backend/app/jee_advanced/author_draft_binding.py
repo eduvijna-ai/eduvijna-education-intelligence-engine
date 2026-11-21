@@ -65,37 +65,70 @@ def question_visible_fingerprint(question: Question) -> str:
 def author_claimed_answer_key(
     author_parsed: dict[str, Any],
 ) -> tuple[str | None, tuple[str, ...]]:
-    """Extract exactly one authoritative author answer claim."""
+    """Extract exactly one authoritative author answer claim; any issue is fatal."""
 
     issues: list[str] = []
     options = [o for o in list(author_parsed.get("options") or []) if isinstance(o, dict)]
-    flagged = [
+    option_domain = {
         str(o.get("option_key") or "").strip()
         for o in options
-        if bool(o.get("is_correct"))
-    ]
-    flagged = [k for k in flagged if k]
-    explicit_key = ""
-    answer_json = author_parsed.get("answer_json")
-    if isinstance(answer_json, dict):
-        explicit_key = str(answer_json.get("option_key") or "").strip()
-    proposed = str(author_parsed.get("proposed_answer_key") or "").strip()
+        if str(o.get("option_key") or "").strip()
+    }
+    flagged: list[str] = []
+    has_correct_field = False
+    for opt in options:
+        if "is_correct" not in opt:
+            continue
+        has_correct_field = True
+        if not isinstance(opt.get("is_correct"), bool):
+            issues.append("author_correctness_not_boolean")
+            continue
+        if opt.get("is_correct"):
+            key = str(opt.get("option_key") or "").strip()
+            if not key:
+                issues.append("author_answer_missing")
+            elif key not in option_domain:
+                issues.append("author_answer_out_of_domain")
+            else:
+                flagged.append(key)
 
     if len(flagged) > 1:
         issues.append("author_answer_ambiguous")
-    if len(flagged) == 0 and not explicit_key and not proposed:
-        issues.append("author_answer_missing")
-        return None, tuple(issues)
 
-    key_from_flags = flagged[0] if len(flagged) == 1 else None
-    candidates = {k for k in (key_from_flags, explicit_key, proposed) if k}
-    if len(candidates) > 1:
+    explicit_key = ""
+    answer_json = author_parsed.get("answer_json")
+    if answer_json is not None and not isinstance(answer_json, dict):
+        issues.append("author_answer_malformed")
+    elif isinstance(answer_json, dict):
+        explicit_key = str(answer_json.get("option_key") or "").strip()
+        if explicit_key and explicit_key not in option_domain:
+            issues.append("author_answer_out_of_domain")
+
+    proposed = str(author_parsed.get("proposed_answer_key") or "").strip()
+    if proposed and proposed not in option_domain:
+        issues.append("author_answer_out_of_domain")
+
+    if has_correct_field and not flagged and explicit_key:
         issues.append("author_answer_mismatch")
-        return None, tuple(issues)
-    if not candidates:
-        issues.append("author_answer_missing")
-        return None, tuple(issues)
-    return next(iter(candidates)), tuple(issues)
+
+    if len(flagged) == 1 and explicit_key and flagged[0] != explicit_key:
+        issues.append("author_answer_mismatch")
+
+    flag_key = flagged[0] if len(flagged) == 1 else ""
+    encoding_keys = {k for k in (flag_key, explicit_key, proposed) if k}
+    if len(encoding_keys) > 1:
+        issues.append("author_answer_mismatch")
+
+    if issues:
+        return None, tuple(dict.fromkeys(issues))
+
+    if len(flagged) == 1:
+        return flagged[0], ()
+    if explicit_key:
+        return explicit_key, ()
+    if proposed:
+        return proposed, ()
+    return None, ("author_answer_missing",)
 
 
 def author_draft_matches_question(
@@ -115,6 +148,20 @@ def author_draft_matches_question(
     return (not issues, tuple(issues))
 
 
+def author_payload_has_answer_leak(user_payload: dict[str, object]) -> bool:
+    banned_keys = {
+        "expected_answer_key",
+        "correct_answer",
+        "answer_json",
+        "solution",
+        "is_correct",
+        "stored_answer_key",
+        "bound_correct_key",
+        "bound_author_wrong_key",
+    }
+    return _payload_has_banned_key(user_payload, banned_keys)
+
+
 def solver_payload_has_answer_leak(user_payload: dict[str, object]) -> bool:
     banned_keys = {
         "expected_answer_key",
@@ -123,8 +170,13 @@ def solver_payload_has_answer_leak(user_payload: dict[str, object]) -> bool:
         "solution",
         "is_correct",
         "stored_answer_key",
+        "bound_correct_key",
     }
 
+    return _payload_has_banned_key(user_payload, banned_keys)
+
+
+def _payload_has_banned_key(user_payload: dict[str, object], banned_keys: set[str]) -> bool:
     def walk(value: object, depth: int) -> bool:
         if depth > 8:
             return False

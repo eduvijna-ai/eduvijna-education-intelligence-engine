@@ -99,6 +99,64 @@ class FakeGenerationGateway:
         attempt = self._author_pass_counts.get(run_key, 0)
         self._author_pass_counts[run_key] = attempt + 1
 
+        if scenario == "arithmetic_independent_author":
+            bound = payload.get("bound_display")
+            if not isinstance(bound, dict):
+                bound = {}
+            from app.jee_advanced.independent_arithmetic_author import author_draft_from_display
+
+            if payload.get("bound_author_all_false"):
+                options = [
+                    {
+                        "option_key": str(opt.get("option_key") or ""),
+                        "text": str(opt.get("text") or ""),
+                        "is_correct": False,
+                        "sequence": opt.get("sequence") or idx + 1,
+                    }
+                    for idx, opt in enumerate(list(bound.get("options") or []))
+                ]
+                return {
+                    "item_id": item_id,
+                    "stem_text": str(bound.get("stem_text") or ""),
+                    "question_type": str(bound.get("question_type") or "single_choice"),
+                    "options": options,
+                    "answer_json": {"option_key": "A"},
+                    "metadata_json": {"arithmetic_independent_author": True},
+                }
+            if payload.get("bound_author_wrong_key"):
+                wrong = str(payload.get("bound_author_wrong_key"))
+                options = [
+                    {
+                        "option_key": str(opt.get("option_key") or ""),
+                        "text": str(opt.get("text") or ""),
+                        "is_correct": str(opt.get("option_key") or "") == wrong,
+                        "sequence": opt.get("sequence") or idx + 1,
+                    }
+                    for idx, opt in enumerate(list(bound.get("options") or []))
+                ]
+                return {
+                    "item_id": item_id,
+                    "stem_text": str(bound.get("stem_text") or ""),
+                    "question_type": str(bound.get("question_type") or "single_choice"),
+                    "options": options,
+                    "answer_json": {"option_key": wrong},
+                    "metadata_json": {"arithmetic_independent_author": True},
+                }
+            draft = author_draft_from_display(
+                item_id=item_id,
+                display=bound,
+                revision_id=revision_id,
+                learning_outcome_id=learning_outcome_id,
+            )
+            if draft is None:
+                return {
+                    "item_id": item_id,
+                    "stem_text": str(bound.get("stem_text") or ""),
+                    "options": [],
+                    "metadata_json": {"author_arithmetic_unsolved": True},
+                }
+            return draft
+
         if scenario == "bound_persisted_author":
             bound = payload.get("bound_display")
             if not isinstance(bound, dict):

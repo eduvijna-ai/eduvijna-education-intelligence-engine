@@ -46,12 +46,14 @@ def bind_chain_to_persisted_question(
         if not draft_ok:
             issues.extend(draft_issues)
 
-    author_key = chain.author_claimed_answer_key
     author_parsed = chain.author_parsed or {}
-    if not author_key and author_parsed:
-        author_key, claim_issues = author_claimed_answer_key(author_parsed)
-        if claim_issues:
-            issues.extend(claim_issues)
+    author_key, claim_issues = (
+        author_claimed_answer_key(author_parsed)
+        if author_parsed
+        else (None, ("author_answer_missing",))
+    )
+    if claim_issues:
+        issues.extend(claim_issues)
     if author_key and expected and author_key != expected:
         issues.append("author_answer_mismatch")
     if author_key and proposed and author_key != proposed:

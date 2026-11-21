@@ -1,6 +1,7 @@
 # D12 consolidated evidence report (Issues #44–#47)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
+**Issue #51 closure start SHA:** `c4001d5a2a04e2d6e05e35dfca6b69ac644efa17`  
 **Issue #51 start SHA:** `4725523e20de9aa8a13aa0c50edc77e5aad8afe5`  
 **Issue #50 start SHA:** `6ec6de4b41ef4ccdaa050ae25cc3bd7367017044`  
 **Issue #49 start SHA:** `ad895980120f0a8a5bf3ae4e157ff40592345da0`  
@@ -12,9 +13,9 @@
 
 | Gate | Fix | Tests |
 |------|-----|-------|
-| F51-01 | `author_claimed_answer_key`; three-party A/A/A; bound author declares correct key | `test_day12_e2e_truth_gate.py` |
-| F51-02 | Strict `chain_evidence` replay; sibling TestDefinition metadata; `d12-f51-v1` | `test_f51_02_*` |
-| F51-03 | Scoped pytest + ledger unchanged | Builder + CI |
+| F51-01 | Independent arithmetic author; fatal claim extractor; no `bound_correct_key` echo | `test_day12_e2e_truth_gate.py` |
+| F51-02 | `d12-f52-v1` authoritative replay; gateway IDs + reviewer verdict | `test_f51_02_*` |
+| F51-03 | Scoped pytest + ledger unchanged | Builder + CI; full `pytest tests/` BUILDER_REPORTED_ONLY at push |
 
 ## Issue #50 independent reasoning + replay integrity (F50-01…04)
 

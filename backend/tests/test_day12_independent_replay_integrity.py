@@ -75,7 +75,16 @@ def test_f50_01_solver_request_has_no_answer_leak(tmp_path: Path) -> None:
         run_id="leak-check",
         organization_id=org,
         scenario=POSITIVE_SCENARIO,
-        author_user_extensions={"bound_display": {"stem_text": "What is 7 + 5?", "options": []}},
+        author_user_extensions={
+            "bound_display": {
+                "stem_text": "What is 7 + 5?",
+                "question_type": "single_choice",
+                "options": [
+                    {"option_key": "A", "text": "12", "sequence": 1},
+                    {"option_key": "B", "text": "11", "sequence": 2},
+                ],
+            }
+        },
     )
     assert len(gateway.call_history()) >= 2
     sample = {
@@ -141,7 +150,7 @@ def test_f50_02_bound_control_issues_pair(tmp_path: Path) -> None:
     assert first.gateway_calls >= 6
     meta = (session.get(TestDefinition, first.persist.test_definition_ids[0]).metadata_json or {})
     record = meta.get("issuance_record") or {}
-    assert record.get("issuance_record_version") == "d12-f51-v1"
+    assert record.get("issuance_record_version") == "d12-f52-v1"
     session.close()
 
 

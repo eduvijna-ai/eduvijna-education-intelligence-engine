@@ -53,6 +53,7 @@ class OrchestrationChainResult:
     solver_display_fingerprint: str | None = None
     author_parsed: dict[str, Any] | None = None
     author_claimed_answer_key: str | None = None
+    reviewer_verdict: str | None = None
     hitl_pending: bool = False
 
 
@@ -62,7 +63,7 @@ _ECHO_SOLVER_SCENARIOS = frozenset({"solver_match_persisted"})
 def _scenario_for_role(chain_scenario: str, role: GenerationNodeRole) -> str:
     if chain_scenario == "bound_synthetic_control":
         if role == GenerationNodeRole.AUTHOR:
-            return "bound_persisted_author"
+            return "arithmetic_independent_author"
         if role == GenerationNodeRole.SOLVER:
             return "independent_arithmetic_solver"
     return chain_scenario
@@ -155,9 +156,35 @@ def run_injected_author_solver_review_chain(
 
         author_parsed = author_resp.parsed if isinstance(author_resp.parsed, dict) else {}
         author_item_id = str(author_parsed.get("item_id") or "").strip() or None
-        author_claimed_key, _claim_issues = (
-            author_claimed_answer_key(author_parsed) if author_parsed else (None, ())
-        )
+        if author_parsed:
+            author_claimed_key, claim_issues = author_claimed_answer_key(author_parsed)
+        else:
+            author_claimed_key, claim_issues = None, ("author_answer_missing",)
+        if claim_issues:
+            return OrchestrationChainResult(
+                verdict=VerificationVerdict(
+                    outcome=VerificationOutcome.FAIL,
+                    issue_codes=tuple(dict.fromkeys(claim_issues)),
+                ),
+                stages_completed=tuple(stages),
+                gateway_calls=len(gateway.call_history()),
+                audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                author_item_id=author_item_id,
+                author_parsed=dict(author_parsed) if author_parsed else None,
+            )
+        if author_item_id and author_item_id != item_id:
+            return OrchestrationChainResult(
+                verdict=VerificationVerdict(
+                    outcome=VerificationOutcome.FAIL,
+                    issue_codes=("author_item_id_mismatch",),
+                ),
+                stages_completed=tuple(stages),
+                gateway_calls=len(gateway.call_history()),
+                audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                author_item_id=author_item_id,
+            )
         author_draft_fingerprint = (
             author_visible_fingerprint(author_parsed) if author_parsed else None
         )
@@ -186,6 +213,20 @@ def run_injected_author_solver_review_chain(
         audit_ids.append(solver_resp.gateway_request_id or "solver-unknown")
 
         parsed_solver = solver_resp.parsed if isinstance(solver_resp.parsed, dict) else {}
+        solver_item_id = str(parsed_solver.get("item_id") or "").strip()
+        if solver_item_id and solver_item_id != item_id:
+            return OrchestrationChainResult(
+                verdict=VerificationVerdict(
+                    outcome=VerificationOutcome.FAIL,
+                    issue_codes=("solver_item_id_mismatch",),
+                ),
+                stages_completed=tuple(stages),
+                gateway_calls=len(gateway.call_history()),
+                audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                author_item_id=author_item_id,
+                author_claimed_answer_key=author_claimed_key,
+            )
         if scenario in {"author_reject", "solver_reject"}:
             proposed = str(parsed_solver.get("proposed_answer_key") or "").strip() or None
             return OrchestrationChainResult(
@@ -329,6 +370,37 @@ def run_injected_author_solver_review_chain(
             )
 
         proposed = str(parsed_solver.get("proposed_answer_key") or "").strip() or None
+        if author_claimed_key and proposed and author_claimed_key != proposed:
+            return OrchestrationChainResult(
+                verdict=VerificationVerdict(
+                    outcome=VerificationOutcome.FAIL,
+                    issue_codes=("author_solver_disagreement",),
+                ),
+                stages_completed=tuple(stages),
+                gateway_calls=len(gateway.call_history()),
+                audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                proposed_answer_key=proposed,
+                author_item_id=author_item_id,
+                author_claimed_answer_key=author_claimed_key,
+            )
+
+        reviewer_item = str(review_parsed.get("item_id") or "").strip()
+        if reviewer_item and reviewer_item != item_id:
+            return OrchestrationChainResult(
+                verdict=VerificationVerdict(
+                    outcome=VerificationOutcome.FAIL,
+                    issue_codes=("reviewer_item_id_mismatch",),
+                ),
+                stages_completed=tuple(stages),
+                gateway_calls=len(gateway.call_history()),
+                audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                proposed_answer_key=proposed,
+                author_item_id=author_item_id,
+            )
+
+        verdict_raw = str(review_parsed.get("status") or review_parsed.get("verdict") or "").lower()
         return OrchestrationChainResult(
             verdict=VerificationVerdict(
                 outcome=VerificationOutcome.PASS,
@@ -346,6 +418,7 @@ def run_injected_author_solver_review_chain(
             solver_display_fingerprint=solver_display_fingerprint,
             author_parsed=dict(author_parsed),
             author_claimed_answer_key=author_claimed_key,
+            reviewer_verdict=verdict_raw or None,
         )
     except GenerationGatewayError as exc:
         return OrchestrationChainResult(
