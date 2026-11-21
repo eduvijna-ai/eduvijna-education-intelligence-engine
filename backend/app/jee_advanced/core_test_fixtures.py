@@ -247,5 +247,57 @@ def seed_persisted_math_questions(
     return created
 
 
+def seed_persisted_arithmetic_mcq_pair(
+    session: Session,
+    *,
+    organization_id: str,
+    institution_id: str,
+    exam_version_id: str,
+) -> tuple[str, str]:
+    """Two approved arithmetic MCQs with Day6 proof (Issue #50 synthetic control)."""
+
+    stems = ("What is 7 + 5?", "Compute 8 + 4.")
+    answer_texts: tuple[tuple[str, str], tuple[str, str]] = (("12", "11"), ("12", "10"))
+    created: list[str] = []
+    for idx, stem in enumerate(stems):
+        a_text, b_text = answer_texts[idx]
+        q = Question(
+            external_code=f"core-arith-{idx}",
+            origin_type=QuestionOrigin.GENERATED.value,
+            exam_version_id=exam_version_id,
+            question_type=QuestionType.SINGLE_CHOICE.value,
+            stem_text=stem,
+            answer_json={"option_key": "A"},
+            status=QuestionStatus.APPROVED.value,
+            metadata_json={
+                "d12_core_test_fixture": True,
+                "d12_f50_arithmetic_control": True,
+                "organization_id": organization_id,
+                "institution_id": institution_id,
+                "subject_code": MATHEMATICS_SUBJECT,
+                "topic_group": "arithmetic",
+                "day6_validation_audit_id": f"audit-arith-{idx}",
+                "day6_solver_evidence_id": f"solver-arith-{idx}",
+            },
+        )
+        q.options.extend(
+            [
+                QuestionOption(option_key="A", text=a_text, is_correct=True, sequence=1),
+                QuestionOption(option_key="B", text=b_text, is_correct=False, sequence=2),
+            ]
+        )
+        session.add(q)
+        session.flush()
+        _persist_day6_validation_run(
+            session,
+            run_id=f"audit-arith-{idx}",
+            question=q,
+            organization_id=organization_id,
+            institution_id=institution_id,
+        )
+        created.append(str(q.id))
+    return created[0], created[1]
+
+
 def seed_minimal_brochure_only(session: Session) -> str:
     return approve_slot_with_test_pdf(session, SOURCE_SLOT_BROCHURE)

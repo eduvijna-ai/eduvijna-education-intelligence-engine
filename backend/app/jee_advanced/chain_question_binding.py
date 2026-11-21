@@ -1,7 +1,8 @@
-"""Bind gateway author/solver output to persisted approved questions (Issue #49)."""
+"""Bind gateway author/solver output to persisted approved questions."""
 
 from __future__ import annotations
 
+from app.jee_advanced.author_draft_binding import author_draft_matches_question
 from app.jee_advanced.orchestration_chain import OrchestrationChainResult
 from app.jee_advanced.stored_answer_resolution import stored_mcq_correct_keys
 from app.models import Question
@@ -30,6 +31,15 @@ def bind_chain_to_persisted_question(
         issues.append("solver_proposed_answer_missing")
     elif proposed != expected:
         issues.append("solver_answer_mismatch")
-    if chain.author_item_id and chain.author_item_id != qid:
+    if not chain.author_item_id:
+        issues.append("generated_draft_not_bound")
+    elif chain.author_item_id != qid:
         issues.append("author_item_id_mismatch")
+    if chain.author_draft_fingerprint and chain.persisted_visible_fingerprint:
+        if chain.author_draft_fingerprint != chain.persisted_visible_fingerprint:
+            issues.append("author_draft_content_mismatch")
+    elif chain.author_parsed:
+        draft_ok, draft_issues = author_draft_matches_question(chain.author_parsed, question)
+        if not draft_ok:
+            issues.extend(draft_issues)
     return (not issues, tuple(issues))

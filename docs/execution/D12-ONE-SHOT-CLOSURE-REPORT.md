@@ -1,10 +1,19 @@
 # D12 consolidated evidence report (Issues #44–#47)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
+**Issue #50 start SHA:** `6ec6de4b41ef4ccdaa050ae25cc3bd7367017044`  
 **Issue #49 start SHA:** `ad895980120f0a8a5bf3ae4e157ff40592345da0`  
 **Issue #48 start SHA:** `3c628f015734915c3fe4799b4abc2d91ce95c0ee`  
 **Issue #47 parent:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
+
+## Issue #50 independent reasoning + replay integrity (F50-01…04)
+
+| Gate | Fix | Tests |
+|------|-----|-------|
+| F50-01 | Answer-blind SOLVER payload; `independent_arithmetic_solver`; reject `solver_match_persisted` echo | `test_day12_independent_replay_integrity.py` |
+| F50-02 | `author_draft_binding.py`; mandatory author draft fingerprint vs persisted Question | `test_f50_02_*`, `bound_synthetic_control` |
+| F50-03 | Day6 audit/solver ID drift on replay; `no_autoflush` preflight; issuance record `d12-f50-v1` | `test_f50_03_*`, P48 replay |
 
 ## Issue #49 snapshot + answer binding (F49-01…03)
 

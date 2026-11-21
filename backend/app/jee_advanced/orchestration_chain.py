@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
+from app.jee_advanced.author_draft_binding import (
+    author_visible_fingerprint,
+    redact_author_for_solver,
+)
 from app.jee_advanced.independent_verification import VerificationOutcome, VerificationVerdict
 from app.orchestration.enums import GenerationNodeRole, ReviewVerdictStatus
 from app.orchestration.gateway.protocol import GenerationGateway
@@ -42,7 +47,23 @@ class OrchestrationChainResult:
     item_id: str = ""
     proposed_answer_key: str | None = None
     author_item_id: str | None = None
+    author_draft_fingerprint: str | None = None
+    persisted_visible_fingerprint: str | None = None
+    solver_display_fingerprint: str | None = None
+    author_parsed: dict[str, Any] | None = None
     hitl_pending: bool = False
+
+
+_ECHO_SOLVER_SCENARIOS = frozenset({"solver_match_persisted"})
+
+
+def _scenario_for_role(chain_scenario: str, role: GenerationNodeRole) -> str:
+    if chain_scenario == "bound_synthetic_control":
+        if role == GenerationNodeRole.AUTHOR:
+            return "bound_persisted_author"
+        if role == GenerationNodeRole.SOLVER:
+            return "independent_arithmetic_solver"
+    return chain_scenario
 
 
 def _review_status_ok(review_parsed: dict[str, object]) -> bool:
@@ -61,7 +82,8 @@ def run_injected_author_solver_review_chain(
     run_id: str,
     organization_id: str,
     scenario: str = "clean_pass",
-    expected_answer_key: str | None = None,
+    author_user_extensions: dict[str, object] | None = None,
+    persisted_visible_fingerprint: str | None = None,
     max_repairs: int = 2,
     repairs_used: int = 0,
 ) -> OrchestrationChainResult:
@@ -69,6 +91,18 @@ def run_injected_author_solver_review_chain(
 
     stages: list[ChainStage] = []
     audit_ids: list[str] = []
+
+    if scenario in _ECHO_SOLVER_SCENARIOS:
+        return OrchestrationChainResult(
+            verdict=VerificationVerdict(
+                outcome=VerificationOutcome.FAIL,
+                issue_codes=("echo_solver_scenario_rejected",),
+            ),
+            stages_completed=tuple(stages),
+            gateway_calls=0,
+            audit_ids=(),
+            item_id=item_id,
+        )
 
     if repairs_used > max_repairs:
         return OrchestrationChainResult(
@@ -95,33 +129,44 @@ def run_injected_author_solver_review_chain(
         )
 
     try:
+        author_user: dict[str, object] = {
+            "item_id": item_id,
+            "run_id": run_id,
+            "organization_id": organization_id,
+        }
+        if author_user_extensions:
+            author_user.update(author_user_extensions)
+
+        author_scenario = _scenario_for_role(scenario, GenerationNodeRole.AUTHOR)
         author_resp = gateway.generate(
             GenerationRequest(
                 role=GenerationNodeRole.AUTHOR,
                 prompt_version="jee-adv-chain@v1",
                 system_prompt="author",
-                user_payload={
-                    "item_id": item_id,
-                    "run_id": run_id,
-                    "organization_id": organization_id,
-                },
+                user_payload=author_user,
                 output_schema_name="author_item_v1",
-                scenario=scenario,
+                scenario=author_scenario,
             )
         )
         stages.append(ChainStage.AUTHOR)
         audit_ids.append(author_resp.gateway_request_id or "author-unknown")
 
         author_parsed = author_resp.parsed if isinstance(author_resp.parsed, dict) else {}
-        author_item_id = str(author_parsed.get("item_id") or item_id)
+        author_item_id = str(author_parsed.get("item_id") or "").strip() or None
+        author_draft_fingerprint = (
+            author_visible_fingerprint(author_parsed) if author_parsed else None
+        )
+        display_candidate = redact_author_for_solver(author_parsed)
+        solver_display_fingerprint = (
+            author_visible_fingerprint(display_candidate) if display_candidate else None
+        )
         solver_user: dict[str, object] = {
             "item_id": item_id,
             "run_id": run_id,
-            "stem": author_resp.parsed,
+            "display_candidate": display_candidate,
         }
-        if expected_answer_key:
-            solver_user["expected_answer_key"] = expected_answer_key
 
+        solver_scenario = _scenario_for_role(scenario, GenerationNodeRole.SOLVER)
         solver_resp = gateway.generate(
             GenerationRequest(
                 role=GenerationNodeRole.SOLVER,
@@ -129,7 +174,7 @@ def run_injected_author_solver_review_chain(
                 system_prompt="solver",
                 user_payload=solver_user,
                 output_schema_name="solver_item_v1",
-                scenario=scenario,
+                scenario=solver_scenario,
             )
         )
         stages.append(ChainStage.SOLVER)
@@ -291,6 +336,10 @@ def run_injected_author_solver_review_chain(
             item_id=item_id,
             proposed_answer_key=proposed,
             author_item_id=author_item_id,
+            author_draft_fingerprint=author_draft_fingerprint,
+            persisted_visible_fingerprint=persisted_visible_fingerprint,
+            solver_display_fingerprint=solver_display_fingerprint,
+            author_parsed=dict(author_parsed),
         )
     except GenerationGatewayError as exc:
         return OrchestrationChainResult(

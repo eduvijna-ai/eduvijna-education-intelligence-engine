@@ -14,6 +14,7 @@ from app.db.base import Base
 from app.db.session import create_database_engine
 from app.jee_advanced.core_test_fixtures import (
     _persist_day6_validation_run,
+    seed_persisted_arithmetic_mcq_pair,
     seed_persisted_math_questions,
 )
 from app.jee_advanced.enums import AdvancedProfileKind
@@ -449,13 +450,11 @@ def test_prod47_03_integrated_pair_cross_process(tmp_path: Path) -> None:
             academic_year="2026",
         )
         version_id = str(version.id)
-        qids = seed_persisted_math_questions(
+        qids = seed_persisted_arithmetic_mcq_pair(
             session,
             organization_id="org-int",
             institution_id="inst-int",
             exam_version_id=version_id,
-            math_count=2,
-            algebra_count=0,
         )
         test_ids = (qids[0], qids[1])
         gateway = FakeGenerationGateway()
@@ -468,7 +467,7 @@ def test_prod47_03_integrated_pair_cross_process(tmp_path: Path) -> None:
             question_ids=test_ids,
             idempotency_key="idem-p47",
             pair_correlation_id="pair-p47",
-            scenario="solver_match_persisted",
+            scenario="bound_synthetic_control",
         )
         session.commit()
         assert integrated.persist.outcome == PaperPairOutcome.CREATED
@@ -495,7 +494,7 @@ with Session(engine) as session:
         question_ids=("{q0}", "{q1}"),
         idempotency_key="idem-p47",
         pair_correlation_id="pair-p47",
-        scenario="solver_match_persisted",
+        scenario="bound_synthetic_control",
     )
     session.commit()
     print(result.persist.outcome)

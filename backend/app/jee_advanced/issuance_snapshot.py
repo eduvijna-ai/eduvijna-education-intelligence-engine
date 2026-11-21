@@ -59,6 +59,9 @@ def build_issuance_record(
             "audit_ids": list(chain.audit_ids),
             "proposed_answer_key": chain.proposed_answer_key,
             "author_item_id": chain.author_item_id,
+            "author_draft_fingerprint": chain.author_draft_fingerprint,
+            "solver_display_fingerprint": chain.solver_display_fingerprint,
+            "persisted_visible_fingerprint": chain.persisted_visible_fingerprint,
             "content_fingerprint": snapshots[chain.item_id]["content_fingerprint"],
         }
     ordered_ids: list[str] = []
@@ -66,7 +69,7 @@ def build_issuance_record(
         for item in paper.get("question_items") or []:
             ordered_ids.append(str(item.get("question_id") or ""))
     return {
-        "issuance_record_version": "d12-f49-v1",
+        "issuance_record_version": "d12-f50-v1",
         "pair_fingerprint": None,
         "ordered_question_ids": ordered_ids,
         "question_snapshots": snapshots,
@@ -126,6 +129,15 @@ def verify_current_questions_for_replay(
             issues.append(f"question_content_drift:{qid}")
         if question_day9_veto(question):
             issues.append(f"day9_veto:{qid}")
+        meta = dict(question.metadata_json or {})
+        live_audit = str(meta.get("day6_validation_audit_id") or "")
+        live_solver = str(meta.get("day6_solver_evidence_id") or "")
+        snap_audit = str(snap.get("day6_validation_audit_id") or "")
+        snap_solver = str(snap.get("day6_solver_evidence_id") or "")
+        if live_audit != snap_audit:
+            issues.append(f"day6_audit_id_drift:{qid}")
+        if live_solver != snap_solver:
+            issues.append(f"day6_solver_id_drift:{qid}")
         ok, reason = validation_run_covers_question(
             session,
             run_id=str(snap.get("day6_validation_audit_id") or ""),
@@ -135,6 +147,20 @@ def verify_current_questions_for_replay(
         )
         if not ok:
             issues.append(reason or f"validation_stale:{qid}")
+
+    stored_chain = dict(stored_record.get("chain_evidence") or {})
+    for qid in _question_ids_from_request(request):
+        ev = stored_chain.get(qid)
+        snap = snapshots.get(qid)
+        if ev is None or snap is None:
+            continue
+        if str(ev.get("content_fingerprint") or "") != str(snap.get("content_fingerprint") or ""):
+            issues.append(f"chain_snapshot_fingerprint_drift:{qid}")
+        if str(ev.get("persisted_visible_fingerprint") or "") and str(
+            ev.get("author_draft_fingerprint") or ""
+        ):
+            if ev.get("author_draft_fingerprint") != ev.get("persisted_visible_fingerprint"):
+                issues.append(f"stored_author_fingerprint_mismatch:{qid}")
 
     if issues:
         return False, tuple(dict.fromkeys(issues))

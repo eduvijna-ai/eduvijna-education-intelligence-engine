@@ -6,10 +6,11 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.jee_advanced.chain_question_binding import (
-    bind_chain_to_persisted_question,
-    stored_mcq_answer_key,
+from app.jee_advanced.author_draft_binding import (
+    author_visible_fingerprint,
+    display_candidate_from_question,
 )
+from app.jee_advanced.chain_question_binding import bind_chain_to_persisted_question
 from app.jee_advanced.constants import PAPER_1_CODE, PAPER_2_CODE
 from app.jee_advanced.issuance_snapshot import build_issuance_record
 from app.jee_advanced.orchestration_chain import (
@@ -106,6 +107,20 @@ def run_labeled_synthetic_pair_integration(
     pair_correlation_id: str,
     scenario: str = "clean_pass",
 ) -> IntegratedPairResult:
+    if scenario == "solver_match_persisted":
+        return IntegratedPairResult(
+            persist=PaperPairPersistResult(
+                outcome=PaperPairOutcome.CONFLICT,
+                pair_correlation_id=pair_correlation_id,
+                test_definition_ids=(),
+                checksum="",
+                question_ids_by_paper={},
+                issue_codes=("echo_solver_scenario_rejected",),
+            ),
+            gateway_calls=0,
+            replayed=False,
+            chains=(),
+        )
     if not organization_id.strip():
         raise ValueError("organization_id required")
 
@@ -156,14 +171,18 @@ def run_labeled_synthetic_pair_integration(
     chains: list[OrchestrationChainResult] = []
     for item_id in question_ids:
         question = q_by_id[str(item_id)]
-        expected_key = stored_mcq_answer_key(question)
+        visible = display_candidate_from_question(question)
+        author_ext: dict[str, object] = {}
+        if scenario == "bound_synthetic_control":
+            author_ext["bound_display"] = visible
         chain = run_injected_author_solver_review_chain(
             gateway,
             item_id=item_id,
             run_id=run_id,
             organization_id=organization_id,
             scenario=scenario,
-            expected_answer_key=expected_key,
+            author_user_extensions=author_ext or None,
+            persisted_visible_fingerprint=author_visible_fingerprint(visible),
         )
         chains.append(chain)
         stem_gate = verify_stem_assets(latex=None, has_image=False, alt_text=None)

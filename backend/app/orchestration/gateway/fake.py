@@ -54,7 +54,7 @@ class FakeGenerationGateway:
                 scenario, item_id, primary_revision, learning_outcome_id, payload
             )
         elif request.role == GenerationNodeRole.SOLVER:
-            parsed = self._solver_payload(scenario, item_id, payload)
+            parsed = self._solver_payload(scenario, item_id, dict(payload))
         elif request.role == GenerationNodeRole.REPAIR:
             parsed = {
                 "repair_instructions": dict(payload.get("repair_instructions") or {}),
@@ -98,6 +98,33 @@ class FakeGenerationGateway:
         run_key = f"{payload.get('run_id')}:{item_id}"
         attempt = self._author_pass_counts.get(run_key, 0)
         self._author_pass_counts[run_key] = attempt + 1
+
+        if scenario == "bound_persisted_author":
+            bound = payload.get("bound_display")
+            if not isinstance(bound, dict):
+                bound = {}
+            options = [
+                {
+                    "option_key": str(opt.get("option_key") or ""),
+                    "text": str(opt.get("text") or ""),
+                    "is_correct": False,
+                    "sequence": opt.get("sequence") or idx + 1,
+                }
+                for idx, opt in enumerate(list(bound.get("options") or []))
+            ]
+            return {
+                "item_id": item_id,
+                "stem_text": str(bound.get("stem_text") or ""),
+                "question_type": str(bound.get("question_type") or "single_choice"),
+                "options": options,
+                "marks": float(payload.get("marks") or 1),
+                "source_revision_ids": [revision_id],
+                "learning_outcome_ids": [learning_outcome_id] if learning_outcome_id else [],
+                "competency_codes": ["application"],
+                "declared_cognitive_level": "Apply",
+                "declared_difficulty": 2,
+                "metadata_json": {"bound_persisted_author": True},
+            }
 
         if scenario == "bad_provenance":
             revision_id = "00000000-0000-0000-0000-000000000099"
@@ -238,6 +265,28 @@ class FakeGenerationGateway:
     def _solver_payload(
         self, scenario: str, item_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
+        if scenario == "independent_arithmetic_solver":
+            from app.jee_advanced.independent_arithmetic_solver import propose_answer_from_display
+
+            display = payload.get("display_candidate")
+            if not isinstance(display, dict):
+                display = {}
+            proposed = propose_answer_from_display(display)
+            if not proposed:
+                return {
+                    "item_id": item_id,
+                    "proposed_answer_key": "",
+                    "working_summary": "Could not derive answer from stem/options",
+                    "check_status": "mismatch",
+                    "agrees_with_author": False,
+                }
+            return {
+                "item_id": item_id,
+                "proposed_answer_key": proposed,
+                "working_summary": "Independent sum from stem and visible option labels",
+                "check_status": "ok",
+                "agrees_with_author": True,
+            }
         if scenario == "solver_disagree":
             return {
                 "item_id": item_id,

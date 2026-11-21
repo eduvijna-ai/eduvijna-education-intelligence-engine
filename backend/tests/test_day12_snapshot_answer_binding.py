@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 
 from app.db.base import Base
 from app.db.session import create_database_engine
-from app.jee_advanced.core_test_fixtures import seed_persisted_math_questions
+from app.jee_advanced.core_test_fixtures import (
+    seed_persisted_arithmetic_mcq_pair,
+)
 from app.jee_advanced.enums import AdvancedProfileKind
 from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
 from app.jee_advanced.paper_pair_persistence import PaperPairOutcome
@@ -23,7 +25,7 @@ from app.orchestration.enums import GenerationNodeRole
 from app.orchestration.gateway.fake import FakeGenerationGateway
 from app.orchestration.gateway.types import GenerationRequest
 
-MATCH_SCENARIO = "solver_match_persisted"
+MATCH_SCENARIO = "bound_synthetic_control"
 
 
 def _session(tmp_path: Path) -> Session:
@@ -42,13 +44,11 @@ def _seed(tmp_path: Path) -> tuple[Session, str, str, tuple[str, str]]:
         academic_year="2026",
     )
     vid = str(version.id)
-    qids = seed_persisted_math_questions(
+    qids = seed_persisted_arithmetic_mcq_pair(
         session,
         organization_id="org-f49",
         institution_id="inst-f49",
         exam_version_id=vid,
-        math_count=2,
-        algebra_count=0,
     )
     session.commit()
     return session, vid, "org-f49", (qids[0], qids[1])
@@ -63,6 +63,20 @@ def _kw(vid: str, org: str, qids: tuple[str, str], key: str) -> dict:
         idempotency_key=key,
         pair_correlation_id=f"pair-{key}",
     )
+
+
+def test_f49_02_echo_scenario_rejected_at_integration(tmp_path: Path) -> None:
+    session, vid, org, qids = _seed(tmp_path)
+    gateway = FakeGenerationGateway()
+    result = run_labeled_synthetic_pair_integration(
+        session,
+        gateway,
+        scenario="solver_match_persisted",
+        **_kw(vid, org, qids, "f49-echo"),
+    )
+    assert result.persist.outcome == PaperPairOutcome.CONFLICT
+    assert "echo_solver_scenario_rejected" in result.persist.issue_codes
+    session.close()
 
 
 def test_f49_02_clean_pass_solver_b_blocks_issuance(tmp_path: Path) -> None:
@@ -186,13 +200,11 @@ def test_f49_01_integrated_replay_cross_process(tmp_path: Path) -> None:
             academic_year="2026",
         )
         version_id = str(version.id)
-        seeded = seed_persisted_math_questions(
+        seeded = seed_persisted_arithmetic_mcq_pair(
             session,
             organization_id=org,
             institution_id="inst-f49",
             exam_version_id=version_id,
-            math_count=2,
-            algebra_count=0,
         )
         qids = (seeded[0], seeded[1])
         gw = FakeGenerationGateway()

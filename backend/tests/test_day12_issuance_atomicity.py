@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.jee_advanced.core_test_fixtures import (
-    seed_persisted_math_questions,
+    seed_persisted_arithmetic_mcq_pair,
 )
 from app.jee_advanced.enums import AdvancedProfileKind
 from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
@@ -27,7 +27,7 @@ from app.models import TestDefinition as TestDefinitionRow
 from app.models.enums import QuestionStatus
 from app.orchestration.gateway.fake import FakeGenerationGateway
 
-_MATCH_SCENARIO = "solver_match_persisted"
+_MATCH_SCENARIO = "bound_synthetic_control"
 
 
 def _session(tmp_path: Path) -> Session:
@@ -45,13 +45,11 @@ def _seed_pair_context(session: Session) -> tuple[str, str, tuple[str, str]]:
         academic_year="2026",
     )
     vid = str(version.id)
-    qids = seed_persisted_math_questions(
+    qids = seed_persisted_arithmetic_mcq_pair(
         session,
         organization_id="org-p48",
         institution_id="inst-p48",
         exam_version_id=vid,
-        math_count=2,
-        algebra_count=0,
     )
     session.commit()
     return vid, "org-p48", (qids[0], qids[1])
@@ -176,13 +174,11 @@ def test_p48_03_integrated_cross_process_zero_gateway(tmp_path: Path) -> None:
             academic_year="2026",
         )
         version_id = str(version.id)
-        seeded = seed_persisted_math_questions(
+        seeded = seed_persisted_arithmetic_mcq_pair(
             session,
             organization_id=org,
             institution_id="inst-p48",
             exam_version_id=version_id,
-            math_count=2,
-            algebra_count=0,
         )
         qids = (seeded[0], seeded[1])
         gw = FakeGenerationGateway()

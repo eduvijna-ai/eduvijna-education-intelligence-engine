@@ -339,17 +339,18 @@ def preflight_two_paper_pair(
 ) -> PaperPairPersistResult | None:
     """Shape-check and idempotent resolution before gateway; None when issuance may proceed."""
 
-    shape_issues = _validate_request_shape(session, request)
-    if shape_issues:
-        return PaperPairPersistResult(
-            outcome=PaperPairOutcome.CONFLICT,
-            pair_correlation_id=request.pair_correlation_id,
-            test_definition_ids=(),
-            checksum="",
-            question_ids_by_paper={},
-            issue_codes=shape_issues,
-        )
-    return _match_existing_pair(session, request)
+    with session.no_autoflush:
+        shape_issues = _validate_request_shape(session, request)
+        if shape_issues:
+            return PaperPairPersistResult(
+                outcome=PaperPairOutcome.CONFLICT,
+                pair_correlation_id=request.pair_correlation_id,
+                test_definition_ids=(),
+                checksum="",
+                question_ids_by_paper={},
+                issue_codes=shape_issues,
+            )
+        return _match_existing_pair(session, request)
 
 
 def persist_two_paper_pair(
