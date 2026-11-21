@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from app.jee_advanced.author_draft_binding import author_draft_matches_question
+from app.jee_advanced.author_draft_binding import (
+    author_claimed_answer_key,
+    author_draft_matches_question,
+)
 from app.jee_advanced.orchestration_chain import OrchestrationChainResult
 from app.jee_advanced.stored_answer_resolution import stored_mcq_correct_keys
 from app.models import Question
@@ -42,4 +45,18 @@ def bind_chain_to_persisted_question(
         draft_ok, draft_issues = author_draft_matches_question(chain.author_parsed, question)
         if not draft_ok:
             issues.extend(draft_issues)
-    return (not issues, tuple(issues))
+
+    author_key = chain.author_claimed_answer_key
+    author_parsed = chain.author_parsed or {}
+    if not author_key and author_parsed:
+        author_key, claim_issues = author_claimed_answer_key(author_parsed)
+        if claim_issues:
+            issues.extend(claim_issues)
+    if author_key and expected and author_key != expected:
+        issues.append("author_answer_mismatch")
+    if author_key and proposed and author_key != proposed:
+        issues.append("author_solver_disagreement")
+    if not author_key and expected:
+        issues.append("author_answer_missing")
+
+    return (not issues, tuple(dict.fromkeys(issues)))

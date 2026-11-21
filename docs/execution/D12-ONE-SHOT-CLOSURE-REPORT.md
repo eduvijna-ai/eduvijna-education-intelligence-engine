@@ -1,11 +1,20 @@
 # D12 consolidated evidence report (Issues #44–#47)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
+**Issue #51 start SHA:** `4725523e20de9aa8a13aa0c50edc77e5aad8afe5`  
 **Issue #50 start SHA:** `6ec6de4b41ef4ccdaa050ae25cc3bd7367017044`  
 **Issue #49 start SHA:** `ad895980120f0a8a5bf3ae4e157ff40592345da0`  
 **Issue #48 start SHA:** `3c628f015734915c3fe4799b4abc2d91ce95c0ee`  
 **Issue #47 parent:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
+
+## Issue #51 E2E truth gate (F51-01…03)
+
+| Gate | Fix | Tests |
+|------|-----|-------|
+| F51-01 | `author_claimed_answer_key`; three-party A/A/A; bound author declares correct key | `test_day12_e2e_truth_gate.py` |
+| F51-02 | Strict `chain_evidence` replay; sibling TestDefinition metadata; `d12-f51-v1` | `test_f51_02_*` |
+| F51-03 | Scoped pytest + ledger unchanged | Builder + CI |
 
 ## Issue #50 independent reasoning + replay integrity (F50-01…04)
 

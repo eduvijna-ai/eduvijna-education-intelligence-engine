@@ -141,7 +141,7 @@ def test_f50_02_bound_control_issues_pair(tmp_path: Path) -> None:
     assert first.gateway_calls >= 6
     meta = (session.get(TestDefinition, first.persist.test_definition_ids[0]).metadata_json or {})
     record = meta.get("issuance_record") or {}
-    assert record.get("issuance_record_version") == "d12-f50-v1"
+    assert record.get("issuance_record_version") == "d12-f51-v1"
     session.close()
 
 

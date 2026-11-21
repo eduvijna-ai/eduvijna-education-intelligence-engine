@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.jee_advanced.author_draft_binding import (
+    author_claimed_answer_key,
     author_visible_fingerprint,
     redact_author_for_solver,
 )
@@ -51,6 +52,7 @@ class OrchestrationChainResult:
     persisted_visible_fingerprint: str | None = None
     solver_display_fingerprint: str | None = None
     author_parsed: dict[str, Any] | None = None
+    author_claimed_answer_key: str | None = None
     hitl_pending: bool = False
 
 
@@ -153,6 +155,9 @@ def run_injected_author_solver_review_chain(
 
         author_parsed = author_resp.parsed if isinstance(author_resp.parsed, dict) else {}
         author_item_id = str(author_parsed.get("item_id") or "").strip() or None
+        author_claimed_key, _claim_issues = (
+            author_claimed_answer_key(author_parsed) if author_parsed else (None, ())
+        )
         author_draft_fingerprint = (
             author_visible_fingerprint(author_parsed) if author_parsed else None
         )
@@ -340,6 +345,7 @@ def run_injected_author_solver_review_chain(
             persisted_visible_fingerprint=persisted_visible_fingerprint,
             solver_display_fingerprint=solver_display_fingerprint,
             author_parsed=dict(author_parsed),
+            author_claimed_answer_key=author_claimed_key,
         )
     except GenerationGatewayError as exc:
         return OrchestrationChainResult(

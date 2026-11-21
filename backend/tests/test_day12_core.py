@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import create_database_engine
+from app.jee_advanced.author_draft_binding import question_visible_fingerprint
+from app.jee_advanced.chain_question_binding import stored_mcq_answer_key
 from app.jee_advanced.constants import (
     EDUVIJNA_DERIVED_TOPIC_GROUP,
     JEE_ADVANCED_PACK_CODE,
@@ -238,8 +240,29 @@ def test_core05_sqlite_pair_replay_cross_process(tmp_path: Path) -> None:
         q0 = session.get(Question, qids[0])
         q1 = session.get(Question, qids[1])
         assert q0 is not None and q1 is not None
+        def _chain_row(question: Question) -> dict[str, object]:
+            snap = question_issuance_snapshot(
+                question, organization_id="org-core", institution_id="inst-core"
+            )
+            vis_fp = question_visible_fingerprint(question)
+            key = stored_mcq_answer_key(question) or "A"
+            return {
+                "audit_ids": ["gw-author", "gw-solver", "gw-review"],
+                "gateway_author_id": "gw-author",
+                "gateway_solver_id": "gw-solver",
+                "gateway_reviewer_id": "gw-review",
+                "proposed_answer_key": key,
+                "author_claimed_answer_key": key,
+                "author_item_id": str(question.id),
+                "author_draft_fingerprint": vis_fp,
+                "solver_display_fingerprint": vis_fp,
+                "persisted_visible_fingerprint": vis_fp,
+                "content_fingerprint": snap["content_fingerprint"],
+                "stored_answer_key": snap["stored_answer_key"],
+            }
+
         issuance_record = {
-            "issuance_record_version": "d12-f49-v1",
+            "issuance_record_version": "d12-f51-v1",
             "ordered_question_ids": [qids[0], qids[1]],
             "question_snapshots": {
                 qids[0]: question_issuance_snapshot(
@@ -249,7 +272,10 @@ def test_core05_sqlite_pair_replay_cross_process(tmp_path: Path) -> None:
                     q1, organization_id="org-core", institution_id="inst-core"
                 ),
             },
-            "chain_evidence": {},
+            "chain_evidence": {
+                qids[0]: _chain_row(q0),
+                qids[1]: _chain_row(q1),
+            },
             "source_revision_snapshot": {},
             "blueprint_snapshot": {},
         }

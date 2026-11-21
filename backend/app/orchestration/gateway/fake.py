@@ -103,20 +103,36 @@ class FakeGenerationGateway:
             bound = payload.get("bound_display")
             if not isinstance(bound, dict):
                 bound = {}
+            if payload.get("bound_author_all_false"):
+                correct_key = ""
+            else:
+                correct_key = str(payload.get("bound_correct_key") or "").strip()
             options = [
                 {
                     "option_key": str(opt.get("option_key") or ""),
                     "text": str(opt.get("text") or ""),
-                    "is_correct": False,
+                    "is_correct": bool(correct_key)
+                    and str(opt.get("option_key") or "") == correct_key,
                     "sequence": opt.get("sequence") or idx + 1,
                 }
                 for idx, opt in enumerate(list(bound.get("options") or []))
             ]
+            if correct_key:
+                answer_json = {"option_key": correct_key}
+            else:
+                answer_json = dict(payload.get("answer_json") or {})
+            if payload.get("bound_author_wrong_key"):
+                answer_json = {"option_key": str(payload.get("bound_author_wrong_key"))}
+                options = [
+                    {**o, "is_correct": o.get("option_key") == answer_json.get("option_key")}
+                    for o in options
+                ]
             return {
                 "item_id": item_id,
                 "stem_text": str(bound.get("stem_text") or ""),
                 "question_type": str(bound.get("question_type") or "single_choice"),
                 "options": options,
+                "answer_json": answer_json,
                 "marks": float(payload.get("marks") or 1),
                 "source_revision_ids": [revision_id],
                 "learning_outcome_ids": [learning_outcome_id] if learning_outcome_id else [],

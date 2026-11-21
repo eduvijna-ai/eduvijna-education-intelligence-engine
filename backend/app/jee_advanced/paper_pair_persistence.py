@@ -18,6 +18,7 @@ from app.jee_advanced.enums import AdvancedProfileKind
 from app.jee_advanced.issuance_snapshot import (
     load_stored_issuance_record,
     verify_current_questions_for_replay,
+    verify_sibling_test_metadata,
 )
 from app.jee_advanced.source_storage import metadata_marks_synthetic
 from app.models import ExamVersion, Question, TestDefinition, TestQuestion
@@ -216,6 +217,16 @@ def _match_existing_pair(
             checksum="",
             question_ids_by_paper={},
             issue_codes=("incomplete_pair_rows",),
+        )
+    sib_ok, sib_issues = verify_sibling_test_metadata(loaded)
+    if not sib_ok:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=str((loaded[0].metadata_json or {}).get("pair_fingerprint") or ""),
+            question_ids_by_paper={},
+            issue_codes=sib_issues,
         )
     stored_fp = str((loaded[0].metadata_json or {}).get("pair_fingerprint") or "")
     stored_org = str((loaded[0].metadata_json or {}).get("organization_id") or "")

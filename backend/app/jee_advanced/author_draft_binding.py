@@ -62,6 +62,42 @@ def question_visible_fingerprint(question: Question) -> str:
     return author_visible_fingerprint(display_candidate_from_question(question))
 
 
+def author_claimed_answer_key(
+    author_parsed: dict[str, Any],
+) -> tuple[str | None, tuple[str, ...]]:
+    """Extract exactly one authoritative author answer claim."""
+
+    issues: list[str] = []
+    options = [o for o in list(author_parsed.get("options") or []) if isinstance(o, dict)]
+    flagged = [
+        str(o.get("option_key") or "").strip()
+        for o in options
+        if bool(o.get("is_correct"))
+    ]
+    flagged = [k for k in flagged if k]
+    explicit_key = ""
+    answer_json = author_parsed.get("answer_json")
+    if isinstance(answer_json, dict):
+        explicit_key = str(answer_json.get("option_key") or "").strip()
+    proposed = str(author_parsed.get("proposed_answer_key") or "").strip()
+
+    if len(flagged) > 1:
+        issues.append("author_answer_ambiguous")
+    if len(flagged) == 0 and not explicit_key and not proposed:
+        issues.append("author_answer_missing")
+        return None, tuple(issues)
+
+    key_from_flags = flagged[0] if len(flagged) == 1 else None
+    candidates = {k for k in (key_from_flags, explicit_key, proposed) if k}
+    if len(candidates) > 1:
+        issues.append("author_answer_mismatch")
+        return None, tuple(issues)
+    if not candidates:
+        issues.append("author_answer_missing")
+        return None, tuple(issues)
+    return next(iter(candidates)), tuple(issues)
+
+
 def author_draft_matches_question(
     author_parsed: dict[str, Any],
     question: Question,
