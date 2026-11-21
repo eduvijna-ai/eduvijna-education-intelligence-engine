@@ -22,6 +22,13 @@ def parse_scope_map_counts(markdown: str) -> dict[str, int]:
 
 
 def load_repo_scope_counts(repo_root: Path | None = None) -> dict[str, int]:
-    root = repo_root or Path(__file__).resolve().parents[3]
+    if repo_root is None:
+        # Source checkout: <root>/backend/app/...; runtime image: /app/app/...
+        # Never claim missing evidence is PASS, but resolve both layouts.
+        root = Path(__file__).resolve().parents[3]
+        if not (root / "docs" / "execution" / "D12-SCOPE-MAP.md").exists():
+            root = Path(__file__).resolve().parents[2]
+    else:
+        root = repo_root
     path = root / "docs" / "execution" / "D12-SCOPE-MAP.md"
     return parse_scope_map_counts(path.read_text(encoding="utf-8"))
