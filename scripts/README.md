@@ -17,4 +17,4 @@ python scripts/d12_official_source_intake.py --list-only
 python scripts/d12_official_source_intake.py --output-dir /absolute/private/vault
 ```
 
-Optional: `pip install pypdf` for non-authoritative page header warnings. Human legal and visual review remain required.
+Optional: `pip install pypdf` for structural parse checks (still **not** approval). `--output-dir` must be an **absolute** path outside any Git worktree. Existing PDFs with identical SHA-256 are reused; differing bytes or an existing receipt cause **CONFLICT** (no overwrite). `REQUIRES_HUMAN_REVIEW` / exit code `2` means hash captured only — complete legal/curator steps separately.

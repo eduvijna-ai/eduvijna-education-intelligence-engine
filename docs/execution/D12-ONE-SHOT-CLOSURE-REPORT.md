@@ -13,7 +13,7 @@
 
 | Item | Location | Notes |
 |------|----------|-------|
-| CLI | `scripts/d12_official_source_intake.py` | `--list-only` or `--output-dir` private path |
+| CLI | `scripts/d12_official_source_intake.py` | absolute `--output-dir`; O_EXCL publish; SEC hardening |
 | Library | `app/jee_advanced/official_source_intake.py` | Offline-testable; zero DB writes |
 | Tests | `test_day12_official_source_intake.py` | Mocked HTTPS only |
 

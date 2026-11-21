@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import urllib.error
 import urllib.request
@@ -18,7 +19,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.client import HTTPMessage
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import IO, Any
 from urllib.parse import urlparse
 
@@ -29,6 +29,7 @@ from app.jee_advanced.constants import (
 from app.jee_advanced.source_registry import JEE_ADVANCED_2026_SOURCE_SLOTS
 
 MANIFEST_KIND = "EDUVIJNA_D12_2026_PRIVATE_INTAKE_UNAPPROVED"
+RECEIPT_FILENAME = "eduvijna-d12-2026-intake-UNAPPROVED.json"
 MAX_BYTES = 50 * 1024 * 1024
 ALLOWED_HOST = JEE_ADVANCED_OFFICIAL_HOST
 CHUNK_SIZE = 1024 * 1024
@@ -37,6 +38,10 @@ PAPER1_URL_VERIFICATION_NOTE = (
     "Paper1 discovery URL may serve inconsistent 2025/2026 headers; "
     "human visual page review required before any official pin."
 )
+
+STATUS_INTAKE_CAPTURED = "INTAKE_CAPTURED_UNAPPROVED"
+STATUS_REVIEW_REQUIRED = "REQUIRES_HUMAN_REVIEW"
+STATUS_FAILED = "FAILED"
 
 _URL_KEY_BY_SLOT: dict[str, str] = {
     "jee_advanced.2026.brochure": "brochure_en_2026",
@@ -59,8 +64,6 @@ class IntakeSlot:
 
 
 def build_intake_slots() -> tuple[IntakeSlot, ...]:
-    """Six canonical slots aligned with Day12 registry and discovery URLs."""
-
     slots: list[IntakeSlot] = []
     for descriptor in JEE_ADVANCED_2026_SOURCE_SLOTS:
         url_key = _URL_KEY_BY_SLOT.get(descriptor.slot_id)
@@ -115,18 +118,31 @@ class OfficialOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _path_has_symlink_component(path: Path) -> bool:
+    for component in [path, *path.parents]:
+        if component.is_symlink():
+            return True
+    return False
+
+
+def require_absolute_output_dir(output_dir: Path) -> Path:
+    expanded = output_dir.expanduser()
+    if not expanded.is_absolute():
+        raise ValueError("output_dir_must_be_absolute")
+    return expanded
+
+
 def validate_private_output_dir(output_dir: Path, *, repo_root: Path | None = None) -> Path:
-    resolved = output_dir.expanduser()
-    if resolved.is_symlink():
-        raise ValueError("output_dir_symlink_forbidden")
-    resolved = resolved.resolve()
-    if resolved.is_symlink():
-        raise ValueError("output_resolves_to_symlink")
+    absolute = require_absolute_output_dir(output_dir)
+    if _path_has_symlink_component(absolute):
+        raise ValueError("output_path_symlink_forbidden")
+    resolved = absolute.resolve(strict=False)
+    if _path_has_symlink_component(resolved):
+        raise ValueError("output_resolves_through_symlink")
     if resolved.name == ".git" or ".git" in resolved.parts:
         raise ValueError("output_inside_git_directory")
     for parent in [resolved, *resolved.parents]:
-        git_mark = parent / ".git"
-        if git_mark.exists():
+        if (parent / ".git").exists():
             raise ValueError("output_inside_git_worktree")
     if repo_root is not None:
         repo = repo_root.resolve()
@@ -139,13 +155,78 @@ def validate_private_output_dir(output_dir: Path, *, repo_root: Path | None = No
     return resolved
 
 
-def inspect_pdf(path: Path, slot: IntakeSlot) -> dict[str, Any]:
-    """Optional per-page text header checking; human review still required."""
+def _content_type_allowed(content_type: str) -> bool:
+    primary = (content_type or "").split(";", 1)[0].strip().lower()
+    return primary in {"application/pdf", "application/x-pdf"}
 
+
+def _open_exclusive(path: Path) -> int:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return os.open(path, flags, 0o600)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _publish_bytes_exclusive(dest: Path, source: Path) -> None:
+    if dest.exists() or dest.is_symlink():
+        raise ValueError("destination_already_exists")
+    fd = _open_exclusive(dest)
+    try:
+        with os.fdopen(fd, "wb") as out, source.open("rb") as src:
+            while True:
+                chunk = src.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                out.write(chunk)
+    except Exception:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise
+    os.chmod(dest, 0o600)
+
+
+def _reconcile_or_publish_pdf(dest: Path, temp_path: Path) -> str:
+    """Return 'created', 'identical', or raise on conflict/symlink."""
+
+    if dest.is_symlink():
+        raise ValueError("destination_is_symlink")
+    if dest.exists():
+        if not dest.is_file():
+            raise ValueError("destination_not_regular_file")
+        if _file_sha256(dest) != _file_sha256(temp_path):
+            raise ValueError("existing_pdf_byte_conflict")
+        return "identical"
+    _publish_bytes_exclusive(dest, temp_path)
+    return "created"
+
+
+def _write_temp_in_vault(output_dir: Path) -> tuple[int, Path]:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    name = f".eduvijna-intake-{os.getpid()}-{utc_now().replace(':', '')}.tmp"
+    target = output_dir / name
+    fd = os.open(target, flags, 0o600)
+    return fd, target
+
+
+def inspect_pdf_structure_and_headers(path: Path, slot: IntakeSlot) -> dict[str, Any]:
     result: dict[str, Any] = {
         "page_count": None,
         "page_year_warnings": [],
         "page_inspection": "NOT_RUN",
+        "structure_valid": False,
+        "requires_human_review": True,
     }
     try:
         from pypdf import PdfReader
@@ -153,17 +234,19 @@ def inspect_pdf(path: Path, slot: IntakeSlot) -> dict[str, Any]:
         result["page_inspection"] = "PYPDF_UNAVAILABLE_REQUIRES_HUMAN_REVIEW"
         return result
     try:
-        reader = PdfReader(str(path), strict=False)
+        reader = PdfReader(str(path), strict=True)
         if reader.is_encrypted:
             result["page_inspection"] = "ENCRYPTED_REQUIRES_HUMAN_REVIEW"
             return result
-        result["page_count"] = len(reader.pages)
-        if not reader.pages:
+        pages = reader.pages
+        result["page_count"] = len(pages)
+        if not pages:
             result["page_inspection"] = "EMPTY_PDF_REJECTED"
             return result
+        result["structure_valid"] = True
         text_empty = 0
         year_roles = {"question_paper", "final_answer_key"}
-        for index, page in enumerate(reader.pages):
+        for index, page in enumerate(pages):
             text = (page.extract_text() or "").strip()
             if not text:
                 text_empty += 1
@@ -177,9 +260,20 @@ def inspect_pdf(path: Path, slot: IntakeSlot) -> dict[str, Any]:
                     )
         result["pages_without_extractable_text"] = text_empty
         result["page_inspection"] = "TEXT_INSPECTED_NOT_CURATOR_APPROVED"
+        if text_empty == len(pages):
+            result["requires_human_review"] = True
+        elif result["page_year_warnings"]:
+            result["requires_human_review"] = True
+        else:
+            result["requires_human_review"] = False
     except Exception as exc:
-        result["page_inspection"] = f"INSPECTION_ERROR:{type(exc).__name__}:{str(exc)[:160]}"
+        result["page_inspection"] = f"STRUCTURE_INVALID:{type(exc).__name__}:{str(exc)[:120]}"
+        result["structure_valid"] = False
     return result
+
+
+def inspect_pdf(path: Path, slot: IntakeSlot) -> dict[str, Any]:
+    return inspect_pdf_structure_and_headers(path, slot)
 
 
 def _base_row(slot: IntakeSlot) -> dict[str, Any]:
@@ -193,7 +287,7 @@ def _base_row(slot: IntakeSlot) -> dict[str, Any]:
         "sha256_exact_downloaded_bytes": None,
         "file_size_bytes": None,
         "private_local_filename": slot.private_local_filename,
-        "download_status": "FAILED",
+        "download_status": STATUS_FAILED,
         "original_source_revision_id": None,
         "rights_review_status": "PENDING_HUMAN_LEGAL_REVIEW",
         "copyright_reuse_permission": "NOT_DETERMINED",
@@ -202,6 +296,27 @@ def _base_row(slot: IntakeSlot) -> dict[str, Any]:
         "source_authority_status": "SOURCE_PENDING",
         "official_reference_ready": False,
     }
+
+
+def _classify_row_after_inspection(row: dict[str, Any], inspection: dict[str, Any]) -> None:
+    row.update(inspection)
+    if not _content_type_allowed(str(row.get("http_content_type") or "")):
+        row["download_status"] = STATUS_REVIEW_REQUIRED
+        row["content_type_rejected"] = True
+        return
+    if not inspection.get("structure_valid"):
+        row["download_status"] = STATUS_REVIEW_REQUIRED
+        return
+    if inspection.get("page_inspection") == "EMPTY_PDF_REJECTED":
+        row["download_status"] = STATUS_FAILED
+        return
+    if inspection.get("page_year_warnings"):
+        row["download_status"] = STATUS_REVIEW_REQUIRED
+        return
+    if inspection.get("requires_human_review"):
+        row["download_status"] = STATUS_REVIEW_REQUIRED
+        return
+    row["download_status"] = STATUS_INTAKE_CAPTURED
 
 
 def download_one(
@@ -215,27 +330,33 @@ def download_one(
     if slot.slot_id.endswith(".paper_1"):
         row["discovery_verification_note"] = PAPER1_URL_VERIFICATION_NOTE
     dest = output_dir / slot.private_local_filename
-    if dest.is_symlink():
-        row["failure_reason"] = "ValueError:destination_is_symlink"
-        return row
     temp_path: Path | None = None
+    fd: int | None = None
     try:
+        if dest.is_symlink():
+            raise ValueError("destination_is_symlink")
         request = urllib.request.Request(url, headers={"User-Agent": "Eduvijna-SourceIntake/1.0"})
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             final = response.geturl()
             check_url(final)
             row["final_url"] = final
-            row["http_content_type"] = response.headers.get("Content-Type", "")
+            content_type = response.headers.get("Content-Type", "")
+            row["http_content_type"] = content_type
             row["http_last_modified"] = response.headers.get("Last-Modified")
             row["http_etag"] = response.headers.get("ETag")
+            if not _content_type_allowed(content_type):
+                raise ValueError("http_content_type_not_pdf")
+            content_length_raw = response.headers.get("Content-Length")
+            expected_length: int | None = None
+            if content_length_raw:
+                expected_length = int(content_length_raw)
+                if expected_length > MAX_BYTES:
+                    raise ValueError("content_length_exceeds_limit")
             digest = hashlib.sha256()
             size = 0
-            with NamedTemporaryFile(
-                prefix=".eduvijna-intake-",
-                dir=output_dir,
-                delete=False,
-            ) as temp:
-                temp_path = Path(temp.name)
+            fd, temp_path = _write_temp_in_vault(output_dir)
+            with os.fdopen(fd, "wb") as temp:
+                fd = None
                 while True:
                     chunk = response.read(CHUNK_SIZE)
                     if not chunk:
@@ -245,8 +366,9 @@ def download_one(
                         raise ValueError("pdf_exceeded_size_limit")
                     digest.update(chunk)
                     temp.write(chunk)
-        if temp_path is None:
-            raise ValueError("missing_temporary_download")
+            if expected_length is not None and size != expected_length:
+                raise ValueError("content_length_mismatch")
+        assert temp_path is not None
         with temp_path.open("rb") as handle:
             first = handle.read(8)
             if temp_path.stat().st_size < 30:
@@ -255,44 +377,35 @@ def download_one(
             tail = handle.read()
         if not first.startswith(b"%PDF-") or b"%%EOF" not in tail:
             raise ValueError("pdf_header_trailer_invalid")
-        os.chmod(temp_path, 0o600)
-        if dest.exists():
-            if dest.is_symlink():
-                raise ValueError("destination_is_symlink")
-            existing = hashlib.sha256()
-            with dest.open("rb") as saved:
-                for chunk in iter(lambda: saved.read(CHUNK_SIZE), b""):
-                    existing.update(chunk)
-            if existing.hexdigest() != digest.hexdigest():
-                raise ValueError("existing_pdf_byte_conflict")
-            temp_path.unlink()
+        action = _reconcile_or_publish_pdf(dest, temp_path)
+        if action == "identical":
+            temp_path.unlink(missing_ok=True)
             temp_path = None
         else:
-            temp_path.replace(dest)
-        os.chmod(dest, 0o600)
+            temp_path.unlink(missing_ok=True)
+            temp_path = None
         row.update(
             {
-                "download_status": "DOWNLOADED_AND_HASHED_UNAPPROVED",
                 "retrieved_utc": utc_now(),
                 "sha256_exact_downloaded_bytes": digest.hexdigest(),
                 "file_size_bytes": size,
             }
         )
-        row.update(inspect_pdf(dest, slot))
-        if row.get("page_year_warnings"):
-            row["download_status"] = "YEAR_MISMATCH_REQUIRES_REVIEW"
-        if row.get("page_inspection") == "EMPTY_PDF_REJECTED":
-            row["download_status"] = "EMPTY_PDF_REJECTED"
+        inspection = inspect_pdf_structure_and_headers(dest, slot)
+        _classify_row_after_inspection(row, inspection)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         row["failure_reason"] = f"{type(exc).__name__}:{str(exc)[:240]}"
+        row["download_status"] = STATUS_FAILED
     finally:
+        if fd is not None:
+            os.close(fd)
         if temp_path is not None and temp_path.exists():
-            temp_path.unlink()
+            temp_path.unlink(missing_ok=True)
     return row
 
 
 def build_manifest(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    downloaded = sum(1 for row in rows if row.get("sha256_exact_downloaded_bytes"))
+    captured = sum(1 for row in rows if row.get("download_status") == STATUS_INTAKE_CAPTURED)
     return {
         "manifest_kind": MANIFEST_KIND,
         "created_utc": utc_now(),
@@ -304,7 +417,8 @@ def build_manifest(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "human_curator_approval": False,
         "official_reference_ready": False,
         "expected_slot_count": len(rows),
-        "downloaded_hashed": downloaded,
+        "intake_captured_unapproved": captured,
+        "downloaded_hashed": sum(1 for row in rows if row.get("sha256_exact_downloaded_bytes")),
         "source_slots": rows,
         "human_followup": [
             "Verify exact 2026 title/year/paper on EVERY rendered page of EACH file",
@@ -315,11 +429,41 @@ def build_manifest(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def compute_intake_exit_code(rows: list[dict[str, Any]]) -> int:
+    if any(row.get("download_status") == STATUS_FAILED for row in rows):
+        return 2
+    if any(row.get("download_status") == STATUS_REVIEW_REQUIRED for row in rows):
+        return 2
+    if all(row.get("download_status") == STATUS_INTAKE_CAPTURED for row in rows):
+        return 0
+    return 2
+
+
+def publish_receipt_exclusive(vault: Path, manifest: dict[str, Any]) -> Path:
+    receipt_path = vault / RECEIPT_FILENAME
+    if receipt_path.exists() or receipt_path.is_symlink():
+        raise ValueError("receipt_already_exists")
+    payload = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    fd = _open_exclusive(receipt_path)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+    except Exception:
+        try:
+            os.unlink(receipt_path)
+        except OSError:
+            pass
+        raise
+    os.chmod(receipt_path, stat.S_IMODE(0o600))
+    return receipt_path
+
+
 def run_intake(
     output_dir: Path,
     *,
     opener: urllib.request.OpenerDirector | None = None,
     repo_root: Path | None = None,
+    write_receipt: bool = True,
 ) -> tuple[dict[str, Any], int]:
     resolved = validate_private_output_dir(output_dir, repo_root=repo_root)
     os.umask(0o077)
@@ -328,15 +472,9 @@ def run_intake(
     active_opener = opener or urllib.request.build_opener(OfficialOnlyRedirectHandler())
     rows = [download_one(active_opener, resolved, slot) for slot in build_intake_slots()]
     manifest = build_manifest(rows)
-    receipt_path = resolved / "eduvijna-d12-2026-intake-UNAPPROVED.json"
-    receipt_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.chmod(receipt_path, 0o600)
-    exit_code = (
-        0
-        if manifest["downloaded_hashed"] == manifest["expected_slot_count"]
-        and not any(row.get("page_year_warnings") for row in rows)
-        else 2
-    )
+    if write_receipt:
+        publish_receipt_exclusive(resolved, manifest)
+    exit_code = compute_intake_exit_code(rows)
     return manifest, exit_code
 
 
@@ -379,11 +517,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.output_dir is None:
         parser.error("--output-dir is required unless --list-only is set")
     try:
+        require_absolute_output_dir(args.output_dir)
         manifest, code = run_intake(args.output_dir, repo_root=args.repo_root)
     except ValueError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 3
-    receipt = args.output_dir.expanduser().resolve() / "eduvijna-d12-2026-intake-UNAPPROVED.json"
+    vault = validate_private_output_dir(args.output_dir, repo_root=args.repo_root)
+    receipt = vault / RECEIPT_FILENAME
     print(f"Receipt: {receipt}")
     print("CAUTION: SOURCE_PENDING. RIGHTS_AND_CURATOR_APPROVAL_NOT_GIVEN.", file=sys.stderr)
     for row in manifest.get("source_slots") or []:
