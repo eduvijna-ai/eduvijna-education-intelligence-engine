@@ -39,6 +39,9 @@ class OrchestrationChainResult:
     stages_completed: tuple[ChainStage, ...]
     gateway_calls: int
     audit_ids: tuple[str, ...]
+    item_id: str = ""
+    proposed_answer_key: str | None = None
+    author_item_id: str | None = None
     hitl_pending: bool = False
 
 
@@ -58,6 +61,7 @@ def run_injected_author_solver_review_chain(
     run_id: str,
     organization_id: str,
     scenario: str = "clean_pass",
+    expected_answer_key: str | None = None,
     max_repairs: int = 2,
     repairs_used: int = 0,
 ) -> OrchestrationChainResult:
@@ -75,6 +79,7 @@ def run_injected_author_solver_review_chain(
             stages_completed=tuple(stages),
             gateway_calls=len(gateway.call_history()),
             audit_ids=tuple(audit_ids),
+            item_id=item_id,
         )
 
     if not organization_id.strip():
@@ -86,6 +91,7 @@ def run_injected_author_solver_review_chain(
             stages_completed=tuple(stages),
             gateway_calls=0,
             audit_ids=(),
+            item_id=item_id,
         )
 
     try:
@@ -106,16 +112,22 @@ def run_injected_author_solver_review_chain(
         stages.append(ChainStage.AUTHOR)
         audit_ids.append(author_resp.gateway_request_id or "author-unknown")
 
+        author_parsed = author_resp.parsed if isinstance(author_resp.parsed, dict) else {}
+        author_item_id = str(author_parsed.get("item_id") or item_id)
+        solver_user: dict[str, object] = {
+            "item_id": item_id,
+            "run_id": run_id,
+            "stem": author_resp.parsed,
+        }
+        if expected_answer_key:
+            solver_user["expected_answer_key"] = expected_answer_key
+
         solver_resp = gateway.generate(
             GenerationRequest(
                 role=GenerationNodeRole.SOLVER,
                 prompt_version="jee-adv-chain@v1",
                 system_prompt="solver",
-                user_payload={
-                    "item_id": item_id,
-                    "run_id": run_id,
-                    "stem": author_resp.parsed,
-                },
+                user_payload=solver_user,
                 output_schema_name="solver_item_v1",
                 scenario=scenario,
             )
@@ -125,6 +137,7 @@ def run_injected_author_solver_review_chain(
 
         parsed_solver = solver_resp.parsed if isinstance(solver_resp.parsed, dict) else {}
         if scenario in {"author_reject", "solver_reject"}:
+            proposed = str(parsed_solver.get("proposed_answer_key") or "").strip() or None
             return OrchestrationChainResult(
                 verdict=VerificationVerdict(
                     outcome=VerificationOutcome.FAIL,
@@ -133,6 +146,9 @@ def run_injected_author_solver_review_chain(
                 stages_completed=tuple(stages),
                 gateway_calls=len(gateway.call_history()),
                 audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                proposed_answer_key=proposed,
+                author_item_id=author_item_id,
             )
 
         review_resp = gateway.generate(
@@ -165,6 +181,7 @@ def run_injected_author_solver_review_chain(
                 stages_completed=tuple(stages),
                 gateway_calls=len(gateway.call_history()),
                 audit_ids=tuple(audit_ids),
+                item_id=item_id,
                 hitl_pending=True,
             )
 
@@ -178,6 +195,8 @@ def run_injected_author_solver_review_chain(
                     stages_completed=tuple(stages),
                     gateway_calls=len(gateway.call_history()),
                     audit_ids=tuple(audit_ids),
+                    item_id=item_id,
+                    author_item_id=author_item_id,
                 )
             repair_resp = gateway.generate(
                 GenerationRequest(
@@ -218,6 +237,7 @@ def run_injected_author_solver_review_chain(
 
         if not _review_status_ok(review_parsed):
             issue = "reviewer_verdict_missing" if not verdict_raw else "reviewer_veto"
+            proposed = str(parsed_solver.get("proposed_answer_key") or "").strip() or None
             return OrchestrationChainResult(
                 verdict=VerificationVerdict(
                     outcome=VerificationOutcome.REVIEW_REQUIRED,
@@ -226,9 +246,13 @@ def run_injected_author_solver_review_chain(
                 stages_completed=tuple(stages),
                 gateway_calls=len(gateway.call_history()),
                 audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                proposed_answer_key=proposed,
+                author_item_id=author_item_id,
             )
 
         if str(parsed_solver.get("check_status") or "") != "ok":
+            proposed = str(parsed_solver.get("proposed_answer_key") or "").strip() or None
             return OrchestrationChainResult(
                 verdict=VerificationVerdict(
                     outcome=VerificationOutcome.REVIEW_REQUIRED,
@@ -237,6 +261,9 @@ def run_injected_author_solver_review_chain(
                 stages_completed=tuple(stages),
                 gateway_calls=len(gateway.call_history()),
                 audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                proposed_answer_key=proposed,
+                author_item_id=author_item_id,
             )
         if not parsed_solver.get("proposed_answer_key"):
             return OrchestrationChainResult(
@@ -247,8 +274,11 @@ def run_injected_author_solver_review_chain(
                 stages_completed=tuple(stages),
                 gateway_calls=len(gateway.call_history()),
                 audit_ids=tuple(audit_ids),
+                item_id=item_id,
+                author_item_id=author_item_id,
             )
 
+        proposed = str(parsed_solver.get("proposed_answer_key") or "").strip() or None
         return OrchestrationChainResult(
             verdict=VerificationVerdict(
                 outcome=VerificationOutcome.PASS,
@@ -258,6 +288,9 @@ def run_injected_author_solver_review_chain(
             stages_completed=tuple(stages),
             gateway_calls=len(gateway.call_history()),
             audit_ids=tuple(audit_ids),
+            item_id=item_id,
+            proposed_answer_key=proposed,
+            author_item_id=author_item_id,
         )
     except GenerationGatewayError as exc:
         return OrchestrationChainResult(
@@ -268,4 +301,5 @@ def run_injected_author_solver_review_chain(
             stages_completed=tuple(stages),
             gateway_calls=len(gateway.call_history()) if hasattr(gateway, "call_history") else 0,
             audit_ids=tuple(audit_ids),
+            item_id=item_id,
         )

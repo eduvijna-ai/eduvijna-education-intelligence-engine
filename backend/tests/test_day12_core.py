@@ -30,6 +30,7 @@ from app.jee_advanced.enums import (
     JeeAdvancedSourceTrustMode,
 )
 from app.jee_advanced.exam_profile import ensure_exam_version, ensure_jee_advanced_exam_pack
+from app.jee_advanced.issuance_snapshot import question_issuance_snapshot
 from app.jee_advanced.paper_pair_persistence import (
     PaperPairOutcome,
     PaperPairPersistRequest,
@@ -234,7 +235,25 @@ def test_core05_sqlite_pair_replay_cross_process(tmp_path: Path) -> None:
             blueprint_snapshot={},
             synthetic_labeled_test_mode=True,
         )
-        first = persist_two_paper_pair(session, req)
+        q0 = session.get(Question, qids[0])
+        q1 = session.get(Question, qids[1])
+        assert q0 is not None and q1 is not None
+        issuance_record = {
+            "issuance_record_version": "d12-f49-v1",
+            "ordered_question_ids": [qids[0], qids[1]],
+            "question_snapshots": {
+                qids[0]: question_issuance_snapshot(
+                    q0, organization_id="org-core", institution_id="inst-core"
+                ),
+                qids[1]: question_issuance_snapshot(
+                    q1, organization_id="org-core", institution_id="inst-core"
+                ),
+            },
+            "chain_evidence": {},
+            "source_revision_snapshot": {},
+            "blueprint_snapshot": {},
+        }
+        first = persist_two_paper_pair(session, req, issuance_record=issuance_record)
         session.commit()
         assert first.outcome == PaperPairOutcome.CREATED
         version_id = str(version.id)

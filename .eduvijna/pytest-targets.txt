@@ -82,3 +82,4 @@ tests/test_day12_acceptance_fix.py
 tests/test_day12_engineering_readiness.py
 tests/test_day12_production_integration.py
 tests/test_day12_issuance_atomicity.py
+tests/test_day12_snapshot_answer_binding.py

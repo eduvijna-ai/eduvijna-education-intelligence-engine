@@ -15,6 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.jee_advanced.constants import PAPER_1_CODE, PAPER_2_CODE
 from app.jee_advanced.enums import AdvancedProfileKind
+from app.jee_advanced.issuance_snapshot import (
+    load_stored_issuance_record,
+    verify_current_questions_for_replay,
+)
 from app.jee_advanced.source_storage import metadata_marks_synthetic
 from app.models import ExamVersion, Question, TestDefinition, TestQuestion
 from app.models.enums import TestStatus
@@ -298,6 +302,29 @@ def _match_existing_pair(
                 question_ids_by_paper=by_paper,
                 issue_codes=("blueprint_snapshot_drift",),
             )
+    record = load_stored_issuance_record(loaded)
+    if record is None:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=stored_fp,
+            question_ids_by_paper=by_paper,
+            issue_codes=("issuance_snapshot_missing",),
+        )
+    with session.no_autoflush:
+        snap_ok, snap_issues = verify_current_questions_for_replay(
+            session, request, stored_record=record
+        )
+    if not snap_ok:
+        return PaperPairPersistResult(
+            outcome=PaperPairOutcome.CONFLICT,
+            pair_correlation_id=request.pair_correlation_id,
+            test_definition_ids=tuple(str(t.id) for t in loaded),
+            checksum=stored_fp,
+            question_ids_by_paper=by_paper,
+            issue_codes=snap_issues,
+        )
     return PaperPairPersistResult(
         outcome=PaperPairOutcome.REPLAYED,
         pair_correlation_id=stored_corr,
@@ -328,6 +355,8 @@ def preflight_two_paper_pair(
 def persist_two_paper_pair(
     session: Session,
     request: PaperPairPersistRequest,
+    *,
+    issuance_record: dict[str, Any] | None = None,
 ) -> PaperPairPersistResult:
     shape_issues = _validate_request_shape(session, request)
     if shape_issues:
@@ -351,25 +380,30 @@ def persist_two_paper_pair(
         for i, paper in enumerate(request.paper_definitions):
             paper_code = str(paper.get("paper_code") or f"paper_{i + 1}")
             code = _code_for_paper(request.idempotency_key, paper_code)
+            meta: dict[str, Any] = {
+                "kind": PAIR_META_KIND,
+                "pair_correlation_id": request.pair_correlation_id,
+                "pair_fingerprint": fingerprint,
+                "organization_id": request.organization_id,
+                "institution_id": request.institution_id,
+                "paper_code": paper_code,
+                "idempotency_key": request.idempotency_key,
+                "source_revision_snapshot": request.source_revision_snapshot,
+                "blueprint_snapshot": request.blueprint_snapshot,
+                "demonstration_only": request.synthetic_labeled_test_mode,
+                "synthetic_labeled_test_mode": request.synthetic_labeled_test_mode,
+            }
+            if issuance_record is not None:
+                stored = dict(issuance_record)
+                stored["pair_fingerprint"] = fingerprint
+                meta["issuance_record"] = stored
             test = TestDefinition(
                 code=code,
                 title=str(paper.get("title") or f"JEE Advanced {paper_code}"),
                 exam_version_id=request.exam_version_id,
                 blueprint_json=dict(paper.get("blueprint_json") or {}),
                 status=TestStatus.DRAFT.value,
-                metadata_json={
-                    "kind": PAIR_META_KIND,
-                    "pair_correlation_id": request.pair_correlation_id,
-                    "pair_fingerprint": fingerprint,
-                    "organization_id": request.organization_id,
-                    "institution_id": request.institution_id,
-                    "paper_code": paper_code,
-                    "idempotency_key": request.idempotency_key,
-                    "source_revision_snapshot": request.source_revision_snapshot,
-                    "blueprint_snapshot": request.blueprint_snapshot,
-                    "demonstration_only": request.synthetic_labeled_test_mode,
-                    "synthetic_labeled_test_mode": request.synthetic_labeled_test_mode,
-                },
+                metadata_json=meta,
             )
             session.add(test)
             session.flush()

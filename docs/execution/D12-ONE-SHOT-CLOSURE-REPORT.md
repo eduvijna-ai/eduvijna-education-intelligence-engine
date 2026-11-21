@@ -1,9 +1,18 @@
 # D12 consolidated evidence report (Issues #44–#47)
 
 **PR:** [#34](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/34)  
+**Issue #49 start SHA:** `ad895980120f0a8a5bf3ae4e157ff40592345da0`  
 **Issue #48 start SHA:** `3c628f015734915c3fe4799b4abc2d91ce95c0ee`  
 **Issue #47 parent:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
+
+## Issue #49 snapshot + answer binding (F49-01…03)
+
+| Gate | Fix | Tests |
+|------|-----|-------|
+| F49-01 | `issuance_snapshot.py` stores immutable per-question fingerprints/Day6 scope; `_match_existing_pair` re-verifies live Question rows before `REPLAYED` | `test_day12_snapshot_answer_binding.py`, updated `test_day12_issuance_atomicity.py` |
+| F49-02 | `chain_question_binding.py` + `solver_match_persisted` fake scenario; `clean_pass` B vs stored A blocks issuance | `test_f49_02_*` |
+| F49-03 | Scoped pytest + ledger unchanged | `.eduvijna/pytest-targets.txt` |
 
 ## Issue #48 issuance atomicity (P48-01…03)
 

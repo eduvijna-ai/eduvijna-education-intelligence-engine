@@ -6,7 +6,12 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.jee_advanced.chain_question_binding import (
+    bind_chain_to_persisted_question,
+    stored_mcq_answer_key,
+)
 from app.jee_advanced.constants import PAPER_1_CODE, PAPER_2_CODE
+from app.jee_advanced.issuance_snapshot import build_issuance_record
 from app.jee_advanced.orchestration_chain import (
     ChainStage,
     OrchestrationChainResult,
@@ -147,14 +152,18 @@ def run_labeled_synthetic_pair_integration(
 
     baseline = len(gateway.call_history()) if hasattr(gateway, "call_history") else 0
     run_id = f"pair-gen-{idempotency_key}"
+    q_by_id = {str(q.id): q for q in _questions}
     chains: list[OrchestrationChainResult] = []
     for item_id in question_ids:
+        question = q_by_id[str(item_id)]
+        expected_key = stored_mcq_answer_key(question)
         chain = run_injected_author_solver_review_chain(
             gateway,
             item_id=item_id,
             run_id=run_id,
             organization_id=organization_id,
             scenario=scenario,
+            expected_answer_key=expected_key,
         )
         chains.append(chain)
         stem_gate = verify_stem_assets(latex=None, has_image=False, alt_text=None)
@@ -186,8 +195,28 @@ def run_labeled_synthetic_pair_integration(
                 replayed=False,
                 chains=tuple(chains),
             )
+        bound, bind_issues = bind_chain_to_persisted_question(chain, question)
+        if not bound:
+            return IntegratedPairResult(
+                persist=PaperPairPersistResult(
+                    outcome=PaperPairOutcome.CONFLICT,
+                    pair_correlation_id=pair_correlation_id,
+                    test_definition_ids=(),
+                    checksum="",
+                    question_ids_by_paper={},
+                    issue_codes=bind_issues,
+                ),
+                gateway_calls=_gateway_call_count(gateway, baseline),
+                replayed=False,
+                chains=tuple(chains),
+            )
 
-    persist = persist_two_paper_pair(session, request)
+    issuance_record = build_issuance_record(
+        request,
+        questions=(_questions[0], _questions[1]),
+        chains=tuple(chains),
+    )
+    persist = persist_two_paper_pair(session, request, issuance_record=issuance_record)
     return IntegratedPairResult(
         persist=persist,
         gateway_calls=_gateway_call_count(gateway, baseline),

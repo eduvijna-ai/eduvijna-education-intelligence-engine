@@ -246,6 +246,15 @@ class FakeGenerationGateway:
                 "check_status": "mismatch",
                 "agrees_with_author": False,
             }
+        if scenario == "solver_match_persisted":
+            key = str(payload.get("expected_answer_key") or "A")
+            return {
+                "item_id": item_id,
+                "proposed_answer_key": key,
+                "working_summary": f"Synthetic solver aligned to persisted key {key}",
+                "check_status": "ok",
+                "agrees_with_author": True,
+            }
         return {
             "item_id": item_id,
             "proposed_answer_key": "B",

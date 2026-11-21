@@ -1,0 +1,35 @@
+"""Bind gateway author/solver output to persisted approved questions (Issue #49)."""
+
+from __future__ import annotations
+
+from app.jee_advanced.orchestration_chain import OrchestrationChainResult
+from app.jee_advanced.stored_answer_resolution import stored_mcq_correct_keys
+from app.models import Question
+
+
+def stored_mcq_answer_key(question: Question) -> str | None:
+    keys = stored_mcq_correct_keys(question)
+    if len(keys) == 1:
+        return next(iter(keys))
+    return None
+
+
+def bind_chain_to_persisted_question(
+    chain: OrchestrationChainResult,
+    question: Question,
+) -> tuple[bool, tuple[str, ...]]:
+    issues: list[str] = []
+    qid = str(question.id)
+    if chain.item_id != qid:
+        issues.append("chain_item_id_mismatch")
+    expected = stored_mcq_answer_key(question)
+    proposed = (chain.proposed_answer_key or "").strip()
+    if not expected:
+        issues.append("stored_answer_key_missing")
+    elif not proposed:
+        issues.append("solver_proposed_answer_missing")
+    elif proposed != expected:
+        issues.append("solver_answer_mismatch")
+    if chain.author_item_id and chain.author_item_id != qid:
+        issues.append("author_item_id_mismatch")
+    return (not issues, tuple(issues))

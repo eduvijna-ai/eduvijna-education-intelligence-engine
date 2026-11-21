@@ -468,6 +468,7 @@ def test_prod47_03_integrated_pair_cross_process(tmp_path: Path) -> None:
             question_ids=test_ids,
             idempotency_key="idem-p47",
             pair_correlation_id="pair-p47",
+            scenario="solver_match_persisted",
         )
         session.commit()
         assert integrated.persist.outcome == PaperPairOutcome.CREATED
@@ -494,6 +495,7 @@ with Session(engine) as session:
         question_ids=("{q0}", "{q1}"),
         idempotency_key="idem-p47",
         pair_correlation_id="pair-p47",
+        scenario="solver_match_persisted",
     )
     session.commit()
     print(result.persist.outcome)

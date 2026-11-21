@@ -27,6 +27,8 @@ from app.models import TestDefinition as TestDefinitionRow
 from app.models.enums import QuestionStatus
 from app.orchestration.gateway.fake import FakeGenerationGateway
 
+_MATCH_SCENARIO = "solver_match_persisted"
+
 
 def _session(tmp_path: Path) -> Session:
     engine = create_database_engine(f"sqlite:///{tmp_path / 'p48.sqlite'}")
@@ -67,13 +69,17 @@ def test_p48_01_replay_same_process_zero_gateway(tmp_path: Path) -> None:
         idempotency_key="idem-p48",
         pair_correlation_id="pair-p48",
     )
-    first = run_labeled_synthetic_pair_integration(session, gateway, **kw)
+    first = run_labeled_synthetic_pair_integration(
+        session, gateway, scenario=_MATCH_SCENARIO, **kw
+    )
     session.commit()
     assert first.persist.outcome == PaperPairOutcome.CREATED
     assert first.gateway_calls >= 6
 
     calls_before = len(gateway.call_history())
-    second = run_labeled_synthetic_pair_integration(session, gateway, **kw)
+    second = run_labeled_synthetic_pair_integration(
+        session, gateway, scenario=_MATCH_SCENARIO, **kw
+    )
     assert second.replayed is True
     assert second.persist.outcome == PaperPairOutcome.REPLAYED
     assert second.gateway_calls == 0
@@ -95,6 +101,7 @@ def test_p48_01_conflict_before_gateway_changed_marks(tmp_path: Path) -> None:
         question_ids=qids,
         idempotency_key="idem-p48c",
         pair_correlation_id="pair-p48c",
+        scenario=_MATCH_SCENARIO,
     )
     session.commit()
     assert first.persist.outcome == PaperPairOutcome.CREATED
@@ -143,6 +150,7 @@ def test_p48_02_one_invalid_question_blocks_before_gateway(tmp_path: Path) -> No
         question_ids=qids,
         idempotency_key="idem-inv",
         pair_correlation_id="pair-inv",
+        scenario=_MATCH_SCENARIO,
     )
     assert result.persist.outcome == PaperPairOutcome.CONFLICT
     assert "question_not_approved" in result.persist.issue_codes
@@ -187,6 +195,7 @@ def test_p48_03_integrated_cross_process_zero_gateway(tmp_path: Path) -> None:
             question_ids=qids,
             idempotency_key="idem-p48x",
             pair_correlation_id="pair-p48x",
+            scenario=_MATCH_SCENARIO,
         )
         session.commit()
         assert first.persist.outcome == PaperPairOutcome.CREATED
@@ -211,6 +220,7 @@ with Session(engine) as session:
         question_ids=("{qids[0]}", "{qids[1]}"),
         idempotency_key="idem-p48x",
         pair_correlation_id="pair-p48x",
+        scenario="{_MATCH_SCENARIO}",
     )
     session.commit()
     print(result.persist.outcome)
