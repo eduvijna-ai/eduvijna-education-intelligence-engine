@@ -76,7 +76,7 @@ review_loop_policy:
       - test_infrastructure_change
   auto_merge: false
   auto_unlock_next_day: false
-current_day: 10
+current_day: 13
 
 days:
   1:
@@ -411,8 +411,18 @@ days:
     depends_on: 10
   12:
     name: JEE Advanced
-    state: ACTIVE
+    state: FOUNDER_MILESTONE_SIGNED_OFF_WITH_DEFERRALS
     founder_approval: false
+    founder_milestone_signoff: true
+    founder_signoff_date: "2026-11-21"
+    founder_merge_authorization: "Founder: If anything remains then merge as we have to start Day 13."
+    founder_approval_scope: "MILESTONE_AND_MERGE_ONLY_NOT_TECHNICAL_COMPLETION"
+    deferred_evidence_ledger: "0 PASS / 32 PARTIAL / 3 SOURCE_PENDING / 1 NOT_STARTED"
+    deferred_all_days_review_issue: 33
+    source_intake_issue: 35
+    source_intake_live_cli: DISABLED_PENDING_INDEPENDENT_SECURITY_FIX
+    official_2026_sources: SOURCE_PENDING
+    official_2027_replica: NOT_VERIFIED
     tasklist_issue: 33
     tasklist_status: APPROVED
     tasklist_approval_date: "2026-11-12"
@@ -421,20 +431,37 @@ days:
     approved_scope: D12-01..D12-36
     tasklist_spec: "docs/execution/D12-SCOPE-MAP.md"
     implementation_authorized: true
-    implementation_status: IMPLEMENTATION_AUTHORIZED
+    implementation_status: MERGED_TO_DEVELOP_WITH_DEFERRED_ACCEPTANCE
+    merged_pr: 34
+    merged_head_sha: "afe2428be9f400c0af23da06b76070be28b04af2"
+    merge_commit_sha: "4066b0ff7c322fda6bba8c849bafd7b4d61ef3b8"
+    final_targeted_ci_run: 44882068512
+    final_targeted_ci_result: SUCCESS
+    final_compose_ci_result: SUCCESS
+    full_historical_ci_result: NOT_CLAIMED
+    founder_localhost_uat: DEFERRED_NOT_PASSED
     implementation_start_gate: FOUNDER_APPROVED_START_2026_11_12
     implementation_branch: "feature/day12-jee-advanced-intelligence"
     review_workflow: founder_manual_chatgpt_review
     required_cursor_model: "Composer 2.5 (standard; not Fast)"
     dependency_exception: FOUNDER_APPROVED_DAY11_ON_HOLD_2026_11_12
     dependency_strategy: DEVELOP_BASE_NO_UNMERGED_D11
-    day13_unlock: false
+    day13_unlock: true
+    day13_unlock_scope: TASKLIST_PLANNING_ONLY
+    day13_implementation_authorized: false
     founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
     depends_on: 11
   13:
     name: CUET and CLAT
-    state: LOCKED
+    state: PLANNING
     founder_approval: false
+    tasklist_issue: 52
+    tasklist_status: DRAFT_AWAITING_FOUNDER_REVIEW
+    tasklist_planning_authorized: true
+    implementation_authorized: false
+    implementation_approval_gate: EXPLICIT_FOUNDER_APPROVAL_REQUIRED
+    planning_base: develop
+    day12_dependency_exception: FOUNDER_SIGNOFF_WITH_DEFERRED_TECHNICAL_ACCEPTANCE_2026_11_21
     depends_on: 12
   14:
     name: CA Foundation IMAT TG EAPCET
