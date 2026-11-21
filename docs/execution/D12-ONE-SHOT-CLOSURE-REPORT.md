@@ -9,6 +9,16 @@
 **Issue #47 parent:** `9a5ab9e0cd132fef226870ede6701b0e4b3bf555`  
 **Governance:** `founder_approval:false`; D12-36 **NOT_STARTED**; no merge.
 
+## CORE35-INTAKE — private official source CLI (not activation)
+
+| Item | Location | Notes |
+|------|----------|-------|
+| CLI | `scripts/d12_official_source_intake.py` | `--list-only` or `--output-dir` private path |
+| Library | `app/jee_advanced/official_source_intake.py` | Offline-testable; zero DB writes |
+| Tests | `test_day12_official_source_intake.py` | Mocked HTTPS only |
+
+Ledger unchanged: official bytes/rights/curator remain **SOURCE_PENDING**.
+
 ## Issue #51 E2E truth gate (F51-01…03)
 
 | Gate | Fix | Tests |

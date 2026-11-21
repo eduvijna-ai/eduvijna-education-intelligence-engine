@@ -85,3 +85,4 @@ tests/test_day12_issuance_atomicity.py
 tests/test_day12_snapshot_answer_binding.py
 tests/test_day12_independent_replay_integrity.py
 tests/test_day12_e2e_truth_gate.py
+tests/test_day12_official_source_intake.py
