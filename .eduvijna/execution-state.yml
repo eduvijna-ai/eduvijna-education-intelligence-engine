@@ -387,18 +387,49 @@ days:
     depends_on: 9
   11:
     name: JEE Main
-    state: LOCKED
+    state: ON_HOLD
     founder_approval: false
     tasklist_issue: 30
-    tasklist_status: DRAFT_PENDING_FOUNDER_APPROVAL
+    tasklist_status: APPROVED
     tasklist_planning_authorized: true
-    implementation_authorized: false
-    implementation_start_gate: EXPLICIT_FOUNDER_D11_TASKLIST_APPROVAL_REQUIRED
+    approved_scope: D11-01..D11-36
+    tasklist_spec: "docs/execution/D11-JEE-MAIN-EXAM-INTELLIGENCE.md"
+    implementation_branch: "feature/day11-jee-main-exam-intelligence"
+    implementation_pr: 31
+    implementation_authorized: true
+    implementation_paused: true
+    implementation_status: FOUNDER_DEFERRED_TO_ALL_DAYS_REVIEW
+    accepted_tasks: 13
+    partial_tasks_on_hold: 22
+    final_signoff_task: D11-36
+    final_signoff_status: PENDING
+    frozen_pr_head_sha: "d0f0745f6573bba0cfa93fa8eb0674cdd3b689d2"
+    day12_unlock: false
+    day12_implementation_exception: FOUNDER_APPROVED_DEFERRED_DAY11_2026_11_12
+    source_evidence_followup_issue: 32
+    founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
     depends_on: 10
   12:
     name: JEE Advanced
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    tasklist_issue: 33
+    tasklist_status: APPROVED
+    tasklist_approval_date: "2026-11-12"
+    tasklist_approval_signal: "ok, approved Day 12 tasks list. so now provide cursor handoff to implement."
+    tasklist_planning_authorized: true
+    approved_scope: D12-01..D12-36
+    tasklist_spec: "docs/execution/D12-SCOPE-MAP.md"
+    implementation_authorized: true
+    implementation_status: IMPLEMENTATION_AUTHORIZED
+    implementation_start_gate: FOUNDER_APPROVED_START_2026_11_12
+    implementation_branch: "feature/day12-jee-advanced-intelligence"
+    review_workflow: founder_manual_chatgpt_review
+    required_cursor_model: "Composer 2.5 (standard; not Fast)"
+    dependency_exception: FOUNDER_APPROVED_DAY11_ON_HOLD_2026_11_12
+    dependency_strategy: DEVELOP_BASE_NO_UNMERGED_D11
+    day13_unlock: false
+    founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
     depends_on: 11
   13:
     name: CUET and CLAT

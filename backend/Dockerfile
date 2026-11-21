@@ -15,6 +15,7 @@ COPY backend/alembic.ini ./
 COPY content/curricula ./content/curricula
 COPY docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md ./docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md
 COPY docs/execution/D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md ./docs/execution/D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md
+COPY docs/execution/D12-SCOPE-MAP.md ./docs/execution/D12-SCOPE-MAP.md
 COPY .eduvijna/execution-state.yml ./.eduvijna/execution-state.yml
 COPY .github/workflows/ci.yml ./.github/workflows/ci.yml
 RUN pip install --no-cache-dir '.[dev]'
