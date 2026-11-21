@@ -6,4 +6,9 @@
 **/.mypy_cache
 **/.ruff_cache
 **/data
+# Immutable versioned rule registries are application assets, not private runtime data.
+!backend/app/diagnostic_intelligence/data
+!backend/app/diagnostic_intelligence/data/**
+!backend/app/root_cause_intelligence/data
+!backend/app/root_cause_intelligence/data/**
 .env*
