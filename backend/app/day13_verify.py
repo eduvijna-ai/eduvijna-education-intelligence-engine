@@ -16,10 +16,10 @@ from app.cuet_clat.authority import resolve_clat_authority, resolve_cuet_authori
 from app.cuet_clat.clat_planner import ClatPaperPlanner
 from app.cuet_clat.constants import CLAT_PACK_CODE, CUET_PACK_CODE, MATHEMATICS_DOMAIN
 from app.cuet_clat.contracts import ClatPaperPlanRequest, CuetPracticeRequest, CuetSingleTestRequest
+from app.cuet_clat.cuet_persisted_pool import seed_validated_cuet_math_questions
 from app.cuet_clat.enums import CuetClatProfileKind, CuetClatSourceTrustMode, PlanVerdict
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
 from app.cuet_clat.governance import build_day13_governance_record
-from app.cuet_clat.cuet_persisted_pool import seed_validated_cuet_math_questions
 from app.cuet_clat.persisted_context import PersistedCuetSelectionContext
 from app.cuet_clat.practice_service import CuetPracticeService
 from app.cuet_clat.scope_ledger import load_repo_scope_counts
