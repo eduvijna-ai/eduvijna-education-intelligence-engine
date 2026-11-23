@@ -86,3 +86,11 @@ tests/test_day12_snapshot_answer_binding.py
 tests/test_day12_independent_replay_integrity.py
 tests/test_day12_e2e_truth_gate.py
 tests/test_day12_official_source_intake.py
+tests/test_day13_m0_governance.py
+tests/test_day13_practice.py
+tests/test_day13_adversarial.py
+tests/test_day13_scoring.py
+tests/test_day13_replay.py
+tests/test_day13_exam_profile.py
+tests/test_day13_core.py
+tests/test_day13_verify_sha.py
