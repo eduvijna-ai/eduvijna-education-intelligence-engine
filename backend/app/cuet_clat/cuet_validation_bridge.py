@@ -129,9 +129,10 @@ def audit_matches_active_day6_provenance(
     if ctx.safety_rule_pack:
         if bound_safety not in (None, "") and bound_safety != ctx.safety_rule_pack.version:
             return False, "binding_safety_stale"
-    if binding.get("day6_validator_versions"):
+    raw_bound = binding.get("day6_validator_versions")
+    if isinstance(raw_bound, dict) and raw_bound:
         stored_validators = dict(record_meta.get("validator_versions") or {})
-        bound_validators = dict(binding.get("day6_validator_versions") or {})
+        bound_validators = {str(k): str(v) for k, v in raw_bound.items()}
         if stored_validators != bound_validators:
             return False, "validator_versions_mismatch"
     return True, None
