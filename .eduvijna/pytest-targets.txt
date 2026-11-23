@@ -94,3 +94,4 @@ tests/test_day13_replay.py
 tests/test_day13_exam_profile.py
 tests/test_day13_core.py
 tests/test_day13_verify_sha.py
+tests/test_day13_f01_f02_repair.py

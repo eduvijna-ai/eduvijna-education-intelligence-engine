@@ -18,9 +18,10 @@ def test_replay_returns_same_checksum_without_regeneration() -> None:
     second = planner.plan(req)
     assert first.verdict == PlanVerdict.PASS
     assert second.checksum == first.checksum
+    assert planner.synthetic_generation_count == 1
 
 
-def test_stale_replay_invalidation() -> None:
+def test_stale_replay_on_trust_change() -> None:
     store = ReplayStore()
     planner = ClatPaperPlanner(replay_store=store)
     req = ClatPaperPlanRequest(
@@ -28,9 +29,9 @@ def test_stale_replay_invalidation() -> None:
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
         replay_idempotency_key="demo-replay-2",
+        academic_year="2027",
     )
     planner.plan(req)
-    req2 = req.model_copy(update={"metadata_json": {"invalidate_replay": True}})
-    stale = planner.plan(req2)
+    stale = planner.plan(req.model_copy(update={"academic_year": "2026"}))
     assert stale.verdict == PlanVerdict.FAIL
     assert IssueCode.STALE_REPLAY in stale.issue_codes
