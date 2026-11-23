@@ -62,6 +62,20 @@ def _scope_blocked(issues: list[IssueCode]) -> bool:
     return bool(issues) and not all(code in _COUNT_ISSUES for code in issues)
 
 
+def _eligible_pool(
+    pool: tuple[PracticeQuestionRef, ...],
+    *,
+    expected_subject: str,
+) -> tuple[list[PracticeQuestionRef], list[IssueCode]]:
+    subject_issues = validate_delivered_subject(
+        expected_subject=expected_subject,
+        question_subject_codes=[q.subject_code for q in pool],
+    )
+    if subject_issues:
+        return [], subject_issues
+    return list(pool), []
+
+
 class CuetPracticeService:
     """D13-12/13: exact-count CUET practice and single-test 50 MCQ assembly."""
 
@@ -110,20 +124,9 @@ class CuetPracticeService:
                 issues=_dedupe([*issues, IssueCode.CUET_COUNT_MISMATCH]),
             )
 
-        pool = self._pool.cuet_math_items
-        if len(pool) < request.requested_count:
-            return self._reject_practice(
-                request,
-                verdict=PlanVerdict.SHORTAGE,
-                issues=_dedupe([*issues, IssueCode.CUET_COUNT_MISMATCH]),
-                delivered=list(pool),
-                allow_partial=True,
-            )
-
-        delivered = list(pool[: request.requested_count])
-        subject_issues = validate_delivered_subject(
+        eligible, subject_issues = _eligible_pool(
+            self._pool.cuet_math_items,
             expected_subject=request.test_subject_code,
-            question_subject_codes=[q.subject_code for q in delivered],
         )
         if subject_issues:
             return self._reject_practice(
@@ -131,6 +134,17 @@ class CuetPracticeService:
                 verdict=PlanVerdict.FAIL,
                 issues=_dedupe([*issues, *subject_issues]),
             )
+
+        if len(eligible) < request.requested_count:
+            return self._reject_practice(
+                request,
+                verdict=PlanVerdict.SHORTAGE,
+                issues=_dedupe([*issues, IssueCode.CUET_COUNT_MISMATCH]),
+                delivered=eligible,
+                allow_partial=True,
+            )
+
+        delivered = eligible[: request.requested_count]
 
         return CuetPracticeResult(
             verdict=PlanVerdict.PASS,
@@ -191,27 +205,27 @@ class CuetPracticeService:
                 issues=_dedupe([*issues, IssueCode.CUET_COUNT_MISMATCH]),
             )
 
-        pool = self._pool.cuet_math_items
-        if len(pool) < target:
-            return self._reject_single_test(
-                request,
-                verdict=PlanVerdict.SHORTAGE,
-                issues=_dedupe([IssueCode.CUET_COUNT_MISMATCH]),
-                questions=list(pool),
-                allow_partial=True,
-            )
-
-        delivered = list(pool[:target])
-        subject_issues = validate_delivered_subject(
+        eligible, subject_issues = _eligible_pool(
+            self._pool.cuet_math_items,
             expected_subject=request.test_subject_code,
-            question_subject_codes=[q.subject_code for q in delivered],
         )
         if subject_issues:
             return self._reject_single_test(
                 request,
                 verdict=PlanVerdict.FAIL,
-                issues=_dedupe(subject_issues),
+                issues=_dedupe([*issues, *subject_issues]),
             )
+
+        if len(eligible) < target:
+            return self._reject_single_test(
+                request,
+                verdict=PlanVerdict.SHORTAGE,
+                issues=_dedupe([IssueCode.CUET_COUNT_MISMATCH]),
+                questions=eligible,
+                allow_partial=True,
+            )
+
+        delivered = eligible[:target]
 
         return CuetSingleTestResult(
             verdict=PlanVerdict.PASS,

@@ -18,7 +18,7 @@ from app.cuet_clat.contracts import (
 )
 from app.cuet_clat.enums import CuetClatSourceTrustMode, IssueCode, PlanVerdict
 from app.cuet_clat.passage_clusters import build_passage_clusters
-from app.cuet_clat.replay_store import ReplayStore
+from app.cuet_clat.replay_store import ReplayAcquireStatus, ReplayStore
 from app.cuet_clat.scope_guard import validate_clat_pack, validate_tenant
 from app.cuet_clat.section_allocator import allocate_clat_sections
 from app.cuet_clat.synthetic_fixtures import build_clat_question
@@ -111,15 +111,11 @@ class ClatPaperPlanner:
         fingerprint = build_clat_replay_fingerprint(request, alloc.allocations)
         replay_key = request.replay_idempotency_key
         if replay_key:
-            stored = self._replay.get(replay_key)
-            if stored is not None:
-                if stored.request_fingerprint != fingerprint:
-                    return self._fail(
-                        request,
-                        [IssueCode.STALE_REPLAY],
-                        PlanVerdict.FAIL,
-                    )
-                cached = ClatPaperPlanResult.model_validate(stored.result_payload)
+            acquired = self._replay.acquire(replay_key, fingerprint)
+            if acquired.status is ReplayAcquireStatus.STALE_REPLAY:
+                return self._fail(request, [IssueCode.STALE_REPLAY], PlanVerdict.FAIL)
+            if acquired.status is ReplayAcquireStatus.CACHE_HIT and acquired.result_payload:
+                cached = ClatPaperPlanResult.model_validate(acquired.result_payload)
                 cached.metadata_json = {
                     **cached.metadata_json,
                     "replay_mode": "in_process_synthetic_only",
@@ -127,11 +123,22 @@ class ClatPaperPlanner:
                 }
                 return cached
 
-        all_questions, all_clusters, section_rows = self._assemble(alloc.allocations)
+        try:
+            all_questions, all_clusters, section_rows = self._assemble(
+                alloc.allocations,
+                simulate_failure=bool(request.metadata_json.get("simulate_generation_failure")),
+            )
+        except RuntimeError:
+            if replay_key:
+                self._replay.abort_generation(replay_key, fingerprint)
+            return self._fail(request, [IssueCode.STALE_REPLAY], PlanVerdict.FAIL)
+
         self.synthetic_generation_count += 1
 
         ids = [q.question_id for q in all_questions]
         if len(set(ids)) != len(ids):
+            if replay_key:
+                self._replay.abort_generation(replay_key, fingerprint)
             return self._fail(request, [IssueCode.DUPLICATE_QUESTION], PlanVerdict.FAIL)
 
         result = ClatPaperPlanResult(
@@ -153,17 +160,36 @@ class ClatPaperPlanner:
         )
 
         if replay_key:
-            self._replay.put(
+            published = self._replay.publish(
                 replay_key,
-                request_fingerprint=fingerprint,
-                result_payload=result.model_dump(),
+                fingerprint,
+                result.model_dump(),
             )
+            if not published:
+                retry = self._replay.acquire(replay_key, fingerprint, wait_timeout=30.0)
+                if (
+                    retry.status is ReplayAcquireStatus.CACHE_HIT
+                    and retry.result_payload is not None
+                ):
+                    cached = ClatPaperPlanResult.model_validate(retry.result_payload)
+                    cached.metadata_json = {
+                        **cached.metadata_json,
+                        "replay_mode": "in_process_synthetic_only",
+                        "synthetic_generation_count": self.synthetic_generation_count,
+                    }
+                    return cached
+                return self._fail(request, [IssueCode.STALE_REPLAY], PlanVerdict.FAIL)
 
         return result
 
     def _assemble(
-        self, allocations: dict[str, int]
+        self,
+        allocations: dict[str, int],
+        *,
+        simulate_failure: bool = False,
     ) -> tuple[list[PracticeQuestionRef], list[PassageCluster], list[ClatSectionAllocation]]:
+        if simulate_failure:
+            raise RuntimeError("simulated_generation_failure")
         all_questions: list[PracticeQuestionRef] = []
         all_clusters: list[PassageCluster] = []
         section_rows: list[ClatSectionAllocation] = []

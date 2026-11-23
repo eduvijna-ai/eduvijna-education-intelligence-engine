@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from app.cuet_clat.enums import CuetClatProfileKind, CuetClatSourceTrustMode, IssueCode
 
+CUET_SYNTHETIC_REFERENCE_YEAR = "2026"
+CLAT_SYNTHETIC_REFERENCE_YEAR = "2027"
+
 
 def validate_trust_coherence(
     *,
@@ -18,6 +21,8 @@ def validate_trust_coherence(
         if profile_kind is CuetClatProfileKind.SYNTHETIC_DEMO:
             if trust_mode is not CuetClatSourceTrustMode.SYNTHETIC_FIXTURE:
                 issues.append(IssueCode.UNAPPROVED_SOURCE)
+            if academic_year != CUET_SYNTHETIC_REFERENCE_YEAR:
+                issues.append(IssueCode.WRONG_YEAR)
             return issues
         if profile_kind is CuetClatProfileKind.CUET_CANDIDATE_2027:
             if academic_year != "2027":
@@ -40,6 +45,8 @@ def validate_trust_coherence(
         if profile_kind is CuetClatProfileKind.SYNTHETIC_DEMO:
             if trust_mode is not CuetClatSourceTrustMode.SYNTHETIC_FIXTURE:
                 issues.append(IssueCode.UNAPPROVED_SOURCE)
+            if academic_year != CLAT_SYNTHETIC_REFERENCE_YEAR:
+                issues.append(IssueCode.WRONG_YEAR)
             return issues
         if profile_kind is CuetClatProfileKind.CLAT_2027:
             if academic_year != "2027":

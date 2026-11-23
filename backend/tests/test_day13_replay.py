@@ -21,7 +21,7 @@ def test_replay_returns_same_checksum_without_regeneration() -> None:
     assert planner.synthetic_generation_count == 1
 
 
-def test_stale_replay_on_trust_change() -> None:
+def test_stale_replay_on_tenant_change() -> None:
     store = ReplayStore()
     planner = ClatPaperPlanner(replay_store=store)
     req = ClatPaperPlanRequest(
@@ -30,8 +30,10 @@ def test_stale_replay_on_trust_change() -> None:
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
         replay_idempotency_key="demo-replay-2",
         academic_year="2027",
+        organization_id="org-1",
+        metadata_json={"tenant_scoped": True},
     )
     planner.plan(req)
-    stale = planner.plan(req.model_copy(update={"academic_year": "2026"}))
+    stale = planner.plan(req.model_copy(update={"organization_id": "org-2"}))
     assert stale.verdict == PlanVerdict.FAIL
     assert IssueCode.STALE_REPLAY in stale.issue_codes
