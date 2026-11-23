@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from sqlalchemy.orm import Session
+
 from app.cuet_clat.authority import resolve_cuet_authority
 from app.cuet_clat.constants import (
     CUET_MARK_CORRECT,
@@ -19,7 +21,15 @@ from app.cuet_clat.contracts import (
     resolve_academic_year_string,
     validate_academic_year_explicit,
 )
+from app.cuet_clat.cuet_persisted_selection import (
+    persisted_target_count_for_single_test,
+    select_validated_cuet_questions,
+)
 from app.cuet_clat.enums import CuetClatSourceTrustMode, IssueCode, PlanVerdict
+from app.cuet_clat.persisted_context import (
+    PERSISTED_SELECTION_TOKEN,
+    PersistedCuetSelectionContext,
+)
 from app.cuet_clat.scope_guard import (
     validate_cuet_math_practice,
     validate_cuet_medium,
@@ -84,7 +94,13 @@ class CuetPracticeService:
     def __init__(self, *, fixture_pool: SyntheticFixturePool | None = None) -> None:
         self._pool = fixture_pool or build_cuet_math_pool()
 
-    def allocate_practice(self, request: CuetPracticeRequest) -> CuetPracticeResult:
+    def allocate_practice(
+        self,
+        request: CuetPracticeRequest,
+        *,
+        session: Session | None = None,
+        persisted: PersistedCuetSelectionContext | None = None,
+    ) -> CuetPracticeResult:
         year_issues = validate_academic_year_explicit(request)
         if year_issues:
             return self._reject_practice(
@@ -135,6 +151,14 @@ class CuetPracticeService:
                 issues=_dedupe([*issues, IssueCode.CUET_COUNT_MISMATCH]),
             )
 
+        if persisted is not None:
+            return self._allocate_persisted_practice(
+                request,
+                session=session,
+                persisted=persisted,
+                issues=issues,
+            )
+
         eligible, subject_issues = _eligible_pool(
             self._pool.cuet_math_items,
             expected_subject=request.test_subject_code,
@@ -167,7 +191,13 @@ class CuetPracticeService:
             metadata_json={"demonstration_only": True, "trust_mode": request.trust_mode.value},
         )
 
-    def assemble_single_test(self, request: CuetSingleTestRequest) -> CuetSingleTestResult:
+    def assemble_single_test(
+        self,
+        request: CuetSingleTestRequest,
+        *,
+        session: Session | None = None,
+        persisted: PersistedCuetSelectionContext | None = None,
+    ) -> CuetSingleTestResult:
         year_issues = validate_academic_year_explicit(request)
         if year_issues:
             return self._reject_single_test(
@@ -209,6 +239,14 @@ class CuetPracticeService:
                 request,
                 verdict=PlanVerdict.FAIL,
                 issues=_dedupe(issues),
+            )
+
+        if persisted is not None:
+            return self._assemble_persisted_single_test(
+                request,
+                session=session,
+                persisted=persisted,
+                issues=issues,
             )
 
         forced_count = request.metadata_json.get("forced_question_count")
@@ -259,6 +297,95 @@ class CuetPracticeService:
             metadata_json={
                 "demonstration_only": True,
                 "paper_scoring_profile": "+5/-1",
+            },
+        )
+
+    def _allocate_persisted_practice(
+        self,
+        request: CuetPracticeRequest,
+        *,
+        session: Session | None,
+        persisted: PersistedCuetSelectionContext,
+        issues: list[IssueCode],
+    ) -> CuetPracticeResult:
+        if session is None or persisted.selection_token != PERSISTED_SELECTION_TOKEN:
+            return self._reject_practice(
+                request,
+                verdict=PlanVerdict.NOT_READY,
+                issues=_dedupe([*issues, IssueCode.MISSING_PERSISTED_CONTEXT]),
+            )
+        if request.organization_id and request.organization_id != persisted.organization_id:
+            return self._reject_practice(
+                request,
+                verdict=PlanVerdict.FAIL,
+                issues=_dedupe([*issues, IssueCode.TENANT_ISOLATION]),
+            )
+
+        selected, select_issues, verdict = select_validated_cuet_questions(
+            session,
+            context=persisted,
+            test_subject_code=request.test_subject_code,
+            requested_count=request.requested_count,
+        )
+        if verdict is not PlanVerdict.PASS:
+            return self._reject_practice(
+                request,
+                verdict=verdict,
+                issues=_dedupe([*issues, *select_issues]),
+            )
+        return CuetPracticeResult(
+            verdict=PlanVerdict.PASS,
+            requested_count=request.requested_count,
+            delivered_count=len(selected),
+            questions=selected,
+            issue_codes=[],
+            checksum=_checksum(selected),
+            metadata_json={
+                "demonstration_only": False,
+                "validated_persisted_synthetic": True,
+                "trust_mode": request.trust_mode.value,
+            },
+        )
+
+    def _assemble_persisted_single_test(
+        self,
+        request: CuetSingleTestRequest,
+        *,
+        session: Session | None,
+        persisted: PersistedCuetSelectionContext,
+        issues: list[IssueCode],
+    ) -> CuetSingleTestResult:
+        if session is None or persisted.selection_token != PERSISTED_SELECTION_TOKEN:
+            return self._reject_single_test(
+                request,
+                verdict=PlanVerdict.NOT_READY,
+                issues=_dedupe([*issues, IssueCode.MISSING_PERSISTED_CONTEXT]),
+            )
+        target = persisted_target_count_for_single_test()
+        selected, select_issues, verdict = select_validated_cuet_questions(
+            session,
+            context=persisted,
+            test_subject_code=request.test_subject_code,
+            requested_count=target,
+        )
+        if verdict is not PlanVerdict.PASS:
+            return self._reject_single_test(
+                request,
+                verdict=verdict,
+                issues=_dedupe([*issues, *select_issues]),
+            )
+        return CuetSingleTestResult(
+            verdict=PlanVerdict.PASS,
+            question_count=len(selected),
+            duration_minutes=CUET_MINUTES_PER_TEST,
+            marks_correct=CUET_MARK_CORRECT,
+            marks_incorrect=CUET_MARK_INCORRECT,
+            questions=selected,
+            issue_codes=[],
+            checksum=_checksum(selected),
+            metadata_json={
+                "demonstration_only": False,
+                "validated_persisted_synthetic": True,
             },
         )
 

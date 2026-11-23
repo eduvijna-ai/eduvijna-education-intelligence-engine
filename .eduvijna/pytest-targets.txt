@@ -97,3 +97,4 @@ tests/test_day13_verify_sha.py
 tests/test_day13_f01_f02_repair.py
 tests/test_day13_r03_repair.py
 tests/test_day13_r04_repair.py
+tests/test_day13_f03a_persisted.py

@@ -49,3 +49,6 @@ class IssueCode(StrEnum):
     STALE_CURRENT_AFFAIRS = "d13.rag.stale_news"
     JEE_MAIN_FALLBACK = "d13.scope.jee_main_fallback_blocked"
     COPYRIGHT_VIOLATION = "d13.content.copyright_violation"
+    MISSING_PERSISTED_CONTEXT = "d13.validation.missing_persisted_context"
+    VALIDATION_NOT_PROVEN = "d13.validation.not_proven"
+    CONTENT_FINGERPRINT_STALE = "d13.validation.stale_content_fingerprint"

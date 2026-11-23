@@ -42,6 +42,11 @@ class PracticeQuestionRef(BaseModel):
     correct_key: str
     marks_if_correct: float
     marks_if_incorrect: float
+    stem_text: str | None = None
+    options: dict[str, str] | None = None
+    independently_validated: bool = False
+    validation_audit_id: str | None = None
+    solver_evidence_id: str | None = None
 
 
 class CuetPracticeRequest(BaseModel):

@@ -19,6 +19,8 @@ from app.cuet_clat.contracts import ClatPaperPlanRequest, CuetPracticeRequest, C
 from app.cuet_clat.enums import CuetClatProfileKind, CuetClatSourceTrustMode, PlanVerdict
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
 from app.cuet_clat.governance import build_day13_governance_record
+from app.cuet_clat.cuet_persisted_pool import seed_validated_cuet_math_questions
+from app.cuet_clat.persisted_context import PersistedCuetSelectionContext
 from app.cuet_clat.practice_service import CuetPracticeService
 from app.cuet_clat.scope_ledger import load_repo_scope_counts
 from app.cuet_clat.source_registry import build_source_registry_snapshot
@@ -93,7 +95,35 @@ def build_verification_report(session: Session) -> dict[str, object]:
         session=session,
     )
 
-    ensure_synthetic_demo_versions(session)
+    cuet_ver, _ = ensure_synthetic_demo_versions(session)
+    org_id = "d13-verify-org"
+    inst_id = "d13-verify-inst"
+    seeded = seed_validated_cuet_math_questions(
+        session,
+        organization_id=org_id,
+        institution_id=inst_id,
+        exam_version_id=str(cuet_ver.id),
+        pool_size=50,
+    )
+    persisted_ctx = PersistedCuetSelectionContext(
+        exam_version_id=str(cuet_ver.id),
+        organization_id=org_id,
+        institution_id=inst_id,
+        academic_year="2026",
+    )
+    persisted_math10 = practice.allocate_practice(
+        CuetPracticeRequest(
+            exam_pack_code=CUET_PACK_CODE,
+            profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
+            trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+            test_subject_code=MATHEMATICS_DOMAIN,
+            requested_count=10,
+            academic_year="2026",
+            organization_id=org_id,
+        ),
+        session=session,
+        persisted=persisted_ctx,
+    )
     session.commit()
 
     scope_counts = load_repo_scope_counts()
@@ -118,6 +148,17 @@ def build_verification_report(session: Session) -> dict[str, object]:
         "governance": build_day13_governance_record(),
         "source_registry": build_source_registry_snapshot(session),
         "synthetic_fixture_pass": synthetic_ok,
+        "validated_persisted_synthetic": {
+            "pool_seeded_count": len(seeded),
+            "math10_verdict": persisted_math10.verdict.value,
+            "math10_delivered": persisted_math10.delivered_count,
+            "independently_validated": bool(
+                persisted_math10.metadata_json.get("validated_persisted_synthetic")
+            ),
+            "has_real_stems": all(
+                bool(q.stem_text and q.options) for q in persisted_math10.questions
+            ),
+        },
         "cuet_reference_curator_approved": False,
         "clat_official_curator_approved": False,
         "cuet_2027_official_verified": False,

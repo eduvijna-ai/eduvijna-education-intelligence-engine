@@ -17,7 +17,7 @@
 | D13-09 | Single-test paper rules | `practice_service.assemble_single_test`, `constants` | PARTIAL | Synthetic 50; official SOURCE_PENDING |
 | D13-10 | Language/medium integrity | `scope_guard.validate_cuet_medium` | PARTIAL | Typed non-PASS for bad medium |
 | D13-11 | Syllabus/concept mapping | — | PARTIAL | Fail-closed placeholder; no ACTIVE mapping |
-| D13-12 | Exact-count practice | `practice_service.allocate_practice`, `test_day13_practice.py` | PARTIAL | Math 10 synthetic PASS |
+| D13-12 | Exact-count practice | `practice_service.allocate_practice`, `test_day13_practice.py`, `test_day13_f03a_persisted.py` | PARTIAL | Structural demo PASS; F03-A opt-in persisted validated synthetic Math10/50 |
 | D13-13 | Per-test full-paper 50 | `practice_service.assemble_single_test` | PARTIAL | Synthetic 50; official NOT_READY |
 | D13-14 | Future-year CUET isolation | `authority.resolve_cuet_authority` 2027 | PARTIAL | Fail-closed tested |
 | D13-15 | CLAT ExamPack/version | `exam_profile.py`, `constants.CLAT_PACK_CODE` | PARTIAL | Isolated pack |
