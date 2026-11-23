@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.cuet_clat.authority import resolve_clat_authority, resolve_cuet_authority
+from app.cuet_clat.clat_passage_contracts import CLAT_PASSAGE_HARNESS_TOKEN
 from app.cuet_clat.clat_planner import ClatPaperPlanner
+from app.cuet_clat.clat_validated_passage_service import (
+    build_validated_clat_original_passage_examples,
+)
 from app.cuet_clat.constants import CLAT_PACK_CODE, CUET_PACK_CODE, MATHEMATICS_DOMAIN
 from app.cuet_clat.contracts import ClatPaperPlanRequest, CuetPracticeRequest, CuetSingleTestRequest
 from app.cuet_clat.cuet_persisted_pool import seed_validated_cuet_math_questions
@@ -93,6 +97,11 @@ def build_verification_report(session: Session) -> dict[str, object]:
         profile_kind=CuetClatProfileKind.CLAT_2027,
         academic_year="2027",
         session=session,
+    )
+
+    clat_passage_examples = build_validated_clat_original_passage_examples(
+        harness_authorized=True,
+        trusted_harness_token=CLAT_PASSAGE_HARNESS_TOKEN,
     )
 
     cuet_ver, _ = ensure_synthetic_demo_versions(session)
@@ -178,6 +187,17 @@ def build_verification_report(session: Session) -> dict[str, object]:
             "passage_cluster_count": len(clat_plan.passage_clusters),
             "section_allocations": [s.model_dump() for s in clat_plan.section_allocations],
             "verdict": clat_plan.verdict.value,
+            "demonstration_only": clat_plan.metadata_json.get("demonstration_only"),
+        },
+        "validated_clat_original_passage_examples": {
+            "verdict": clat_passage_examples.verdict.value,
+            "item_count": clat_passage_examples.item_count,
+            "passage_count": clat_passage_examples.passage_count,
+            "official_source_verified": clat_passage_examples.official_source_verified,
+            "independent_validated_count": clat_passage_examples.metadata_json.get(
+                "validated_independent_count"
+            ),
+            "harness_only": True,
         },
         "trust_separation": {
             "synthetic": CuetClatSourceTrustMode.SYNTHETIC_FIXTURE.value,

@@ -98,3 +98,5 @@ tests/test_day13_f01_f02_repair.py
 tests/test_day13_r03_repair.py
 tests/test_day13_r04_repair.py
 tests/test_day13_f03a_persisted.py
+tests/test_day13_f03a_iter3.py
+tests/test_day13_f03b_passage_grounding.py
