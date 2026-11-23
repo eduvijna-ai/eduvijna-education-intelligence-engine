@@ -75,7 +75,8 @@ def test_f03a_fixture_source_non_official_with_real_receipts() -> None:
             assert src.source_type != SourceType.OFFICIAL_SYLLABUS.value
             meta = dict(src.metadata_json or {})
             assert meta.get("not_official_cuet_source") is True
-            assert meta.get("fixture_bytes_sha256") == hashlib.sha256(D13_FIXTURE_SOURCE_BYTES).hexdigest()
+            expected_sha = hashlib.sha256(D13_FIXTURE_SOURCE_BYTES).hexdigest()
+            assert meta.get("fixture_bytes_sha256") == expected_sha
         revisions = session.scalars(select(SourceRevision)).all()
         for rev in revisions:
             assert rev.checksum == hashlib.sha256(D13_FIXTURE_SOURCE_BYTES).hexdigest()
@@ -358,7 +359,8 @@ def test_f03a_wrong_correct_flag_vetoes() -> None:
             exam_version_id=ctx.exam_version_id,
             pool_size=10,
         )
-        for opt in session.scalars(select(QuestionOption).where(QuestionOption.is_correct.is_(True))).all():
+        correct_opts = select(QuestionOption).where(QuestionOption.is_correct.is_(True))
+        for opt in session.scalars(correct_opts).all():
             opt.is_correct = False
         session.commit()
         result = CuetPracticeService().allocate_practice(
