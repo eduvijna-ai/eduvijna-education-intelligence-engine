@@ -42,6 +42,7 @@ class IssueCode(StrEnum):
     CLAT_SECTION_OVERRIDE_INVALID = "d13.clat.section_override_invalid"
     TENANT_ISOLATION = "d13.scope.tenant_isolation"
     STALE_REPLAY = "d13.replay.stale_binding"
+    REPLAY_WAIT_TIMEOUT = "d13.replay.wait_timeout"
     DUPLICATE_QUESTION = "d13.paper.duplicate_question"
     PASSAGE_ANSWER_MISMATCH = "d13.clat.passage_answer_mismatch"
     FORGED_CITATION = "d13.rag.forged_citation"

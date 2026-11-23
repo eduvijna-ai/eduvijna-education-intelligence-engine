@@ -16,6 +16,8 @@ from app.cuet_clat.contracts import (
     CuetSingleTestRequest,
     CuetSingleTestResult,
     PracticeQuestionRef,
+    resolve_academic_year_string,
+    validate_academic_year_explicit,
 )
 from app.cuet_clat.enums import CuetClatSourceTrustMode, IssueCode, PlanVerdict
 from app.cuet_clat.scope_guard import (
@@ -83,18 +85,27 @@ class CuetPracticeService:
         self._pool = fixture_pool or build_cuet_math_pool()
 
     def allocate_practice(self, request: CuetPracticeRequest) -> CuetPracticeResult:
+        year_issues = validate_academic_year_explicit(request)
+        if year_issues:
+            return self._reject_practice(
+                request,
+                verdict=PlanVerdict.FAIL,
+                issues=_dedupe(year_issues),
+            )
+        academic_year = resolve_academic_year_string(request)
+
         issues = cuet_scope_preflight_issues(
             exam_pack_code=request.exam_pack_code,
             test_subject_code=request.test_subject_code,
             medium_code=request.medium_code,
             profile_kind=request.profile_kind,
             trust_mode=request.trust_mode,
-            academic_year=request.academic_year,
+            academic_year=academic_year,
         )
 
         authority = resolve_cuet_authority(
             profile_kind=request.profile_kind,
-            academic_year=request.academic_year,
+            academic_year=academic_year,
         )
         if authority.verdict is not None:
             return self._reject_practice(
@@ -157,18 +168,27 @@ class CuetPracticeService:
         )
 
     def assemble_single_test(self, request: CuetSingleTestRequest) -> CuetSingleTestResult:
+        year_issues = validate_academic_year_explicit(request)
+        if year_issues:
+            return self._reject_single_test(
+                request,
+                verdict=PlanVerdict.FAIL,
+                issues=_dedupe(year_issues),
+            )
+        academic_year = resolve_academic_year_string(request)
+
         issues = cuet_scope_preflight_issues(
             exam_pack_code=request.exam_pack_code,
             test_subject_code=request.test_subject_code,
             medium_code=request.medium_code,
             profile_kind=request.profile_kind,
             trust_mode=request.trust_mode,
-            academic_year=request.academic_year,
+            academic_year=academic_year,
         )
 
         authority = resolve_cuet_authority(
             profile_kind=request.profile_kind,
-            academic_year=request.academic_year,
+            academic_year=academic_year,
         )
         if authority.verdict is not None:
             return self._reject_single_test(

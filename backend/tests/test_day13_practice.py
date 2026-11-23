@@ -14,6 +14,7 @@ def test_cuet_math_10_exact_synthetic() -> None:
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
             test_subject_code=MATHEMATICS_DOMAIN,
             requested_count=10,
+            academic_year="2026",
         )
     )
     assert result.verdict == PlanVerdict.PASS
@@ -28,6 +29,7 @@ def test_cuet_single_test_50_synthetic() -> None:
             profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
             test_subject_code=MATHEMATICS_DOMAIN,
+            academic_year="2026",
         )
     )
     assert result.verdict == PlanVerdict.PASS
@@ -43,6 +45,7 @@ def test_clat_120_with_passage_clusters() -> None:
             exam_pack_code=CLAT_PACK_CODE,
             profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+            academic_year="2027",
         )
     )
     assert plan.verdict == PlanVerdict.PASS

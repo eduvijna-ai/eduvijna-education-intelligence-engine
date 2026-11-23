@@ -34,6 +34,7 @@ def test_cuet_count_49_rejected() -> None:
             profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
             test_subject_code=MATHEMATICS_DOMAIN,
+            academic_year="2026",
             metadata_json={"forced_question_count": 49},
         )
     )
@@ -48,6 +49,7 @@ def test_clat_count_119_rejected() -> None:
             exam_pack_code=CLAT_PACK_CODE,
             profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+            academic_year="2027",
             metadata_json={"forced_total_questions": 119},
         )
     )
@@ -75,6 +77,7 @@ def test_clat_forced_citation_rejected() -> None:
             exam_pack_code=CLAT_PACK_CODE,
             profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+            academic_year="2027",
             metadata_json={"forged_citation": True},
         )
     )

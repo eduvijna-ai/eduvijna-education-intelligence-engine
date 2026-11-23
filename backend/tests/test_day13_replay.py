@@ -12,6 +12,7 @@ def test_replay_returns_same_checksum_without_regeneration() -> None:
         exam_pack_code=CLAT_PACK_CODE,
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+        academic_year="2027",
         replay_idempotency_key="demo-replay-1",
     )
     first = planner.plan(req)

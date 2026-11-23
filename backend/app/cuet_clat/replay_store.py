@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from threading import Condition, Lock
@@ -10,12 +11,14 @@ class ReplayAcquireStatus(StrEnum):
     CACHE_HIT = "cache_hit"
     GENERATE = "generate"
     STALE_REPLAY = "stale_replay"
+    WAIT_TIMEOUT = "wait_timeout"
 
 
 @dataclass(frozen=True, slots=True)
 class ReplayAcquire:
     status: ReplayAcquireStatus
     result_payload: dict[str, object] | None = None
+    generation_token: str | None = None
 
 
 @dataclass(slots=True)
@@ -23,6 +26,7 @@ class _ReplaySlot:
     fingerprint: str
     result_payload: dict[str, object] | None = None
     generating: bool = False
+    generation_token: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,8 +67,13 @@ class ReplayStore:
             while True:
                 slot = self._slots.get(key)
                 if slot is None:
-                    self._slots[key] = _ReplaySlot(fingerprint=fingerprint, generating=True)
-                    return ReplayAcquire(ReplayAcquireStatus.GENERATE)
+                    token = uuid.uuid4().hex
+                    self._slots[key] = _ReplaySlot(
+                        fingerprint=fingerprint,
+                        generating=True,
+                        generation_token=token,
+                    )
+                    return ReplayAcquire(ReplayAcquireStatus.GENERATE, generation_token=token)
 
                 if slot.result_payload is not None:
                     if slot.fingerprint == fingerprint:
@@ -79,14 +88,26 @@ class ReplayStore:
                         return ReplayAcquire(ReplayAcquireStatus.STALE_REPLAY)
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        return ReplayAcquire(ReplayAcquireStatus.STALE_REPLAY)
+                        return ReplayAcquire(ReplayAcquireStatus.WAIT_TIMEOUT)
                     self._cv.wait(timeout=remaining)
                     continue
 
-                self._slots[key] = _ReplaySlot(fingerprint=fingerprint, generating=True)
-                return ReplayAcquire(ReplayAcquireStatus.GENERATE)
+                token = uuid.uuid4().hex
+                self._slots[key] = _ReplaySlot(
+                    fingerprint=fingerprint,
+                    generating=True,
+                    generation_token=token,
+                )
+                return ReplayAcquire(ReplayAcquireStatus.GENERATE, generation_token=token)
 
-    def publish(self, key: str, fingerprint: str, result_payload: dict[str, object]) -> bool:
+    def publish(
+        self,
+        key: str,
+        fingerprint: str,
+        result_payload: dict[str, object],
+        *,
+        generation_token: str | None = None,
+    ) -> bool:
         with self._cv:
             slot = self._slots.get(key)
             if slot is None:
@@ -95,17 +116,29 @@ class ReplayStore:
                 return slot.fingerprint == fingerprint
             if not slot.generating or slot.fingerprint != fingerprint:
                 return False
+            if generation_token is not None and slot.generation_token != generation_token:
+                return False
             slot.result_payload = dict(result_payload)
             slot.generating = False
+            slot.generation_token = None
             self._cv.notify_all()
             return True
 
-    def abort_generation(self, key: str, fingerprint: str) -> None:
+    def abort_generation(
+        self,
+        key: str,
+        fingerprint: str,
+        *,
+        generation_token: str | None = None,
+    ) -> None:
         with self._cv:
             slot = self._slots.get(key)
-            if slot is not None and slot.generating and slot.fingerprint == fingerprint:
-                del self._slots[key]
-                self._cv.notify_all()
+            if slot is None or not slot.generating or slot.fingerprint != fingerprint:
+                return
+            if generation_token is not None and slot.generation_token != generation_token:
+                return
+            del self._slots[key]
+            self._cv.notify_all()
 
     def put(
         self,
@@ -119,9 +152,17 @@ class ReplayStore:
         acq = self.acquire(key, request_fingerprint, wait_timeout=0.01)
         if acq.status is ReplayAcquireStatus.CACHE_HIT:
             return acq.result_payload == result_payload
-        if acq.status is ReplayAcquireStatus.STALE_REPLAY:
+        if acq.status in (ReplayAcquireStatus.STALE_REPLAY, ReplayAcquireStatus.WAIT_TIMEOUT):
             return False
-        return self.publish(key, request_fingerprint, result_payload)
+        published = False
+        if acq.generation_token:
+            published = self.publish(
+                key,
+                request_fingerprint,
+                result_payload,
+                generation_token=acq.generation_token,
+            )
+        return published
 
     def clear(self) -> None:
         with self._cv:

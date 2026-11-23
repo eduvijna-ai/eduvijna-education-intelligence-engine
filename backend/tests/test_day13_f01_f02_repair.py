@@ -88,6 +88,7 @@ def test_f01_wrong_trust_combination_no_questions() -> None:
             trust_mode=CuetClatSourceTrustMode.CUET_HISTORICAL_2026,
             test_subject_code=MATHEMATICS_DOMAIN,
             requested_count=10,
+            academic_year="2026",
         )
     )
     assert result.verdict != PlanVerdict.PASS
@@ -147,6 +148,7 @@ def test_f02_replay_same_request_no_extra_generation() -> None:
         exam_pack_code=CLAT_PACK_CODE,
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+        academic_year="2027",
         replay_idempotency_key="f02-stable",
     )
     first = planner.plan(req)
@@ -166,6 +168,7 @@ def test_f02_changed_section_override_stale_replay() -> None:
         exam_pack_code=CLAT_PACK_CODE,
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+        academic_year="2027",
         replay_idempotency_key=key,
     )
     original = planner.plan(base)
@@ -201,6 +204,7 @@ def test_f02_changed_tenant_stale_replay() -> None:
         exam_pack_code=CLAT_PACK_CODE,
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+        academic_year="2027",
         replay_idempotency_key=key,
         organization_id="org-a",
         metadata_json={"tenant_scoped": True},
@@ -219,6 +223,7 @@ def test_f02_review_flags_block_before_cached_pass() -> None:
         exam_pack_code=CLAT_PACK_CODE,
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+        academic_year="2027",
         replay_idempotency_key=key,
     )
     planner.plan(base)
@@ -237,6 +242,7 @@ def test_f02_clat_official_profile_with_synthetic_trust_fails() -> None:
             exam_pack_code=CLAT_PACK_CODE,
             profile_kind=CuetClatProfileKind.CLAT_2027,
             trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+            academic_year="2027",
         )
     )
     assert plan.verdict != PlanVerdict.PASS
@@ -250,6 +256,7 @@ def test_f02_new_process_has_no_replay_cache() -> None:
         exam_pack_code=CLAT_PACK_CODE,
         profile_kind=CuetClatProfileKind.SYNTHETIC_DEMO,
         trust_mode=CuetClatSourceTrustMode.SYNTHETIC_FIXTURE,
+        academic_year="2027",
         replay_idempotency_key="f02-restart",
     )
     planner.plan(req)

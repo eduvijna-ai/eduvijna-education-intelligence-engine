@@ -6,6 +6,33 @@ from app.cuet_clat.constants import MATHEMATICS_DOMAIN
 from app.cuet_clat.enums import CuetClatProfileKind, CuetClatSourceTrustMode, IssueCode, PlanVerdict
 
 
+def validate_academic_year_explicit(
+    request: BaseModel,
+    *,
+    field_name: str = "academic_year",
+) -> list[IssueCode]:
+    """Require caller-supplied non-blank academic year (not a silent model default)."""
+
+    if field_name not in request.model_fields_set:
+        return [IssueCode.WRONG_YEAR]
+    value = getattr(request, field_name, None)
+    if value is None:
+        return [IssueCode.WRONG_YEAR]
+    if isinstance(value, str) and not value.strip():
+        return [IssueCode.WRONG_YEAR]
+    return []
+
+
+def resolve_academic_year_string(request: BaseModel, *, field_name: str = "academic_year") -> str:
+    """Trim explicit academic year for authority/trust resolution."""
+
+    value = getattr(request, field_name, "")
+    if not isinstance(value, str):
+        msg = "academic_year must be a string when explicitly set"
+        raise TypeError(msg)
+    return value.strip()
+
+
 class PracticeQuestionRef(BaseModel):
     question_id: str
     subject_code: str
@@ -24,7 +51,7 @@ class CuetPracticeRequest(BaseModel):
     test_subject_code: str = MATHEMATICS_DOMAIN
     requested_count: int = 10
     medium_code: str = "english"
-    academic_year: str = "2026"
+    academic_year: str | None = None
     organization_id: str | None = None
     metadata_json: dict[str, object] = Field(default_factory=dict)
 
@@ -44,7 +71,7 @@ class CuetSingleTestRequest(BaseModel):
     profile_kind: CuetClatProfileKind
     trust_mode: CuetClatSourceTrustMode
     test_subject_code: str
-    academic_year: str = "2026"
+    academic_year: str | None = None
     medium_code: str = "english"
     metadata_json: dict[str, object] = Field(default_factory=dict)
 
@@ -83,7 +110,7 @@ class ClatPaperPlanRequest(BaseModel):
     exam_pack_code: str
     profile_kind: CuetClatProfileKind
     trust_mode: CuetClatSourceTrustMode
-    academic_year: str = "2027"
+    academic_year: str | None = None
     section_overrides: dict[str, int] | None = None
     replay_idempotency_key: str | None = None
     organization_id: str | None = None
