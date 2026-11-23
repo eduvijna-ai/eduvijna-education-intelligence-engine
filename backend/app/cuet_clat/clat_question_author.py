@@ -8,7 +8,7 @@ from app.cuet_clat.clat_passage_contracts import (
     ClatOriginalPassage,
     authored_to_practice_ref,
 )
-from app.cuet_clat.contracts import PassageCluster
+from app.cuet_clat.contracts import PassageCluster, PracticeQuestionRef
 
 
 def build_passage_cluster(passage: ClatOriginalPassage) -> PassageCluster:
@@ -30,5 +30,5 @@ def load_authored_passage_fixtures() -> list[ClatOriginalPassage]:
     return list(load_official_f03b_passages())
 
 
-def practice_refs_for_passage(passage: ClatOriginalPassage):
+def practice_refs_for_passage(passage: ClatOriginalPassage) -> list[PracticeQuestionRef]:
     return [authored_to_practice_ref(q) for q in passage.questions]
