@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 
+from app.cuet_clat.clat_independent_answer_check import independently_check_mcq
 from app.cuet_clat.clat_original_passages import (
     ENGLISH_PASSAGE,
     LEGAL_PASSAGE,
@@ -13,7 +14,9 @@ from app.cuet_clat.clat_original_passages import (
 from app.cuet_clat.clat_passage_contracts import (
     CLAT_PASSAGE_HARNESS_TOKEN,
     ClatPassageIssueCode,
-    question_content_fingerprint,
+    authored_question_fingerprint,
+    normalized_passage_body_key,
+    validated_content_fingerprint,
 )
 from app.cuet_clat.clat_planner import ClatPaperPlanner
 from app.cuet_clat.clat_validated_passage_service import (
@@ -153,10 +156,111 @@ def test_changed_quant_table_fails_recompute() -> None:
 
 
 def test_content_fingerprint_changes_on_tamper() -> None:
-    baseline = question_content_fingerprint(ENGLISH_PASSAGE.questions[0])
+    baseline = authored_question_fingerprint(ENGLISH_PASSAGE, ENGLISH_PASSAGE.questions[0])
     tampered = copy.deepcopy(ENGLISH_PASSAGE.questions[0])
     tampered.stem_text += " (edited)"
-    assert question_content_fingerprint(tampered) != baseline
+    assert authored_question_fingerprint(ENGLISH_PASSAGE, tampered) != baseline
+
+    alt_passage = copy.deepcopy(ENGLISH_PASSAGE)
+    alt_passage.passage_text += " Extra sentence."
+    assert authored_question_fingerprint(alt_passage, ENGLISH_PASSAGE.questions[0]) != baseline
+
+
+def test_english_off_topic_stem_no_pass() -> None:
+    q = copy.deepcopy(ENGLISH_PASSAGE.questions[0])
+    q.stem_text = "What colour is the library roof?"
+    result = independently_check_mcq(
+        passage_text=ENGLISH_PASSAGE.passage_text,
+        section_code="english",
+        question=q,
+    )
+    assert result.verdict.value != "pass"
+
+
+def test_legal_rule_change_invalidates_answer() -> None:
+    legal = copy.deepcopy(LEGAL_PASSAGE)
+    legal.passage_text = legal.passage_text.replace("three tonnes", "five tonnes")
+    q = legal.questions[0]
+    result = independently_check_mcq(
+        passage_text=legal.passage_text,
+        section_code="legal_reasoning",
+        question=q,
+    )
+    assert result.derived_key != q.author_key or result.verdict.value != "pass"
+
+
+def test_logical_wrong_passage_no_pass() -> None:
+    q = copy.deepcopy(ENGLISH_PASSAGE).questions[0]
+    q.question_id = "d13-clat-q-logical-adversarial"
+    q.section_code = "logical_reasoning"
+    q.stem_text = (
+        "Which conclusion necessarily follows from Premises 1 and 2 alone?"
+    )
+    q.options = {
+        "A": "Priya passed the mock exam",
+        "B": "Priya failed",
+        "C": "Unknown",
+        "D": "All failed",
+    }
+    q.author_key = "A"
+    result = independently_check_mcq(
+        passage_text=ENGLISH_PASSAGE.passage_text,
+        section_code="logical_reasoning",
+        question=q,
+    )
+    assert result.verdict.value != "pass"
+
+
+def test_invalid_bundle_has_zero_certified() -> None:
+    passages = list(load_official_f03b_passages())
+    legal = copy.deepcopy(LEGAL_PASSAGE)
+    legal.questions[0].author_key = "A"
+    mutated = [p for p in passages if p.section_code != "legal_reasoning"] + [legal]
+    bundle = validate_clat_original_passage_bundle(
+        mutated,
+        harness_authorized=True,
+        trusted_harness_token=CLAT_PASSAGE_HARNESS_TOKEN,
+    )
+    assert bundle.verdict is PlanVerdict.FAIL
+    assert sum(1 for r in bundle.questions if r.question.independently_validated) == 0
+
+
+def test_duplicate_passage_body_detected() -> None:
+    passages = list(load_official_f03b_passages())
+    twin = copy.deepcopy(ENGLISH_PASSAGE)
+    twin.passage_id = "d13-clat-p-english-dup"
+    bundle = validate_clat_original_passage_bundle(
+        passages + [twin],
+        harness_authorized=True,
+        trusted_harness_token=CLAT_PASSAGE_HARNESS_TOKEN,
+    )
+    assert bundle.verdict is PlanVerdict.FAIL
+    assert ClatPassageIssueCode.DUPLICATE_PASSAGE in bundle.issue_codes
+    assert normalized_passage_body_key(twin.section_code, twin.passage_text) == (
+        normalized_passage_body_key(ENGLISH_PASSAGE.section_code, ENGLISH_PASSAGE.passage_text)
+    )
+
+
+def test_validated_fingerprint_includes_proof_anchor() -> None:
+    q = ENGLISH_PASSAGE.questions[0]
+    ind = independently_check_mcq(
+        passage_text=ENGLISH_PASSAGE.passage_text,
+        section_code="english",
+        question=q,
+    )
+    fp1 = validated_content_fingerprint(
+        ENGLISH_PASSAGE,
+        q,
+        derived_key=ind.derived_key,
+        anchor_quote=ind.anchor_quote,
+    )
+    fp2 = validated_content_fingerprint(
+        ENGLISH_PASSAGE,
+        q,
+        derived_key="Z",
+        anchor_quote=ind.anchor_quote,
+    )
+    assert fp1 != fp2
 
 
 def test_clat_closing_marks_profile_present() -> None:

@@ -6,6 +6,8 @@ from collections.abc import Iterable
 
 from app.cuet_clat.clat_independent_answer_check import independently_check_mcq
 from app.cuet_clat.clat_passage_contracts import (
+    _ALLOWED_OPTION_KEYS,
+    CLAT_ORIGINAL_SOURCE_MODE,
     CLAT_PASSAGE_HARNESS_TOKEN,
     ClatAuthoredMcq,
     ClatIndependentVerdict,
@@ -13,8 +15,10 @@ from app.cuet_clat.clat_passage_contracts import (
     ClatPassageIssueCode,
     ClatValidatedExamplesResult,
     ClatValidatedQuestionRecord,
+    authored_question_fingerprint,
     authored_to_practice_ref,
-    question_content_fingerprint,
+    normalized_passage_body_key,
+    validated_content_fingerprint,
 )
 from app.cuet_clat.clat_question_author import (
     build_passage_cluster,
@@ -29,8 +33,11 @@ def _validate_question_structure(
     issue_codes: list[ClatPassageIssueCode],
 ) -> bool:
     ok = True
-    if len(question.options) != 4:
+    if not question.stem_text.strip():
         issue_codes.append(ClatPassageIssueCode.BLANK_OPTION)
+        ok = False
+    if set(question.options.keys()) != _ALLOWED_OPTION_KEYS:
+        issue_codes.append(ClatPassageIssueCode.INVALID_OPTION_KEY)
         ok = False
     texts = [t.strip() for t in question.options.values()]
     if any(not t for t in texts):
@@ -43,6 +50,12 @@ def _validate_question_structure(
         issue_codes.append(ClatPassageIssueCode.ANSWER_KEY_TAMPER)
         ok = False
     return ok
+
+
+def _strip_certification(records: list[ClatValidatedQuestionRecord]) -> None:
+    for record in records:
+        record.question.independently_validated = False
+        record.question.solver_evidence_id = None
 
 
 def validate_clat_original_passage_bundle(
@@ -75,26 +88,47 @@ def validate_clat_original_passage_bundle(
     passage_list = list(passages)
     issue_codes: list[ClatPassageIssueCode] = []
     records: list[ClatValidatedQuestionRecord] = []
-    clusters = [build_passage_cluster(p) for p in passage_list]
 
-    passage_texts = {p.passage_fingerprint() for p in passage_list}
-    if len(passage_texts) != len(passage_list):
-        issue_codes.append(ClatPassageIssueCode.DUPLICATE_PASSAGE)
-
+    seen_passage_ids: set[str] = set()
+    seen_body_keys: set[str] = set()
     seen_qids: set[str] = set()
+    seen_stems: set[str] = set()
+
     for passage in passage_list:
+        if not passage.passage_text.strip():
+            issue_codes.append(ClatPassageIssueCode.BLANK_PASSAGE)
+        if passage.source_mode != CLAT_ORIGINAL_SOURCE_MODE:
+            issue_codes.append(ClatPassageIssueCode.INVALID_SOURCE_MODE)
+
+        if passage.passage_id in seen_passage_ids:
+            issue_codes.append(ClatPassageIssueCode.DUPLICATE_PASSAGE)
+        seen_passage_ids.add(passage.passage_id)
+
+        body_key = normalized_passage_body_key(passage.section_code, passage.passage_text)
+        if body_key in seen_body_keys:
+            issue_codes.append(ClatPassageIssueCode.DUPLICATE_PASSAGE)
+        seen_body_keys.add(body_key)
+
+        cluster = build_passage_cluster(passage)
+        expected_ids = [q.question_id for q in passage.questions]
+        if cluster.question_ids != expected_ids:
+            issue_codes.append(ClatPassageIssueCode.PASSAGE_MISMATCH)
+
         for question in passage.questions:
+            stem_key = question.stem_text.strip().lower()
             if question.question_id in seen_qids:
                 issue_codes.append(ClatPassageIssueCode.DUPLICATE_QUESTION)
+            if stem_key in seen_stems:
+                issue_codes.append(ClatPassageIssueCode.DUPLICATE_STEM)
             seen_qids.add(question.question_id)
+            seen_stems.add(stem_key)
 
             if question.passage_id != passage.passage_id:
                 issue_codes.append(ClatPassageIssueCode.WRONG_PASSAGE_ID)
             if question.section_code != passage.section_code:
                 issue_codes.append(ClatPassageIssueCode.CROSS_SECTION)
 
-            if not _validate_question_structure(question, issue_codes):
-                continue
+            structure_ok = _validate_question_structure(question, issue_codes)
 
             independent = independently_check_mcq(
                 passage_text=passage.passage_text,
@@ -112,13 +146,27 @@ def validate_clat_original_passage_bundle(
             ):
                 issue_codes.append(ClatPassageIssueCode.ANSWER_KEY_TAMPER)
 
-            practice = authored_to_practice_ref(question)
-            validated = (
-                independent.verdict is ClatIndependentVerdict.PASS
-                and independent.derived_key == question.author_key
+            if independent.anchor_quote and independent.anchor_quote not in passage.passage_text:
+                issue_codes.append(ClatPassageIssueCode.INDEPENDENT_FAIL)
+
+            authored_fp = authored_question_fingerprint(passage, question)
+            validated_fp = validated_content_fingerprint(
+                passage,
+                question,
+                derived_key=independent.derived_key,
+                anchor_quote=independent.anchor_quote,
             )
-            practice.independently_validated = validated
-            if validated:
+
+            certified = (
+                structure_ok
+                and independent.verdict is ClatIndependentVerdict.PASS
+                and independent.derived_key == question.author_key
+                and independent.anchor_quote in passage.passage_text
+            )
+
+            practice = authored_to_practice_ref(question, fingerprint=authored_fp)
+            practice.independently_validated = certified
+            if certified:
                 practice.solver_evidence_id = f"d13-clat-solver-{question.question_id}"
 
             records.append(
@@ -127,16 +175,24 @@ def validate_clat_original_passage_bundle(
                     passage_id=passage.passage_id,
                     section_code=passage.section_code,
                     independent=independent,
-                    content_fingerprint=question_content_fingerprint(question),
+                    content_fingerprint=authored_fp,
+                    validated_content_fingerprint=validated_fp,
                 )
             )
 
+    clusters = [build_passage_cluster(p) for p in passage_list]
+    issue_codes = _dedupe_issues(issue_codes)
     validated_count = sum(1 for r in records if r.question.independently_validated)
+
     verdict = PlanVerdict.PASS
     if issue_codes:
         verdict = PlanVerdict.FAIL
     elif validated_count < 12:
         verdict = PlanVerdict.SHORTAGE
+
+    if verdict is not PlanVerdict.PASS:
+        _strip_certification(records)
+        validated_count = 0
 
     return ClatValidatedExamplesResult(
         verdict=verdict,
@@ -148,11 +204,11 @@ def validate_clat_original_passage_bundle(
         passages=passage_list,
         passage_clusters=clusters,
         questions=records,
-        issue_codes=_dedupe_issues(issue_codes),
+        issue_codes=issue_codes,
         metadata_json={
             "validated_clat_original_passage_examples": verdict is PlanVerdict.PASS,
             "validated_independent_count": validated_count,
-            "source_mode": "eduvijna_original_synthetic_test_only",
+            "source_mode": CLAT_ORIGINAL_SOURCE_MODE,
             "current_affairs_gk": "source_pending_not_included",
             "scoring_profile": {
                 "correct": CLAT_MARK_CORRECT,

@@ -95,7 +95,10 @@ LEGAL_PASSAGE = ClatOriginalPassage(
             question_id="d13-clat-q-legal-002",
             passage_id="d13-clat-p-legal-001",
             section_code="legal_reasoning",
-            stem_text="A bicycle crosses Elm Bridge on Tuesday at 07:45. What penalty applies?",
+            stem_text=(
+                "A kick-scooter registered at 0.15 tonnes crosses Elm Bridge on "
+                "Tuesday at 07:45. What penalty applies?"
+            ),
             options={
                 "A": "500 transit credits",
                 "B": "250 transit credits",
@@ -103,7 +106,7 @@ LEGAL_PASSAGE = ClatOriginalPassage(
                 "D": "Automatic impoundment",
             },
             author_key="C",
-            explanation="Rule 7 applies by mass; bicycles are not stated to exceed three tonnes.",
+            explanation="Registered mass 0.15 t is below Rule 7 during the morning window.",
         ),
         ClatAuthoredMcq(
             question_id="d13-clat-q-legal-003",
@@ -244,7 +247,13 @@ QUANT_PASSAGE = ClatOriginalPassage(
 )
 
 
-def load_official_f03b_passages() -> tuple[ClatOriginalPassage, ...]:
-    """Return the fixed F03-B iteration-1 passage set (four sections, twelve MCQs)."""
+def load_original_synthetic_f03b_passages() -> tuple[ClatOriginalPassage, ...]:
+    """Return the fixed F03-B synthetic passage set (four sections, twelve MCQs)."""
 
     return (ENGLISH_PASSAGE, LEGAL_PASSAGE, LOGICAL_PASSAGE, QUANT_PASSAGE)
+
+
+def load_official_f03b_passages() -> tuple[ClatOriginalPassage, ...]:
+    """Backward-compatible alias — synthetic fixtures only, not official CLAT sources."""
+
+    return load_original_synthetic_f03b_passages()

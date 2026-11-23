@@ -14,6 +14,7 @@ from app.cuet_clat.enums import PlanVerdict
 
 CLAT_ORIGINAL_SOURCE_MODE = "eduvijna_original_synthetic_test_only"
 CLAT_PASSAGE_HARNESS_TOKEN = "validated_clat_original_passage_examples"
+_ALLOWED_OPTION_KEYS = frozenset({"A", "B", "C", "D"})
 
 
 class ClatPassageIssueCode(StrEnum):
@@ -25,13 +26,17 @@ class ClatPassageIssueCode(StrEnum):
     MULTIPLE_CORRECT = "d13.clat.f03b.multiple_correct_options"
     DUPLICATE_QUESTION = "d13.clat.f03b.duplicate_question"
     DUPLICATE_PASSAGE = "d13.clat.f03b.duplicate_passage"
+    DUPLICATE_STEM = "d13.clat.f03b.duplicate_stem"
     PASSAGE_MISMATCH = "d13.clat.f03b.passage_cluster_mismatch"
     CROSS_SECTION = "d13.clat.f03b.cross_section_cluster"
     INDEPENDENT_FAIL = "d13.clat.f03b.independent_check_fail"
     UNSUPPORTED_INFERENCE = "d13.clat.f03b.unsupported_inference"
-    CONTENT_FINGERPRINT_STALE = "d13.clat.f03b.stale_fingerprint"
+    CONTENT_FINGERPRINT_STALE = "d13.clat.f03b.stale_content_fingerprint"
     HARNESS_UNAUTHORIZED = "d13.clat.f03b.harness_unauthorized"
     CURRENT_AFFAIRS_NOT_READY = "d13.clat.f03b.current_affairs_source_pending"
+    INVALID_SOURCE_MODE = "d13.clat.f03b.invalid_source_mode"
+    INVALID_OPTION_KEY = "d13.clat.f03b.invalid_option_key"
+    BLANK_PASSAGE = "d13.clat.f03b.blank_passage"
 
 
 class ClatIndependentVerdict(StrEnum):
@@ -57,15 +62,68 @@ class ClatOriginalPassage(BaseModel):
     questions: list[ClatAuthoredMcq] = Field(default_factory=list)
     source_mode: str = CLAT_ORIGINAL_SOURCE_MODE
 
+    def passage_text_sha256(self) -> str:
+        return hashlib.sha256(self.passage_text.encode()).hexdigest()
+
     def passage_fingerprint(self) -> str:
         payload = {
             "passage_id": self.passage_id,
             "section_code": self.section_code,
             "source_mode": self.source_mode,
-            "text": self.passage_text,
+            "passage_text_sha256": self.passage_text_sha256(),
         }
         raw = json.dumps(payload, sort_keys=True).encode()
         return hashlib.sha256(raw).hexdigest()[:40]
+
+
+def normalized_passage_body_key(section_code: str, passage_text: str) -> str:
+    normalized = " ".join(passage_text.split())
+    digest = hashlib.sha256(f"{section_code}|{normalized}".encode()).hexdigest()
+    return digest[:40]
+
+
+def authored_question_fingerprint(
+    passage: ClatOriginalPassage,
+    question: ClatAuthoredMcq,
+) -> str:
+    """Prevalidation fingerprint binding passage body to authored stem/options."""
+
+    payload = {
+        "passage_text_sha256": passage.passage_text_sha256(),
+        "passage_id": passage.passage_id,
+        "section": passage.section_code,
+        "source_mode": passage.source_mode,
+        "question_id": question.question_id,
+        "stem": question.stem_text.strip(),
+        "options": {k: v.strip() for k, v in sorted(question.options.items())},
+    }
+    raw = json.dumps(payload, sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:40]
+
+
+def validated_content_fingerprint(
+    passage: ClatOriginalPassage,
+    question: ClatAuthoredMcq,
+    *,
+    derived_key: str | None,
+    anchor_quote: str,
+) -> str:
+    """Post-proof fingerprint including independently derived answer and anchor."""
+
+    payload = {
+        "passage_text_sha256": passage.passage_text_sha256(),
+        "passage_id": passage.passage_id,
+        "section": passage.section_code,
+        "source_mode": passage.source_mode,
+        "question_id": question.question_id,
+        "stem": question.stem_text.strip(),
+        "options": {k: v.strip() for k, v in sorted(question.options.items())},
+        "derived_key": derived_key,
+        "author_key": question.author_key,
+        "anchor_quote": anchor_quote.strip(),
+    }
+    raw = json.dumps(payload, sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:40]
 
 
 def question_content_fingerprint(question: ClatAuthoredMcq) -> str:
@@ -94,6 +152,7 @@ class ClatValidatedQuestionRecord(BaseModel):
     section_code: str
     independent: ClatIndependentCheckResult
     content_fingerprint: str
+    validated_content_fingerprint: str = ""
 
 
 class ClatValidatedExamplesResult(BaseModel):
@@ -110,12 +169,16 @@ class ClatValidatedExamplesResult(BaseModel):
     metadata_json: dict[str, object] = Field(default_factory=dict)
 
 
-def authored_to_practice_ref(question: ClatAuthoredMcq) -> PracticeQuestionRef:
+def authored_to_practice_ref(
+    question: ClatAuthoredMcq,
+    *,
+    fingerprint: str,
+) -> PracticeQuestionRef:
     return PracticeQuestionRef(
         question_id=question.question_id,
         subject_code=question.section_code,
         passage_id=question.passage_id,
-        fingerprint=question_content_fingerprint(question),
+        fingerprint=fingerprint,
         correct_key=question.author_key,
         marks_if_correct=CLAT_MARK_CORRECT,
         marks_if_incorrect=CLAT_MARK_INCORRECT,
