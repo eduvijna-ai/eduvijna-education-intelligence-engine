@@ -78,6 +78,7 @@ class CuetSingleTestRequest(BaseModel):
     test_subject_code: str
     academic_year: str | None = None
     medium_code: str = "english"
+    organization_id: str | None = None
     metadata_json: dict[str, object] = Field(default_factory=dict)
 
 

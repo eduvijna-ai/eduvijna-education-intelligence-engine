@@ -20,7 +20,7 @@ from app.cuet_clat.cuet_persisted_pool import seed_validated_cuet_math_questions
 from app.cuet_clat.enums import CuetClatProfileKind, CuetClatSourceTrustMode, PlanVerdict
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
 from app.cuet_clat.governance import build_day13_governance_record
-from app.cuet_clat.persisted_context import PersistedCuetSelectionContext
+from app.cuet_clat.persisted_context import trusted_persisted_context
 from app.cuet_clat.practice_service import CuetPracticeService
 from app.cuet_clat.scope_ledger import load_repo_scope_counts
 from app.cuet_clat.source_registry import build_source_registry_snapshot
@@ -105,7 +105,7 @@ def build_verification_report(session: Session) -> dict[str, object]:
         exam_version_id=str(cuet_ver.id),
         pool_size=50,
     )
-    persisted_ctx = PersistedCuetSelectionContext(
+    persisted_ctx = trusted_persisted_context(
         exam_version_id=str(cuet_ver.id),
         organization_id=org_id,
         institution_id=inst_id,

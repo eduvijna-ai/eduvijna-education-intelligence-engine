@@ -29,6 +29,8 @@ from app.cuet_clat.enums import CuetClatSourceTrustMode, IssueCode, PlanVerdict
 from app.cuet_clat.persisted_context import (
     PERSISTED_SELECTION_TOKEN,
     PersistedCuetSelectionContext,
+    validate_persisted_practice_alignment,
+    validate_persisted_single_test_alignment,
 )
 from app.cuet_clat.scope_guard import (
     validate_cuet_math_practice,
@@ -314,11 +316,14 @@ class CuetPracticeService:
                 verdict=PlanVerdict.NOT_READY,
                 issues=_dedupe([*issues, IssueCode.MISSING_PERSISTED_CONTEXT]),
             )
-        if request.organization_id and request.organization_id != persisted.organization_id:
+        align_issues, align_verdict = validate_persisted_practice_alignment(
+            request, context=persisted, session=session
+        )
+        if align_verdict is not None:
             return self._reject_practice(
                 request,
-                verdict=PlanVerdict.FAIL,
-                issues=_dedupe([*issues, IssueCode.TENANT_ISOLATION]),
+                verdict=align_verdict,
+                issues=_dedupe([*issues, *align_issues]),
             )
 
         selected, select_issues, verdict = select_validated_cuet_questions(
@@ -360,6 +365,15 @@ class CuetPracticeService:
                 request,
                 verdict=PlanVerdict.NOT_READY,
                 issues=_dedupe([*issues, IssueCode.MISSING_PERSISTED_CONTEXT]),
+            )
+        align_issues, align_verdict = validate_persisted_single_test_alignment(
+            request, context=persisted, session=session
+        )
+        if align_verdict is not None:
+            return self._reject_single_test(
+                request,
+                verdict=align_verdict,
+                issues=_dedupe([*issues, *align_issues]),
             )
         target = persisted_target_count_for_single_test()
         selected, select_issues, verdict = select_validated_cuet_questions(

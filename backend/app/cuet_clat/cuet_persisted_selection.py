@@ -38,6 +38,7 @@ def select_validated_cuet_questions(
 
     chosen: list[PracticeQuestionRef] = []
     seen_ids: set[str] = set()
+    seen_stems: set[str] = set()
     blocking: list[IssueCode] = []
 
     for row in rows:
@@ -70,7 +71,11 @@ def select_validated_cuet_questions(
         if qid in seen_ids:
             blocking.append(IssueCode.DUPLICATE_QUESTION)
             continue
+        stem_norm = (row.stem_text or "").strip().lower()
+        if stem_norm in seen_stems:
+            continue
         seen_ids.add(qid)
+        seen_stems.add(stem_norm)
         correct = next(opt for opt in row.options if opt.is_correct)
         chosen.append(
             PracticeQuestionRef(

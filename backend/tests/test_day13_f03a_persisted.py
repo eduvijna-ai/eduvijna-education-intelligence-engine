@@ -2,20 +2,32 @@
 
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+import hashlib
+from unittest.mock import patch
+
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.cuet_clat.constants import CUET_PACK_CODE, CUET_QUESTIONS_PER_TEST, MATHEMATICS_DOMAIN
 from app.cuet_clat.contracts import CuetPracticeRequest, CuetSingleTestRequest
+from app.cuet_clat.cuet_fixture_curriculum import (
+    D13_FIXTURE_SOURCE_BYTES,
+    seed_cuet_math_fixture_curriculum,
+)
 from app.cuet_clat.cuet_persisted_pool import seed_validated_cuet_math_questions
 from app.cuet_clat.enums import CuetClatProfileKind, CuetClatSourceTrustMode, IssueCode, PlanVerdict
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
-from app.cuet_clat.persisted_context import PersistedCuetSelectionContext
+from app.cuet_clat.persisted_context import (
+    PersistedCuetSelectionContext,
+    trusted_persisted_context,
+)
 from app.cuet_clat.practice_service import CuetPracticeService
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-from app.models import Question
+from app.models import Question, QuestionOption, ValidationAuditRun
+from app.models.enums import SourceType
+from app.models.source import Source, SourceRevision
 
 
 def _session() -> Session:
@@ -32,7 +44,7 @@ def _persisted_ctx(
     inst: str = "inst-f03a",
 ) -> PersistedCuetSelectionContext:
     cuet_ver, _ = ensure_synthetic_demo_versions(session)
-    return PersistedCuetSelectionContext(
+    return trusted_persisted_context(
         exam_version_id=str(cuet_ver.id),
         organization_id=org,
         institution_id=inst,
@@ -51,6 +63,25 @@ def _synthetic_request(count: int = 10) -> CuetPracticeRequest:
         medium_code="english",
         organization_id="org-f03a",
     )
+
+
+def test_f03a_fixture_source_non_official_with_real_receipts() -> None:
+    with _session() as session:
+        seed_cuet_math_fixture_curriculum(session)
+        sources = session.scalars(select(Source)).all()
+        assert sources
+        for src in sources:
+            assert src.source_type == SourceType.SAMPLE_PAPER.value
+            assert src.source_type != SourceType.OFFICIAL_SYLLABUS.value
+            meta = dict(src.metadata_json or {})
+            assert meta.get("not_official_cuet_source") is True
+            assert meta.get("fixture_bytes_sha256") == hashlib.sha256(D13_FIXTURE_SOURCE_BYTES).hexdigest()
+        revisions = session.scalars(select(SourceRevision)).all()
+        for rev in revisions:
+            assert rev.checksum == hashlib.sha256(D13_FIXTURE_SOURCE_BYTES).hexdigest()
+            meta = dict(rev.metadata_json or {})
+            assert meta.get("fixture_sample_paper_only") is True
+            assert meta.get("not_nta_official_active_slot") is True
 
 
 def test_f03a_seed_and_math10_persisted_positive() -> None:
@@ -81,6 +112,31 @@ def test_f03a_seed_and_math10_persisted_positive() -> None:
         assert all(q.validation_audit_id and q.solver_evidence_id for q in result.questions)
 
 
+def test_f03a_idempotent_double_seed_same_ids() -> None:
+    with _session() as session:
+        ctx = _persisted_ctx(session)
+        first = seed_validated_cuet_math_questions(
+            session,
+            organization_id=ctx.organization_id,
+            institution_id=ctx.institution_id,
+            exam_version_id=ctx.exam_version_id,
+            pool_size=50,
+        )
+        audit_count_1 = session.scalar(select(func.count()).select_from(ValidationAuditRun))
+        second = seed_validated_cuet_math_questions(
+            session,
+            organization_id=ctx.organization_id,
+            institution_id=ctx.institution_id,
+            exam_version_id=ctx.exam_version_id,
+            pool_size=50,
+        )
+        audit_count_2 = session.scalar(select(func.count()).select_from(ValidationAuditRun))
+        q_count = session.scalar(select(func.count()).select_from(Question))
+        assert first == second
+        assert audit_count_1 == audit_count_2
+        assert q_count == 50
+
+
 def test_f03a_single_test_50_persisted() -> None:
     with _session() as session:
         ctx = _persisted_ctx(session)
@@ -100,6 +156,7 @@ def test_f03a_single_test_50_persisted() -> None:
                 test_subject_code=MATHEMATICS_DOMAIN,
                 academic_year="2026",
                 medium_code="english",
+                organization_id=ctx.organization_id,
             ),
             session=session,
             persisted=ctx,
@@ -170,6 +227,110 @@ def test_f03a_wrong_org_fails_closed() -> None:
         assert result.questions == []
 
 
+def test_f03a_missing_org_fails_closed() -> None:
+    with _session() as session:
+        ctx = _persisted_ctx(session)
+        seed_validated_cuet_math_questions(
+            session,
+            organization_id=ctx.organization_id,
+            institution_id=ctx.institution_id,
+            exam_version_id=ctx.exam_version_id,
+            pool_size=15,
+        )
+        svc = CuetPracticeService()
+        bad = _synthetic_request(10).model_copy(update={"organization_id": None})
+        result = svc.allocate_practice(bad, session=session, persisted=ctx)
+        assert result.verdict == PlanVerdict.FAIL
+        assert IssueCode.TENANT_ISOLATION in result.issue_codes
+
+
+def test_f03a_wrong_medium_fails_closed() -> None:
+    with _session() as session:
+        ctx = _persisted_ctx(session)
+        seed_validated_cuet_math_questions(
+            session,
+            organization_id=ctx.organization_id,
+            institution_id=ctx.institution_id,
+            exam_version_id=ctx.exam_version_id,
+            pool_size=15,
+        )
+        svc = CuetPracticeService()
+        bad = _synthetic_request(10).model_copy(update={"medium_code": "hindi"})
+        result = svc.allocate_practice(bad, session=session, persisted=ctx)
+        assert result.verdict == PlanVerdict.FAIL
+        assert IssueCode.WRONG_MEDIUM in result.issue_codes
+        assert result.questions == []
+
+
+def test_f03a_changed_marks_vetoes_selection() -> None:
+    with _session() as session:
+        ctx = _persisted_ctx(session)
+        seed_validated_cuet_math_questions(
+            session,
+            organization_id=ctx.organization_id,
+            institution_id=ctx.institution_id,
+            exam_version_id=ctx.exam_version_id,
+            pool_size=10,
+        )
+        for row in session.scalars(select(Question)).all():
+            meta = dict(row.metadata_json or {})
+            meta["marks_correct"] = 4.0
+            row.metadata_json = meta
+        session.commit()
+        svc = CuetPracticeService()
+        result = svc.allocate_practice(_synthetic_request(10), session=session, persisted=ctx)
+        assert result.verdict == PlanVerdict.SHORTAGE
+        assert result.questions == []
+
+
+def test_f03a_untrusted_selection_token_not_ready() -> None:
+    with _session() as session:
+        cuet_ver, _ = ensure_synthetic_demo_versions(session)
+        ctx = trusted_persisted_context(
+            exam_version_id=str(cuet_ver.id),
+            organization_id="org-f03a",
+            institution_id="inst-f03a",
+        ).model_copy(update={"selection_token": "spoofed-token"})
+        result = CuetPracticeService().allocate_practice(
+            _synthetic_request(10), session=session, persisted=ctx
+        )
+        assert result.verdict == PlanVerdict.NOT_READY
+        assert IssueCode.MISSING_PERSISTED_CONTEXT in result.issue_codes
+
+
+def test_f03a_forced_validation_failure_rolls_back() -> None:
+    with _session() as session:
+        ctx = _persisted_ctx(session)
+        calls = {"n": 0}
+
+        def _boom(*_a, **_k):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise RuntimeError("injected validation failure")
+            from app.cuet_clat import cuet_validation_bridge
+
+            return cuet_validation_bridge.run_day6_validation_for_question(*_a, **_k)
+
+        with patch(
+            "app.cuet_clat.cuet_persisted_pool.run_day6_validation_for_question",
+            side_effect=_boom,
+        ):
+            try:
+                seed_validated_cuet_math_questions(
+                    session,
+                    organization_id=ctx.organization_id,
+                    institution_id=ctx.institution_id,
+                    exam_version_id=ctx.exam_version_id,
+                    pool_size=5,
+                )
+            except RuntimeError:
+                pass
+        approved = session.scalar(
+            select(func.count()).select_from(Question).where(Question.status == "approved")
+        )
+        assert approved == 0
+
+
 def test_f03a_legacy_fixture_demo_unchanged() -> None:
     svc = CuetPracticeService()
     result = svc.allocate_practice(_synthetic_request(10))
@@ -185,3 +346,23 @@ def test_f03a_persisted_requires_session() -> None:
         result = svc.allocate_practice(_synthetic_request(10), session=None, persisted=ctx)
         assert result.verdict == PlanVerdict.NOT_READY
         assert IssueCode.MISSING_PERSISTED_CONTEXT in result.issue_codes
+
+
+def test_f03a_wrong_correct_flag_vetoes() -> None:
+    with _session() as session:
+        ctx = _persisted_ctx(session)
+        seed_validated_cuet_math_questions(
+            session,
+            organization_id=ctx.organization_id,
+            institution_id=ctx.institution_id,
+            exam_version_id=ctx.exam_version_id,
+            pool_size=10,
+        )
+        for opt in session.scalars(select(QuestionOption).where(QuestionOption.is_correct.is_(True))).all():
+            opt.is_correct = False
+        session.commit()
+        result = CuetPracticeService().allocate_practice(
+            _synthetic_request(10), session=session, persisted=ctx
+        )
+        assert result.verdict == PlanVerdict.SHORTAGE
+        assert result.questions == []
