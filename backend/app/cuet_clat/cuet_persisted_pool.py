@@ -7,29 +7,80 @@ from sqlalchemy.orm import Session
 
 from app.cuet_clat.constants import CUET_MARK_CORRECT, CUET_MARK_INCORRECT, MATHEMATICS_DOMAIN
 from app.cuet_clat.cuet_fixture_curriculum import seed_cuet_math_fixture_curriculum
-from app.cuet_clat.cuet_math_author import OPTION_KEYS, generate_cuet_math_authored_items
+from app.cuet_clat.cuet_math_author import (
+    OPTION_KEYS,
+    CuetMathAuthoredItem,
+    generate_cuet_math_authored_items,
+)
 from app.cuet_clat.cuet_math_solver import solver_confirms_author
-from app.cuet_clat.cuet_validation_bridge import run_day6_validation_for_question
+from app.cuet_clat.cuet_validation_bridge import (
+    authored_item_content_fingerprint,
+    persisted_validation_covers_question,
+    run_day6_validation_for_question,
+)
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
 from app.models import Question, QuestionOption
 from app.models.enums import QuestionOrigin, QuestionStatus, QuestionType
 
 
-def _find_approved_question(
+def _fixture_scope_matches(
+    meta: dict[str, object],
+    *,
+    organization_id: str,
+    institution_id: str,
+    exam_version_id: str,
+    medium_code: str,
+    academic_year: str,
+    subject_code: str,
+) -> bool:
+    return (
+        meta.get("d13_synthetic_fixture") is True
+        and str(meta.get("organization_id") or "") == organization_id
+        and str(meta.get("institution_id") or "") == institution_id
+        and str(meta.get("medium_code") or "") == medium_code
+        and str(meta.get("academic_year") or "") == academic_year
+        and str(meta.get("subject_code") or "") == subject_code
+    )
+
+
+def _find_reusable_scoped_question(
     session: Session,
     *,
-    external_code: str,
+    authored: CuetMathAuthoredItem,
     organization_id: str,
+    institution_id: str,
     exam_version_id: str,
+    medium_code: str,
+    academic_year: str,
+    subject_code: str,
 ) -> Question | None:
-    stmt = select(Question).where(Question.external_code == external_code)
+    expected_fp = authored_item_content_fingerprint(authored)
+    stmt = select(Question).where(Question.external_code == authored.external_code)
     for row in session.scalars(stmt).all():
         if str(row.exam_version_id) != exam_version_id:
             continue
         meta = dict(row.metadata_json or {})
-        if meta.get("organization_id") != organization_id:
+        if not _fixture_scope_matches(
+            meta,
+            organization_id=organization_id,
+            institution_id=institution_id,
+            exam_version_id=exam_version_id,
+            medium_code=medium_code,
+            academic_year=academic_year,
+            subject_code=subject_code,
+        ):
             continue
-        if row.status == QuestionStatus.APPROVED.value and meta.get("d13_synthetic_fixture"):
+        if meta.get("d13_authored_content_fingerprint") != expected_fp:
+            continue
+        if row.status != QuestionStatus.APPROVED.value:
+            continue
+        ok, _reason = persisted_validation_covers_question(
+            session,
+            question=row,
+            organization_id=organization_id,
+            institution_id=institution_id,
+        )
+        if ok:
             return row
     return None
 
@@ -53,11 +104,15 @@ def seed_validated_cuet_math_questions(
     created_ids: list[str] = []
     try:
         for authored in generate_cuet_math_authored_items(count=pool_size):
-            existing = _find_approved_question(
+            existing = _find_reusable_scoped_question(
                 session,
-                external_code=authored.external_code,
+                authored=authored,
                 organization_id=organization_id,
+                institution_id=institution_id,
                 exam_version_id=resolved_exam_version_id,
+                medium_code=medium_code,
+                academic_year=academic_year,
+                subject_code=MATHEMATICS_DOMAIN,
             )
             if existing is not None:
                 created_ids.append(str(existing.id))
@@ -68,6 +123,7 @@ def seed_validated_cuet_math_questions(
                 continue
 
             correct_key = evidence.answer_key
+            content_fp = authored_item_content_fingerprint(authored)
             question = Question(
                 external_code=authored.external_code,
                 origin_type=QuestionOrigin.GENERATED.value,
@@ -79,6 +135,7 @@ def seed_validated_cuet_math_questions(
                 status=QuestionStatus.DRAFT.value,
                 metadata_json={
                     "d13_synthetic_fixture": True,
+                    "synthetic_test_only": True,
                     "not_official_cuet_item": True,
                     "organization_id": organization_id,
                     "institution_id": institution_id,
@@ -88,6 +145,7 @@ def seed_validated_cuet_math_questions(
                     "academic_year": academic_year,
                     "marks_correct": CUET_MARK_CORRECT,
                     "marks_incorrect": CUET_MARK_INCORRECT,
+                    "d13_authored_content_fingerprint": content_fp,
                 },
             )
             for seq, key in enumerate(OPTION_KEYS):

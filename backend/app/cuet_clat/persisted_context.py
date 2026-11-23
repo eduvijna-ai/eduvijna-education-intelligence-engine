@@ -30,6 +30,10 @@ class PersistedCuetSelectionContext(BaseModel):
     selection_token: str = Field(
         description="Must equal PERSISTED_SELECTION_TOKEN; no implicit default auth",
     )
+    harness_authorized: bool = Field(
+        default=False,
+        description="True only when issued by trusted test/service harness (not public callers)",
+    )
 
 
 def trusted_persisted_context(
@@ -47,11 +51,14 @@ def trusted_persisted_context(
         medium_code=medium_code,
         academic_year=academic_year,
         selection_token=PERSISTED_SELECTION_TOKEN,
+        harness_authorized=True,
     )
 
 
 def assert_trusted_persisted_context(context: PersistedCuetSelectionContext) -> bool:
-    return context.selection_token == PERSISTED_SELECTION_TOKEN
+    return (
+        context.selection_token == PERSISTED_SELECTION_TOKEN and context.harness_authorized is True
+    )
 
 
 def resolve_trusted_exam_version(

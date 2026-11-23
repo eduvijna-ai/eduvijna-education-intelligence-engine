@@ -16,7 +16,7 @@ from app.models.curriculum import (
     EducationFramework,
     LearningOutcome,
 )
-from app.models.enums import CurriculumNodeType, CurriculumStatus, SourceType
+from app.models.enums import CurriculumNodeType, CurriculumStatus, SourceTrustTier, SourceType
 from app.models.source import Source, SourceRevision
 
 D13_CURRICULUM_VERSION_CODE = "d13-synthetic-2026"
@@ -71,6 +71,7 @@ def seed_cuet_math_fixture_curriculum(session: Session) -> dict[str, str]:
     source = Source(
         source_type=SourceType.SAMPLE_PAPER.value,
         title="D13 sample-paper math fixture (synthetic, non-official)",
+        trust_tier=SourceTrustTier.ANALYTICAL.value,
         metadata_json={
             "d13_synthetic_fixture": True,
             "not_official_cuet_source": True,

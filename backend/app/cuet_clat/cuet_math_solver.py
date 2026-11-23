@@ -9,7 +9,7 @@ from app.cuet_clat.cuet_math_author import CuetMathAuthoredItem
 from app.models import Question
 
 _ADD_PATTERN = re.compile(
-    r"Synthetic CUET Mathematics: what is (\d+) \+ (\d+)\?",
+    r"^Synthetic CUET Mathematics: what is (\d+) \+ (\d+)\?\s*$",
     re.IGNORECASE,
 )
 
@@ -23,7 +23,7 @@ class CuetSolverEvidence:
 
 
 def solve_authored_item(item: CuetMathAuthoredItem) -> CuetSolverEvidence | None:
-    match = _ADD_PATTERN.match(item.stem_text.strip())
+    match = _ADD_PATTERN.fullmatch(item.stem_text.strip())
     if not match:
         return None
     left = int(match.group(1))
@@ -59,7 +59,7 @@ def solver_confirms_author(item: CuetMathAuthoredItem) -> tuple[bool, CuetSolver
 def solve_persisted_question(question: Question) -> CuetSolverEvidence | None:
     """Re-derive answer from visible stem/options only (no answer_json trust)."""
 
-    match = _ADD_PATTERN.match((question.stem_text or "").strip())
+    match = _ADD_PATTERN.fullmatch((question.stem_text or "").strip())
     if not match:
         return None
     left = int(match.group(1))

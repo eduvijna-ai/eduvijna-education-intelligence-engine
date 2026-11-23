@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.cuet_clat.constants import CUET_MARK_CORRECT, CUET_MARK_INCORRECT
 from app.cuet_clat.cuet_canonical_mapping import question_to_canonical_assessment_item
+from app.cuet_clat.cuet_math_author import CuetMathAuthoredItem
 from app.cuet_clat.cuet_math_solver import CuetSolverEvidence, solve_persisted_question
 from app.education_intelligence.audit import persist_validation_run
+from app.education_intelligence.context import ValidationContext
 from app.education_intelligence.enums import ValidationStatus
 from app.education_intelligence.service import EducationIntelligenceValidationService
 from app.jee_advanced.question_fingerprint import question_content_fingerprint
@@ -37,6 +39,9 @@ def _binding_payload(
     taxonomy_version: str,
     policy_version: str,
     run_id: str,
+    validator_versions: dict[str, str] | None = None,
+    quality_rule_pack_version: str | None = None,
+    safety_rules_version: str | None = None,
 ) -> dict[str, object]:
     return {
         "organization_id": organization_id,
@@ -57,6 +62,9 @@ def _binding_payload(
         "day6_taxonomy_version": taxonomy_version,
         "day6_policy_version": policy_version,
         "day6_validation_run_id": run_id,
+        "day6_validator_versions": dict(validator_versions or {}),
+        "day6_quality_rule_pack_version": quality_rule_pack_version,
+        "day6_safety_rules_version": safety_rules_version,
         "stem_text": question.stem_text,
         "answer_option_key": (question.answer_json or {}).get("option_key"),
         "option_keys": sorted(o.option_key for o in question.options),
@@ -66,6 +74,67 @@ def _binding_payload(
 
 def _binding_hash(payload: dict[str, object]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def authored_item_content_fingerprint(item: CuetMathAuthoredItem) -> str:
+    payload = {
+        "external_code": item.external_code,
+        "stem_text": item.stem_text,
+        "option_text_by_key": dict(sorted(item.option_text_by_key.items())),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def _active_day6_provenance(
+    session: Session,
+    *,
+    curriculum_version_id: str,
+) -> ValidationContext:
+    return ValidationContext.create(
+        session,
+        curriculum_version_id=curriculum_version_id,
+        board_code="cbse",
+    )
+
+
+def audit_matches_active_day6_provenance(
+    session: Session,
+    record: ValidationAuditRun,
+    binding: dict[str, object],
+) -> tuple[bool, str | None]:
+    curriculum_version_id = str(binding.get("curriculum_version_id") or "")
+    if not curriculum_version_id:
+        return False, "missing_curriculum_version"
+    ctx = _active_day6_provenance(session, curriculum_version_id=curriculum_version_id)
+    if record.taxonomy_version != ctx.taxonomy.version:
+        return False, "taxonomy_superseded"
+    if record.policy_version != ctx.policy.version:
+        return False, "policy_superseded"
+    record_meta = dict(record.metadata_json or {})
+    quality = record_meta.get("quality_rule_pack_version")
+    if ctx.quality_rule_pack and quality != ctx.quality_rule_pack.version:
+        return False, "quality_pack_superseded"
+    safety = record_meta.get("safety_rules_version")
+    if ctx.safety_rule_pack and safety != ctx.safety_rule_pack.version:
+        return False, "safety_rules_superseded"
+    if str(binding.get("day6_taxonomy_version") or "") != ctx.taxonomy.version:
+        return False, "binding_taxonomy_stale"
+    if str(binding.get("day6_policy_version") or "") != ctx.policy.version:
+        return False, "binding_policy_stale"
+    bound_quality = binding.get("day6_quality_rule_pack_version")
+    if ctx.quality_rule_pack:
+        if bound_quality not in (None, "") and bound_quality != ctx.quality_rule_pack.version:
+            return False, "binding_quality_stale"
+    bound_safety = binding.get("day6_safety_rules_version")
+    if ctx.safety_rule_pack:
+        if bound_safety not in (None, "") and bound_safety != ctx.safety_rule_pack.version:
+            return False, "binding_safety_stale"
+    if binding.get("day6_validator_versions"):
+        stored_validators = dict(record_meta.get("validator_versions") or {})
+        bound_validators = dict(binding.get("day6_validator_versions") or {})
+        if stored_validators != bound_validators:
+            return False, "validator_versions_mismatch"
+    return True, None
 
 
 def validate_mcq_integrity(question: Question) -> tuple[bool, str | None]:
@@ -193,6 +262,9 @@ def run_day6_validation_for_question(
         taxonomy_version=record.taxonomy_version,
         policy_version=record.policy_version,
         run_id=record.run_id,
+        validator_versions=summary.validator_versions,
+        quality_rule_pack_version=str(summary.metadata.get("quality_rule_pack_version") or ""),
+        safety_rules_version=str(summary.metadata.get("safety_rules_version") or ""),
     )
     meta = dict(question.metadata_json or {})
     meta["day6_validation_audit_id"] = summary.run_id
@@ -274,10 +346,9 @@ def persisted_validation_covers_question(
     scope = dict((record.metadata_json or {}).get("scope") or {})
     if scope.get("organization_id") and scope.get("organization_id") != organization_id:
         return False, "audit_org_mismatch"
-    if record.taxonomy_version != str(binding.get("day6_taxonomy_version") or ""):
-        return False, "taxonomy_version_drift"
-    if record.policy_version != str(binding.get("day6_policy_version") or ""):
-        return False, "policy_version_drift"
+    ok_active, active_reason = audit_matches_active_day6_provenance(session, record, binding)
+    if not ok_active:
+        return False, active_reason
 
     canonical = question_to_canonical_assessment_item(
         question,
@@ -312,6 +383,9 @@ def persisted_validation_covers_question(
         taxonomy_version=record.taxonomy_version,
         policy_version=record.policy_version,
         run_id=run_id,
+        validator_versions=dict(binding.get("day6_validator_versions") or {}),
+        quality_rule_pack_version=str(binding.get("day6_quality_rule_pack_version") or ""),
+        safety_rules_version=str(binding.get("day6_safety_rules_version") or ""),
     )
     if _binding_hash(rebound) != str(binding.get("binding_hash") or ""):
         return False, "issuance_binding_stale"

@@ -348,6 +348,7 @@ class CuetPracticeService:
             metadata_json={
                 "demonstration_only": False,
                 "validated_persisted_synthetic": True,
+                "synthetic_test_only": True,
                 "trust_mode": request.trust_mode.value,
             },
         )
@@ -400,6 +401,7 @@ class CuetPracticeService:
             metadata_json={
                 "demonstration_only": False,
                 "validated_persisted_synthetic": True,
+                "synthetic_test_only": True,
             },
         )
 

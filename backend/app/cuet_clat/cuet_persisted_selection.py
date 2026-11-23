@@ -20,6 +20,15 @@ def _question_has_single_correct(question: Question) -> bool:
     return len(correct) == 1 and len(question.options) == 4
 
 
+def _tenant_owns_row(meta: dict[str, object], context: PersistedCuetSelectionContext) -> bool:
+    return (
+        meta.get("d13_synthetic_fixture") is True
+        and meta.get("not_official_cuet_item") is True
+        and str(meta.get("organization_id") or "") == context.organization_id
+        and str(meta.get("institution_id") or "") == context.institution_id
+    )
+
+
 def select_validated_cuet_questions(
     session: Session,
     *,
@@ -43,10 +52,9 @@ def select_validated_cuet_questions(
 
     for row in rows:
         meta = dict(row.metadata_json or {})
-        if not meta.get("d13_synthetic_fixture"):
+        if not _tenant_owns_row(meta, context):
             continue
-        if meta.get("not_official_cuet_item") is not True:
-            continue
+
         if str(meta.get("subject_code") or "") != test_subject_code:
             blocking.append(IssueCode.WRONG_SUBJECT)
             continue
