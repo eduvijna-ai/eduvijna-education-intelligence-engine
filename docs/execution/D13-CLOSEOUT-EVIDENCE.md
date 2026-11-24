@@ -1,6 +1,7 @@
-# Day 13 closeout — 36-task evidence freeze (Round 2/3)
+# Day 13 closeout — 36-task evidence freeze (Round 3/3)
 
-**Evidence SHA (audit baseline):** `86a1fa36a95cf2d32cf1c17d89b17c667f311531`  
+**Final packet:** [D13-CLOSEOUT-FINAL-R3.md](./D13-CLOSEOUT-FINAL-R3.md)  
+**Evidence SHA (R2 freeze baseline):** `86a1fa36a95cf2d32cf1c17d89b17c667f311531` · **R3 regression @** `2e61828248c5f8cbec241532ce1e68dff29cf8c2` ([R3 raw](./D13-R3-FULL-REGRESSION-RAW.txt))  
 **PR:** [#53](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53) (Draft / unmerged) → `develop@db2e4a79fb50eedb48e9bae65d3984fcbb8c1f69`  
 **Authoritative tasklist:** [Issue #52](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/52)  
 **Ledger (this freeze):** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36**
@@ -140,7 +141,7 @@ Legend: **PROVEN** = evidenced at engineering demo level; **NOT_PROVEN** = gap v
 | | | 121 CLAT rejected | **NOT_PROVEN** |
 | | | Foreign tenant / tampered key | PARTIAL (some vectors in adversarial + replay tests) |
 | D13-34 | Integration Day3–10 + Day12 boundaries; SQLite/PG DDL parity; explicit source fail-closed | Day13 scoped tests | PROVEN |
-| | | Full cross-day + full historical green | **NOT_PROVEN** (8 failures reported; see R2 attribution) |
+| | | Full cross-day + full historical green | **NOT_PROVEN for acceptance** (R3: 2395 pass local SQLite + venv PATH — PG/Compose/source still open; ledger unchanged) |
 | | | Live PG parity | NOT_PROVEN |
 | D13-35 | day13 verifier synthetic vs source vs future-unverified; Ruff/Mypy/pytest; migration/Compose as run | Targeted CI + verifiers | PROVEN |
 | | | Full historical + Compose not skipped as PASS | **NOT_PROVEN** |

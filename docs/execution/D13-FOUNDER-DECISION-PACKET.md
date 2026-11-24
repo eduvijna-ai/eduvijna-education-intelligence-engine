@@ -1,7 +1,8 @@
 # Day 13 — Founder decision packet (prepare R3 / final round)
 
-**PR #53 HEAD (R2):** `86a1fa36a95cf2d32cf1c17d89b17c667f311531`  
-**Round:** 2 of 3 — **R3 is final** (no Round 4)  
+**PR #53 HEAD (R3 candidate):** see [D13-CLOSEOUT-FINAL-R3.md](./D13-CLOSEOUT-FINAL-R3.md) and PR `EDUVIJNA_CURSOR_COMPLETE` line  
+**Starting SHA (R3):** `2e61828248c5f8cbec241532ce1e68dff29cf8c2`  
+**Round:** 3 of 3 — **FINAL** (no Round 4)  
 **Founder UAT performed:** **NOT_RUN**  
 **Ledger:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED**
 
@@ -16,7 +17,7 @@
 | D13-31 durable issuance (Questions/TestDefinitions) | Engineering | **NOT_PROVEN** | Beyond SQL envelope |
 | Day6/7/8/9/10 live integration + AnythingLLM | Engineering + env | **NOT_RUN** | Configured smoke with receipts |
 | PostgreSQL Alembic `20261124_0019–0021` live migrate | Engineering + infra | **NOT_RUN** | Disposable PG; **0021 `json_extract` blocker** documented — **no patch in closeout** |
-| Full historical `pytest tests/` | Engineering | **RED (8 reported)** | R2: ENVIRONMENT_SUSPECTED for named eight — full green **not claimed** |
+| Full historical `pytest tests/` | Engineering | **R3: 2395 pass (local SQLite, venv PATH)** | Does **not** clear PG/Compose/source/Founder gates — see [D13-CLOSEOUT-REGRESSION-R3.md](./D13-CLOSEOUT-REGRESSION-R3.md) |
 | Compose smoke | CI / Founder | **SKIPPED** (Draft) | Not PASS; do not mark Ready without Founder |
 | Founder localhost UAT + D13-36 signoff | Founder | **NOT_STARTED** | Runbook: [D13-FOUNDER-LOCALHOST-UAT.md](./D13-FOUNDER-LOCALHOST-UAT.md) |
 | `founder_approval` + Day14 unlock | Founder | **false / LOCKED** | Separate gate after acceptance path |

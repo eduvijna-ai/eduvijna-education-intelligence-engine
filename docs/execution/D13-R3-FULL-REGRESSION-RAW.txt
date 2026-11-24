@@ -1,0 +1,83 @@
+D13 Closeout R3 — full historical regression
+SHA: 2e61828248c5f8cbec241532ce1e68dff29cf8c2
+Started: 2026-11-24T09:39:42Z
+python: Python 3.12.3
+sys.executable: /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin/python
+alembic: /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin/alembic
+python -m alembic: alembic 1.20.1
+PATH prefix: /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin
+Command: set -o pipefail && cd backend && PATH=... python -m pytest tests/ -ra
+---
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 12%]
+........................................................................ [ 15%]
+........................................................................ [ 18%]
+........................................................................ [ 21%]
+........................................................................ [ 24%]
+........................................................................ [ 27%]
+........................................................................ [ 30%]
+........................................................................ [ 33%]
+........................................................................ [ 36%]
+........................................................................ [ 39%]
+........................................................................ [ 42%]
+........................................................................ [ 45%]
+........................................................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 54%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 63%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 78%]
+........................................................................ [ 81%]
+........................................................................ [ 84%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 93%]
+........................................................................ [ 96%]
+........................................................................ [ 99%]
+...................                                                      [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18
+  /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_core.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_e2e_truth_gate.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_independent_replay_integrity.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_issuance_atomicity.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_snapshot_answer_binding.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+tests/test_day10_r14_trust.py: 1 warning
+tests/test_day13_d31a_durable_replay.py: 1 warning
+tests/test_day3_final_compatibility.py: 2 warnings
+tests/test_day3_rework_migration.py: 2 warnings
+tests/test_day4_successor_migration.py: 5 warnings
+tests/test_source_intelligence_migration.py: 1 warning
+  /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2395 passed, 18 warnings in 1834.80s (0:30:34)
+---
+pytest exit code: 0
+Finished: 2026-11-24T10:10:23Z

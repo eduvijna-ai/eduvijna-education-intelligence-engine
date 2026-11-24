@@ -2,7 +2,7 @@
 
 **Status:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (engineering checkpoint; D13-36 not Founder-accepted).  
 **Authoritative specification:** [Issue #52](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/52).  
-**Closeout (Round 2/3):** [D13-CLOSEOUT-EVIDENCE.md](./D13-CLOSEOUT-EVIDENCE.md), [D13-CLOSEOUT-RELEASE-GATES.md](./D13-CLOSEOUT-RELEASE-GATES.md), [D13-CLOSEOUT-REGRESSION-R2.md](./D13-CLOSEOUT-REGRESSION-R2.md), [D13-FOUNDER-LOCALHOST-UAT.md](./D13-FOUNDER-LOCALHOST-UAT.md), [D13-FOUNDER-DECISION-PACKET.md](./D13-FOUNDER-DECISION-PACKET.md).  
+**Closeout (Round 3/3 — FINAL):** [D13-CLOSEOUT-FINAL-R3.md](./D13-CLOSEOUT-FINAL-R3.md), [D13-CLOSEOUT-EVIDENCE.md](./D13-CLOSEOUT-EVIDENCE.md), [D13-CLOSEOUT-REGRESSION-R3.md](./D13-CLOSEOUT-REGRESSION-R3.md), [D13-CLOSEOUT-RELEASE-GATES.md](./D13-CLOSEOUT-RELEASE-GATES.md), [D13-FOUNDER-DECISION-PACKET.md](./D13-FOUNDER-DECISION-PACKET.md), [D13-FOUNDER-LOCALHOST-UAT.md](./D13-FOUNDER-LOCALHOST-UAT.md) (R2: [D13-CLOSEOUT-REGRESSION-R2.md](./D13-CLOSEOUT-REGRESSION-R2.md)).  
 **Branch:** `feature/day13-cuet-clat-intelligence`. Day11 ON_HOLD; Day13 ACTIVE `founder_approval:false`; Day14 LOCKED.
 
 | ID | Approved task | Evidence / test IDs | State | Blocker / remaining proof |
