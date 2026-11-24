@@ -83,7 +83,13 @@ def verify_item_matches_persisted_row(
     row_marks_incorrect: Decimal,
     row_marks_blank: Decimal,
     policy_version: str,
+    row_question_id: str | None = None,
+    row_item_sequence: int | None = None,
 ) -> bool:
+    if row_question_id is not None and item.question_id != row_question_id:
+        return False
+    if row_item_sequence is not None and item.item_sequence != row_item_sequence:
+        return False
     if compute_item_fingerprint(item) != row_fingerprint:
         return False
     if Decimal(str(item.marks_if_correct)) != Decimal(str(row_marks_correct)):

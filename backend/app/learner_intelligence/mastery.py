@@ -64,7 +64,6 @@ def compute_mastery_from_events(
             ScoringVerdict.CORRECT.value,
             ScoringVerdict.INCORRECT.value,
             ScoringVerdict.PARTIAL.value,
-            ScoringVerdict.BLANK.value,
         )
     ]
     def _event_order_key(ev: ScoreEvidenceEvent) -> tuple[float, int]:
@@ -100,7 +99,7 @@ def compute_mastery_from_events(
         e.verdict in (ScoringVerdict.INCORRECT.value, ScoringVerdict.PARTIAL.value)
         for e in last_three
     )
-    had_prior_strength = correct + incorrect >= 5
+    had_prior_strength = len(older) >= 3 and (correct + incorrect) >= 5
 
     attempts = correct + incorrect
     return MasterySnapshot(
@@ -112,8 +111,8 @@ def compute_mastery_from_events(
             had_prior_strength=had_prior_strength,
         ),
         confidence=_confidence(attempts),
-        support_correct=int(correct),
-        support_incorrect=int(incorrect),
+        support_correct=max(0, int(round(correct))),
+        support_incorrect=max(0, int(round(incorrect))),
         policy_version=MASTERY_POLICY_VERSION,
     )
 

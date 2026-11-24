@@ -1,9 +1,23 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from app.learner_intelligence.contracts import ItemScoreOutcome, RecordResponseRequest, SnapshotItem
 from app.learner_intelligence.enums import ResponseKind, ScoringVerdict
+
+_PARTIAL_POLICY = "scoring@v1-multi_partial"
+
+
+def _finite_decimal(value: str | Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        dec = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not dec.is_finite():
+        return None
+    return dec
 
 
 def _dec(value: str | Decimal) -> Decimal:
@@ -18,7 +32,14 @@ def score_item_response(
 ) -> ItemScoreOutcome:
     """D15-10..13: server-side scoring from trusted snapshot only."""
 
-    max_marks = item.marks_if_correct
+    max_marks = _finite_decimal(item.marks_if_correct)
+    if max_marks is None:
+        return ItemScoreOutcome(
+            item_sequence=item.item_sequence,
+            verdict=ScoringVerdict.REVIEW_REQUIRED,
+            marks_awarded=Decimal("0"),
+            max_marks=Decimal("0"),
+        )
     if request.response_kind == ResponseKind.UNANSWERED:
         return ItemScoreOutcome(
             item_sequence=item.item_sequence,
@@ -75,7 +96,7 @@ def score_item_response(
                 marks_awarded=item.marks_if_correct,
                 max_marks=max_marks,
             )
-        if "partial" in item.scoring_policy_version:
+        if item.scoring_policy_version == _PARTIAL_POLICY:
             if selected & correct:
                 return ItemScoreOutcome(
                     item_sequence=item.item_sequence,
@@ -104,9 +125,16 @@ def score_item_response(
                 marks_awarded=Decimal("0"),
                 max_marks=max_marks,
             )
-        answer = _dec(item.numeric_answer)
-        given = _dec(request.numeric_value)
-        tol = item.numeric_tolerance or Decimal("0")
+        answer = _finite_decimal(item.numeric_answer)
+        given = _finite_decimal(request.numeric_value)
+        tol = _finite_decimal(item.numeric_tolerance) or Decimal("0")
+        if answer is None or given is None:
+            return ItemScoreOutcome(
+                item_sequence=item.item_sequence,
+                verdict=ScoringVerdict.REVIEW_REQUIRED,
+                marks_awarded=Decimal("0"),
+                max_marks=max_marks,
+            )
         if abs(given - answer) <= tol:
             return ItemScoreOutcome(
                 item_sequence=item.item_sequence,

@@ -71,7 +71,11 @@ def rebuild_memory_keys(
             payload={
                 "verdict": ev.verdict,
                 "marks_awarded": str(ev.marks_awarded),
-                "rebuilt_at": datetime.now(UTC).isoformat(),
+                "event_created_at": (
+                    ev.created_at.isoformat()
+                    if ev.created_at is not None
+                    else datetime.now(UTC).isoformat()
+                ),
             },
         )
         keys.append(key)

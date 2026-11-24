@@ -7,26 +7,22 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
 
-import app.models  # noqa: F401
-from app.db.base import Base
-from app.db.session import enable_sqlite_foreign_keys
 from app.learner_intelligence.contracts import FinalizeAttemptRequest, RecordResponseRequest
 from app.learner_intelligence.eligibility import (
     evaluate_assessment_eligibility,
     production_assessment_always_blocked,
 )
-from app.learner_intelligence.enums import AttemptState, EligibilityVerdict, ResponseKind
+from app.learner_intelligence.enums import AttemptState, EligibilityVerdict, IssueCode, ResponseKind
 from app.learner_intelligence.fixtures import (
     assessment_content_fingerprint,
     build_harness_attempt_request,
     forged_harness_attestation_copy,
-    seed_synthetic_tenant,
 )
 from app.learner_intelligence.governance import build_day15_governance_record
-from app.learner_intelligence.handoff import build_day16_handoff
+from app.learner_intelligence.handoff import build_day16_handoff, build_synthetic_diagnostic_handoff
+from app.learner_intelligence.harness_runtime import isolated_harness_session
 from app.learner_intelligence.scope_ledger import load_repo_scope_counts
 from app.learner_intelligence.service import LearnerIntelligenceService
 from app.models.learner_intelligence import (
@@ -37,95 +33,100 @@ from app.models.learner_intelligence import (
 from app.verification.candidate_revision import RevisionEvidence, resolve_revision_evidence
 
 
-def build_verification_report(session: Session, *, revision: RevisionEvidence) -> dict[str, object]:
+def _run_isolated_harness_verification(revision: RevisionEvidence) -> dict[str, object]:
     if revision.evidence_error or not revision.sha_aligned:
         return _revision_failure_report(revision)
-
-    actor = seed_synthetic_tenant(session)
-    session.commit()
-    create_req = build_harness_attempt_request(
-        actor,
-        assessment_key="d15-verify-assessment",
-        idempotency_key="d15-verify-attempt-1",
-    )
-    fp = assessment_content_fingerprint(create_req.items)
-    svc = LearnerIntelligenceService()
-
-    eligibility = evaluate_assessment_eligibility(create_req)
-    attempt, _ = svc.create_attempt(session, create_req)
-    assert attempt is not None
-
-    forged = create_req.model_copy(
-        update={"harness_attestation": forged_harness_attestation_copy()}
-    )
-    forged_verdict = evaluate_assessment_eligibility(forged)
-    unattested = create_req.model_copy(update={"harness_attestation": None, "catalog_key": None})
-    unattested_verdict = evaluate_assessment_eligibility(unattested)
-
-    view, view_issues = svc.learner_view_items(session, actor, str(attempt.id))
-    keys_leaked = False
-    fingerprint_leaked = "content_fingerprint" in json.dumps(view)
-    for row in view:
-        opts = row.get("options")
-        if not isinstance(opts, list):
-            continue
-        for opt in opts:
-            if isinstance(opt, dict) and opt.get("is_correct") is not None:
-                keys_leaked = True
-
-    ok1, _ = svc.record_response(
-        session,
-        RecordResponseRequest(
-            actor=actor,
-            attempt_id=str(attempt.id),
-            item_sequence=1,
-            response_kind=ResponseKind.SINGLE_CHOICE,
-            selected_option_keys=["A"],
-        ),
-    )
-    ok2, _ = svc.record_response(
-        session,
-        RecordResponseRequest(
-            actor=actor,
-            attempt_id=str(attempt.id),
-            item_sequence=2,
-            response_kind=ResponseKind.NUMERIC,
-            numeric_value="7",
-        ),
-    )
-
-    fin = svc.finalize(
-        session,
-        FinalizeAttemptRequest(
-            actor=actor,
-            attempt_id=str(attempt.id),
-            idempotency_key="d15-finalize-1",
-            content_binding_fingerprint=fp,
-        ),
-    )
-    replay = svc.finalize(
-        session,
-        FinalizeAttemptRequest(
-            actor=actor,
-            attempt_id=str(attempt.id),
-            idempotency_key="d15-finalize-1",
-            content_binding_fingerprint=fp,
-        ),
-    )
-
-    score_count = session.scalar(select(func.count()).select_from(ScoreEvidenceEvent)) or 0
-    mastery_count = session.scalar(select(func.count()).select_from(ConceptMasteryRecord)) or 0
-    diag_count = session.scalar(select(func.count()).select_from(DiagnosticProfileEvent)) or 0
-    handoff = build_day16_handoff(session, actor)
-
     scope_counts = load_repo_scope_counts()
     governance = build_day15_governance_record()
+
+    with isolated_harness_session() as (session, _binding, actor):
+        create_req = build_harness_attempt_request(
+            actor,
+            assessment_key="d15-verify-assessment",
+            idempotency_key="d15-verify-attempt-1",
+        )
+        fp = assessment_content_fingerprint(create_req.items)
+        svc = LearnerIntelligenceService()
+
+        eligibility = evaluate_assessment_eligibility(create_req)
+        attempt, create_outcome = svc.create_attempt(session, create_req)
+        assert attempt is not None
+
+        forged = create_req.model_copy(
+            update={"harness_attestation": forged_harness_attestation_copy()}
+        )
+        forged_verdict = evaluate_assessment_eligibility(forged)
+        unattested = create_req.model_copy(
+            update={"harness_attestation": None, "catalog_key": None}
+        )
+        unattested_verdict = evaluate_assessment_eligibility(unattested)
+
+        view, view_issues = svc.learner_view_items(session, actor, str(attempt.id))
+        keys_leaked = False
+        fingerprint_leaked = "content_fingerprint" in json.dumps(view)
+        for row in view:
+            opts = row.get("options")
+            if not isinstance(opts, list):
+                continue
+            for opt in opts:
+                if isinstance(opt, dict) and opt.get("is_correct") is not None:
+                    keys_leaked = True
+
+        ok1, _ = svc.record_response(
+            session,
+            RecordResponseRequest(
+                actor=actor,
+                attempt_id=str(attempt.id),
+                item_sequence=1,
+                response_kind=ResponseKind.SINGLE_CHOICE,
+                selected_option_keys=["A"],
+            ),
+        )
+        ok2, _ = svc.record_response(
+            session,
+            RecordResponseRequest(
+                actor=actor,
+                attempt_id=str(attempt.id),
+                item_sequence=2,
+                response_kind=ResponseKind.NUMERIC,
+                numeric_value="7",
+            ),
+        )
+
+        fin = svc.finalize(
+            session,
+            FinalizeAttemptRequest(
+                actor=actor,
+                attempt_id=str(attempt.id),
+                idempotency_key="d15-finalize-1",
+                content_binding_fingerprint=fp,
+            ),
+        )
+        replay = svc.finalize(
+            session,
+            FinalizeAttemptRequest(
+                actor=actor,
+                attempt_id=str(attempt.id),
+                idempotency_key="d15-finalize-1",
+                content_binding_fingerprint=fp,
+            ),
+        )
+
+        score_count = session.scalar(select(func.count()).select_from(ScoreEvidenceEvent)) or 0
+        mastery_count = session.scalar(select(func.count()).select_from(ConceptMasteryRecord)) or 0
+        diag_count = session.scalar(select(func.count()).select_from(DiagnosticProfileEvent)) or 0
+        handoff = build_day16_handoff(session, actor)
+        synthetic_handoff = build_synthetic_diagnostic_handoff(session, actor)
+
+    block_plain_session = _ordinary_session_create_blocked()
 
     synthetic_ok = (
         production_assessment_always_blocked()
         and eligibility == EligibilityVerdict.ELIGIBLE
+        and IssueCode.NOT_ELIGIBLE not in create_outcome.issue_codes
         and forged_verdict == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
         and unattested_verdict == EligibilityVerdict.BLOCKED_UNVERIFIED
+        and block_plain_session
         and not view_issues
         and not keys_leaked
         and not fingerprint_leaked
@@ -139,8 +140,11 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
         and score_count == 2
         and mastery_count >= 1
         and diag_count >= 1
-        and len(handoff.misconception_codes) >= 1
-        and len(handoff.evidence_event_ids) >= 1
+        and handoff.readiness == "NOT_READY"
+        and not handoff.actionable
+        and len(handoff.evidence_event_ids) == 0
+        and synthetic_handoff.synthetic_diagnostic_only
+        and not synthetic_handoff.actionable
         and scope_counts.get("TOTAL") == 36
     )
 
@@ -149,6 +153,7 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
         "synthetic_harness_pass": synthetic_ok,
         "production_assessment_eligibility": False,
         "production_assessment_blocked_unconditional": production_assessment_always_blocked(),
+        "ordinary_session_rejected": block_plain_session,
         "diagnostic_execution_ok": synthetic_ok,
         "governance": governance,
         "scope_ledger_counts": scope_counts,
@@ -170,6 +175,7 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
         },
         "replay_idempotent": replay.total_marks == fin.total_marks and replay.committed,
         "handoff": handoff.model_dump(),
+        "synthetic_diagnostic_handoff": synthetic_handoff.model_dump(),
         "notes": {
             "compose_smoke": "NOT_RUN",
             "live_postgresql": "NOT_RUN",
@@ -177,10 +183,36 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
             "migration_0021_blocker": "DEFERRED",
             "d15_36_founder_signoff": "NOT_STARTED",
             "day14_issuance_containment_unchanged": True,
+            "mastery_policy_implementation": "PARTIAL",
         },
     }
     report.update(revision.as_report_fields())
     return report
+
+
+def _ordinary_session_create_blocked() -> bool:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session as OrmSession
+
+    import app.models  # noqa: F401
+    from app.db.base import Base
+    from app.db.session import enable_sqlite_foreign_keys
+    from app.learner_intelligence.fixtures import seed_synthetic_tenant
+
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+    with OrmSession(engine) as session:
+        actor = seed_synthetic_tenant(session)
+        session.commit()
+        req = build_harness_attempt_request(
+            actor,
+            assessment_key="block",
+            idempotency_key="block-1",
+        )
+        svc = LearnerIntelligenceService()
+        attempt, outcome = svc.create_attempt(session, req)
+        return attempt is None and IssueCode.NOT_ELIGIBLE in outcome.issue_codes
 
 
 def _revision_failure_report(revision: RevisionEvidence) -> dict[str, object]:
@@ -205,11 +237,7 @@ def main() -> int:
     revision = resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1])
 
     try:
-        engine = create_engine("sqlite:///:memory:")
-        enable_sqlite_foreign_keys(engine)
-        Base.metadata.create_all(engine)
-        with Session(engine) as session:
-            report = build_verification_report(session, revision=revision)
+        report = _run_isolated_harness_verification(revision)
     except Exception as exc:  # noqa: BLE001
         report = {
             "ok": False,

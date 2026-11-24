@@ -3,6 +3,10 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.attempt_meta import (
+    catalog_key_from_attempt,
+    harness_binding_from_attempt,
+)
 from app.learner_intelligence.context import authorize_actor, load_bound_attempt
 from app.learner_intelligence.contracts import (
     AttemptOutcome,
@@ -15,6 +19,8 @@ from app.learner_intelligence.contracts import (
 from app.learner_intelligence.eligibility import evaluate_assessment_eligibility
 from app.learner_intelligence.enums import AttemptState, EligibilityVerdict, IssueCode
 from app.learner_intelligence.finalization import FinalizationError, finalize_attempt
+from app.learner_intelligence.gate import blocked_outcome, require_harness_or_blocked
+from app.learner_intelligence.harness_runtime import HARNESS_BIND_KEY
 from app.learner_intelligence.lifecycle import (
     abandon_attempt,
     transition_attempt,
@@ -34,12 +40,36 @@ from app.models.learner_intelligence import (
 )
 
 
+def _harness_binding_for_session(session: Session) -> str | None:
+    secret = session.info.get(HARNESS_BIND_KEY)
+    return str(secret) if secret else None
+
+
+def _require_harness(
+    session: Session,
+    *,
+    attempt: AssessmentAttempt | None = None,
+) -> IssueCode | None:
+    gate = require_harness_or_blocked(session)
+    if gate is not None:
+        return gate
+    binding = _harness_binding_for_session(session)
+    if attempt is not None:
+        expected = harness_binding_from_attempt(attempt)
+        if expected and binding != expected:
+            return IssueCode.NOT_ELIGIBLE
+    return None
+
+
 class LearnerIntelligenceService:
-    """Day 15 orchestration — trusted harness writes only."""
+    """Day 15 orchestration — isolated harness session only."""
 
     def create_attempt(
         self, session: Session, request: CreateAttemptRequest
     ) -> tuple[AssessmentAttempt | None, AttemptOutcome]:
+        harness_err = _require_harness(session)
+        if harness_err is not None:
+            return None, blocked_outcome(code=harness_err)
         auth_err = authorize_actor(session, request.actor)
         if auth_err is not None:
             return None, AttemptOutcome(
@@ -74,6 +104,26 @@ class LearnerIntelligenceService:
             )
         )
         if existing is not None:
+            if existing.assessment_key != request.assessment_key:
+                return None, blocked_outcome(
+                    attempt_id=str(existing.id), code=IssueCode.IDEMPOTENCY_CONFLICT
+                )
+            if catalog_key_from_attempt(existing) != (request.catalog_key or ""):
+                return None, blocked_outcome(
+                    attempt_id=str(existing.id), code=IssueCode.IDEMPOTENCY_CONFLICT
+                )
+            server_items_replay = [
+                SnapshotItem.model_validate(r.snapshot_json)
+                for r in session.scalars(
+                    select(IssuedItemSnapshot)
+                    .where(IssuedItemSnapshot.attempt_id == str(existing.id))
+                    .order_by(IssuedItemSnapshot.item_sequence)
+                ).all()
+            ]
+            if compute_assessment_fingerprint(server_items_replay) != existing.content_fingerprint:
+                return None, blocked_outcome(
+                    attempt_id=str(existing.id), code=IssueCode.IDEMPOTENCY_CONFLICT
+                )
             return existing, AttemptOutcome(
                 attempt_id=str(existing.id),
                 state=AttemptState(existing.state),
@@ -95,6 +145,7 @@ class LearnerIntelligenceService:
                 )
             server_items.append(item.model_copy(update={"content_fingerprint": fp}))
         fingerprint = compute_assessment_fingerprint(server_items)
+        binding = _harness_binding_for_session(session) or ""
         attempt = AssessmentAttempt(
             organization_id=request.actor.organization_id,
             institution_id=request.actor.institution_id,
@@ -108,7 +159,10 @@ class LearnerIntelligenceService:
             idempotency_key=request.idempotency_key,
             content_fingerprint=fingerprint,
             synthetic_harness_only=True,
-            metadata_json={"catalog_key": request.catalog_key or ""},
+            metadata_json={
+                "catalog_key": request.catalog_key or "",
+                "harness_binding_secret": binding,
+            },
         )
         session.add(attempt)
         session.flush()
@@ -147,7 +201,7 @@ class LearnerIntelligenceService:
                     synthetic_harness_only=True,
                 )
             )
-        session.commit()
+        session.flush()
         return attempt, AttemptOutcome(
             attempt_id=str(attempt.id),
             state=AttemptState.CREATED,
@@ -160,12 +214,18 @@ class LearnerIntelligenceService:
         actor: TrustedActorContext,
         attempt_id: str,
     ) -> tuple[list[dict[str, object]], list[IssueCode]]:
+        harness_err = _require_harness(session)
+        if harness_err is not None:
+            return [], [harness_err]
         err = authorize_actor(session, actor)
         if err is not None:
             return [], [err]
         attempt, load_err = load_bound_attempt(session, actor, attempt_id)
         if load_err is not None or attempt is None:
             return [], [load_err or IssueCode.OUT_OF_SCOPE]
+        bind_err = _require_harness(session, attempt=attempt)
+        if bind_err is not None:
+            return [], [bind_err]
         rows = session.scalars(
             select(IssuedItemSnapshot)
             .where(IssuedItemSnapshot.attempt_id == str(attempt.id))
@@ -181,6 +241,8 @@ class LearnerIntelligenceService:
                 row_marks_incorrect=row.marks_if_incorrect,
                 row_marks_blank=row.marks_if_blank,
                 policy_version=row.scoring_policy_version,
+                row_question_id=row.question_id,
+                row_item_sequence=row.item_sequence,
             ):
                 return [], [IssueCode.SNAPSHOT_MISMATCH]
             views.append(learner_facing_snapshot(item, snapshot_row_id=str(row.id)))
@@ -191,14 +253,18 @@ class LearnerIntelligenceService:
         session: Session,
         request: RecordResponseRequest,
     ) -> tuple[bool, list[IssueCode]]:
+        harness_err = _require_harness(session)
+        if harness_err is not None:
+            return False, [harness_err]
         err = authorize_actor(session, request.actor)
         if err is not None:
             return False, [err]
-        if request.attempt_id != request.attempt_id.strip():
-            return False, [IssueCode.OUT_OF_SCOPE]
         attempt, load_err = load_bound_attempt(session, request.actor, request.attempt_id)
         if load_err is not None or attempt is None:
             return False, [load_err or IssueCode.OUT_OF_SCOPE]
+        bind_err = _require_harness(session, attempt=attempt)
+        if bind_err is not None:
+            return False, [bind_err]
 
         row = session.scalar(
             select(IssuedItemSnapshot).where(
@@ -216,6 +282,8 @@ class LearnerIntelligenceService:
             row_marks_incorrect=row.marks_if_incorrect,
             row_marks_blank=row.marks_if_blank,
             policy_version=row.scoring_policy_version,
+            row_question_id=row.question_id,
+            row_item_sequence=row.item_sequence,
         ):
             return False, [IssueCode.SNAPSHOT_MISMATCH]
         resp, issues = validate_and_store_response(
@@ -225,14 +293,16 @@ class LearnerIntelligenceService:
             return False, issues
         if AttemptState(attempt.state) == AttemptState.CREATED:
             transition_attempt(session, attempt, AttemptState.IN_PROGRESS)
-        session.commit()
+        session.flush()
         return resp is not None, []
 
     def finalize(self, session: Session, request: FinalizeAttemptRequest) -> AttemptOutcome:
+        harness_err = _require_harness(session)
+        if harness_err is not None:
+            return blocked_outcome(attempt_id=request.attempt_id, code=harness_err)
         try:
             return finalize_attempt(session, request)
         except FinalizationError as exc:
-            session.rollback()
             return AttemptOutcome(
                 attempt_id=request.attempt_id,
                 state=AttemptState.IN_PROGRESS,
@@ -244,12 +314,18 @@ class LearnerIntelligenceService:
     def abandon(
         self, session: Session, actor: TrustedActorContext, attempt_id: str
     ) -> list[IssueCode]:
+        harness_err = _require_harness(session)
+        if harness_err is not None:
+            return [harness_err]
         err = authorize_actor(session, actor)
         if err is not None:
             return [err]
         attempt, load_err = load_bound_attempt(session, actor, attempt_id)
         if load_err is not None or attempt is None:
             return [load_err or IssueCode.OUT_OF_SCOPE]
+        bind_err = _require_harness(session, attempt=attempt)
+        if bind_err is not None:
+            return [bind_err]
         abandon_attempt(session, attempt)
-        session.commit()
+        session.flush()
         return []

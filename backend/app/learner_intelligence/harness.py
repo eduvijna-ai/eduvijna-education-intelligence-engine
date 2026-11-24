@@ -24,11 +24,11 @@ TRUSTED_DIAGNOSTIC_EVIDENCE_REF = "d15-harness-day9-synthetic-v1"
 _BLOCKED_EXAM_PACK_PREFIXES = (
     "day11_",
     "ca_",
-    "imat_",
-    "eapcet_",
+    "imat",
+    "eapcet",
     "jee_",
-    "cuet_",
-    "clat_",
+    "cuet",
+    "clat",
 )
 
 
@@ -131,8 +131,11 @@ def verify_harness_attestation(
 def is_blocked_exam_pack(exam_pack_code: str | None) -> bool:
     if not exam_pack_code:
         return False
-    lowered = exam_pack_code.lower()
-    return any(lowered.startswith(p) for p in _BLOCKED_EXAM_PACK_PREFIXES)
+    lowered = exam_pack_code.lower().strip()
+    for token in _BLOCKED_EXAM_PACK_PREFIXES:
+        if lowered.startswith(token) or token in lowered:
+            return True
+    return False
 
 
 def build_harness_create_request(

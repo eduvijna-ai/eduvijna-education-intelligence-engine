@@ -136,6 +136,8 @@ class RemediationHandoff(BaseModel):
     source_attempt_ids: list[str] = Field(default_factory=list)
     evidence_event_ids: list[str] = Field(default_factory=list)
     policy_version: str = "handoff@v1"
+    actionable: bool = False
+    synthetic_diagnostic_only: bool = False
 
 
 class ItemScoreOutcome(BaseModel):

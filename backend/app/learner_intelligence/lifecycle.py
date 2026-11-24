@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.learner_intelligence.contracts import RecordResponseRequest, SnapshotItem
-from app.learner_intelligence.enums import AttemptState, IssueCode
+from app.learner_intelligence.enums import AttemptState, IssueCode, ResponseKind
 from app.learner_intelligence.scoring import score_item_response
 from app.learner_intelligence.snapshot import compute_item_fingerprint
 from app.models.learner_intelligence import AssessmentAttempt, AttemptResponse, IssuedItemSnapshot
@@ -69,6 +69,19 @@ def validate_and_store_response(
         return _reject(IssueCode.TENANT_MISMATCH)
     if request.attempt_id != str(attempt.id):
         return _reject(IssueCode.OUT_OF_SCOPE)
+    if request.response_kind == ResponseKind.UNANSWERED and (
+        request.selected_option_keys
+        or request.numeric_value is not None
+        or request.descriptive_text
+    ):
+        return _reject(IssueCode.UNKNOWN_OPTION)
+    if request.response_kind != ResponseKind.UNANSWERED and request.response_kind not in (
+        ResponseKind.SINGLE_CHOICE,
+        ResponseKind.MULTI_SELECT,
+        ResponseKind.NUMERIC,
+        ResponseKind.DESCRIPTIVE,
+    ):
+        return _reject(IssueCode.UNKNOWN_OPTION)
     state = AttemptState(attempt.state)
     if state not in (AttemptState.IN_PROGRESS, AttemptState.CREATED):
         return _reject(IssueCode.INVALID_TRANSITION)
