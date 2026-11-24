@@ -30,7 +30,8 @@ from app.cuet_clat.constants import CLAT_PACK_CODE, VERSION_CLAT_2027
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
 from app.cuet_clat.source_registry import build_source_manifest, clat_official_evidence_ready
 from app.knowledge_intelligence.contracts import KnowledgeContextPack, KnowledgeEvidenceItem
-from app.models.enums import SourceRevisionStatus, SourceTrustTier, SourceType
+from app.models import Institution
+from app.models.enums import SourceRevisionStatus, SourceStatus, SourceTrustTier, SourceType
 from app.models.examination import ExamPack, ExamVersion
 from app.models.knowledge_intelligence import KnowledgeSourceBinding
 from app.models.source import (
@@ -41,7 +42,10 @@ from app.models.source import (
 )
 
 F04A_SYNTHETIC_CA_BYTES = b"eduvijna-d13-f04a-clat-ca-synthetic-fixture-v1\n"
+F04A_SYNTHETIC_CA_BYTES_ALT = b"eduvijna-d13-f04a-clat-ca-synthetic-fixture-v2-alt\n"
 F04A_SYNTHETIC_CA_CHECKSUM = hashlib.sha256(F04A_SYNTHETIC_CA_BYTES).hexdigest()
+F04A_SYNTHETIC_CA_CHECKSUM_ALT = hashlib.sha256(F04A_SYNTHETIC_CA_BYTES_ALT).hexdigest()
+F04A_SYNTHETIC_SNAPSHOT_CHECKSUM = hashlib.sha256(F04A_SYNTHETIC_CA_BYTES).hexdigest()
 F04A_DEFAULT_RETRIEVAL_PROFILE = "d13-f04a-test-profile@v1"
 F04A_SYNTHETIC_WORKSPACE = "d13-f04a-synthetic-ca-ws"
 F04A_DEFAULT_LOCATOR = "synthetic-article/p1"
@@ -105,16 +109,22 @@ def _as_of_utc(
 
 
 def _trusted_persisted_locator(
-    revision: SourceRevision, binding: KnowledgeSourceBinding | None
-) -> str:
-    for meta in (
-        dict(revision.metadata_json or {}),
-        dict(binding.metadata_json or {}) if binding is not None else {},
-    ):
-        locator = str(meta.get(F04A_PERSISTED_LOCATOR_KEY) or "").strip()
-        if locator:
-            return locator
-    return ""
+    revision: SourceRevision,
+    binding: KnowledgeSourceBinding | None,
+) -> tuple[str, list[ClatEvidenceIssueCode]]:
+    rev_meta = dict(revision.metadata_json or {})
+    rev_loc = str(rev_meta.get(F04A_PERSISTED_LOCATOR_KEY) or "").strip()
+    bind_loc = ""
+    if binding is not None:
+        bind_loc = str((binding.metadata_json or {}).get(F04A_PERSISTED_LOCATOR_KEY) or "").strip()
+    issues: list[ClatEvidenceIssueCode] = []
+    if rev_loc and bind_loc and rev_loc != bind_loc:
+        issues.append(ClatEvidenceIssueCode.LOCATOR_MISMATCH)
+        return "", issues
+    locator = rev_loc or bind_loc
+    if not locator:
+        issues.append(ClatEvidenceIssueCode.LOCATOR_MISMATCH)
+    return locator, issues
 
 
 def _binding_document_consistent(binding: KnowledgeSourceBinding) -> bool:
@@ -240,6 +250,14 @@ def _validate_fact_date(
     return issues
 
 
+def _expected_fixture_bytes_for_checksum(checksum: str) -> bytes | None:
+    if checksum == F04A_SYNTHETIC_CA_CHECKSUM:
+        return F04A_SYNTHETIC_CA_BYTES
+    if checksum == F04A_SYNTHETIC_CA_CHECKSUM_ALT:
+        return F04A_SYNTHETIC_CA_BYTES_ALT
+    return None
+
+
 def _validate_fixture_receipt(
     source: Source,
     revision: SourceRevision,
@@ -249,24 +267,79 @@ def _validate_fixture_receipt(
     if not _synthetic_fixture_source(source):
         return issues
 
+    if source.status != SourceStatus.ACTIVE.value:
+        issues.append(ClatEvidenceIssueCode.SOURCE_NOT_ACTIVE)
+
     rev_meta = dict(revision.metadata_json or {})
     src_meta = dict(source.metadata_json or {})
-    date_from_rev = rev_meta.get(F04A_FIXTURE_FACT_DATE_KEY)
-    date_from_src = src_meta.get(F04A_FIXTURE_FACT_DATE_KEY)
-    expected_date = str(date_from_rev or date_from_src or "")
-    expected_sha = str(rev_meta.get(F04A_FIXTURE_BYTE_SHA_KEY) or F04A_SYNTHETIC_CA_CHECKSUM)
-    expected_size = int(rev_meta.get(F04A_FIXTURE_BYTE_SIZE_KEY) or len(F04A_SYNTHETIC_CA_BYTES))
+    rev_date = str(rev_meta.get(F04A_FIXTURE_FACT_DATE_KEY) or "").strip()
+    src_date = str(src_meta.get(F04A_FIXTURE_FACT_DATE_KEY) or "").strip()
+    rev_sha = str(rev_meta.get(F04A_FIXTURE_BYTE_SHA_KEY) or "").strip()
+    src_sha = str(src_meta.get(F04A_FIXTURE_BYTE_SHA_KEY) or "").strip()
+    rev_size = rev_meta.get(F04A_FIXTURE_BYTE_SIZE_KEY)
+    src_size = src_meta.get(F04A_FIXTURE_BYTE_SIZE_KEY)
 
-    if request.fact_date is not None and expected_date:
-        if request.fact_date.isoformat() != expected_date:
+    if not rev_date or not src_date or rev_date != src_date:
+        issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+    if not rev_sha or not src_sha or rev_sha != src_sha:
+        issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+    if rev_size is None or src_size is None or int(rev_size) != int(src_size):
+        issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+
+    fixture_bytes = _expected_fixture_bytes_for_checksum(rev_sha)
+    if fixture_bytes is None:
+        issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+    else:
+        expected_snap = hashlib.sha256(fixture_bytes).hexdigest()
+        if revision.source_snapshot_checksum != expected_snap:
+            issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+        if revision.byte_size != len(fixture_bytes):
+            issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+        if revision.checksum != rev_sha:
+            issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+        if revision.extracted_checksum != revision.checksum:
+            issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+        if revision.extraction_status != "validated":
             issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
 
-    if revision.checksum != expected_sha or revision.checksum != F04A_SYNTHETIC_CA_CHECKSUM:
+    if request.fact_date is None or request.fact_date.isoformat() != rev_date:
         issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
-    if revision.byte_size != expected_size:
-        issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
-    if revision.source_snapshot_checksum != hashlib.sha256(F04A_SYNTHETIC_CA_BYTES).hexdigest():
-        issues.append(ClatEvidenceIssueCode.FIXTURE_RECEIPT_MISMATCH)
+    return issues
+
+
+def _validate_binding_tenant_ownership(
+    session: Session,
+    request: ClatCurrentAffairsPreflightRequest,
+    source: Source,
+    binding: KnowledgeSourceBinding | None,
+) -> list[ClatEvidenceIssueCode]:
+    issues: list[ClatEvidenceIssueCode] = []
+    if binding is None:
+        return issues
+    if request.operating_mode != ClatEvidenceOperatingMode.SYNTHETIC_TEST_ONLY:
+        return issues
+
+    req_org = (request.organization_id or "").strip()
+    req_inst = (request.institution_id or "").strip()
+    src_org = (source.organization_id or "").strip()
+    src_inst = (source.institution_id or "").strip()
+    bind_org = (binding.organization_id or "").strip()
+    bind_inst = (binding.institution_id or "").strip()
+
+    if not req_org or not req_inst or not bind_org or not bind_inst or not src_org or not src_inst:
+        issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
+        return issues
+
+    if bind_org != req_org or bind_org != src_org or src_org != req_org:
+        issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
+    if bind_inst != req_inst or bind_inst != src_inst or src_inst != req_inst:
+        issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
+    if binding.ownership_scope != "institution_scoped":
+        issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
+
+    inst_row = session.get(Institution, req_inst)
+    if inst_row is None or str(inst_row.organization_id) != req_org:
+        issues.append(ClatEvidenceIssueCode.TENANT_MISMATCH)
     return issues
 
 
@@ -370,19 +443,7 @@ def _evaluate_evidence_item(
             issues.append(ClatEvidenceIssueCode.FORGED_CITATION)
         if not _item_matches_binding_document(item, binding):
             issues.append(ClatEvidenceIssueCode.FORGED_CITATION)
-
-        if request.organization_id:
-            if source.organization_id != request.organization_id:
-                issues.append(ClatEvidenceIssueCode.TENANT_MISMATCH)
-            if binding.organization_id not in {None, request.organization_id}:
-                issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
-        if request.institution_id:
-            if source.institution_id != request.institution_id:
-                issues.append(ClatEvidenceIssueCode.TENANT_MISMATCH)
-            if binding.institution_id not in {None, request.institution_id}:
-                issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
-        if binding.ownership_scope not in {"institution_scoped"}:
-            issues.append(ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH)
+        issues.extend(_validate_binding_tenant_ownership(session, request, source, binding))
 
     board = (source.board_or_exam or "").strip().lower()
     if board not in {"clat_ug", "clat"}:
@@ -390,7 +451,8 @@ def _evaluate_evidence_item(
     if source.academic_year not in {"2027"}:
         issues.append(ClatEvidenceIssueCode.EXAM_SCOPE_MISMATCH)
 
-    persisted_locator = _trusted_persisted_locator(revision, binding)
+    persisted_locator, locator_issues = _trusted_persisted_locator(revision, binding)
+    issues.extend(locator_issues)
     item_locator = (item.locator or "").strip()
     if not item_locator or not persisted_locator or item_locator != persisted_locator:
         issues.append(ClatEvidenceIssueCode.LOCATOR_MISMATCH)
@@ -443,6 +505,7 @@ def _evaluate_evidence_item(
             fact_date=request.fact_date,
             as_of_utc=as_of_utc,
             freshness_policy_label=request.freshness_policy.policy_label,
+            freshness_max_age_days=request.freshness_policy.max_age_days,
             retrieval_profile_version=request.retrieval_profile_version,
             organization_id=request.organization_id,
             institution_id=request.institution_id,
@@ -459,17 +522,66 @@ def _evaluate_evidence_item(
     return _ItemEvaluation(item, issues, binding_hash, mechanical_ok, snippet_sha)
 
 
-def _dedupe_items(items: list[KnowledgeEvidenceItem]) -> list[KnowledgeEvidenceItem]:
-    seen: set[tuple[str, str, str]] = set()
-    unique: list[KnowledgeEvidenceItem] = []
+def _item_soft_key(item: KnowledgeEvidenceItem) -> tuple[str, str, str]:
+    snippet_digest = hashlib.sha256(item.snippet.encode()).hexdigest()
+    return item.binding_id, item.source_revision_id, snippet_digest
+
+
+def _item_strict_fingerprint(item: KnowledgeEvidenceItem) -> tuple[str, ...]:
+    return (
+        item.binding_id,
+        item.source_revision_id,
+        item.source_id,
+        item.source_revision_checksum,
+        (item.locator or "").strip(),
+        item.anythingllm_workspace,
+        item.anythingllm_document_id,
+        hashlib.sha256(item.snippet.encode()).hexdigest(),
+    )
+
+
+def _coalesce_evidence_items(
+    items: list[KnowledgeEvidenceItem],
+) -> tuple[list[KnowledgeEvidenceItem], list[ClatEvidenceIssueCode]]:
+    grouped: dict[tuple[str, str, str], list[KnowledgeEvidenceItem]] = {}
     for item in items:
-        snippet_digest = hashlib.sha256(item.snippet.encode()).hexdigest()
-        key = (item.binding_id, item.source_revision_id, snippet_digest)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(item)
-    return unique
+        key = _item_soft_key(item)
+        grouped.setdefault(key, []).append(item)
+
+    coalesced: list[KnowledgeEvidenceItem] = []
+    issues: list[ClatEvidenceIssueCode] = []
+    for group in grouped.values():
+        fingerprints = {_item_strict_fingerprint(item) for item in group}
+        if len(fingerprints) > 1:
+            issues.append(ClatEvidenceIssueCode.FORGED_CITATION)
+            coalesced.extend(group)
+        else:
+            coalesced.append(group[0])
+    return coalesced, issues
+
+
+def _validate_context_pack_scope(
+    request: ClatCurrentAffairsPreflightRequest,
+    context_pack: KnowledgeContextPack | None,
+) -> list[ClatEvidenceIssueCode]:
+    if context_pack is None:
+        return []
+    issues: list[ClatEvidenceIssueCode] = []
+    scope = context_pack.scope
+    req_org = (request.organization_id or "").strip()
+    req_inst = (request.institution_id or "").strip()
+    req_exam = (request.exam_version_id or "").strip()
+    if not scope.organization_id or not scope.institution_id:
+        issues.append(ClatEvidenceIssueCode.CONTEXT_PACK_SCOPE_MISMATCH)
+    if scope.organization_id and scope.organization_id != req_org:
+        issues.append(ClatEvidenceIssueCode.CONTEXT_PACK_SCOPE_MISMATCH)
+    if scope.institution_id and scope.institution_id != req_inst:
+        issues.append(ClatEvidenceIssueCode.CONTEXT_PACK_SCOPE_MISMATCH)
+    if scope.exam_version_id and scope.exam_version_id != req_exam:
+        issues.append(ClatEvidenceIssueCode.CONTEXT_PACK_SCOPE_MISMATCH)
+    if context_pack.retrieval_profile_version != request.retrieval_profile_version:
+        issues.append(ClatEvidenceIssueCode.CONTEXT_PACK_SCOPE_MISMATCH)
+    return issues
 
 
 def _detect_scope_conflicts(
@@ -495,11 +607,12 @@ def _detect_scope_conflicts(
     revision_snippets: dict[str, str] = {}
     revision_ids: set[str] = set()
     for ev in evaluations:
-        revision_ids.add(ev.item.source_revision_id)
-        prior = revision_snippets.get(ev.item.source_revision_id)
+        identity_key = f"{ev.item.source_id}:{ev.item.source_revision_id}"
+        revision_ids.add(identity_key)
+        prior = revision_snippets.get(identity_key)
         if prior is not None and prior != ev.snippet_sha256:
             return [ClatEvidenceIssueCode.CONFLICTING_REVISION]
-        revision_snippets.setdefault(ev.item.source_revision_id, ev.snippet_sha256)
+        revision_snippets.setdefault(identity_key, ev.snippet_sha256)
 
     if len(revision_ids) > 1:
         distinct_snippets = set(revision_snippets.values())
@@ -519,19 +632,22 @@ def evaluate_clat_current_affairs_evidence(
     """Read-only fail-closed preflight; never writes audits or activates sources."""
 
     as_of_issues, as_of_utc = _as_of_utc(request)
-    items: list[KnowledgeEvidenceItem] = list(evidence_items or [])
+    pack_issues = _validate_context_pack_scope(request, context_pack)
+
+    raw_items: list[KnowledgeEvidenceItem] = list(evidence_items or [])
     if context_pack is not None:
-        items.extend(context_pack.evidence)
-    items = _dedupe_items(items)
+        raw_items.extend(context_pack.evidence)
+    items, coalesce_issues = _coalesce_evidence_items(raw_items)
 
     scope_issues, exam_version_id = _validate_request_scope(
         session, request, as_of_utc=as_of_utc
     )
-    if scope_issues or as_of_issues:
+    preflight_blockers = scope_issues + as_of_issues + pack_issues + coalesce_issues
+    if preflight_blockers:
         return _fail_decision(
             request,
             verdict=ClatEvidencePreflightVerdict.FAIL,
-            issues=scope_issues + as_of_issues,
+            issues=preflight_blockers,
             metadata={"scope_blocked": True},
         )
 
@@ -658,6 +774,7 @@ def seed_f04a_synthetic_current_affairs_fixture(
         select(Source).where(
             Source.organization_id == organization_id,
             Source.institution_id == institution_id,
+            Source.title == "D13 F04A synthetic CLAT CA fixture (test-only)",
         )
     )
     marker = SYNTHETIC_CA_FIXTURE_METADATA_KEY
@@ -743,7 +860,7 @@ def seed_f04a_synthetic_current_affairs_fixture(
         board_or_exam="clat_ug",
         academic_year="2027",
         trust_tier=SourceTrustTier.ANALYTICAL.value,
-        status="active",
+        status=SourceStatus.ACTIVE.value,
         anythingllm_workspace=F04A_SYNTHETIC_WORKSPACE,
         metadata_json={
             SYNTHETIC_CA_FIXTURE_METADATA_KEY: True,
@@ -831,6 +948,179 @@ def seed_f04a_synthetic_current_affairs_fixture(
         organization_id=organization_id,
         institution_id=institution_id,
         exam_version_id=str(clat_ver.id),
+        source_id=str(source.id),
+        revision_id=str(revision.id),
+        binding_id=str(binding.id),
+        evidence_item=item,
+        claim_text=claim_text,
+        fact_date_iso=F04A_DEFAULT_FACT_DATE_ISO,
+        harness_token=F04A_HARNESS_TOKEN,
+    )
+
+
+def seed_f04a_alt_synthetic_current_affairs_fixture(
+    session: Session,
+    *,
+    organization_id: str,
+    institution_id: str,
+    exam_version_id: str,
+) -> F04aSyntheticCaFixture:
+    """Second valid active synthetic source for conflict tests (test harness only)."""
+
+    claim_text = "D13 F04A synthetic CLAT current affairs claim for mechanical linkage."
+    locator = "synthetic-article/p2"
+    doc_id = f"eduvijna://knowledge/f04a-ca-alt/{F04A_SYNTHETIC_CA_CHECKSUM_ALT[:16]}"
+
+    existing = session.scalar(
+        select(Source).where(
+            Source.organization_id == organization_id,
+            Source.institution_id == institution_id,
+            Source.title == "D13 F04A synthetic CLAT CA fixture alt (test-only)",
+        )
+    )
+    if existing is not None:
+        revision = session.scalar(
+            select(SourceRevision).where(
+                SourceRevision.source_id == existing.id,
+                SourceRevision.status == SourceRevisionStatus.ACTIVE.value,
+            )
+        )
+        binding = session.scalar(
+            select(KnowledgeSourceBinding).where(
+                KnowledgeSourceBinding.source_id == str(existing.id),
+                KnowledgeSourceBinding.index_status == "active",
+            )
+        )
+        if revision and binding:
+            snippet = (
+                f"{claim_text} Contradictory alternate synthetic digest denies prior facts."
+            )
+            item = KnowledgeEvidenceItem(
+                source_id=str(existing.id),
+                source_revision_id=str(revision.id),
+                source_revision_checksum=revision.checksum,
+                binding_id=str(binding.id),
+                trust_tier=existing.trust_tier,
+                authority_label="synthetic-fixture-alt",
+                title=existing.title,
+                locator=locator,
+                snippet=snippet,
+                retrieval_score=0.41,
+                retrieval_rank=2,
+                anythingllm_workspace=F04A_SYNTHETIC_WORKSPACE,
+                anythingllm_document_id=doc_id,
+                entity_refs={"exam_family": "clat_ug", "academic_year": "2027"},
+                citation_label="[synthetic-alt]",
+            )
+            return F04aSyntheticCaFixture(
+                organization_id=organization_id,
+                institution_id=institution_id,
+                exam_version_id=exam_version_id,
+                source_id=str(existing.id),
+                revision_id=str(revision.id),
+                binding_id=str(binding.id),
+                evidence_item=item,
+                claim_text=claim_text,
+                fact_date_iso=F04A_DEFAULT_FACT_DATE_ISO,
+                harness_token=F04A_HARNESS_TOKEN,
+            )
+
+    source = Source(
+        organization_id=organization_id,
+        institution_id=institution_id,
+        source_type=SourceType.INSTITUTION_CONTENT.value,
+        title="D13 F04A synthetic CLAT CA fixture alt (test-only)",
+        board_or_exam="clat_ug",
+        academic_year="2027",
+        trust_tier=SourceTrustTier.ANALYTICAL.value,
+        status=SourceStatus.ACTIVE.value,
+        anythingllm_workspace=F04A_SYNTHETIC_WORKSPACE,
+        metadata_json={
+            SYNTHETIC_CA_FIXTURE_METADATA_KEY: True,
+            "synthetic_test_only": True,
+            "f04a_fixture_role": "alt",
+            F04A_FIXTURE_FACT_DATE_KEY: F04A_DEFAULT_FACT_DATE_ISO,
+            F04A_FIXTURE_BYTE_SHA_KEY: F04A_SYNTHETIC_CA_CHECKSUM_ALT,
+            F04A_FIXTURE_BYTE_SIZE_KEY: len(F04A_SYNTHETIC_CA_BYTES_ALT),
+        },
+    )
+    session.add(source)
+    session.flush()
+
+    revision = SourceRevision(
+        source_id=source.id,
+        revision_number=1,
+        checksum=F04A_SYNTHETIC_CA_CHECKSUM_ALT,
+        source_snapshot_checksum=hashlib.sha256(F04A_SYNTHETIC_CA_BYTES_ALT).hexdigest(),
+        content_type="text/plain",
+        byte_size=len(F04A_SYNTHETIC_CA_BYTES_ALT),
+        retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
+        extraction_status="validated",
+        extracted_checksum=F04A_SYNTHETIC_CA_CHECKSUM_ALT,
+        status=SourceRevisionStatus.ACTIVE.value,
+        active_slot=1,
+        anythingllm_document_id=doc_id,
+        metadata_json={
+            SYNTHETIC_CA_FIXTURE_METADATA_KEY: True,
+            F04A_PERSISTED_LOCATOR_KEY: locator,
+            F04A_FIXTURE_FACT_DATE_KEY: F04A_DEFAULT_FACT_DATE_ISO,
+            F04A_FIXTURE_BYTE_SHA_KEY: F04A_SYNTHETIC_CA_CHECKSUM_ALT,
+            F04A_FIXTURE_BYTE_SIZE_KEY: len(F04A_SYNTHETIC_CA_BYTES_ALT),
+        },
+    )
+    session.add(revision)
+    session.flush()
+
+    session.execute(
+        exam_version_source_revisions.insert().values(
+            exam_version_id=exam_version_id,
+            source_revision_id=str(revision.id),
+        )
+    )
+
+    binding = KnowledgeSourceBinding(
+        source_id=str(source.id),
+        source_revision_id=str(revision.id),
+        source_revision_checksum=revision.checksum,
+        anythingllm_workspace=F04A_SYNTHETIC_WORKSPACE,
+        anythingllm_document_id=doc_id,
+        ownership_scope="institution_scoped",
+        organization_id=organization_id,
+        institution_id=institution_id,
+        index_status="active",
+        retrieval_profile_version=F04A_DEFAULT_RETRIEVAL_PROFILE,
+        metadata_json={
+            "anythingllm_doc_source_identity": doc_id,
+            SYNTHETIC_CA_FIXTURE_METADATA_KEY: True,
+            F04A_PERSISTED_LOCATOR_KEY: locator,
+        },
+    )
+    session.add(binding)
+    session.flush()
+
+    snippet = f"{claim_text} Contradictory alternate synthetic digest denies prior facts."
+    item = KnowledgeEvidenceItem(
+        source_id=str(source.id),
+        source_revision_id=str(revision.id),
+        source_revision_checksum=revision.checksum,
+        binding_id=str(binding.id),
+        trust_tier=source.trust_tier,
+        authority_label="synthetic-fixture-alt",
+        title=source.title,
+        locator=locator,
+        snippet=snippet,
+        retrieval_score=0.41,
+        retrieval_rank=2,
+        anythingllm_workspace=F04A_SYNTHETIC_WORKSPACE,
+        anythingllm_document_id=doc_id,
+        entity_refs={"exam_family": "clat_ug", "academic_year": "2027"},
+        citation_label="[synthetic-alt]",
+    )
+
+    return F04aSyntheticCaFixture(
+        organization_id=organization_id,
+        institution_id=institution_id,
+        exam_version_id=exam_version_id,
         source_id=str(source.id),
         revision_id=str(revision.id),
         binding_id=str(binding.id),

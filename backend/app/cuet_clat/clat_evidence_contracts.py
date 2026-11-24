@@ -17,7 +17,7 @@ F04A_PERSISTED_LOCATOR_KEY = "f04a_persisted_locator"
 F04A_FIXTURE_FACT_DATE_KEY = "f04a_fixture_fact_date"
 F04A_FIXTURE_BYTE_SHA_KEY = "f04a_fixture_byte_sha256"
 F04A_FIXTURE_BYTE_SIZE_KEY = "f04a_fixture_byte_size"
-F04A_BINDING_HASH_VERSION = "f04a-claim-binding@v2"
+F04A_BINDING_HASH_VERSION = "f04a-claim-binding@v3"
 F04A_HARNESS_TOKEN = "d13-f04a-ca-evidence-harness-v1"
 
 
@@ -65,6 +65,8 @@ class ClatEvidenceIssueCode(StrEnum):
     UNTRUSTED_RETRIEVAL_ONLY = "d13.f04a.untrusted_retrieval_only"
     HARNESS_UNAUTHORIZED = "d13.f04a.harness_unauthorized"
     NAIVE_AS_OF = "d13.f04a.naive_as_of"
+    SOURCE_NOT_ACTIVE = "d13.f04a.source_not_active"
+    CONTEXT_PACK_SCOPE_MISMATCH = "d13.f04a.context_pack_scope_mismatch"
 
 
 class ClatCurrentAffairsFreshnessPolicy(BaseModel):
@@ -160,6 +162,7 @@ def build_claim_evidence_binding_hash(
     fact_date: date | None,
     as_of_utc: datetime,
     freshness_policy_label: str,
+    freshness_max_age_days: int,
     retrieval_profile_version: str,
     organization_id: str,
     institution_id: str,
@@ -185,6 +188,7 @@ def build_claim_evidence_binding_hash(
         "fact_date": fact_date.isoformat() if fact_date else None,
         "as_of_utc": as_of_norm.isoformat(),
         "freshness_policy_label": freshness_policy_label,
+        "freshness_max_age_days": freshness_max_age_days,
         "retrieval_profile_version": retrieval_profile_version,
         "organization_id": organization_id,
         "institution_id": institution_id,

@@ -13,13 +13,13 @@ import app.models  # noqa: F401
 from app.cuet_clat.clat_current_affairs_evidence import (
     F04A_DEFAULT_RETRIEVAL_PROFILE,
     evaluate_clat_current_affairs_evidence,
+    seed_f04a_alt_synthetic_current_affairs_fixture,
     seed_f04a_synthetic_current_affairs_fixture,
 )
 from app.cuet_clat.clat_evidence_contracts import (
     CLAT_CA_SECTION_CODE,
-    F04A_FIXTURE_FACT_DATE_KEY,
     F04A_PERSISTED_LOCATOR_KEY,
-    SYNTHETIC_CA_FIXTURE_METADATA_KEY,
+    ClatCurrentAffairsFreshnessPolicy,
     ClatCurrentAffairsPreflightRequest,
     ClatEvidenceIssueCode,
     ClatEvidenceOperatingMode,
@@ -525,71 +525,21 @@ def test_duplicate_items_not_double_counted() -> None:
         assert decision.eligible_test_evidence_count == 1
 
 
-def test_conflicting_revisions_zero_eligible() -> None:
+def test_conflicting_two_valid_active_sources() -> None:
     as_of = datetime(2026, 11, 1, tzinfo=UTC)
     with _session() as session:
-        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
-        session.commit()
-        source = session.get(Source, fixture.source_id)
-        assert source is not None
-        revision2 = SourceRevision(
-            source_id=source.id,
-            revision_number=2,
-            checksum="f" * 64,
-            source_snapshot_checksum="a" * 64,
-            content_type="text/plain",
-            byte_size=64,
-            retrieved_at=as_of,
-            status=SourceRevisionStatus.SUPERSEDED.value,
-            active_slot=None,
-            metadata_json={
-                SYNTHETIC_CA_FIXTURE_METADATA_KEY: True,
-                F04A_PERSISTED_LOCATOR_KEY: "synthetic-article/p2",
-                F04A_FIXTURE_FACT_DATE_KEY: fixture.fact_date_iso,
-            },
-        )
-        session.add(revision2)
-        session.flush()
-        session.execute(
-            exam_version_source_revisions.insert().values(
-                exam_version_id=fixture.exam_version_id,
-                source_revision_id=str(revision2.id),
-            )
-        )
-        doc2 = "eduvijna://knowledge/f04a-ca/conflict-b"
-        binding2 = KnowledgeSourceBinding(
-            source_id=fixture.source_id,
-            source_revision_id=str(revision2.id),
-            source_revision_checksum=revision2.checksum,
-            anythingllm_workspace="d13-f04a-synthetic-ca-ws",
-            anythingllm_document_id=doc2,
-            ownership_scope="institution_scoped",
-            organization_id=fixture.organization_id,
-            institution_id=fixture.institution_id,
-            index_status="active",
-            retrieval_profile_version=F04A_DEFAULT_RETRIEVAL_PROFILE,
-            metadata_json={
-                "anythingllm_doc_source_identity": doc2,
-                F04A_PERSISTED_LOCATOR_KEY: "synthetic-article/p2",
-            },
-        )
-        session.add(binding2)
-        session.flush()
-        contradictory = fixture.evidence_item.model_copy(
-            update={
-                "source_revision_id": str(revision2.id),
-                "source_revision_checksum": revision2.checksum,
-                "binding_id": str(binding2.id),
-                "locator": "synthetic-article/p2",
-                "anythingllm_document_id": doc2,
-                "snippet": "Contradictory synthetic headline denies the original claim entirely.",
-            }
+        primary = seed_f04a_synthetic_current_affairs_fixture(session)
+        alt = seed_f04a_alt_synthetic_current_affairs_fixture(
+            session,
+            organization_id=primary.organization_id,
+            institution_id=primary.institution_id,
+            exam_version_id=primary.exam_version_id,
         )
         session.commit()
         decision = evaluate_clat_current_affairs_evidence(
             session,
-            _trusted_synthetic_request(fixture, as_of=as_of),
-            evidence_items=[fixture.evidence_item, contradictory],
+            _trusted_synthetic_request(primary, as_of=as_of),
+            evidence_items=[primary.evidence_item, alt.evidence_item],
         )
         assert ClatEvidenceIssueCode.CONFLICTING_REVISION in decision.issue_codes
         assert decision.eligible_test_evidence_count == 0
@@ -685,3 +635,120 @@ def test_idempotent_reseed_stable() -> None:
             evidence_items=[second.evidence_item],
         )
         assert decision.verdict == ClatEvidencePreflightVerdict.MECHANICAL_DEMO_OK
+
+
+def test_forged_soft_key_duplicate_detected_before_eval() -> None:
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+    with _session() as session:
+        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+        session.commit()
+        forged = fixture.evidence_item.model_copy(update={"locator": "synthetic-article/forged"})
+        decision = evaluate_clat_current_affairs_evidence(
+            session,
+            _trusted_synthetic_request(fixture, as_of=as_of),
+            evidence_items=[fixture.evidence_item, forged],
+        )
+        assert ClatEvidenceIssueCode.FORGED_CITATION in decision.issue_codes
+        assert decision.eligible_test_evidence_count == 0
+
+
+def test_binding_null_tenant_rejected() -> None:
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+    with _session() as session:
+        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+        session.commit()
+        binding = session.get(KnowledgeSourceBinding, fixture.binding_id)
+        assert binding is not None
+        binding.organization_id = None
+        binding.institution_id = None
+        session.commit()
+        decision = evaluate_clat_current_affairs_evidence(
+            session,
+            _trusted_synthetic_request(fixture, as_of=as_of),
+            evidence_items=[fixture.evidence_item],
+        )
+        assert ClatEvidenceIssueCode.BINDING_TENANT_MISMATCH in decision.issue_codes
+
+
+def test_context_pack_foreign_scope_blocked() -> None:
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+    with _session() as session:
+        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+        session.commit()
+        pack = KnowledgeContextPack(
+            query_text=fixture.claim_text,
+            retrieval_profile_version=F04A_DEFAULT_RETRIEVAL_PROFILE,
+            query_id="q-foreign",
+            evidence=[fixture.evidence_item],
+            citations=["[trusted-looking]"],
+            scope=AppliedKnowledgeScope(
+                organization_id="foreign-org",
+                institution_id=fixture.institution_id,
+                exam_version_id=fixture.exam_version_id,
+            ),
+            warnings=[],
+            bounded_text="must not elevate bounded text",
+        )
+        decision = evaluate_clat_current_affairs_evidence(
+            session,
+            _trusted_synthetic_request(fixture, as_of=as_of),
+            context_pack=pack,
+        )
+        assert ClatEvidenceIssueCode.CONTEXT_PACK_SCOPE_MISMATCH in decision.issue_codes
+
+
+def test_freshness_max_age_days_affects_binding_replay() -> None:
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+    with _session() as session:
+        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+        session.commit()
+        base_req = _trusted_synthetic_request(fixture, as_of=as_of)
+        baseline = evaluate_clat_current_affairs_evidence(
+            session, base_req, evidence_items=[fixture.evidence_item]
+        )
+        wider = base_req.model_copy(
+            update={
+                "freshness_policy": ClatCurrentAffairsFreshnessPolicy(max_age_days=60),
+                "expected_claim_binding_hash": baseline.claim_binding_hash,
+            }
+        )
+        drift = evaluate_clat_current_affairs_evidence(
+            session, wider, evidence_items=[fixture.evidence_item]
+        )
+        assert ClatEvidenceIssueCode.CLAIM_BINDING_STALE in drift.issue_codes
+
+
+def test_source_inactive_rejects_mechanical() -> None:
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+    with _session() as session:
+        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+        source = session.get(Source, fixture.source_id)
+        assert source is not None
+        source.status = "inactive"
+        session.commit()
+        decision = evaluate_clat_current_affairs_evidence(
+            session,
+            _trusted_synthetic_request(fixture, as_of=as_of),
+            evidence_items=[fixture.evidence_item],
+        )
+        assert ClatEvidenceIssueCode.SOURCE_NOT_ACTIVE in decision.issue_codes
+
+
+def test_locator_revision_binding_mismatch() -> None:
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+    with _session() as session:
+        fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+        session.commit()
+        binding = session.get(KnowledgeSourceBinding, fixture.binding_id)
+        assert binding is not None
+        binding.metadata_json = {
+            **(binding.metadata_json or {}),
+            F04A_PERSISTED_LOCATOR_KEY: "synthetic-article/binding-only",
+        }
+        session.commit()
+        decision = evaluate_clat_current_affairs_evidence(
+            session,
+            _trusted_synthetic_request(fixture, as_of=as_of),
+            evidence_items=[fixture.evidence_item],
+        )
+        assert ClatEvidenceIssueCode.LOCATOR_MISMATCH in decision.issue_codes
