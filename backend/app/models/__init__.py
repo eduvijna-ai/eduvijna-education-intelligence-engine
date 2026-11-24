@@ -25,6 +25,18 @@ from app.models.education_intelligence import (
 from app.models.examination import ExamBlueprintRule, ExamPack, ExamSection, ExamVersion
 from app.models.framework_structure import FrameworkStructureNode, LearningOutcomeCompetencyLink
 from app.models.knowledge_intelligence import KnowledgeAuditEvent, KnowledgeSourceBinding
+from app.models.learner_intelligence import (  # noqa: F401
+    AssessmentAttempt,
+    AttemptResponse,
+    ConceptMasteryRecord,
+    DiagnosticProfileEvent,
+    FinalizationIdempotencyRecord,
+    IssuedItemSnapshot,
+    LearnerMemoryEntry,
+    LearnerProfileVersion,
+    QuestionHistoryObservation,
+    ScoreEvidenceEvent,
+)
 from app.models.orchestration import (
     OrchestrationAuditEvent,
     OrchestrationCheckpointLease,
@@ -45,7 +57,17 @@ from app.models.tenancy import AdminActor, ApiClient, Institution, Learner, Orga
 __all__ = [
     "AdminActor",
     "ApiClient",
+    "AssessmentAttempt",
     "AssessmentEvidence",
+    "AttemptResponse",
+    "ConceptMasteryRecord",
+    "DiagnosticProfileEvent",
+    "FinalizationIdempotencyRecord",
+    "IssuedItemSnapshot",
+    "LearnerMemoryEntry",
+    "LearnerProfileVersion",
+    "QuestionHistoryObservation",
+    "ScoreEvidenceEvent",
     "D13ReplayReservation",
     "CuratorDecisionNonce",
     "CuratorOperatorCredential",

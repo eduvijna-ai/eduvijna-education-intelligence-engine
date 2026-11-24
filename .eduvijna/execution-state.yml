@@ -76,7 +76,7 @@ review_loop_policy:
       - test_infrastructure_change
   auto_merge: false
   auto_unlock_next_day: false
-current_day: 14
+current_day: 15
 
 days:
   1:
@@ -494,7 +494,7 @@ days:
     depends_on: 12
   14:
     name: CA Foundation IMAT TG EAPCET
-    state: ACTIVE
+    state: FOUNDER_MILESTONE_SIGNED_OFF_WITH_DEFERRALS
     founder_approval: false
     tasklist_issue: 54
     tasklist_status: APPROVED
@@ -502,7 +502,7 @@ days:
     tasklist_approval_signal: "Approved."
     approved_scope: D14-01..D14-36
     implementation_authorized: true
-    implementation_status: CANDIDATE_1_ENGINEERING_IN_PROGRESS
+    implementation_status: MERGED_TO_DEVELOP_WITH_DEFERRED_ACCEPTANCE
     implementation_branch: feature/day14-ca-imat-eapcet-intelligence
     implementation_issue: 54
     planning_base: develop
@@ -511,12 +511,45 @@ days:
     review_workflow: founder_manual_chatgpt_review
     required_cursor_model: "Composer 2.5 (standard; not Fast)"
     auto_merge: false
-    day15_unlock: false
+    day15_unlock: true
+    founder_milestone_signoff: true
+    founder_signoff_date: "2026-11-24"
+    founder_approval_scope: MILESTONE_AND_MERGE_ONLY_NOT_TECHNICAL_COMPLETION
+    merged_pr: 55
+    merged_head_sha: "3ecee26d367707152ca9b953ce15032c837f3ceb"
+    merge_commit_sha: "f8e96ceecbe42cdbcc1cca9de3dd13852a648ec4"
+    final_full_ci_run: 45393540297
+    final_targeted_ci_run: 45393540240
+    final_full_ci_result: SUCCESS
+    final_targeted_ci_result: SUCCESS
+    final_compose_ci_result: SUCCESS
+    deferred_evidence_ledger: "0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED"
+    deferred_all_days_review_issue: 54
+    d14_36_status: PENDING
+    safety_containment: ACADEMIC_VALIDATION_AND_CANONICAL_ISSUANCE_DISABLED
+    official_source_readiness: FALSE_PENDING_CURATOR_EVIDENCE
+    residual_findings: "R3-01..06 and containment evidence gaps per PR #55 reviews 7131261404, 7131443076, 7132441383"
+    founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
+    day15_unlock_scope: IMPLEMENTATION_AUTHORIZED_BY_FOUNDER
     depends_on: 13
   15:
     name: Learner Intelligence
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    tasklist_issue: 56
+    tasklist_status: APPROVED
+    approved_scope: D15-01..D15-36
+    implementation_authorized: true
+    implementation_status: ENGINEERING_CANDIDATE_PENDING_FOUNDER_REVIEW
+    implementation_branch: feature/day15-learner-intelligence
+    implementation_issue: 56
+    planning_base: develop
+    implementation_base_sha: "f8e96ceecbe42cdbcc1cca9de3dd13852a648ec4"
+    dependency_exception: FOUNDER_APPROVED_DAY14_MILESTONE_WITH_DEFERRALS
+    review_workflow: founder_manual_chatgpt_review
+    required_cursor_model: "Composer 2.5 (standard; not Fast)"
+    auto_merge: false
+    day16_unlock: false
     depends_on: 14
   16:
     name: Adaptive Remediation
