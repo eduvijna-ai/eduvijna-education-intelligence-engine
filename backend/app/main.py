@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging, request_context_middleware
 from app.db.session import get_db
+from app.platform.security.limits import rate_limit_middleware, request_size_limit_middleware
 from app.schemas.system import HealthResponse
 
 logger = logging.getLogger("eduvijna.errors")
@@ -22,8 +23,18 @@ logger = logging.getLogger("eduvijna.errors")
 settings = get_settings()
 configure_logging(settings.log_level)
 
-app = FastAPI(title="Eduvijna Education Intelligence Engine", version="0.1.0")
+app = FastAPI(
+    title="Eduvijna Education Intelligence Engine",
+    version="0.1.0",
+    description=(
+        "Day 17 REST surface with server-owned capability readiness, tenant-scoped auth, "
+        "durable jobs, and MCP parity. Blocked capabilities return structured errors without "
+        "provider side effects."
+    ),
+)
 app.middleware("http")(request_context_middleware)
+app.middleware("http")(request_size_limit_middleware)
+app.middleware("http")(rate_limit_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,

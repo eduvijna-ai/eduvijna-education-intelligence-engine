@@ -1,0 +1,277 @@
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.platform_auth import ApplicationPrincipal, ApplicationRefreshSession
+from app.models.tenancy import AdminActor, Institution, Organization, Teacher
+from app.platform.auth.audit import record_security_event
+from app.platform.auth.passwords import hash_password, verify_password
+from app.platform.auth.principal import RequestPrincipal, assert_tenant_active, resolve_actor_ref
+from app.platform.auth.rbac import scopes_for_role
+from app.platform.auth.tokens import (
+    REFRESH_TOKEN_TTL_SECONDS,
+    build_access_claims,
+    decode_access_token,
+    hash_refresh_token,
+    issue_access_token,
+    issue_refresh_token,
+)
+from app.platform.errors import AuthenticationError, AuthorizationError
+
+
+@dataclass(frozen=True, slots=True)
+class AuthTokens:
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int = 900
+
+
+def bootstrap_principal(
+    session: Session,
+    *,
+    organization: Organization,
+    institution: Institution | None,
+    teacher: Teacher | None,
+    admin: AdminActor | None,
+    login_code: str,
+    password: str,
+    role: str,
+) -> ApplicationPrincipal:
+    actor_kind, actor_ref = (
+        ("teacher", teacher.id) if teacher else ("admin", admin.id if admin else "")
+    )
+    principal = ApplicationPrincipal(
+        id=uuid.uuid4().hex,
+        organization_id=organization.id,
+        institution_id=institution.id if institution else None,
+        teacher_id=teacher.id if teacher else None,
+        learner_id=None,
+        admin_actor_id=admin.id if admin else None,
+        login_code=login_code,
+        display_name=(
+            teacher.display_name if teacher else (admin.display_name if admin else login_code)
+        ),
+        role=role,
+        password_hash_json=hash_password(password),
+        active=True,
+    )
+    session.add(principal)
+    session.flush()
+    return principal
+
+
+def login(
+    session: Session,
+    *,
+    organization_code: str,
+    login_code: str,
+    password: str,
+    correlation_id: str,
+) -> tuple[AuthTokens, RequestPrincipal]:
+    org = session.scalar(select(Organization).where(Organization.code == organization_code))
+    if org is None or not org.active:
+        record_security_event(
+            session,
+            event_type="auth.login",
+            correlation_id=correlation_id,
+            success=False,
+            metadata={"reason": "unknown_org"},
+        )
+        raise AuthenticationError("Invalid credentials")
+    principal = session.scalar(
+        select(ApplicationPrincipal).where(
+            ApplicationPrincipal.organization_id == org.id,
+            ApplicationPrincipal.login_code == login_code,
+        )
+    )
+    if principal is None or not principal.active:
+        record_security_event(
+            session,
+            event_type="auth.login",
+            correlation_id=correlation_id,
+            success=False,
+            organization_id=org.id,
+        )
+        raise AuthenticationError("Invalid credentials")
+    if not verify_password(password, principal.password_hash_json):
+        record_security_event(
+            session,
+            event_type="auth.login",
+            correlation_id=correlation_id,
+            success=False,
+            organization_id=org.id,
+            principal_id=principal.id,
+        )
+        raise AuthenticationError("Invalid credentials")
+    assert_tenant_active(session, principal.organization_id, principal.institution_id)
+    tokens, request_principal = _issue_session_tokens(session, principal)
+    record_security_event(
+        session,
+        event_type="auth.login",
+        correlation_id=correlation_id,
+        success=True,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        principal_id=principal.id,
+    )
+    return tokens, request_principal
+
+
+def refresh(
+    session: Session,
+    *,
+    refresh_token: str,
+    correlation_id: str,
+) -> AuthTokens:
+    token_hash = hash_refresh_token(refresh_token)
+    row = session.scalar(
+        select(ApplicationRefreshSession).where(ApplicationRefreshSession.token_hash == token_hash)
+    )
+    if row is None or row.revoked_at is not None:
+        record_security_event(
+            session,
+            event_type="auth.refresh",
+            correlation_id=correlation_id,
+            success=False,
+        )
+        raise AuthenticationError("Invalid refresh token")
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at < datetime.now(UTC):
+        record_security_event(
+            session,
+            event_type="auth.refresh",
+            correlation_id=correlation_id,
+            success=False,
+            principal_id=row.principal_id,
+        )
+        raise AuthenticationError("Refresh token expired")
+    principal = session.scalar(
+        select(ApplicationPrincipal).where(ApplicationPrincipal.id == row.principal_id)
+    )
+    if principal is None or not principal.active:
+        raise AuthenticationError("Principal inactive")
+    row.revoked_at = datetime.now(UTC)
+    tokens, _ = _issue_session_tokens(
+        session, principal, family_id=row.family_id, replaced_by_rotation=True
+    )
+    record_security_event(
+        session,
+        event_type="auth.refresh",
+        correlation_id=correlation_id,
+        success=True,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        principal_id=principal.id,
+    )
+    return tokens
+
+
+def logout(session: Session, *, refresh_token: str, correlation_id: str) -> None:
+    token_hash = hash_refresh_token(refresh_token)
+    row = session.scalar(
+        select(ApplicationRefreshSession).where(ApplicationRefreshSession.token_hash == token_hash)
+    )
+    if row is not None and row.revoked_at is None:
+        row.revoked_at = datetime.now(UTC)
+    record_security_event(
+        session,
+        event_type="auth.logout",
+        correlation_id=correlation_id,
+        success=True,
+        principal_id=row.principal_id if row else None,
+    )
+
+
+def principal_from_access_token(session: Session, token: str) -> RequestPrincipal:
+    try:
+        claims = decode_access_token(token)
+    except ValueError as exc:
+        raise AuthenticationError(str(exc)) from exc
+    principal = session.scalar(
+        select(ApplicationPrincipal).where(ApplicationPrincipal.id == claims.sub)
+    )
+    if principal is None or not principal.active:
+        raise AuthenticationError("Principal inactive")
+    if principal.organization_id != claims.organization_id:
+        raise AuthenticationError("Token tenant mismatch")
+    assert_tenant_active(session, principal.organization_id, principal.institution_id)
+    return RequestPrincipal(
+        principal_id=principal.id,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        role=principal.role,
+        scopes=claims.scopes,
+        actor_kind=claims.actor_kind,
+        actor_ref=claims.actor_ref,
+        auth_method="bearer",
+    )
+
+
+def _issue_session_tokens(
+    session: Session,
+    principal: ApplicationPrincipal,
+    *,
+    family_id: str | None = None,
+    replaced_by_rotation: bool = False,
+) -> tuple[AuthTokens, RequestPrincipal]:
+    actor_kind, actor_ref = resolve_actor_ref(principal)
+    scopes = tuple(sorted(scopes_for_role(principal.role)))
+    claims, access_token = build_access_claims(
+        principal_id=principal.id,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        role=principal.role,
+        scopes=scopes,
+        actor_kind=actor_kind,
+        actor_ref=actor_ref,
+    )
+    refresh_raw = issue_refresh_token()
+    family = family_id or uuid.uuid4().hex
+    session_row = ApplicationRefreshSession(
+        id=uuid.uuid4().hex,
+        principal_id=principal.id,
+        token_hash=hash_refresh_token(refresh_raw),
+        family_id=family,
+        expires_at=datetime.now(UTC) + timedelta(seconds=REFRESH_TOKEN_TTL_SECONDS),
+    )
+    session.add(session_row)
+    request_principal = RequestPrincipal(
+        principal_id=principal.id,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        role=principal.role,
+        scopes=scopes,
+        actor_kind=actor_kind,
+        actor_ref=actor_ref,
+        auth_method="bearer",
+    )
+    _ = replaced_by_rotation
+    _ = issue_access_token(claims)
+    return AuthTokens(access_token=access_token, refresh_token=refresh_raw), request_principal
+
+
+def change_password(
+    session: Session,
+    *,
+    principal: RequestPrincipal,
+    current_password: str,
+    new_password: str,
+) -> None:
+    row = session.scalar(
+        select(ApplicationPrincipal).where(ApplicationPrincipal.id == principal.principal_id)
+    )
+    if row is None:
+        raise AuthenticationError("Principal not found")
+    if row.role != principal.role:
+        raise AuthorizationError("Role escalation denied")
+    if not verify_password(current_password, row.password_hash_json):
+        raise AuthenticationError("Invalid current password")
+    row.password_hash_json = hash_password(new_password)
