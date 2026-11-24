@@ -19,6 +19,7 @@ from app.cuet_clat.clat_current_affairs_evidence import (
     seed_f04a_synthetic_current_affairs_fixture,
 )
 from app.cuet_clat.clat_evidence_contracts import (
+    F04A_HARNESS_TOKEN,
     ClatCurrentAffairsPreflightRequest,
     ClatEvidenceOperatingMode,
     ClatEvidencePreflightVerdict,
@@ -159,6 +160,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
             organization_id=f04a_fixture.organization_id,
             institution_id=f04a_fixture.institution_id,
             exam_version_id=f04a_fixture.exam_version_id,
+            harness_authorized=True,
+            trusted_harness_token=F04A_HARNESS_TOKEN,
         ),
         evidence_items=[f04a_fixture.evidence_item],
     )
