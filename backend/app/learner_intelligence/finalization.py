@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.learner_intelligence.attempt_meta import harness_binding_from_attempt
+from app.learner_intelligence.containment import containment_issue, runtime_learner_db_io_allowed
 from app.learner_intelligence.context import authorize_actor, load_bound_attempt
 from app.learner_intelligence.contracts import (
     AttemptOutcome,
@@ -23,7 +24,6 @@ from app.learner_intelligence.enums import (
     ScoringVerdict,
 )
 from app.learner_intelligence.gate import require_harness_or_blocked
-from app.learner_intelligence.harness_runtime import HARNESS_BIND_KEY
 from app.learner_intelligence.history import record_history_observation
 from app.learner_intelligence.lifecycle import mark_responses_final, transition_attempt
 from app.learner_intelligence.mastery import apply_mastery_update
@@ -40,6 +40,8 @@ from app.models.learner_intelligence import (
     IssuedItemSnapshot,
     ScoreEvidenceEvent,
 )
+
+HARNESS_BIND_KEY = "d15_harness_binding_secret"
 
 
 class FinalizationError(Exception):
@@ -118,8 +120,11 @@ def _verify_cached_idempotent_outcome(
 
 
 def finalize_attempt(session: Session, request: FinalizeAttemptRequest) -> AttemptOutcome:
-    """D15-14/15: harness-owned flush; strict binding and idempotency."""
+    """D15-14/15: containment — no runtime persistence."""
 
+    _ = request
+    if not runtime_learner_db_io_allowed():
+        raise FinalizationError(containment_issue())
     if require_harness_or_blocked(session) is not None:
         raise FinalizationError(IssueCode.NOT_ELIGIBLE)
     auth_err = authorize_actor(session, request.actor)

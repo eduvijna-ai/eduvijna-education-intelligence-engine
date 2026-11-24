@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
+from app.learner_intelligence.containment import runtime_learner_db_io_allowed
 from app.learner_intelligence.contracts import ItemScoreOutcome, SnapshotItem
 from app.learner_intelligence.enums import ScoringVerdict
 from app.learner_intelligence.harness import TRUSTED_DIAGNOSTIC_EVIDENCE_REF
@@ -31,8 +32,10 @@ def record_diagnostic_events(
     score: ItemScoreOutcome,
     response_id: str | None = None,
 ) -> list[DiagnosticProfileEvent]:
-    """D15-24..27: trusted Day9-shaped evidence only; Day10 hypotheses not integrated."""
+    """D15-24..27: containment — no runtime persistence."""
 
+    if not runtime_learner_db_io_allowed():
+        return []
     if score.verdict == ScoringVerdict.CORRECT:
         return []
     tags = _tags_from_snapshot(item)

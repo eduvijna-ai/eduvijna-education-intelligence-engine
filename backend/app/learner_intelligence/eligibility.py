@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.ca_imat_eapcet.containment import ISSUANCE_DISABLED
+from app.learner_intelligence.containment import PRODUCTION_ASSESSMENT_ELIGIBILITY
 from app.learner_intelligence.contracts import CreateAttemptRequest
 from app.learner_intelligence.enums import EligibilityTrustMode, EligibilityVerdict
 from app.learner_intelligence.harness import (
@@ -44,4 +45,4 @@ def evaluate_assessment_eligibility(request: CreateAttemptRequest) -> Eligibilit
 
 
 def production_assessment_always_blocked() -> bool:
-    return True
+    return not PRODUCTION_ASSESSMENT_ELIGIBILITY

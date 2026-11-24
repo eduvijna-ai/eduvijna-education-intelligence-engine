@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import runtime_learner_db_io_allowed
 from app.learner_intelligence.contracts import ItemScoreOutcome
 from app.learner_intelligence.enums import ScoringVerdict
 from app.models.learner_intelligence import QuestionHistoryObservation
@@ -20,8 +21,19 @@ def record_history_observation(
     source_version: str,
     score: ItemScoreOutcome,
 ) -> QuestionHistoryObservation:
-    """D15-16: one answered observation per finalized item (idempotent via unique constraint)."""
+    """D15-16: containment — no runtime persistence."""
 
+    if not runtime_learner_db_io_allowed():
+        return QuestionHistoryObservation(
+            organization_id=organization_id,
+            learner_id=learner_id,
+            attempt_id=attempt_id,
+            question_id=question_id,
+            item_sequence=item_sequence,
+            observation_kind="blocked",
+            verdict=score.verdict.value,
+            source_version=source_version,
+        )
     obs = QuestionHistoryObservation(
         organization_id=organization_id,
         learner_id=learner_id,

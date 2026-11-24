@@ -5,6 +5,7 @@ from datetime import UTC
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import runtime_learner_db_io_allowed
 from app.learner_intelligence.contracts import MasterySnapshot
 from app.learner_intelligence.enums import (
     MASTERY_POLICY_VERSION,
@@ -125,7 +126,10 @@ def apply_mastery_update(
     learner_id: str,
     concept_code: str,
     event: ScoreEvidenceEvent,
-) -> ConceptMasteryRecord:
+) -> ConceptMasteryRecord | None:
+    _ = (organization_id, institution_id, learner_id, concept_code, event)
+    if not runtime_learner_db_io_allowed():
+        return None
     existing = session.scalar(
         select(ConceptMasteryRecord).where(
             ConceptMasteryRecord.organization_id == organization_id,

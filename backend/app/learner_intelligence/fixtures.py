@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import runtime_learner_db_io_allowed
 from app.learner_intelligence.contracts import (
     CreateAttemptRequest,
     SnapshotItem,
@@ -19,6 +20,8 @@ from app.models import Institution, Learner, Organization
 
 
 def seed_synthetic_tenant(session: Session) -> TrustedActorContext:
+    if not runtime_learner_db_io_allowed():
+        raise RuntimeError("day15_seed_blocked_by_containment")
     org = Organization(code="d15-org", name="D15 Synthetic Org", active=True)
     session.add(org)
     session.flush()

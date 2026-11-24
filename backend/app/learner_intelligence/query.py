@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import containment_issue, runtime_learner_db_io_allowed
 from app.learner_intelligence.context import authorize_actor, load_bound_attempt
 from app.learner_intelligence.contracts import TrustedActorContext
 from app.learner_intelligence.enums import IssueCode
@@ -24,6 +25,8 @@ def list_attempts_for_learner(
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if not runtime_learner_db_io_allowed():
+        return [], [containment_issue()]
     if authorize_actor(session, actor) is not None:
         return [], [IssueCode.TENANT_MISMATCH]
     """D15-30: internal tenant-scoped reads; no correct keys in responses."""
@@ -57,6 +60,8 @@ def read_mastery_summary(
     session: Session,
     actor: TrustedActorContext,
 ) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if not runtime_learner_db_io_allowed():
+        return [], [containment_issue()]
     if authorize_actor(session, actor) is not None:
         return [], [IssueCode.TENANT_MISMATCH]
     rows = session.scalars(
@@ -83,6 +88,8 @@ def read_responses_redacted(
     actor: TrustedActorContext,
     attempt_id: str,
 ) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if not runtime_learner_db_io_allowed():
+        return [], [containment_issue()]
     _, load_err = load_bound_attempt(session, actor, attempt_id)
     if load_err is not None:
         return [], [load_err]
@@ -104,6 +111,8 @@ def read_diagnostic_events(
     session: Session,
     actor: TrustedActorContext,
 ) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if not runtime_learner_db_io_allowed():
+        return [], [containment_issue()]
     if authorize_actor(session, actor) is not None:
         return [], [IssueCode.TENANT_MISMATCH]
     rows = session.scalars(

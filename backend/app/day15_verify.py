@@ -1,181 +1,265 @@
-"""Day 15 verification harness (D15-34)."""
+"""Day 15 verification harness (D15-34) — containment milestone."""
 
 from __future__ import annotations
 
 import argparse
 import json
-from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
 
-from app.learner_intelligence.contracts import FinalizeAttemptRequest, RecordResponseRequest
+import app.models  # noqa: F401
+from app.db.base import Base
+from app.db.session import enable_sqlite_foreign_keys
+from app.learner_intelligence.containment import (
+    CONTAINMENT_ACTIVE,
+    DURABLE_LEARNER_EVIDENCE,
+    PRODUCTION_ASSESSMENT_ELIGIBILITY,
+    TRUSTED_MASTERY_EVIDENCE,
+)
+from app.learner_intelligence.contracts import TrustedActorContext
+from app.learner_intelligence.diagnostic_pure import (
+    pure_full_correct_scoring_diagnostic,
+    pure_missing_item_scoring_diagnostic,
+)
 from app.learner_intelligence.eligibility import (
     evaluate_assessment_eligibility,
     production_assessment_always_blocked,
 )
-from app.learner_intelligence.enums import AttemptState, EligibilityVerdict, IssueCode, ResponseKind
+from app.learner_intelligence.enums import EligibilityVerdict, IssueCode
+from app.learner_intelligence.finalization import FinalizationError, finalize_attempt
 from app.learner_intelligence.fixtures import (
-    assessment_content_fingerprint,
     build_harness_attempt_request,
     forged_harness_attestation_copy,
 )
 from app.learner_intelligence.governance import build_day15_governance_record
-from app.learner_intelligence.handoff import build_day16_handoff, build_synthetic_diagnostic_handoff
-from app.learner_intelligence.harness_runtime import isolated_harness_session
+from app.learner_intelligence.handoff import build_day16_handoff
+from app.learner_intelligence.mastery import apply_mastery_update
+from app.learner_intelligence.query import list_attempts_for_learner, read_mastery_summary
 from app.learner_intelligence.scope_ledger import load_repo_scope_counts
 from app.learner_intelligence.service import LearnerIntelligenceService
-from app.models.learner_intelligence import (
-    ConceptMasteryRecord,
-    DiagnosticProfileEvent,
-    ScoreEvidenceEvent,
-)
+from app.models import Institution, Learner, Organization
+from app.models.learner_intelligence import AssessmentAttempt, ScoreEvidenceEvent
 from app.verification.candidate_revision import RevisionEvidence, resolve_revision_evidence
 
 
-def _run_isolated_harness_verification(revision: RevisionEvidence) -> dict[str, object]:
+def _seed_attack_tenant(session: Session) -> TrustedActorContext:
+    """Test-only DB seed (not a Day15 runtime API)."""
+
+    org = Organization(code="d15-attack-org", name="Attack Org", active=True)
+    session.add(org)
+    session.flush()
+    inst = Institution(
+        organization_id=str(org.id),
+        code="d15-attack-inst",
+        name="Attack Inst",
+        active=True,
+    )
+    session.add(inst)
+    session.flush()
+    learner = Learner(
+        institution_id=str(inst.id),
+        external_code="d15-attack-learner",
+        display_name="Attack Learner",
+        active=True,
+    )
+    session.add(learner)
+    session.flush()
+    return TrustedActorContext(
+        organization_id=str(org.id),
+        institution_id=str(inst.id),
+        learner_id=str(learner.id),
+    )
+
+
+def _assert_no_learner_rows(session: Session) -> bool:
+    attempts = int(session.scalar(select(func.count()).select_from(AssessmentAttempt)) or 0)
+    events = int(session.scalar(select(func.count()).select_from(ScoreEvidenceEvent)) or 0)
+    return attempts == 0 and events == 0
+
+
+def _run_containment_verification(revision: RevisionEvidence) -> dict[str, object]:
     if revision.evidence_error or not revision.sha_aligned:
         return _revision_failure_report(revision)
+
     scope_counts = load_repo_scope_counts()
     governance = build_day15_governance_record()
 
-    with isolated_harness_session() as (session, _binding, actor):
-        create_req = build_harness_attempt_request(
-            actor,
-            assessment_key="d15-verify-assessment",
-            idempotency_key="d15-verify-attempt-1",
-        )
-        fp = assessment_content_fingerprint(create_req.items)
+    pure_partial = pure_missing_item_scoring_diagnostic()
+    pure_full = pure_full_correct_scoring_diagnostic()
+
+    actor = TrustedActorContext(
+        organization_id="x",
+        institution_id="y",
+        learner_id="z",
+    )
+    create_req = build_harness_attempt_request(actor, assessment_key="v", idempotency_key="v1")
+    forged = create_req.model_copy(
+        update={"harness_attestation": forged_harness_attestation_copy()}
+    )
+    unattested = create_req.model_copy(update={"harness_attestation": None, "catalog_key": None})
+
+    eligibility_synthetic = evaluate_assessment_eligibility(create_req)
+    forged_verdict = evaluate_assessment_eligibility(forged)
+    unattested_verdict = evaluate_assessment_eligibility(unattested)
+
+    engine = create_engine("sqlite:///:memory:")
+    enable_sqlite_foreign_keys(engine)
+    Base.metadata.create_all(engine)
+
+    service_blocks: dict[str, bool] = {}
+    with Session(engine) as session:
+        attack_actor = _seed_attack_tenant(session)
+        session.commit()
+        pre_count = session.scalar(select(func.count()).select_from(Organization))
+
         svc = LearnerIntelligenceService()
-
-        eligibility = evaluate_assessment_eligibility(create_req)
-        attempt, create_outcome = svc.create_attempt(session, create_req)
-        assert attempt is not None
-
-        forged = create_req.model_copy(
-            update={"harness_attestation": forged_harness_attestation_copy()}
+        create_req_attacked = build_harness_attempt_request(
+            attack_actor,
+            assessment_key="attack",
+            idempotency_key="attack-1",
         )
-        forged_verdict = evaluate_assessment_eligibility(forged)
-        unattested = create_req.model_copy(
-            update={"harness_attestation": None, "catalog_key": None}
+        attempt, create_out = svc.create_attempt(session, create_req_attacked)
+        service_blocks["create"] = attempt is None and IssueCode.NOT_READY in create_out.issue_codes
+
+        session.info["d15_harness_authorized"] = True
+        session.info["d15_harness_binding_secret"] = "forged-secret"
+        attempt2, create_out2 = svc.create_attempt(session, create_req_attacked)
+        service_blocks["create_premarked_session"] = (
+            attempt2 is None and IssueCode.NOT_READY in create_out2.issue_codes
         )
-        unattested_verdict = evaluate_assessment_eligibility(unattested)
 
-        view, view_issues = svc.learner_view_items(session, actor, str(attempt.id))
-        keys_leaked = False
-        fingerprint_leaked = "content_fingerprint" in json.dumps(view)
-        for row in view:
-            opts = row.get("options")
-            if not isinstance(opts, list):
-                continue
-            for opt in opts:
-                if isinstance(opt, dict) and opt.get("is_correct") is not None:
-                    keys_leaked = True
+        views, view_issues = svc.learner_view_items(session, attack_actor, "fake-attempt")
+        service_blocks["learner_view"] = view_issues == [IssueCode.NOT_READY] and views == []
 
-        ok1, _ = svc.record_response(
+        from app.learner_intelligence.contracts import FinalizeAttemptRequest, RecordResponseRequest
+        from app.learner_intelligence.enums import ResponseKind
+
+        record_ok, record_issues = svc.record_response(
             session,
             RecordResponseRequest(
-                actor=actor,
-                attempt_id=str(attempt.id),
+                actor=attack_actor,
+                attempt_id="fake",
                 item_sequence=1,
                 response_kind=ResponseKind.SINGLE_CHOICE,
                 selected_option_keys=["A"],
             ),
         )
-        ok2, _ = svc.record_response(
-            session,
-            RecordResponseRequest(
-                actor=actor,
-                attempt_id=str(attempt.id),
-                item_sequence=2,
-                response_kind=ResponseKind.NUMERIC,
-                numeric_value="7",
-            ),
-        )
+        service_blocks["record"] = not record_ok and IssueCode.NOT_READY in record_issues
 
         fin = svc.finalize(
             session,
             FinalizeAttemptRequest(
-                actor=actor,
-                attempt_id=str(attempt.id),
-                idempotency_key="d15-finalize-1",
-                content_binding_fingerprint=fp,
+                actor=attack_actor,
+                attempt_id="fake",
+                idempotency_key="f",
+                content_binding_fingerprint="00",
             ),
         )
-        replay = svc.finalize(
+        service_blocks["finalize"] = (
+            fin.committed is False and IssueCode.NOT_READY in fin.issue_codes
+        )
+
+        abandon_issues = svc.abandon(session, attack_actor, "fake")
+        service_blocks["abandon"] = abandon_issues == [IssueCode.NOT_READY]
+
+        list_rows, list_issues = list_attempts_for_learner(session, attack_actor)
+        service_blocks["query_list"] = list_rows == [] and IssueCode.NOT_READY in list_issues
+
+        mastery_rows, mastery_issues = read_mastery_summary(session, attack_actor)
+        service_blocks["query_mastery"] = (
+            mastery_rows == [] and IssueCode.NOT_READY in mastery_issues
+        )
+
+        handoff = build_day16_handoff(session, attack_actor)
+        service_blocks["handoff"] = (
+            handoff.readiness == "NOT_READY"
+            and not handoff.actionable
+            and handoff.evidence_event_ids == []
+        )
+
+        finalization_blocked = False
+        try:
+            finalize_attempt(
+                session,
+                FinalizeAttemptRequest(
+                    actor=attack_actor,
+                    attempt_id="fake",
+                    idempotency_key="f2",
+                    content_binding_fingerprint="00",
+                ),
+            )
+        except FinalizationError as exc:
+            finalization_blocked = exc.code == IssueCode.NOT_READY
+
+        helper_blocked = apply_mastery_update(
             session,
-            FinalizeAttemptRequest(
-                actor=actor,
-                attempt_id=str(attempt.id),
-                idempotency_key="d15-finalize-1",
-                content_binding_fingerprint=fp,
+            organization_id=attack_actor.organization_id,
+            institution_id=attack_actor.institution_id,
+            learner_id=attack_actor.learner_id,
+            concept_code="x",
+            event=ScoreEvidenceEvent(
+                attempt_id="a",
+                organization_id=attack_actor.organization_id,
+                learner_id=attack_actor.learner_id,
+                item_sequence=1,
+                verdict="correct",
+                marks_awarded=0,
+                max_marks=1,
+                snapshot_fingerprint="fp",
             ),
         )
+        service_blocks["mastery_helper"] = helper_blocked is None
+        service_blocks["finalize_helper"] = finalization_blocked
 
-        score_count = session.scalar(select(func.count()).select_from(ScoreEvidenceEvent)) or 0
-        mastery_count = session.scalar(select(func.count()).select_from(ConceptMasteryRecord)) or 0
-        diag_count = session.scalar(select(func.count()).select_from(DiagnosticProfileEvent)) or 0
-        handoff = build_day16_handoff(session, actor)
-        synthetic_handoff = build_synthetic_diagnostic_handoff(session, actor)
+        post_count = session.scalar(select(func.count()).select_from(Organization))
+        service_blocks["no_extra_org_rows"] = post_count == pre_count
+        service_blocks["no_learner_evidence_rows"] = _assert_no_learner_rows(session)
+        session.rollback()
 
-    block_plain_session = _ordinary_session_create_blocked()
-
-    synthetic_ok = (
-        production_assessment_always_blocked()
-        and eligibility == EligibilityVerdict.ELIGIBLE
-        and IssueCode.NOT_ELIGIBLE not in create_outcome.issue_codes
+    containment_ok = (
+        CONTAINMENT_ACTIVE
+        and production_assessment_always_blocked()
+        and not PRODUCTION_ASSESSMENT_ELIGIBILITY
+        and not TRUSTED_MASTERY_EVIDENCE
+        and not DURABLE_LEARNER_EVIDENCE
+        and eligibility_synthetic == EligibilityVerdict.ELIGIBLE
         and forged_verdict == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
         and unattested_verdict == EligibilityVerdict.BLOCKED_UNVERIFIED
-        and block_plain_session
-        and not view_issues
-        and not keys_leaked
-        and not fingerprint_leaked
-        and ok1
-        and ok2
-        and fin.state == AttemptState.FINALIZED
-        and fin.committed
-        and fin.total_marks == Decimal("3")
-        and fin.max_marks == Decimal("8")
-        and replay.total_marks == fin.total_marks
-        and score_count == 2
-        and mastery_count >= 1
-        and diag_count >= 1
-        and handoff.readiness == "NOT_READY"
-        and not handoff.actionable
-        and len(handoff.evidence_event_ids) == 0
-        and synthetic_handoff.synthetic_diagnostic_only
-        and not synthetic_handoff.actionable
+        and pure_partial["total_marks"] == "4"
+        and pure_partial["max_marks"] == "8"
+        and pure_partial["persisted"] == "false"
+        and pure_full["persisted"] == "false"
+        and all(service_blocks.values())
         and scope_counts.get("TOTAL") == 36
     )
 
     report: dict[str, object] = {
-        "ok": synthetic_ok,
-        "synthetic_harness_pass": synthetic_ok,
-        "production_assessment_eligibility": False,
+        "ok": containment_ok,
+        "containment_milestone": "D15-SAFETY-CONTAINMENT-01",
+        "synthetic_harness_pass": False,
+        "diagnostic_execution_ok": containment_ok,
+        "diagnostic_only_pure_scoring": True,
+        "durable_learner_evidence": False,
+        "unimplemented_policies": [
+            "mastery_v1_full",
+            "day10_diagnostic_integration",
+            "d15_runtime_persistence",
+        ],
+        "production_assessment_eligibility": PRODUCTION_ASSESSMENT_ELIGIBILITY,
         "production_assessment_blocked_unconditional": production_assessment_always_blocked(),
-        "ordinary_session_rejected": block_plain_session,
-        "diagnostic_execution_ok": synthetic_ok,
+        "containment_active": CONTAINMENT_ACTIVE,
+        "service_boundary_checks": service_blocks,
+        "pure_diagnostics": {"partial": pure_partial, "full": pure_full},
         "governance": governance,
         "scope_ledger_counts": scope_counts,
         "eligibility": {
-            "synthetic_eligible": eligibility.value,
+            "synthetic_eligible": eligibility_synthetic.value,
             "forged_blocked": forged_verdict.value,
             "unattested_blocked": unattested_verdict.value,
         },
-        "attempt": {
-            "attempt_id": str(attempt.id),
-            "state": fin.state.value,
-            "total_marks": str(fin.total_marks),
-            "max_marks": str(fin.max_marks),
-        },
-        "persisted_counts": {
-            "score_events": score_count,
-            "mastery_records": mastery_count,
-            "diagnostic_events": diag_count,
-        },
-        "replay_idempotent": replay.total_marks == fin.total_marks and replay.committed,
         "handoff": handoff.model_dump(),
-        "synthetic_diagnostic_handoff": synthetic_handoff.model_dump(),
         "notes": {
             "compose_smoke": "NOT_RUN",
             "live_postgresql": "NOT_RUN",
@@ -183,36 +267,11 @@ def _run_isolated_harness_verification(revision: RevisionEvidence) -> dict[str, 
             "migration_0021_blocker": "DEFERRED",
             "d15_36_founder_signoff": "NOT_STARTED",
             "day14_issuance_containment_unchanged": True,
-            "mastery_policy_implementation": "PARTIAL",
+            "runtime_db_persistence": "DISABLED",
         },
     }
     report.update(revision.as_report_fields())
     return report
-
-
-def _ordinary_session_create_blocked() -> bool:
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session as OrmSession
-
-    import app.models  # noqa: F401
-    from app.db.base import Base
-    from app.db.session import enable_sqlite_foreign_keys
-    from app.learner_intelligence.fixtures import seed_synthetic_tenant
-
-    engine = create_engine("sqlite:///:memory:")
-    enable_sqlite_foreign_keys(engine)
-    Base.metadata.create_all(engine)
-    with OrmSession(engine) as session:
-        actor = seed_synthetic_tenant(session)
-        session.commit()
-        req = build_harness_attempt_request(
-            actor,
-            assessment_key="block",
-            idempotency_key="block-1",
-        )
-        svc = LearnerIntelligenceService()
-        attempt, outcome = svc.create_attempt(session, req)
-        return attempt is None and IssueCode.NOT_ELIGIBLE in outcome.issue_codes
 
 
 def _revision_failure_report(revision: RevisionEvidence) -> dict[str, object]:
@@ -222,6 +281,7 @@ def _revision_failure_report(revision: RevisionEvidence) -> dict[str, object]:
         scope_counts = {"TOTAL": 0, "PARTIAL": 0, "SOURCE_PENDING": 0, "NOT_STARTED": 0}
     return {
         "ok": False,
+        "containment_milestone": "D15-SAFETY-CONTAINMENT-01",
         "synthetic_harness_pass": False,
         "failure_reason": revision.evidence_error or "SHA_ALIGNMENT_FAILED",
         "scope_ledger_counts": scope_counts,
@@ -237,7 +297,7 @@ def main() -> int:
     revision = resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1])
 
     try:
-        report = _run_isolated_harness_verification(revision)
+        report = _run_containment_verification(revision)
     except Exception as exc:  # noqa: BLE001
         report = {
             "ok": False,

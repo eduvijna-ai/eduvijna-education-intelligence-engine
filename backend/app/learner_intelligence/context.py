@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import containment_issue, runtime_learner_db_io_allowed
 from app.learner_intelligence.contracts import TrustedActorContext
 from app.learner_intelligence.enums import IssueCode
 from app.models import Institution, Learner, Organization
@@ -16,6 +17,9 @@ def resolve_trusted_learner_context(
     learner_id: str,
 ) -> tuple[TrustedActorContext | None, IssueCode | None]:
     """D15-02: membership must exist in DB; caller cannot invent tenant binding."""
+
+    if not runtime_learner_db_io_allowed():
+        return None, containment_issue()
 
     org = session.get(Organization, organization_id)
     if org is None or not org.active:
@@ -61,6 +65,9 @@ def load_bound_attempt(
     actor: TrustedActorContext,
     attempt_id: str,
 ) -> tuple[AssessmentAttempt | None, IssueCode | None]:
+    _ = attempt_id
+    if not runtime_learner_db_io_allowed():
+        return None, containment_issue()
     if authorize_actor(session, actor) is not None:
         return None, IssueCode.TENANT_MISMATCH
     attempt = session.get(AssessmentAttempt, attempt_id)

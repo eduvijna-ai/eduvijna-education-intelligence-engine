@@ -76,4 +76,5 @@ class IssueCode(StrEnum):
     FINALIZATION_ROLLBACK = "finalization_rollback"
     CROSS_TENANT = "cross_tenant"
     NOT_ELIGIBLE = "not_eligible"
+    NOT_READY = "not_ready"
     REVIEW_PENDING = "review_pending"

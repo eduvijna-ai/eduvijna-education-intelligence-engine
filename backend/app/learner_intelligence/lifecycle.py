@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import containment_issue, runtime_learner_db_io_allowed
 from app.learner_intelligence.contracts import RecordResponseRequest, SnapshotItem
 from app.learner_intelligence.enums import AttemptState, IssueCode, ResponseKind
 from app.learner_intelligence.scoring import score_item_response
@@ -59,8 +60,10 @@ def validate_and_store_response(
     *,
     item_model_json: dict[str, object],
 ) -> tuple[AttemptResponse | None, list[IssueCode]]:
-    """D15-08/09: draft responses; no scoring side effects here."""
+    """D15-08/09: containment — no runtime persistence."""
 
+    if not runtime_learner_db_io_allowed():
+        return _reject(containment_issue())
     if request.actor.organization_id != attempt.organization_id:
         return _reject(IssueCode.CROSS_TENANT)
     if request.actor.learner_id != attempt.learner_id:

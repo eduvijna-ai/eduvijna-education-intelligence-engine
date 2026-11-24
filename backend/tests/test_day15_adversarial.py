@@ -12,23 +12,9 @@ from app.learner_intelligence.fixtures import (
     build_harness_attempt_request,
     build_two_item_synthetic_assessment,
     forged_harness_attestation_copy,
-    seed_synthetic_tenant,
 )
 from app.learner_intelligence.harness import TRUSTED_CATALOG_KEY_TWO_ITEM
-from app.learner_intelligence.harness_runtime import (
-    ephemeral_file_harness,
-    isolated_harness_session,
-)
 from app.learner_intelligence.service import LearnerIntelligenceService
-
-
-def _unauthorized_session(tmp_path: Path) -> tuple[Session, TrustedActorContext]:
-    engine = create_database_engine(f"sqlite:///{tmp_path / 'd15-plain.sqlite'}")
-    Base.metadata.create_all(engine)
-    session = Session(engine)
-    actor = seed_synthetic_tenant(session)
-    session.commit()
-    return session, actor
 
 
 def _actor() -> TrustedActorContext:
@@ -76,32 +62,53 @@ def test_arbitrary_items_without_catalog_blocked() -> None:
     )
 
 
-def test_ordinary_session_rejects_create(tmp_path: Path) -> None:
-    session, actor = _unauthorized_session(tmp_path)
+def _seed_membership(tmp_path: Path) -> tuple[Session, TrustedActorContext]:
+    from app.models import Institution, Learner, Organization
+
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'attack.sqlite'}")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    org = Organization(code="d15-org", name="D15", active=True)
+    session.add(org)
+    session.flush()
+    inst = Institution(
+        organization_id=str(org.id),
+        code="d15-inst",
+        name="D15",
+        active=True,
+    )
+    session.add(inst)
+    session.flush()
+    learner = Learner(
+        institution_id=str(inst.id),
+        external_code="d15-learner",
+        display_name="L",
+        active=True,
+    )
+    session.add(learner)
+    session.flush()
+    actor = TrustedActorContext(
+        organization_id=str(org.id),
+        institution_id=str(inst.id),
+        learner_id=str(learner.id),
+    )
+    session.commit()
+    return session, actor
+
+
+def test_service_blocks_valid_membership_and_copied_attestation(tmp_path: Path) -> None:
+    session, actor = _seed_membership(tmp_path)
     try:
+        req = build_harness_attempt_request(actor, assessment_key="t", idempotency_key="t1")
         svc = LearnerIntelligenceService()
-        attempt, outcome = svc.create_attempt(
-            session,
-            build_harness_attempt_request(actor, assessment_key="t", idempotency_key="t0"),
-        )
+        attempt, outcome = svc.create_attempt(session, req)
         assert attempt is None
-        assert IssueCode.NOT_ELIGIBLE in outcome.issue_codes
+        assert IssueCode.NOT_READY in outcome.issue_codes
+        assert outcome.committed is False
+        session.info["d15_harness_authorized"] = True
+        session.info["d15_harness_binding_secret"] = "forged"
+        attempt2, outcome2 = svc.create_attempt(session, req)
+        assert attempt2 is None
+        assert IssueCode.NOT_READY in outcome2.issue_codes
     finally:
         session.close()
-
-
-def test_cross_tenant_learner_view_blocked(tmp_path: Path) -> None:
-    with isolated_harness_session(ephemeral_file_harness(tmp_path)) as (session, _binding, actor):
-        svc = LearnerIntelligenceService()
-        attempt, _ = svc.create_attempt(
-            session,
-            build_harness_attempt_request(actor, assessment_key="t", idempotency_key="t1"),
-        )
-        assert attempt is not None
-        other = TrustedActorContext(
-            organization_id=actor.organization_id,
-            institution_id=actor.institution_id,
-            learner_id="foreign-learner",
-        )
-        _, issues = svc.learner_view_items(session, other, str(attempt.id))
-        assert IssueCode.TENANT_MISMATCH in issues or IssueCode.OUT_OF_SCOPE in issues

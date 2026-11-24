@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.containment import runtime_learner_db_io_allowed
 from app.models.learner_intelligence import LearnerMemoryEntry, ScoreEvidenceEvent
 
 
@@ -18,8 +19,18 @@ def append_memory_from_event(
     event: ScoreEvidenceEvent,
     payload: dict[str, Any],
 ) -> LearnerMemoryEntry:
-    """D15-28/29: versioned entries with provenance; no silent overwrite."""
+    """D15-28/29: containment — no runtime persistence."""
 
+    if not runtime_learner_db_io_allowed():
+        return LearnerMemoryEntry(
+            organization_id=organization_id,
+            learner_id=learner_id,
+            memory_key=memory_key,
+            entry_version=0,
+            payload_json=payload,
+            source_event_id=str(event.id),
+            retracted=True,
+        )
     last_version = session.scalar(
         select(LearnerMemoryEntry.entry_version)
         .where(
@@ -49,6 +60,9 @@ def rebuild_memory_keys(
     organization_id: str,
     learner_id: str,
 ) -> list[str]:
+    _ = (session, organization_id, learner_id)
+    if not runtime_learner_db_io_allowed():
+        return []
     events = list(
         session.scalars(
             select(ScoreEvidenceEvent)
