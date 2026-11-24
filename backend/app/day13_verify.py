@@ -39,12 +39,17 @@ from app.cuet_clat.scope_ledger import load_repo_scope_counts
 from app.cuet_clat.source_registry import build_source_registry_snapshot
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-from app.verification.candidate_revision import resolve_revision_evidence
+from app.verification.candidate_revision import RevisionEvidence, resolve_revision_evidence
 
 
-def build_verification_report(session: Session) -> dict[str, object]:
-    revision = resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1])
+def build_verification_report(
+    session: Session,
+    *,
+    revision: RevisionEvidence,
+) -> dict[str, object]:
     sha_aligned = revision.sha_aligned
+    if revision.evidence_error or not revision.sha_aligned:
+        return _revision_failure_report(revision)
 
     practice = CuetPracticeService()
     math10 = practice.allocate_practice(
@@ -243,17 +248,27 @@ def build_verification_report(session: Session) -> dict[str, object]:
     return report
 
 
-def _failure_report(reason: str, *, revision: dict[str, object] | None = None) -> dict[str, object]:
+def _revision_failure_report(revision: RevisionEvidence) -> dict[str, object]:
+    try:
+        scope_counts = load_repo_scope_counts()
+    except Exception:  # noqa: BLE001 — still emit JSON if scope map missing
+        scope_counts = {"TOTAL": 0, "PARTIAL": 0, "SOURCE_PENDING": 0, "NOT_STARTED": 0}
+    return {
+        "ok": False,
+        "synthetic_fixture_pass": False,
+        "failure_reason": revision.evidence_error or "SHA_ALIGNMENT_FAILED",
+        "scope_ledger_counts": scope_counts,
+        **revision.as_report_fields(),
+    }
+
+
+def _failure_report(reason: str, *, revision: RevisionEvidence) -> dict[str, object]:
     base: dict[str, object] = {
         "ok": False,
         "synthetic_fixture_pass": False,
-        "sha_alignment": False,
         "failure_reason": reason,
+        **revision.as_report_fields(),
     }
-    if revision:
-        base.update(revision)
-    else:
-        base.update(resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1]).as_report_fields())
     return base
 
 
@@ -262,14 +277,16 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Emit JSON report")
     args = parser.parse_args()
 
+    revision = resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1])
+
     try:
         engine = create_engine("sqlite:///:memory:")
         enable_sqlite_foreign_keys(engine)
         Base.metadata.create_all(engine)
         with Session(engine) as session:
-            report = build_verification_report(session)
+            report = build_verification_report(session, revision=revision)
     except Exception as exc:  # noqa: BLE001 — verifier must emit structured JSON, not crash
-        report = _failure_report(f"verification_exception:{type(exc).__name__}")
+        report = _failure_report(f"verification_exception:{type(exc).__name__}", revision=revision)
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))

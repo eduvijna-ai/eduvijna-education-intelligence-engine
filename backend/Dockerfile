@@ -21,9 +21,13 @@ COPY .eduvijna/execution-state.yml ./.eduvijna/execution-state.yml
 COPY .github/workflows/ci.yml ./.github/workflows/ci.yml
 RUN pip install --no-cache-dir '.[dev]'
 ARG EDUVIJNA_BUILD_REVISION=
-RUN if [ -n "${EDUVIJNA_BUILD_REVISION}" ]; then \
-      printf '%s' "${EDUVIJNA_BUILD_REVISION}" > /app/.eduvijna/build-revision && \
-      chmod 444 /app/.eduvijna/build-revision; \
+RUN set -eux; \
+    if [ -n "${EDUVIJNA_BUILD_REVISION}" ]; then \
+      python -c "import re,sys; s=sys.argv[1].strip().lower(); sys.exit(0 if re.fullmatch(r'[0-9a-f]{40}', s) else 1)" "${EDUVIJNA_BUILD_REVISION}"; \
+      install -d -m 0555 -o root -g root /etc/eduvijna; \
+      printf '%s' "${EDUVIJNA_BUILD_REVISION}" > /etc/eduvijna/build-revision; \
+      chmod 0444 /etc/eduvijna/build-revision; \
+      chown root:root /etc/eduvijna/build-revision; \
     fi
 RUN mkdir -p /app/data && chown -R eduvijna:eduvijna /app
 
