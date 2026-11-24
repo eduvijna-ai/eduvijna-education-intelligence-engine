@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import subprocess
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -13,6 +14,15 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
 from app.cuet_clat.authority import resolve_clat_authority, resolve_cuet_authority
+from app.cuet_clat.clat_current_affairs_evidence import (
+    evaluate_clat_current_affairs_evidence,
+    seed_f04a_synthetic_current_affairs_fixture,
+)
+from app.cuet_clat.clat_evidence_contracts import (
+    ClatCurrentAffairsPreflightRequest,
+    ClatEvidenceOperatingMode,
+    ClatEvidencePreflightVerdict,
+)
 from app.cuet_clat.clat_passage_contracts import CLAT_PASSAGE_HARNESS_TOKEN
 from app.cuet_clat.clat_planner import ClatPaperPlanner
 from app.cuet_clat.clat_validated_passage_service import (
@@ -137,6 +147,33 @@ def build_verification_report(session: Session) -> dict[str, object]:
 
     scope_counts = load_repo_scope_counts()
 
+    f04a_fixture = seed_f04a_synthetic_current_affairs_fixture(session)
+
+    f04a_synthetic = evaluate_clat_current_affairs_evidence(
+        session,
+        ClatCurrentAffairsPreflightRequest(
+            operating_mode=ClatEvidenceOperatingMode.SYNTHETIC_TEST_ONLY,
+            claim_text=f04a_fixture.claim_text,
+            fact_date=date(2026, 10, 15),
+            as_of=datetime(2026, 11, 1, tzinfo=UTC),
+            organization_id=f04a_fixture.organization_id,
+            institution_id=f04a_fixture.institution_id,
+            exam_version_id=f04a_fixture.exam_version_id,
+        ),
+        evidence_items=[f04a_fixture.evidence_item],
+    )
+    f04a_official = evaluate_clat_current_affairs_evidence(
+        session,
+        ClatCurrentAffairsPreflightRequest(
+            operating_mode=ClatEvidenceOperatingMode.OFFICIAL_CLAT_2027,
+            claim_text=f04a_fixture.claim_text,
+            fact_date=date(2026, 10, 15),
+            as_of=datetime(2026, 11, 1, tzinfo=UTC),
+            exam_version_id=f04a_fixture.exam_version_id,
+        ),
+        evidence_items=[f04a_fixture.evidence_item],
+    )
+
     synthetic_ok = (
         math10.verdict == PlanVerdict.PASS
         and math10.delivered_count == 10
@@ -188,6 +225,17 @@ def build_verification_report(session: Session) -> dict[str, object]:
             "section_allocations": [s.model_dump() for s in clat_plan.section_allocations],
             "verdict": clat_plan.verdict.value,
             "demonstration_only": clat_plan.metadata_json.get("demonstration_only"),
+        },
+        "clat_current_affairs_evidence_preflight": {
+            "synthetic_mechanics_test_only": (
+                f04a_synthetic.verdict == ClatEvidencePreflightVerdict.MECHANICAL_DEMO_OK
+                and f04a_synthetic.mechanical_evidence_checks_ok
+            ),
+            "official_verified": False,
+            "officially_verified_claim_count": f04a_official.officially_verified_claim_count,
+            "factual_claim_independently_verified": False,
+            "blockers": [c.value for c in f04a_official.issue_codes],
+            "harness_only": True,
         },
         "validated_clat_original_passage_examples": {
             "verdict": clat_passage_examples.verdict.value,

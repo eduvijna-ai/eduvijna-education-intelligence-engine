@@ -28,7 +28,7 @@
 | D13-20 | English comprehension | `copyright_passages.py` | PARTIAL | Demo passage only |
 | D13-21 | Legal reasoning | `copyright_passages.py` | PARTIAL | Demo passage only |
 | D13-22 | Logical reasoning | `copyright_passages.py` | PARTIAL | Demo passage only |
-| D13-23 | Current Affairs + GK RAG | `clat_planner` metadata | PARTIAL | Synthetic fixture; no live RAG |
+| D13-23 | Current Affairs + GK RAG | `clat_current_affairs_evidence.py`, `test_day13_f04a_*.py` | PARTIAL | F04-A iter1: read-only preflight; official SOURCE_PENDING |
 | D13-24 | Quantitative techniques | `copyright_passages.py` | PARTIAL | Demo table passage |
 | D13-25 | Copyright-safe passages | `copyright_passages.ORIGINAL_PASSAGE_LIBRARY` | PARTIAL | Short original texts only |
 | D13-26 | Source/time answer binding | — | PARTIAL | Fingerprints on fixtures |
