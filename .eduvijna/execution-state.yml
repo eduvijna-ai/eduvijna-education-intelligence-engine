@@ -540,7 +540,7 @@ days:
     tasklist_status: APPROVED
     approved_scope: D15-01..D15-36
     implementation_authorized: true
-    implementation_status: AUTHORIZED_NOT_STARTED
+    implementation_status: ENGINEERING_CANDIDATE_PENDING_FOUNDER_REVIEW
     implementation_branch: feature/day15-learner-intelligence
     implementation_issue: 56
     planning_base: develop
