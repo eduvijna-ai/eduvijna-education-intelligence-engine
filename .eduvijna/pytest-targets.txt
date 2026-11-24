@@ -113,3 +113,12 @@ tests/test_day14_extensibility.py
 tests/test_day14_verify_sha.py
 tests/test_day14_persistence.py
 tests/test_day14_candidate3.py
+tests/test_day16_m0_governance.py
+tests/test_day16_core.py
+tests/test_day16_evidence.py
+tests/test_day16_policy.py
+tests/test_day16_graph.py
+tests/test_day16_practice.py
+tests/test_day16_adaptation.py
+tests/test_day16_adversarial.py
+tests/test_day16_verify_sha.py
