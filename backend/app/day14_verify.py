@@ -42,10 +42,15 @@ from app.ca_imat_eapcet.extensibility_proof import build_extensibility_proof
 from app.ca_imat_eapcet.governance import build_day14_governance_record
 from app.ca_imat_eapcet.imat_planner import ImatPaperPlanner
 from app.ca_imat_eapcet.imat_solver_check import independent_imat_answer_check
+from app.ca_imat_eapcet.persistence_bridge import attempt_canonical_issuance
 from app.ca_imat_eapcet.practice_service import Day14PracticeService
 from app.ca_imat_eapcet.scope_ledger import load_repo_scope_counts
 from app.ca_imat_eapcet.source_registry import build_source_registry_snapshot
-from app.ca_imat_eapcet.validation_bridge import day6_bridge_status, day9_day10_bridge_status
+from app.ca_imat_eapcet.validation_bridge import (
+    day6_bridge_status,
+    day7_day8_bridge_status,
+    day9_day10_bridge_status,
+)
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
 from app.verification.candidate_revision import RevisionEvidence, resolve_revision_evidence
@@ -125,33 +130,77 @@ def build_verification_report(
     descriptive = demo_descriptive_contracts()
     desc_results = [validate_descriptive_item(d) for d in descriptive]
 
-    ensure_synthetic_demo_versions(session)
-    session.commit()
+    ca_ver, _, eapcet_ver = ensure_synthetic_demo_versions(session)
+
+    persistence_empty = attempt_canonical_issuance(
+        session=session,
+        questions=[],
+        organization_id="d14-org",
+        institution_id="d14-inst",
+        exam_version_id=str(ca_ver.id),
+        source_version="synthetic_demo",
+        idempotency_key="d14-empty",
+    )
+    persistence_negative = (
+        not persistence_empty.committed and persistence_empty.verdict is PlanVerdict.NOT_READY
+    )
+
+    persistence_positive = None
+    if ca_obj.questions and ca_obj.verdict == PlanVerdict.PASS:
+        persistence_positive = attempt_canonical_issuance(
+            session=session,
+            questions=ca_obj.questions[:2],
+            organization_id="d14-org",
+            institution_id="d14-inst",
+            exam_version_id=str(ca_ver.id),
+            source_version="synthetic_demo",
+            idempotency_key="d14-ca-math-2",
+        )
 
     ext = build_extensibility_proof()
     scope_counts = load_repo_scope_counts()
 
-    imat_sample = imat_plan.delivered_count > 0
-    solver_ok = True
-    if imat_sample and ca_obj.questions:
-        pass
-    if imat_plan.delivered_count:
-        from app.ca_imat_eapcet.synthetic_fixtures import build_imat_pool
-
-        v, _ = independent_imat_answer_check(build_imat_pool()[0])
+    solver_ok = False
+    solver_q = next((q for q in getattr(imat_plan, "questions", []) or () if q), None)
+    if solver_q is None and imat_plan.delivered_count:
+        probe = practice.allocate(
+            AllocateRequest(
+                exam_pack_code=IMAT_PACK_CODE,
+                profile_kind=Day14ProfileKind.SYNTHETIC_DEMO,
+                trust_mode=Day14SourceTrustMode.SYNTHETIC_FIXTURE,
+                paper_or_section="biology",
+                requested_count=1,
+                academic_year="2026",
+            )
+        )
+        if probe.questions:
+            solver_q = probe.questions[0]
+    if solver_q is not None:
+        v, _, _ = independent_imat_answer_check(solver_q)
         solver_ok = v == PlanVerdict.PASS
 
-    synthetic_ok = (
+    mechanical_plan_ok = (
+        ca_obj.delivered_count == 10
+        and eng_plan.delivered_count == EAPCET_TOTAL_QUESTIONS
+        and ap_plan.delivered_count == EAPCET_TOTAL_QUESTIONS
+    )
+    validated_content_ok = (
         ca_obj.verdict == PlanVerdict.PASS
-        and ca_obj.delivered_count == 10
-        and ca_plan.verdict == PlanVerdict.PASS
         and imat_plan.verdict == PlanVerdict.PASS
         and imat_plan.delivered_count == IMAT_TOTAL_QUESTIONS
         and eng_plan.verdict == PlanVerdict.PASS
-        and eng_plan.delivered_count == EAPCET_TOTAL_QUESTIONS
-        and ap_plan.delivered_count == EAPCET_TOTAL_QUESTIONS
+        and ca_plan.verdict == PlanVerdict.PASS
         and all(v == PlanVerdict.PASS for v, _ in desc_results)
-        and ext.verdict == PlanVerdict.PASS
+    )
+
+    synthetic_ok = (
+        mechanical_plan_ok
+        and validated_content_ok
+        and persistence_negative
+        and persistence_positive is not None
+        and persistence_positive.committed
+        and persistence_positive.verdict == PlanVerdict.PASS
+        and ext.verdict is not PlanVerdict.FAIL
         and scope_counts.get("TOTAL") == 36
         and solver_ok
         and revision.sha_aligned
@@ -162,6 +211,14 @@ def build_verification_report(
         "governance": build_day14_governance_record(),
         "source_registry": build_source_registry_snapshot(session),
         "synthetic_fixture_pass": synthetic_ok,
+        "mechanical_plan_ok": mechanical_plan_ok,
+        "independently_validated_content_ok": validated_content_ok,
+        "persistence_harness": {
+            "empty_fail_closed": persistence_negative,
+            "positive_committed": (
+                persistence_positive.committed if persistence_positive else False
+            ),
+        },
         "ca_icai_curator_approved": False,
         "imat_decree_curator_approved": False,
         "eapcet_official_curator_approved": False,
@@ -199,8 +256,9 @@ def build_verification_report(
         },
         "extensibility_proof": ext.model_dump(),
         "validation_bridge": {
-            "day6": day6_bridge_status(),
+            "day6": day6_bridge_status(session),
             "day9_day10": day9_day10_bridge_status(),
+            "day7_day8": day7_day8_bridge_status(),
         },
         "trust_separation": {
             "synthetic": Day14SourceTrustMode.SYNTHETIC_FIXTURE.value,

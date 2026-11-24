@@ -1,6 +1,6 @@
 # Day 14 — CA Foundation, IMAT, TG EAPCET scope and evidence matrix
 
-**Status:** **0 PASS / 32 PARTIAL / 3 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (candidate 1 engineering checkpoint; D14-36 not Founder-accepted).  
+**Status:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (candidate 2 correctness repair; D14-36 not Founder-accepted).  
 **Authoritative specification:** [Issue #54](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/54).  
 **Branch:** `feature/day14-ca-imat-eapcet-intelligence`. Day11 ON_HOLD; Day14 ACTIVE `founder_approval:false`; Day15 LOCKED.
 
@@ -35,7 +35,7 @@
 | D14-27 | Historical evidence and copyright | `historical_evidence.py` | PARTIAL | Model only; no bulk ICAI ingestion |
 | D14-28 | Shared educational validators | `validation_bridge.py` | PARTIAL | Day6/9/10 not wired in this slice |
 | D14-29 | Shared orchestration and knowledge | `validation_bridge.py` | PARTIAL | No direct LLM; Day7/8 reuse deferred |
-| D14-30 | Canonical issuance and persistence | `persistence_bridge.py` | PARTIAL | Fingerprint envelope; no full DB issuance |
+| D14-30 | Canonical issuance and persistence | `persistence_bridge.attempt_canonical_issuance`, `test_day14_persistence.py` | PARTIAL | DB issuance for validated synthetic only; no production claim |
 | D14-31 | Whole-paper quality and scoring | `paper_quality.py` | PARTIAL | Duplicate/section checks synthetic |
 | D14-32 | Adversarial regression | `test_day14_adversarial.py` | PARTIAL | Cross-year/tenant/forgery vectors partial |
 | D14-33 | Database compatibility | `exam_profile.py` (SQLite in tests) | PARTIAL | PG 0021 blocker unchanged; no new migration |

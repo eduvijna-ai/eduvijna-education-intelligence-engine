@@ -36,6 +36,7 @@ CA_PAPER_KIND: dict[str, str] = {
 }
 
 CA_MARKS_PER_PAPER = 100
+MAX_ALLOCATE_COUNT = 500
 CA_OBJECTIVE_NEGATIVE_MARK = 0.0  # no penalty unless source attests; synthetic uses 0
 
 IMAT_TOTAL_QUESTIONS = 60

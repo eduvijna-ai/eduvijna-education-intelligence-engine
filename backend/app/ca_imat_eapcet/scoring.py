@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from app.ca_imat_eapcet.constants import (
     CA_OBJECTIVE_NEGATIVE_MARK,
+    CA_PAPER_CODES,
     CA_PAPER_KIND,
     EAPCET_MARK_BLANK,
     EAPCET_MARK_CORRECT,
@@ -23,7 +24,9 @@ def score_ca_objective(
 ) -> tuple[float, list[IssueCode]]:
     """D14-13: objective penalty only on papers 3/4; never on descriptive."""
 
-    kind = CA_PAPER_KIND.get(paper_code, "objective")
+    if paper_code not in CA_PAPER_CODES:
+        return 0.0, [IssueCode.WRONG_PAPER]
+    kind = CA_PAPER_KIND[paper_code]
     if kind == "descriptive":
         return 0.0, [IssueCode.CA_DESCRIPTIVE_ON_OBJECTIVE]
     if not answered:

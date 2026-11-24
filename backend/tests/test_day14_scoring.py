@@ -8,6 +8,12 @@ from app.ca_imat_eapcet.scoring import (
 )
 
 
+def test_unknown_paper_fails_scoring() -> None:
+    marks, issues = score_ca_objective(paper_code="not_a_paper", correct=True, answered=True)
+    assert marks == 0.0
+    assert issues
+
+
 def test_ca_descriptive_rejects_objective_scoring() -> None:
     marks, issues = score_ca_objective(paper_code="paper1_accounting", correct=True, answered=True)
     assert marks == 0.0

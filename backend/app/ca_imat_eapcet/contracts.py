@@ -56,6 +56,7 @@ class AllocateRequest(BaseModel):
     session_code: str = "jan2027"
     academic_year: str = "2026"
     stream: EapcetStream | None = None
+    topic_code: str | None = None
     organization_id: str | None = None
     metadata_json: dict[str, object] = Field(default_factory=dict)
 

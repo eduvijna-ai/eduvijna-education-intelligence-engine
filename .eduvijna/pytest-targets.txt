@@ -111,3 +111,4 @@ tests/test_day14_adversarial.py
 tests/test_day14_exam_profile.py
 tests/test_day14_extensibility.py
 tests/test_day14_verify_sha.py
+tests/test_day14_persistence.py
