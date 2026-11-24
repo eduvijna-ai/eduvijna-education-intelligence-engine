@@ -133,9 +133,9 @@ LOGICAL_PASSAGE = ClatOriginalPassage(
     section_code="logical_reasoning",
     passage_text=(
         "Argument (fictional study group). Premise 1: Every member who attended "
-        "all six review sessions passed the mock exam. Premise 2: Priya attended "
-        "all six review sessions. Premise 3: No member who missed more than one "
-        "session passed the mock exam. Conclusion candidate: Priya passed the mock exam."
+        "all six review sessions passed the mock exam. Premise 2: Priya is a member "
+        "of the study group and attended all six review sessions. Premise 3: No member "
+        "who missed more than one session passed the mock exam."
     ),
     questions=[
         ClatAuthoredMcq(
@@ -157,8 +157,8 @@ LOGICAL_PASSAGE = ClatOriginalPassage(
             passage_id="d13-clat-p-logical-001",
             section_code="logical_reasoning",
             stem_text=(
-                "If Sam missed two review sessions, which statement is necessarily true "
-                "given Premise 3?"
+                "Sam is a member who missed two review sessions. Which statement is "
+                "necessarily true given Premise 3?"
             ),
             options={
                 "A": "Sam passed the mock exam",
@@ -174,17 +174,17 @@ LOGICAL_PASSAGE = ClatOriginalPassage(
             passage_id="d13-clat-p-logical-001",
             section_code="logical_reasoning",
             stem_text=(
-                "Which option weakens the link between Premise 2 and the conclusion "
-                "that Priya passed?"
+                "Ravi is a member who attended all six review sessions. Which conclusion "
+                "necessarily follows from Premise 1 alone?"
             ),
             options={
-                "A": "Priya attended all six review sessions",
-                "B": "Priya was not a member of the study group",
-                "C": "Premise 1 references attendees of all six sessions",
-                "D": "The mock exam had twenty questions",
+                "A": "Ravi passed the mock exam",
+                "B": "Ravi missed more than one session",
+                "C": "Some members failed the mock exam",
+                "D": "Ravi did not attend session six",
             },
-            author_key="B",
-            explanation="Premise 1 is about members; if Priya was not a member, the link breaks.",
+            author_key="A",
+            explanation="Premise 1 is a universal rule over members who attended all six sessions.",
         ),
     ],
 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 
 from app.cuet_clat.clat_independent_answer_check import independently_check_mcq
@@ -9,7 +10,12 @@ from app.cuet_clat.clat_passage_contracts import (
     _ALLOWED_OPTION_KEYS,
     CLAT_ORIGINAL_SOURCE_MODE,
     CLAT_PASSAGE_HARNESS_TOKEN,
+    F03B_EXPECTED_ITEM_COUNT,
+    F03B_EXPECTED_PASSAGE_COUNT,
+    F03B_MIN_QUESTIONS_PER_SECTION,
+    F03B_REQUIRED_SECTIONS,
     ClatAuthoredMcq,
+    ClatIndependentCheckResult,
     ClatIndependentVerdict,
     ClatOriginalPassage,
     ClatPassageIssueCode,
@@ -17,6 +23,7 @@ from app.cuet_clat.clat_passage_contracts import (
     ClatValidatedQuestionRecord,
     authored_question_fingerprint,
     authored_to_practice_ref,
+    global_passage_body_key,
     normalized_passage_body_key,
     validated_content_fingerprint,
 )
@@ -56,6 +63,40 @@ def _strip_certification(records: list[ClatValidatedQuestionRecord]) -> None:
     for record in records:
         record.question.independently_validated = False
         record.question.solver_evidence_id = None
+        record.independent = ClatIndependentCheckResult(
+            verdict=ClatIndependentVerdict.FAIL,
+            reason="Bundle certification withheld; see bundle issue_codes.",
+        )
+        record.certified_content_fingerprint = ""
+
+
+def _section_certified_counts(records: list[ClatValidatedQuestionRecord]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for record in records:
+        if record.question.independently_validated:
+            counts[record.section_code] += 1
+    return dict(counts)
+
+
+def _validate_bundle_composition(
+    passage_list: list[ClatOriginalPassage],
+    records: list[ClatValidatedQuestionRecord],
+    issue_codes: list[ClatPassageIssueCode],
+) -> None:
+    if len(passage_list) != F03B_EXPECTED_PASSAGE_COUNT:
+        issue_codes.append(ClatPassageIssueCode.SECTION_SHORTAGE)
+    sections_present = {p.section_code for p in passage_list}
+    if sections_present != set(F03B_REQUIRED_SECTIONS):
+        issue_codes.append(ClatPassageIssueCode.SECTION_SHORTAGE)
+
+    certified = _section_certified_counts(records)
+    for section in F03B_REQUIRED_SECTIONS:
+        if certified.get(section, 0) < F03B_MIN_QUESTIONS_PER_SECTION:
+            issue_codes.append(ClatPassageIssueCode.SECTION_SHORTAGE)
+
+    certified_total = sum(1 for r in records if r.question.independently_validated)
+    if certified_total != F03B_EXPECTED_ITEM_COUNT:
+        issue_codes.append(ClatPassageIssueCode.SECTION_SHORTAGE)
 
 
 def validate_clat_original_passage_bundle(
@@ -91,6 +132,7 @@ def validate_clat_original_passage_bundle(
 
     seen_passage_ids: set[str] = set()
     seen_body_keys: set[str] = set()
+    seen_global_bodies: set[str] = set()
     seen_qids: set[str] = set()
     seen_stems: set[str] = set()
 
@@ -105,14 +147,16 @@ def validate_clat_original_passage_bundle(
         seen_passage_ids.add(passage.passage_id)
 
         body_key = normalized_passage_body_key(passage.section_code, passage.passage_text)
-        if body_key in seen_body_keys:
+        global_key = global_passage_body_key(passage.passage_text)
+        if body_key in seen_body_keys or global_key in seen_global_bodies:
             issue_codes.append(ClatPassageIssueCode.DUPLICATE_PASSAGE)
         seen_body_keys.add(body_key)
+        seen_global_bodies.add(global_key)
 
-        cluster = build_passage_cluster(passage)
         expected_ids = [q.question_id for q in passage.questions]
-        if cluster.question_ids != expected_ids:
-            issue_codes.append(ClatPassageIssueCode.PASSAGE_MISMATCH)
+        for qi, question in enumerate(passage.questions):
+            if question.question_id != expected_ids[qi]:
+                issue_codes.append(ClatPassageIssueCode.PASSAGE_MISMATCH)
 
         for question in passage.questions:
             stem_key = question.stem_text.strip().lower()
@@ -150,7 +194,7 @@ def validate_clat_original_passage_bundle(
                 issue_codes.append(ClatPassageIssueCode.INDEPENDENT_FAIL)
 
             authored_fp = authored_question_fingerprint(passage, question)
-            validated_fp = validated_content_fingerprint(
+            certified_fp = validated_content_fingerprint(
                 passage,
                 question,
                 derived_key=independent.derived_key,
@@ -167,6 +211,7 @@ def validate_clat_original_passage_bundle(
             practice = authored_to_practice_ref(question, fingerprint=authored_fp)
             practice.independently_validated = certified
             if certified:
+                practice.fingerprint = certified_fp
                 practice.solver_evidence_id = f"d13-clat-solver-{question.question_id}"
 
             records.append(
@@ -175,19 +220,26 @@ def validate_clat_original_passage_bundle(
                     passage_id=passage.passage_id,
                     section_code=passage.section_code,
                     independent=independent,
-                    content_fingerprint=authored_fp,
-                    validated_content_fingerprint=validated_fp,
+                    authored_content_fingerprint=authored_fp,
+                    certified_content_fingerprint=certified_fp if certified else "",
                 )
             )
 
     clusters = [build_passage_cluster(p) for p in passage_list]
+    for passage, cluster in zip(passage_list, clusters, strict=True):
+        expected_ids = [q.question_id for q in passage.questions]
+        if cluster.question_ids != expected_ids or cluster.section_code != passage.section_code:
+            issue_codes.append(ClatPassageIssueCode.PASSAGE_MISMATCH)
+
+    _validate_bundle_composition(passage_list, records, issue_codes)
+
     issue_codes = _dedupe_issues(issue_codes)
     validated_count = sum(1 for r in records if r.question.independently_validated)
 
     verdict = PlanVerdict.PASS
     if issue_codes:
         verdict = PlanVerdict.FAIL
-    elif validated_count < 12:
+    elif validated_count < F03B_EXPECTED_ITEM_COUNT:
         verdict = PlanVerdict.SHORTAGE
 
     if verdict is not PlanVerdict.PASS:

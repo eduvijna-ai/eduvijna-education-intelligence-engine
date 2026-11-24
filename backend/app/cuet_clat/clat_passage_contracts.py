@@ -15,6 +15,45 @@ from app.cuet_clat.enums import PlanVerdict
 CLAT_ORIGINAL_SOURCE_MODE = "eduvijna_original_synthetic_test_only"
 CLAT_PASSAGE_HARNESS_TOKEN = "validated_clat_original_passage_examples"
 _ALLOWED_OPTION_KEYS = frozenset({"A", "B", "C", "D"})
+F03B_REQUIRED_SECTIONS: tuple[str, ...] = (
+    "english",
+    "legal_reasoning",
+    "logical_reasoning",
+    "quantitative_techniques",
+)
+F03B_MIN_QUESTIONS_PER_SECTION = 3
+F03B_EXPECTED_PASSAGE_COUNT = 4
+F03B_EXPECTED_ITEM_COUNT = 12
+
+STEM_ENGLISH_PLANNING = (
+    "According to the passage, how long did volunteers spend on planning?"
+)
+STEM_ENGLISH_PROPOSER = "Who proposed the children's corner with low shelves?"
+STEM_ENGLISH_BUDGET = "How much did the council approve for shelving and lighting?"
+STEM_LOGICAL_PRIYA = "Which conclusion necessarily follows from Premises 1 and 2 alone?"
+STEM_LOGICAL_SAM = (
+    "Sam is a member who missed two review sessions. Which statement is necessarily true "
+    "given Premise 3?"
+)
+STEM_LOGICAL_RAVI = (
+    "Ravi is a member who attended all six review sessions. Which conclusion "
+    "necessarily follows from Premise 1 alone?"
+)
+STEM_LEGAL_TRUCK = (
+    "A delivery truck registered at 4.2 tonnes crosses Elm Bridge on "
+    "Wednesday at 08:15. Under the Riverton Transit Code, what follows?"
+)
+STEM_LEGAL_SCOOTER = (
+    "A kick-scooter registered at 0.15 tonnes crosses Elm Bridge on "
+    "Tuesday at 07:45. What penalty applies?"
+)
+STEM_LEGAL_CAR = (
+    "A passenger car registered at 2.8 tonnes uses Elm Bridge on Friday "
+    "at 10:00 with no maintenance closure posted. What is the outcome?"
+)
+STEM_QUANT_PENS = "What is the total revenue from Pens (units times unit price)?"
+STEM_QUANT_UNITS = "How many units of Notebooks and Binders are there combined?"
+STEM_QUANT_PERCENT = "What percentage of total units are Pens (nearest whole percent)?"
 
 
 class ClatPassageIssueCode(StrEnum):
@@ -37,6 +76,7 @@ class ClatPassageIssueCode(StrEnum):
     INVALID_SOURCE_MODE = "d13.clat.f03b.invalid_source_mode"
     INVALID_OPTION_KEY = "d13.clat.f03b.invalid_option_key"
     BLANK_PASSAGE = "d13.clat.f03b.blank_passage"
+    SECTION_SHORTAGE = "d13.clat.f03b.section_shortage"
 
 
 class ClatIndependentVerdict(StrEnum):
@@ -80,6 +120,17 @@ def normalized_passage_body_key(section_code: str, passage_text: str) -> str:
     normalized = " ".join(passage_text.split())
     digest = hashlib.sha256(f"{section_code}|{normalized}".encode()).hexdigest()
     return digest[:40]
+
+
+def global_passage_body_key(passage_text: str) -> str:
+    """Section-agnostic body key to catch reused text under another section."""
+
+    normalized = " ".join(passage_text.split())
+    return hashlib.sha256(normalized.encode()).hexdigest()[:40]
+
+
+def normalize_stem_text(stem: str) -> str:
+    return " ".join(stem.strip().split())
 
 
 def authored_question_fingerprint(
@@ -151,8 +202,8 @@ class ClatValidatedQuestionRecord(BaseModel):
     passage_id: str
     section_code: str
     independent: ClatIndependentCheckResult
-    content_fingerprint: str
-    validated_content_fingerprint: str = ""
+    authored_content_fingerprint: str
+    certified_content_fingerprint: str = ""
 
 
 class ClatValidatedExamplesResult(BaseModel):

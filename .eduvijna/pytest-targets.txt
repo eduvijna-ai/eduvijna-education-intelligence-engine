@@ -100,3 +100,4 @@ tests/test_day13_r04_repair.py
 tests/test_day13_f03a_persisted.py
 tests/test_day13_f03a_iter3.py
 tests/test_day13_f03b_passage_grounding.py
+tests/test_day13_f03b_iter3.py
