@@ -4,7 +4,7 @@
 **Repository:** `eduvijna-ai/eduvijna-education-intelligence-engine`  
 **PR:** [#53](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53) Draft → `develop@db2e4a79fb50eedb48e9bae65d3984fcbb8c1f69`  
 **R3 starting HEAD:** `2e61828248c5f8cbec241532ce1e68dff29cf8c2`  
-**R3 candidate HEAD:** `8a94b445b8e8f2c8e8e8e8e8e8e8e8e8e8e8e8e8` *(placeholder — update if amend)*  
+**R3 candidate HEAD:** `8a94b445cc7175ce77045359fd1086257e4ab97a`  
 **Chief Architect R2 gate:** [PR comment 7126596140](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53#issuecomment-7126596140)
 
 ## Proposed disposition (Founder decision — not auto-applied)
