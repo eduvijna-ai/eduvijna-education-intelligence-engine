@@ -31,7 +31,11 @@
 
 ## Post-push CI
 
-Record exact run URL and job conclusions on PR handback (`backend-targeted` + `compose-smoke` required SUCCESS).
+| Run | `d3c254ff93c53e7f612c4821e377af0f2cff059b` |
+|---|---|
+| URL | [Targeted CI #45376013009](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/actions/runs/45376013009) |
+| `backend-targeted` | **SUCCESS** |
+| `compose-smoke` | **SUCCESS** (not skipped) |
 
 ## Governance (unchanged)
 
