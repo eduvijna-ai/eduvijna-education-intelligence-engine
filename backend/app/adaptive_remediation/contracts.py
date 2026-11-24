@@ -108,15 +108,15 @@ class ProductionRemediationGate(BaseModel):
             raise ValueError("production_gate_elevation_forbidden")
         if self.persisted_plan_id is not None:
             raise ValueError("production_gate_persistence_forbidden")
-        if any(
-            c > 0
-            for c in (
-                self.delivered_question_count,
-                self.validated_question_count,
-                self.scheduled_event_count,
-            )
+        if self.verdict not in (RemediationVerdict.NOT_READY, RemediationVerdict.BLOCKED):
+            raise ValueError("production_gate_verdict_forbidden")
+        for count in (
+            self.delivered_question_count,
+            self.validated_question_count,
+            self.scheduled_event_count,
         ):
-            raise ValueError("production_gate_nonzero_delivery_forbidden")
+            if count != 0:
+                raise ValueError("production_gate_nonzero_delivery_forbidden")
         return self
 
 
@@ -131,6 +131,7 @@ class PracticeStageBlueprint(BaseModel):
     marks_per_item: int = Field(ge=1, le=10)
     planned_count: int = Field(ge=0)
     selected_synthetic_ids: tuple[str, ...] = ()
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class RemediationTarget(BaseModel):

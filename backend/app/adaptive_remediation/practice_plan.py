@@ -8,47 +8,80 @@ from app.adaptive_remediation.synthetic_catalogue import (
     select_for_stage,
     stage_capacity,
 )
+from app.adaptive_remediation.synthetic_fixture import AUTHORITATIVE_TARGET_CONCEPT
+from app.adaptive_remediation.validation import require_strict_positive_int
+
+STAGE_MINIMUM = 1
+PREFERRED_RATIOS = (0.4, 0.4, 0.2)
 
 
 def validate_strict_positive_int(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    if value <= 0:
-        return None
-    return value
+    return require_strict_positive_int(value)
 
 
-def _feasible_split(
+def _stage_capacities(excluded_question_ids: frozenset[str]) -> dict[PracticeStageKind, int]:
+    retest_target = AUTHORITATIVE_TARGET_CONCEPT
+    return {
+        PracticeStageKind.FOUNDATION: stage_capacity(
+            PracticeStageKind.FOUNDATION,
+            excluded_ids=excluded_question_ids,
+        ),
+        PracticeStageKind.APPLICATION: stage_capacity(
+            PracticeStageKind.APPLICATION,
+            excluded_ids=excluded_question_ids,
+        ),
+        PracticeStageKind.TARGET_RETEST: stage_capacity(
+            PracticeStageKind.TARGET_RETEST,
+            excluded_ids=excluded_question_ids,
+            target_concept_code=retest_target,
+        ),
+    }
+
+
+def _enumerate_feasible_splits(
+    requested: int,
+    *,
+    excluded_question_ids: frozenset[str],
+) -> list[tuple[int, int, int]]:
+    if requested < STAGE_MINIMUM * 3:
+        return []
+    caps = _stage_capacities(excluded_question_ids)
+    f_cap = caps[PracticeStageKind.FOUNDATION]
+    a_cap = caps[PracticeStageKind.APPLICATION]
+    r_cap = caps[PracticeStageKind.TARGET_RETEST]
+    splits: list[tuple[int, int, int]] = []
+    for foundation in range(STAGE_MINIMUM, min(requested, f_cap) + 1):
+        for application in range(STAGE_MINIMUM, min(requested - foundation, a_cap) + 1):
+            retest = requested - foundation - application
+            if retest < STAGE_MINIMUM or retest > r_cap:
+                continue
+            splits.append((foundation, application, retest))
+    return splits
+
+
+def _pick_split(
     requested: int,
     *,
     excluded_question_ids: frozenset[str],
 ) -> tuple[int, int, int] | None:
-    """40/40/20 split when feasible; each stage >=1 when requested >= 3."""
-    if requested < 3:
+    splits = _enumerate_feasible_splits(requested, excluded_question_ids=excluded_question_ids)
+    if not splits:
         return None
-    foundation = max(1, (requested * 4) // 10)
-    application = max(1, (requested * 4) // 10)
-    retest = max(1, requested - foundation - application)
-    while foundation + application + retest > requested:
-        if retest > 1:
-            retest -= 1
-        elif application > 1:
-            application -= 1
-        elif foundation > 1:
-            foundation -= 1
-        else:
-            return None
-    if foundation + application + retest < requested:
-        retest += requested - (foundation + application + retest)
-    for stage, count in (
-        (PracticeStageKind.FOUNDATION, foundation),
-        (PracticeStageKind.APPLICATION, application),
-        (PracticeStageKind.TARGET_RETEST, retest),
-    ):
-        available = stage_capacity(stage, excluded_ids=excluded_question_ids)
-        if count > available:
-            return None
-    return foundation, application, retest
+
+    def score(split: tuple[int, int, int]) -> tuple[float, int, int, int]:
+        foundation, application, retest = split
+        target_f = requested * PREFERRED_RATIOS[0]
+        target_a = requested * PREFERRED_RATIOS[1]
+        target_r = requested * PREFERRED_RATIOS[2]
+        deviation = (
+            abs(foundation - target_f)
+            + abs(application - target_a)
+            + abs(retest - target_r)
+        )
+        balance_penalty = abs(foundation - application) + abs(application - retest)
+        return (deviation, balance_penalty, foundation, application)
+
+    return min(splits, key=score)
 
 
 def allocate_stage_counts(
@@ -59,17 +92,11 @@ def allocate_stage_counts(
     value = validate_strict_positive_int(requested)
     if value is None:
         return None
-    total_capacity = sum(
-        stage_capacity(stage, excluded_ids=excluded_question_ids)
-        for stage in (
-            PracticeStageKind.FOUNDATION,
-            PracticeStageKind.APPLICATION,
-            PracticeStageKind.TARGET_RETEST,
-        )
-    )
+    caps = _stage_capacities(excluded_question_ids)
+    total_capacity = sum(caps.values())
     if value > total_capacity:
         return None
-    return _feasible_split(value, excluded_question_ids=excluded_question_ids)
+    return _pick_split(value, excluded_question_ids=excluded_question_ids)
 
 
 def build_stage_blueprints(
@@ -93,12 +120,31 @@ def build_stage_blueprints(
     ):
         if count <= 0:
             return None
-        selected = select_for_stage(stage, count, excluded_ids=frozenset(used))
+        retest_target = (
+            AUTHORITATIVE_TARGET_CONCEPT if stage == PracticeStageKind.TARGET_RETEST else None
+        )
+        selected = select_for_stage(
+            stage,
+            count,
+            excluded_ids=frozenset(used),
+            target_concept_code=retest_target,
+        )
         if len(selected) < count:
             return None
         for item in selected:
             used.add(item.question_id)
         concept_codes = tuple(dict.fromkeys(item.concept_code for item in selected))
+        item_meta = tuple(
+            {
+                "question_id": item.question_id,
+                "concept_code": item.concept_code,
+                "cognitive_level": item.cognitive_level.value,
+                "question_type": item.question_type,
+                "marks": item.marks,
+                "difficulty_band": item.difficulty_band,
+            }
+            for item in selected
+        )
         first = selected[0]
         if first.difficulty_band not in ("foundation", "standard", "application"):
             return None
@@ -108,10 +154,15 @@ def build_stage_blueprints(
                 concept_codes=concept_codes,
                 cognitive_level=first.cognitive_level,
                 difficulty_band=first.difficulty_band,
-                question_type=first.question_type,
+                question_type="synthetic_reference",
                 marks_per_item=first.marks,
                 planned_count=count,
                 selected_synthetic_ids=tuple(q.question_id for q in selected),
+                metadata_json={
+                    "synthetic_only": True,
+                    "no_validated_mcq": True,
+                    "per_item": item_meta,
+                },
             )
         )
 

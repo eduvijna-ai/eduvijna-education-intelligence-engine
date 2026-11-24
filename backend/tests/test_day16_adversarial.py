@@ -26,7 +26,7 @@ def test_teacher_override_count_conflict() -> None:
     result = apply_teacher_policy(override, academic_max_count=10, requested_count=10)
     assert isinstance(result, TeacherPolicyApplication)
     assert result.accepted is False
-    assert result.reason == "OVERRIDE_COUNT_CONFLICT"
+    assert result.reason == "TEACHER_OVERRIDE_NOT_READY"
 
 
 def test_cycle_in_graph_fails_audit() -> None:

@@ -16,6 +16,8 @@ GRAPH_ASSEMBLED_AT = "2026-11-24T00:00:00+00:00"
 SYNTHETIC_CATALOGUE_VERSION = "d16-catalogue-v1"
 AUTHORITATIVE_POLICY_VERSION = "d16-adaptive-policy-v1"
 AUTHORITATIVE_EVIDENCE_POLICY = "d16-evidence-v1"
+AUTHORITATIVE_SOURCE_REVISION_ID = "d16-synth-source-v1"
+AUTHORITATIVE_SOURCE_LOCATOR_PREFIX = "internal/synthetic/"
 
 AUTHORITATIVE_CURRICULUM = CurriculumScopeRef(
     curriculum_pack_code="d16-synth-physics",

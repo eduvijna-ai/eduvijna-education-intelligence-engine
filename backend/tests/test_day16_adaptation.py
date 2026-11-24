@@ -26,17 +26,17 @@ def test_no_improve_without_post_practice_comparison() -> None:
         rejected_ids=(),
         issue_codes=(),
     )
-    decision, _ = decide_adaptation(
+    decision, note = decide_adaptation(
         bundle,
         target_concept_code="friction-formula-selection",
         prior_cycle_count=0,
         practice_completed=True,
-        pre_practice_rank=4,
     )
     assert decision is AdaptationDecision.CONTINUE
+    assert "NOT_READY" in note
 
 
-def test_regress_when_support_drops() -> None:
+def test_no_regress_from_error_strength_alone() -> None:
     bundle = NormalizedEvidenceBundle(
         accepted=(
             EvidenceObservation(
@@ -56,9 +56,9 @@ def test_regress_when_support_drops() -> None:
         target_concept_code="friction-formula-selection",
         prior_cycle_count=0,
         practice_completed=True,
-        pre_practice_rank=4,
     )
-    assert decision is AdaptationDecision.REGRESS
+    assert decision is not AdaptationDecision.REGRESS
+    assert decision is not AdaptationDecision.IMPROVE
 
 
 def test_demo_has_three_stages_and_newton_target() -> None:

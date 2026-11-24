@@ -31,6 +31,30 @@ def test_foundation_first_order_complete_or_empty() -> None:
     assert "newton-laws" in result.order
 
 
+def test_foundation_order_rejects_cycle_extension() -> None:
+    graph = build_friction_remediation_graph()
+    formula = next(n for n in graph.nodes if n.concept_code == "friction-formula-selection")
+    newton = next(n for n in graph.nodes if n.concept_code == "newton-laws")
+    from app.prerequisite_intelligence.contracts import PrerequisiteGraphEdge
+    from app.prerequisite_intelligence.enums import EdgeProvenanceClass
+
+    cyclic = graph.model_copy(
+        update={
+            "edges": [
+                *graph.edges,
+                PrerequisiteGraphEdge(
+                    edge_id="d16-cycle",
+                    prerequisite_concept_id=formula.concept_id,
+                    target_concept_id=newton.concept_id,
+                    provenance_class=EdgeProvenanceClass.SYNTHETIC,
+                ),
+            ]
+        }
+    )
+    result = foundation_first_order(cyclic, formula.concept_id, budget=8)
+    assert not result.complete
+
+
 def test_prerequisite_targets_include_hypothesis_without_observation() -> None:
     graph = build_friction_remediation_graph()
     bundle = normalize_observations(

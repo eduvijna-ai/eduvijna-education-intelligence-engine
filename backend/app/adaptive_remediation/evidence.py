@@ -1,4 +1,4 @@
-"""D16-05 evidence normalization and rejection rules."""
+"""D16-05 evidence normalization — internal fixture envelope only."""
 
 from __future__ import annotations
 
@@ -7,16 +7,21 @@ from datetime import date, timedelta
 
 from app.adaptive_remediation.contracts import EvidenceObservation
 from app.adaptive_remediation.enums import EvidenceSupportLevel
-from app.adaptive_remediation.synthetic_fixture import AUTHORITATIVE_EVIDENCE_POLICY
+from app.adaptive_remediation.synthetic_fixture import (
+    AUTHORITATIVE_EVIDENCE_POLICY,
+    AUTHORITATIVE_SOURCE_LOCATOR_PREFIX,
+    AUTHORITATIVE_SOURCE_REVISION_ID,
+)
+from app.adaptive_remediation.validation import require_exact_observation_tuple
 
 _STALE_AFTER = timedelta(days=365)
-_FUTURE_GRACE = timedelta(days=1)
 
 _INCOMPATIBLE_SUPPORT = frozenset(
     {
         (EvidenceSupportLevel.UNKNOWN, EvidenceSupportLevel.SUPPORTED),
         (EvidenceSupportLevel.UNKNOWN, EvidenceSupportLevel.RECURRENT),
         (EvidenceSupportLevel.INSUFFICIENT, EvidenceSupportLevel.SUPPORTED),
+        (EvidenceSupportLevel.INSUFFICIENT, EvidenceSupportLevel.RECURRENT),
     }
 )
 
@@ -36,13 +41,17 @@ def normalize_observations(
     as_of: date,
     evidence_policy_version: str = AUTHORITATIVE_EVIDENCE_POLICY,
 ) -> NormalizedEvidenceBundle:
+    exact = require_exact_observation_tuple(observations)
+    if exact is None:
+        return NormalizedEvidenceBundle((), (), ("INVALID_OBSERVATION_TUPLE",))
+
     accepted: list[EvidenceObservation] = []
     rejected: list[str] = []
     issues: list[str] = []
     seen_ids: set[str] = set()
     concept_levels: dict[str, list[EvidenceSupportLevel]] = {}
 
-    for obs in observations:
+    for obs in exact:
         if not obs.observation_id or not obs.observation_id.strip():
             rejected.append(obs.observation_id or "<empty>")
             issues.append("MALFORMED_OBSERVATION_ID")
@@ -63,20 +72,29 @@ def normalize_observations(
             rejected.append(obs.observation_id)
             issues.append("POLICY_VERSION_MISMATCH")
             continue
-        if obs.support_level != EvidenceSupportLevel.UNKNOWN and not obs.source_revision_id:
+        if obs.support_level != EvidenceSupportLevel.UNKNOWN:
+            if obs.source_revision_id != AUTHORITATIVE_SOURCE_REVISION_ID:
+                rejected.append(obs.observation_id)
+                issues.append("INVALID_SOURCE_REVISION")
+                continue
+            locator = obs.source_locator or ""
+            if not locator.startswith(AUTHORITATIVE_SOURCE_LOCATOR_PREFIX):
+                rejected.append(obs.observation_id)
+                issues.append("INVALID_SOURCE_LOCATOR")
+                continue
+        if obs.observed_at is None:
             rejected.append(obs.observation_id)
-            issues.append("MISSING_SOURCE_REVISION")
+            issues.append("MISSING_OBSERVED_AT")
             continue
-        if obs.observed_at is not None:
-            obs_day = obs.observed_at.date()
-            if obs_day > as_of + _FUTURE_GRACE:
-                rejected.append(obs.observation_id)
-                issues.append("FUTURE_OBSERVATION")
-                continue
-            if obs_day < as_of - _STALE_AFTER:
-                rejected.append(obs.observation_id)
-                issues.append("STALE_OBSERVATION")
-                continue
+        obs_day = obs.observed_at.date()
+        if obs_day > as_of:
+            rejected.append(obs.observation_id)
+            issues.append("FUTURE_OBSERVATION")
+            continue
+        if obs_day < as_of - _STALE_AFTER:
+            rejected.append(obs.observation_id)
+            issues.append("STALE_OBSERVATION")
+            continue
 
         prior_levels = concept_levels.setdefault(obs.concept_code, [])
         for prior in prior_levels:
@@ -108,10 +126,7 @@ def cold_start_required(
     target_obs = [o for o in bundle.accepted if o.concept_code == target_concept_code]
     if not target_obs:
         return True
-    weakest = min(
-        target_obs,
-        key=lambda o: _support_rank(o.support_level),
-    )
+    weakest = min(target_obs, key=lambda o: _support_rank(o.support_level))
     return weakest.support_level in (
         EvidenceSupportLevel.UNKNOWN,
         EvidenceSupportLevel.INSUFFICIENT,
@@ -137,4 +152,24 @@ def best_target_evidence(
     target_obs = [o for o in bundle.accepted if o.concept_code == target_concept_code]
     if not target_obs:
         return None
-    return max(target_obs, key=lambda o: _support_rank(o.support_level))
+    return max(target_obs, key=lambda o: (_support_rank(o.support_level), o.observation_id))
+
+
+def strongest_observation_per_concept(
+    bundle: NormalizedEvidenceBundle,
+) -> dict[str, EvidenceObservation]:
+    by_concept: dict[str, EvidenceObservation] = {}
+    for obs in bundle.accepted:
+        prior = by_concept.get(obs.concept_code)
+        if prior is None or _support_rank(obs.support_level) > _support_rank(prior.support_level):
+            by_concept[obs.concept_code] = obs
+        elif _support_rank(obs.support_level) == _support_rank(prior.support_level):
+            if obs.observation_id < prior.observation_id:
+                by_concept[obs.concept_code] = obs
+    return by_concept
+
+
+def map_strategy_observations(
+    bundle: NormalizedEvidenceBundle,
+) -> dict[str, EvidenceObservation]:
+    return strongest_observation_per_concept(bundle)

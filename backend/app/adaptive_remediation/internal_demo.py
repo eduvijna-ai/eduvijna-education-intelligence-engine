@@ -7,8 +7,6 @@ from app.adaptive_remediation.containment import CONTAINMENT_NOTE, SYNTHETIC_DIA
 from app.adaptive_remediation.contracts import AdaptiveRemediationPlan
 from app.adaptive_remediation.enums import RemediationVerdict
 from app.adaptive_remediation.evidence import (
-    _support_rank,
-    best_target_evidence,
     cold_start_required,
     normalize_observations,
 )
@@ -87,14 +85,11 @@ def build_authoritative_synthetic_plan() -> AdaptiveRemediationPlan:
     cold = cold_start_required(bundle, AUTHORITATIVE_TARGET_CONCEPT)
     verdict = policy_verdict_for_cold_start(cold)
 
-    pre = best_target_evidence(bundle, AUTHORITATIVE_TARGET_CONCEPT)
-    pre_rank = _support_rank(pre.support_level) if pre else None
     adaptation, adapt_note = decide_adaptation(
         bundle,
         target_concept_code=AUTHORITATIVE_TARGET_CONCEPT,
         prior_cycle_count=0,
         practice_completed=False,
-        pre_practice_rank=pre_rank,
     )
     spacing = propose_spacing(AUTHORITATIVE_AS_OF, 0)
 
@@ -102,13 +97,16 @@ def build_authoritative_synthetic_plan() -> AdaptiveRemediationPlan:
         graph_checksum=graph.checksum,
         catalogue_version=SYNTHETIC_CATALOGUE_VERSION,
         policy_version=AUTHORITATIVE_POLICY_VERSION,
+        curriculum_version_code=AUTHORITATIVE_CURRICULUM.curriculum_version_code,
+        target_concept_code=AUTHORITATIVE_TARGET_CONCEPT,
         observations=bundle.accepted,
         history=INTERNAL_HISTORY,
         requested_count=AUTHORITATIVE_REQUESTED_COUNT,
         as_of=AUTHORITATIVE_AS_OF.isoformat(),
         teacher_override=None,
         stages=stages,
-        targets_codes=tuple(t.concept_code for t in targets),
+        targets=targets,
+        adaptation_decision=adaptation.value,
     )
 
     foundation_concepts = tuple(

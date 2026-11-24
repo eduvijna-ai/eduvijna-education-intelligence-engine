@@ -13,7 +13,10 @@ from app.adaptive_remediation.containment import (
     SYNTHETIC_DIAGNOSTIC_ONLY,
 )
 from app.adaptive_remediation.dependency_closure import build_dependency_closure_register
-from app.adaptive_remediation.fingerprint import fingerprint_from_plan
+from app.adaptive_remediation.fingerprint import (
+    fingerprint_from_plan,
+    plans_deterministically_equal,
+)
 from app.adaptive_remediation.governance import build_day16_governance_record
 from app.adaptive_remediation.integration_contracts import build_integration_bridge_status
 from app.adaptive_remediation.internal_demo import build_authoritative_synthetic_plan
@@ -22,6 +25,7 @@ from app.adaptive_remediation.prerequisite_plan import graph_ready
 from app.adaptive_remediation.production_gate import explain_containment
 from app.adaptive_remediation.scope_ledger import (
     load_repo_scope_counts,
+    resolve_scope_map_path,
     validate_scope_map_integrity,
 )
 from app.adaptive_remediation.service import AdaptiveRemediationDiagnosticService
@@ -37,7 +41,7 @@ def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object
     if revision.evidence_error or not revision.sha_aligned:
         return _revision_failure_report(revision)
 
-    scope_path = Path(__file__).resolve().parents[2] / "docs" / "execution" / "D16-SCOPE-MAP.md"
+    scope_path = resolve_scope_map_path()
     scope_md = scope_path.read_text(encoding="utf-8")
     scope_integrity_ok, scope_issues = validate_scope_map_integrity(scope_md)
     scope_counts = load_repo_scope_counts()
@@ -45,19 +49,21 @@ def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object
     service = AdaptiveRemediationDiagnosticService()
     demo_a = service.run_authoritative_synthetic_demo()
     demo_b = build_authoritative_synthetic_plan()
-    plan_replay_ok = (
-        demo_a.fingerprint == demo_b.fingerprint
-        and demo_a.stages == demo_b.stages
-        and demo_a.targets == demo_b.targets
-    )
+    plan_replay_ok = plans_deterministically_equal(demo_a, demo_b)
 
     runtime_blocked = service.attempt_runtime_remediation()
     runtime_poison = service.attempt_runtime_remediation(session=object())
     runtime_ok = (
         runtime_blocked.planned_count == 0
         and runtime_poison.planned_count == 0
+        and runtime_blocked.plan_id == ""
+        and runtime_blocked.fingerprint == ""
+        and not runtime_blocked.targets
+        and not runtime_blocked.stages
         and runtime_blocked.metadata_json.get("caller_data_processed") is False
         and "friction" not in runtime_poison.explanation.lower()
+        and demo_a.production_gate.verdict.value in ("NOT_READY", "BLOCKED")
+        and not demo_a.production_gate.production_ready
     )
 
     graph = build_friction_remediation_graph()

@@ -24,6 +24,17 @@ def test_exact_counts_5_10_15_with_exclusions() -> None:
     assert allocate_stage_counts(2, excluded_question_ids=excluded) is None
 
 
+def test_retest_selection_bound_to_target_concept() -> None:
+    excluded = frozenset(INTERNAL_HISTORY.excluded_question_ids)
+    stages = build_stage_blueprints(10, excluded_question_ids=excluded)
+    assert stages is not None
+    retest = next(s for s in stages if s.stage.value == "target_retest")
+    assert all(
+        item["concept_code"] == "friction-formula-selection"
+        for item in retest.metadata_json["per_item"]
+    )
+
+
 def test_no_duplicate_selection_and_metadata_bound() -> None:
     excluded = frozenset(INTERNAL_HISTORY.excluded_question_ids)
     stages = build_stage_blueprints(10, excluded_question_ids=excluded)
@@ -31,4 +42,5 @@ def test_no_duplicate_selection_and_metadata_bound() -> None:
     assert count_conservation_ok(stages, 10)
     for stage in stages:
         assert stage.planned_count == len(stage.selected_synthetic_ids)
-        assert stage.question_type == "mcq_single"
+        assert stage.question_type == "synthetic_reference"
+        assert stage.metadata_json.get("synthetic_only") is True

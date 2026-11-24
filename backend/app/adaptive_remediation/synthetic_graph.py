@@ -14,6 +14,10 @@ from app.prerequisite_intelligence.enums import EdgeProvenanceClass, GraphLifecy
 _SYNTHETIC_GRAPH_VERSION = "d16-synth-physics-v1"
 
 
+def authoritative_graph_checksum() -> str:
+    return build_friction_remediation_graph().checksum
+
+
 def build_friction_remediation_graph() -> PrerequisiteGraphSnapshot:
     """Original synthetic graph: friction (target) ← normal-force ← newton-laws."""
     scope = PrerequisiteGraphScope(

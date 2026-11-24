@@ -9,9 +9,7 @@ from app.adaptive_remediation.production_gate import blocked_production_gate
 
 
 def _caller_payload_present(*args: object, **kwargs: object) -> bool:
-    if args or kwargs:
-        return True
-    return False
+    return bool(args or kwargs)
 
 
 def blocked_runtime_plan(*, injection_attempted: bool = False) -> AdaptiveRemediationPlan:
@@ -19,8 +17,8 @@ def blocked_runtime_plan(*, injection_attempted: bool = False) -> AdaptiveRemedi
     reason = "RUNTIME_INPUT_REJECTED" if injection_attempted else "RUNTIME_ENTRY_NOT_AUTHORIZED"
     gate = blocked_production_gate(extra_reasons=(reason,))
     return AdaptiveRemediationPlan(
-        plan_id="d16-runtime-blocked",
-        fingerprint="d16-runtime-blocked-fingerprint",
+        plan_id="",
+        fingerprint="",
         verdict=RemediationVerdict.BLOCKED if injection_attempted else RemediationVerdict.NOT_READY,
         policy_version="d16-adaptive-policy-v1",
         targets=(),

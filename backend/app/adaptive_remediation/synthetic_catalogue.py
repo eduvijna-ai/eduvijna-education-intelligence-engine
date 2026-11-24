@@ -36,7 +36,7 @@ def _catalogue_entries() -> list[SyntheticQuestionRef]:
                 stage=PracticeStageKind.FOUNDATION,
                 cognitive_level=CognitiveLevel.UNDERSTAND if idx % 2 else CognitiveLevel.REMEMBER,
                 difficulty_band="foundation",
-                question_type="mcq_single",
+                question_type="synthetic_open_preview",
                 marks=1,
                 stem_preview=stem,
             )
@@ -73,7 +73,7 @@ def _catalogue_entries() -> list[SyntheticQuestionRef]:
                 stage=PracticeStageKind.APPLICATION,
                 cognitive_level=CognitiveLevel.APPLY if idx < 4 else CognitiveLevel.ANALYZE,
                 difficulty_band="application",
-                question_type="mcq_single",
+                question_type="synthetic_reference",
                 marks=2,
                 stem_preview=stem,
             )
@@ -86,19 +86,9 @@ def _catalogue_entries() -> list[SyntheticQuestionRef]:
             "Fresh item: select formula for block on rough table.",
         ),
         (
-            "d16-q-rt-02",
-            "friction-applications",
-            "Fresh item: predict motion direction with friction.",
-        ),
-        (
             "d16-q-rt-03",
             "friction-formula-selection",
             "Fresh item: justify μ choice under rolling contact.",
-        ),
-        (
-            "d16-q-rt-04",
-            "friction-applications",
-            "Fresh item: balanced forces with unknown friction.",
         ),
         ("d16-q-rt-05", "friction-formula-selection", "Fresh item: compare friction magnitudes."),
     ]
@@ -110,7 +100,7 @@ def _catalogue_entries() -> list[SyntheticQuestionRef]:
                 stage=PracticeStageKind.TARGET_RETEST,
                 cognitive_level=CognitiveLevel.APPLY,
                 difficulty_band="standard",
-                question_type="mcq_single",
+                question_type="synthetic_reference",
                 marks=2,
                 stem_preview=stem,
             )
@@ -130,20 +120,33 @@ def select_for_stage(
     count: int,
     *,
     excluded_ids: frozenset[str] = frozenset(),
+    target_concept_code: str | None = None,
 ) -> tuple[SyntheticQuestionRef, ...]:
     pool = [q for q in _CATALOGUE if q.stage == stage and q.question_id not in excluded_ids]
+    if target_concept_code is not None:
+        pool = [q for q in pool if q.concept_code == target_concept_code]
     if count > len(pool):
         return tuple()
     return tuple(pool[:count])
 
 
-def stage_capacity(stage: PracticeStageKind, *, excluded_ids: frozenset[str] = frozenset()) -> int:
-    return len([q for q in _CATALOGUE if q.stage == stage and q.question_id not in excluded_ids])
+def stage_capacity(
+    stage: PracticeStageKind,
+    *,
+    excluded_ids: frozenset[str] = frozenset(),
+    target_concept_code: str | None = None,
+) -> int:
+    pool = [q for q in _CATALOGUE if q.stage == stage and q.question_id not in excluded_ids]
+    if target_concept_code is not None:
+        pool = [q for q in pool if q.concept_code == target_concept_code]
+    return len(pool)
 
 
 def retest_items_target_bound(target_concept_code: str) -> bool:
-    """Retest pool items must include target concept."""
-    retest_concepts = {
-        q.concept_code for q in _CATALOGUE if q.stage == PracticeStageKind.TARGET_RETEST
-    }
-    return target_concept_code in retest_concepts
+    return stage_capacity(
+        PracticeStageKind.TARGET_RETEST,
+        target_concept_code=target_concept_code,
+    ) >= STAGE_MINIMUM_RET
+
+
+STAGE_MINIMUM_RET = 1

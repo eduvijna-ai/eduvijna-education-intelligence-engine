@@ -1,18 +1,37 @@
-"""Strict type validation before pure-helper attribute access."""
+"""Strict exact-type validation — internal / detached DTO helpers only."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from pydantic import BaseModel
 
+from app.adaptive_remediation.contracts import EvidenceObservation
+
+
+def exact_type(value: object, expected: type[object]) -> bool:
+    return type(value) is expected
+
+
+def require_exact_observation_tuple(
+    observations: object,
+) -> tuple[EvidenceObservation, ...] | None:
+    if not exact_type(observations, tuple):
+        return None
+    obs_tuple = cast(tuple[object, ...], observations)
+    for item in obs_tuple:
+        if not exact_type(item, EvidenceObservation):
+            return None
+    return cast(tuple[EvidenceObservation, ...], observations)
+
 
 def reject_unsafe_value(value: object) -> tuple[bool, str | None]:
-    if isinstance(value, (bool,)):
+    if exact_type(value, bool):
         return False, "BOOL_NOT_VALID_INT"
-    if isinstance(value, (float,)):
+    if exact_type(value, float):
         return False, "FLOAT_NOT_VALID_INT"
-    if isinstance(value, (str, bytes, bytearray)):
+    if exact_type(value, str) or exact_type(value, bytes) or exact_type(value, bytearray):
         return False, "RAW_STRING_INPUT_BLOCKED"
     if _looks_like_orm(value):
         return False, "ORM_INSTANCE_BLOCKED"
@@ -38,15 +57,16 @@ def _looks_like_orm(value: object) -> bool:
     return module.startswith("app.models.")
 
 
-def require_positive_int(value: object, *, field: str) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
+def require_strict_positive_int(value: object) -> int | None:
+    if not exact_type(value, int):
         return None
-    if value <= 0:
+    as_int = cast(int, value)
+    if as_int <= 0:
         return None
-    return value
+    return as_int
 
 
-def require_validated_model(value: object, model_type: type[BaseModel]) -> BaseModel | None:
-    if not isinstance(value, model_type):
+def require_exact_model(value: object, model_type: type[BaseModel]) -> BaseModel | None:
+    if type(value) is not model_type:
         return None
     return value

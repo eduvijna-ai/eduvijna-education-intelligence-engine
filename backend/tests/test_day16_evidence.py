@@ -23,6 +23,7 @@ def _obs(
         pattern_kind=CorrectionPatternKind.CONCEPTUAL,
         support_level=support,
         source_revision_id="d16-synth-source-v1",
+        source_locator="internal/synthetic/test-observation",
         curriculum_version_code=version,
         policy_version=AUTHORITATIVE_EVIDENCE_POLICY,
         observed_at=observed_at or datetime(2026, 11, 20, tzinfo=UTC),

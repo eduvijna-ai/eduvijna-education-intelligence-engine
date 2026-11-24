@@ -11,12 +11,16 @@ from app.adaptive_remediation.enums import (
     RemediationStrategyKind,
     RemediationVerdict,
 )
-from app.adaptive_remediation.evidence import NormalizedEvidenceBundle
+from app.adaptive_remediation.evidence import NormalizedEvidenceBundle, map_strategy_observations
 from app.adaptive_remediation.policy import map_strategy
 from app.adaptive_remediation.synthetic_fixture import (
     ALLOWED_GRAPH_SCOPE_VERSION,
     ALLOWED_GRAPH_SNAPSHOT_ID,
+    ALLOWED_GRAPH_VERSION,
+    AUTHORITATIVE_TARGET_CONCEPT,
 )
+from app.adaptive_remediation.synthetic_graph import authoritative_graph_checksum
+from app.adaptive_remediation.validation import require_strict_positive_int
 from app.prerequisite_intelligence.audit import build_graph_quality_report
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphSnapshot
 from app.prerequisite_intelligence.enums import GraphAuditStatus
@@ -36,6 +40,18 @@ def validate_fixture_graph_scope(
         issues.append("SNAPSHOT_ID_MISMATCH")
     if snapshot.scope.curriculum_version_id != ALLOWED_GRAPH_SCOPE_VERSION:
         issues.append("SCOPE_VERSION_MISMATCH")
+    if snapshot.graph_version != ALLOWED_GRAPH_VERSION:
+        issues.append("GRAPH_VERSION_MISMATCH")
+    if snapshot.scope.subject_code != "physics" or snapshot.scope.grade_year_code != "grade-11":
+        issues.append("SCOPE_SUBJECT_GRADE_MISMATCH")
+    if snapshot.checksum != authoritative_graph_checksum():
+        issues.append("GRAPH_CHECKSUM_MISMATCH")
+    codes = [n.concept_code for n in snapshot.nodes]
+    if len(codes) != len(set(codes)):
+        issues.append("DUPLICATE_CONCEPT_CODE")
+    ids = [n.concept_id for n in snapshot.nodes]
+    if len(ids) != len(set(ids)):
+        issues.append("DUPLICATE_CONCEPT_ID")
     return (len(issues) == 0, tuple(issues))
 
 
@@ -61,8 +77,16 @@ def foundation_first_order(
     snapshot: PrerequisiteGraphSnapshot,
     target_concept_id: str,
     *,
-    budget: int,
+    budget: object,
 ) -> FoundationOrderResult:
+    budget_n = require_strict_positive_int(budget)
+    if budget_n is None:
+        return FoundationOrderResult(order=(), complete=False)
+
+    ready, _, _ = graph_ready(snapshot)
+    if not ready:
+        return FoundationOrderResult(order=(), complete=False)
+
     by_id = {n.concept_id: n for n in snapshot.nodes}
     if target_concept_id not in by_id:
         return FoundationOrderResult(order=(), complete=False)
@@ -90,21 +114,26 @@ def foundation_first_order(
             queue.append(pred)
 
     indegree = {nid: len(incoming.get(nid, ())) for nid in ancestors}
-    ready = sorted(nid for nid in ancestors if indegree[nid] == 0)
+    ready_nodes = sorted(nid for nid in ancestors if indegree[nid] == 0)
     order: list[str] = []
-    while ready:
-        nid = ready.pop(0)
+    processed = 0
+    while ready_nodes:
+        nid = ready_nodes.pop(0)
         order.append(by_id[nid].concept_code)
+        processed += 1
         for child in sorted(outgoing.get(nid, ())):
             if child not in ancestors:
                 continue
             indegree[child] -= 1
             if indegree[child] == 0:
-                ready.append(child)
-                ready.sort()
+                ready_nodes.append(child)
+                ready_nodes.sort()
+
+    if processed != len(ancestors):
+        return FoundationOrderResult(order=(), complete=False)
 
     deduped = tuple(dict.fromkeys(order))
-    if len(deduped) > budget:
+    if len(deduped) != len(ancestors) or len(deduped) > budget_n:
         return FoundationOrderResult(order=(), complete=False)
     return FoundationOrderResult(order=deduped, complete=True)
 
@@ -116,6 +145,8 @@ def build_prerequisite_targets(
     *,
     budget: int = 6,
 ) -> tuple[RemediationTarget, ...]:
+    if target_concept_code != AUTHORITATIVE_TARGET_CONCEPT:
+        return ()
     by_code = {n.concept_code: n for n in snapshot.nodes}
     target_node = by_code.get(target_concept_code)
     if target_node is None:
@@ -123,7 +154,7 @@ def build_prerequisite_targets(
     order_result = foundation_first_order(snapshot, target_node.concept_id, budget=budget)
     if not order_result.complete:
         return ()
-    obs_by_concept = {o.concept_code: o for o in bundle.accepted}
+    obs_by_concept = map_strategy_observations(bundle)
     targets: list[RemediationTarget] = []
     for code in order_result.order:
         obs = obs_by_concept.get(code)
