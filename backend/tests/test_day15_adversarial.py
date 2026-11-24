@@ -6,7 +6,10 @@ import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import create_database_engine
 from app.learner_intelligence.contracts import CreateAttemptRequest, TrustedActorContext
-from app.learner_intelligence.eligibility import evaluate_assessment_eligibility
+from app.learner_intelligence.eligibility import (
+    diagnose_pure_catalog_structure,
+    evaluate_assessment_eligibility,
+)
 from app.learner_intelligence.enums import EligibilityTrustMode, EligibilityVerdict, IssueCode
 from app.learner_intelligence.fixtures import (
     build_harness_attempt_request,
@@ -25,22 +28,29 @@ def _actor() -> TrustedActorContext:
     )
 
 
-def test_forged_attestation_blocked() -> None:
+def test_runtime_eligibility_always_blocked_even_valid_catalog() -> None:
+    req = build_harness_attempt_request(_actor(), assessment_key="x", idempotency_key="k0")
+    assert diagnose_pure_catalog_structure(req) == EligibilityVerdict.ELIGIBLE
+    assert evaluate_assessment_eligibility(req) == EligibilityVerdict.BLOCKED_UNVERIFIED
+
+
+def test_forged_attestation_blocked_structural_diagnostic() -> None:
     req = build_harness_attempt_request(_actor(), assessment_key="x", idempotency_key="k1")
     forged = req.model_copy(update={"harness_attestation": forged_harness_attestation_copy()})
-    assert evaluate_assessment_eligibility(forged) == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
+    assert diagnose_pure_catalog_structure(forged) == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
+    assert evaluate_assessment_eligibility(forged) == EligibilityVerdict.BLOCKED_UNVERIFIED
 
 
 def test_contained_ca_pack_blocked() -> None:
     req = build_harness_attempt_request(_actor(), assessment_key="x", idempotency_key="k2")
     blocked = req.model_copy(update={"exam_pack_code": "ca_foundation"})
-    assert evaluate_assessment_eligibility(blocked) == EligibilityVerdict.BLOCKED_CONTAINMENT
+    assert diagnose_pure_catalog_structure(blocked) == EligibilityVerdict.BLOCKED_CONTAINMENT
 
 
 def test_exact_imat_pack_blocked() -> None:
     req = build_harness_attempt_request(_actor(), assessment_key="x", idempotency_key="k-imat")
     blocked = req.model_copy(update={"exam_pack_code": "imat"})
-    assert evaluate_assessment_eligibility(blocked) == EligibilityVerdict.BLOCKED_CONTAINMENT
+    assert diagnose_pure_catalog_structure(blocked) == EligibilityVerdict.BLOCKED_CONTAINMENT
 
 
 def test_arbitrary_items_without_catalog_blocked() -> None:
@@ -55,7 +65,7 @@ def test_arbitrary_items_without_catalog_blocked() -> None:
         catalog_key=TRUSTED_CATALOG_KEY_TWO_ITEM,
         harness_attestation="deadbeef" * 8,
     )
-    verdict = evaluate_assessment_eligibility(req)
+    verdict = diagnose_pure_catalog_structure(req)
     assert verdict in (
         EligibilityVerdict.BLOCKED_FORGED_APPROVAL,
         EligibilityVerdict.BLOCKED_UNVERIFIED,

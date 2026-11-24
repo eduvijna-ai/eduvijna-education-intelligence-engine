@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.learner_intelligence.containment import runtime_learner_db_io_allowed
@@ -18,40 +16,11 @@ def append_memory_from_event(
     memory_key: str,
     event: ScoreEvidenceEvent,
     payload: dict[str, Any],
-) -> LearnerMemoryEntry:
-    """D15-28/29: containment — no runtime persistence."""
-
+) -> LearnerMemoryEntry | None:
+    _ = (session, organization_id, learner_id, memory_key, event, payload)
     if not runtime_learner_db_io_allowed():
-        return LearnerMemoryEntry(
-            organization_id=organization_id,
-            learner_id=learner_id,
-            memory_key=memory_key,
-            entry_version=0,
-            payload_json=payload,
-            source_event_id=str(event.id),
-            retracted=True,
-        )
-    last_version = session.scalar(
-        select(LearnerMemoryEntry.entry_version)
-        .where(
-            LearnerMemoryEntry.learner_id == learner_id,
-            LearnerMemoryEntry.memory_key == memory_key,
-        )
-        .order_by(LearnerMemoryEntry.entry_version.desc())
-        .limit(1)
-    )
-    version = int(last_version or 0) + 1
-    entry = LearnerMemoryEntry(
-        organization_id=organization_id,
-        learner_id=learner_id,
-        memory_key=memory_key,
-        entry_version=version,
-        payload_json=payload,
-        source_event_id=str(event.id),
-        retracted=False,
-    )
-    session.add(entry)
-    return entry
+        return None
+    return None
 
 
 def rebuild_memory_keys(
@@ -63,34 +32,4 @@ def rebuild_memory_keys(
     _ = (session, organization_id, learner_id)
     if not runtime_learner_db_io_allowed():
         return []
-    events = list(
-        session.scalars(
-            select(ScoreEvidenceEvent)
-            .where(
-                ScoreEvidenceEvent.organization_id == organization_id,
-                ScoreEvidenceEvent.learner_id == learner_id,
-            )
-            .order_by(ScoreEvidenceEvent.created_at)
-        ).all()
-    )
-    keys: list[str] = []
-    for ev in events:
-        key = f"score:{ev.attempt_id}:{ev.item_sequence}"
-        append_memory_from_event(
-            session,
-            organization_id=ev.organization_id,
-            learner_id=learner_id,
-            memory_key=key,
-            event=ev,
-            payload={
-                "verdict": ev.verdict,
-                "marks_awarded": str(ev.marks_awarded),
-                "event_created_at": (
-                    ev.created_at.isoformat()
-                    if ev.created_at is not None
-                    else datetime.now(UTC).isoformat()
-                ),
-            },
-        )
-        keys.append(key)
-    return keys
+    return []

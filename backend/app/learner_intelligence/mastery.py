@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.learner_intelligence.containment import runtime_learner_db_io_allowed
@@ -67,6 +66,7 @@ def compute_mastery_from_events(
             ScoringVerdict.PARTIAL.value,
         )
     ]
+
     def _event_order_key(ev: ScoreEvidenceEvent) -> tuple[float, int]:
         ts = ev.created_at
         if ts is None:
@@ -127,47 +127,7 @@ def apply_mastery_update(
     concept_code: str,
     event: ScoreEvidenceEvent,
 ) -> ConceptMasteryRecord | None:
-    _ = (organization_id, institution_id, learner_id, concept_code, event)
+    _ = (session, organization_id, institution_id, learner_id, concept_code, event)
     if not runtime_learner_db_io_allowed():
         return None
-    existing = session.scalar(
-        select(ConceptMasteryRecord).where(
-            ConceptMasteryRecord.organization_id == organization_id,
-            ConceptMasteryRecord.institution_id == institution_id,
-            ConceptMasteryRecord.learner_id == learner_id,
-            ConceptMasteryRecord.concept_code == concept_code,
-            ConceptMasteryRecord.policy_version == MASTERY_POLICY_VERSION,
-        )
-    )
-    query = select(ScoreEvidenceEvent).where(
-        ScoreEvidenceEvent.learner_id == learner_id,
-        ScoreEvidenceEvent.organization_id == organization_id,
-    )
-    events = list(session.scalars(query))
-    snap = compute_mastery_from_events(
-        events,
-        concept_code=concept_code,
-        organization_id=organization_id,
-        learner_id=learner_id,
-    )
-    if existing is None:
-        existing = ConceptMasteryRecord(
-            organization_id=organization_id,
-            institution_id=institution_id,
-            learner_id=learner_id,
-            concept_code=concept_code,
-            policy_version=MASTERY_POLICY_VERSION,
-            mastery_level=snap.level.value,
-            confidence=snap.confidence.value,
-            support_correct=snap.support_correct,
-            support_incorrect=snap.support_incorrect,
-            last_evidence_event_id=str(event.id),
-        )
-        session.add(existing)
-    else:
-        existing.mastery_level = snap.level.value
-        existing.confidence = snap.confidence.value
-        existing.support_correct = snap.support_correct
-        existing.support_incorrect = snap.support_incorrect
-        existing.last_evidence_event_id = str(event.id)
-    return existing
+    return None

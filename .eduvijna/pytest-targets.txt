@@ -120,3 +120,4 @@ tests/test_day15_adversarial.py
 tests/test_day15_verify_sha.py
 tests/test_day15_trust_repair.py
 tests/test_day15_containment.py
+tests/test_day15_mechanical_seal.py

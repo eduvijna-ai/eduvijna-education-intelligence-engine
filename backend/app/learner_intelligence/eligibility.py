@@ -16,12 +16,19 @@ from app.learner_intelligence.snapshot import (
 
 
 def evaluate_assessment_eligibility(request: CreateAttemptRequest) -> EligibilityVerdict:
-    """D15-05: unconditional production block; harness attestation only."""
+    """Runtime assessment gate — unconditionally blocked under containment."""
+
+    _ = request
+    return EligibilityVerdict.BLOCKED_UNVERIFIED
+
+
+def diagnose_pure_catalog_structure(request: CreateAttemptRequest) -> EligibilityVerdict:
+    """Non-authoritative structural diagnostic only; not runtime eligibility."""
 
     if request.trust_mode != EligibilityTrustMode.SYNTHETIC_D15_HARNESS:
         return EligibilityVerdict.BLOCKED_UNVERIFIED
     if ISSUANCE_DISABLED:
-        pass  # containment expected; harness path remains separate
+        pass
     if not request.catalog_key or not request.harness_attestation:
         return EligibilityVerdict.BLOCKED_UNVERIFIED
     if is_blocked_exam_pack(request.exam_pack_code):

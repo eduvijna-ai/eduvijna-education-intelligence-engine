@@ -1,6 +1,6 @@
 # Day 15 — Learner Intelligence scope and evidence matrix
 
-**Status:** **0 PASS / 35 PARTIAL / 0 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (D15-SAFETY-CONTAINMENT-01; runtime persistence **DISABLED**; D15-36 pending).  
+**Status:** **0 PASS / 35 PARTIAL / 0 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (D15-MECHANICAL-CONTAINMENT-SEAL-01; runtime persistence **DISABLED**; D15-36 pending).  
 **Authoritative specification:** [Issue #56](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/56).  
 **Branch:** `feature/day15-learner-intelligence`. Day11 ON_HOLD; Day14 containment; Day15 ACTIVE `founder_approval:false`; Day16 LOCKED.
 
@@ -11,7 +11,7 @@
 | D15-03 | Learner profile persistence | `models/learner_intelligence.py`, `LearnerProfileVersion` | PARTIAL | Versioned profile; unknown explicit |
 | D15-04 | Data model and migration | `20261124_0022_day15_learner_intelligence.py` | PARTIAL | Additive; PG 0021 blocker unchanged |
 | D15-05 | Assessment eligibility gate | `harness.py`, `eligibility.py`, `test_day15_adversarial.py` | PARTIAL | Catalog attestation only; production unconditionally blocked |
-| D15-06 | Attempt lifecycle | `lifecycle.py`, `test_day15_core.py` | PARTIAL | Legal transitions + immutability on finalize |
+| D15-06 | Attempt lifecycle | `lifecycle.py`, `test_day15_mechanical_seal.py` | PARTIAL | Sealed stubs; no runtime transitions |
 | D15-07 | Issued assessment snapshot | `snapshot.py`, fingerprint binding | PARTIAL | Server fingerprint; no learner key leak |
 | D15-08 | Answer capture | `lifecycle.py` | PARTIAL | Contained: no runtime DB capture |
 | D15-09 | Draft save and resume | `lifecycle.py` | PARTIAL | Contained: resume persistence disabled |

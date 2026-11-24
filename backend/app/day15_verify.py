@@ -24,6 +24,7 @@ from app.learner_intelligence.diagnostic_pure import (
     pure_missing_item_scoring_diagnostic,
 )
 from app.learner_intelligence.eligibility import (
+    diagnose_pure_catalog_structure,
     evaluate_assessment_eligibility,
     production_assessment_always_blocked,
 )
@@ -100,9 +101,10 @@ def _run_containment_verification(revision: RevisionEvidence) -> dict[str, objec
     )
     unattested = create_req.model_copy(update={"harness_attestation": None, "catalog_key": None})
 
-    eligibility_synthetic = evaluate_assessment_eligibility(create_req)
-    forged_verdict = evaluate_assessment_eligibility(forged)
-    unattested_verdict = evaluate_assessment_eligibility(unattested)
+    runtime_eligibility = evaluate_assessment_eligibility(create_req)
+    structure_valid = diagnose_pure_catalog_structure(create_req)
+    forged_structure = diagnose_pure_catalog_structure(forged)
+    unattested_structure = diagnose_pure_catalog_structure(unattested)
 
     engine = create_engine("sqlite:///:memory:")
     enable_sqlite_foreign_keys(engine)
@@ -224,9 +226,10 @@ def _run_containment_verification(revision: RevisionEvidence) -> dict[str, objec
         and not PRODUCTION_ASSESSMENT_ELIGIBILITY
         and not TRUSTED_MASTERY_EVIDENCE
         and not DURABLE_LEARNER_EVIDENCE
-        and eligibility_synthetic == EligibilityVerdict.ELIGIBLE
-        and forged_verdict == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
-        and unattested_verdict == EligibilityVerdict.BLOCKED_UNVERIFIED
+        and runtime_eligibility == EligibilityVerdict.BLOCKED_UNVERIFIED
+        and structure_valid == EligibilityVerdict.ELIGIBLE
+        and forged_structure == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
+        and unattested_structure == EligibilityVerdict.BLOCKED_UNVERIFIED
         and pure_partial["total_marks"] == "4"
         and pure_partial["max_marks"] == "8"
         and pure_partial["persisted"] == "false"
@@ -237,7 +240,7 @@ def _run_containment_verification(revision: RevisionEvidence) -> dict[str, objec
 
     report: dict[str, object] = {
         "ok": containment_ok,
-        "containment_milestone": "D15-SAFETY-CONTAINMENT-01",
+        "containment_milestone": "D15-MECHANICAL-CONTAINMENT-SEAL-01",
         "synthetic_harness_pass": False,
         "diagnostic_execution_ok": containment_ok,
         "diagnostic_only_pure_scoring": True,
@@ -255,9 +258,10 @@ def _run_containment_verification(revision: RevisionEvidence) -> dict[str, objec
         "governance": governance,
         "scope_ledger_counts": scope_counts,
         "eligibility": {
-            "synthetic_eligible": eligibility_synthetic.value,
-            "forged_blocked": forged_verdict.value,
-            "unattested_blocked": unattested_verdict.value,
+            "runtime_blocked": runtime_eligibility.value,
+            "pure_structure_valid": structure_valid.value,
+            "forged_structure_blocked": forged_structure.value,
+            "unattested_structure_blocked": unattested_structure.value,
         },
         "handoff": handoff.model_dump(),
         "notes": {
@@ -281,7 +285,7 @@ def _revision_failure_report(revision: RevisionEvidence) -> dict[str, object]:
         scope_counts = {"TOTAL": 0, "PARTIAL": 0, "SOURCE_PENDING": 0, "NOT_STARTED": 0}
     return {
         "ok": False,
-        "containment_milestone": "D15-SAFETY-CONTAINMENT-01",
+        "containment_milestone": "D15-MECHANICAL-CONTAINMENT-SEAL-01",
         "synthetic_harness_pass": False,
         "failure_reason": revision.evidence_error or "SHA_ALIGNMENT_FAILED",
         "scope_ledger_counts": scope_counts,

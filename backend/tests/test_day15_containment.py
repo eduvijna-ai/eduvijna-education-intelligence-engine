@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -13,11 +14,15 @@ from app.learner_intelligence.contracts import (
     TrustedActorContext,
 )
 from app.learner_intelligence.diagnostics import record_diagnostic_events
-from app.learner_intelligence.enums import IssueCode, ResponseKind, ScoringVerdict
+from app.learner_intelligence.enums import AttemptState, IssueCode, ResponseKind, ScoringVerdict
 from app.learner_intelligence.finalization import FinalizationError, finalize_attempt
 from app.learner_intelligence.fixtures import build_harness_attempt_request
 from app.learner_intelligence.harness import build_two_item_catalog_items
-from app.learner_intelligence.lifecycle import validate_and_store_response
+from app.learner_intelligence.lifecycle import (
+    LifecycleBlockedError,
+    transition_attempt,
+    validate_and_store_response,
+)
 from app.learner_intelligence.mastery import apply_mastery_update
 from app.learner_intelligence.query import read_diagnostic_events
 from app.learner_intelligence.scoring import score_item_response
@@ -185,3 +190,6 @@ def test_direct_helpers_no_db_writes(tmp_path: Path) -> None:
         except FinalizationError as exc:
             raised = exc.code == IssueCode.NOT_READY
         assert raised
+
+        with pytest.raises(LifecycleBlockedError):
+            transition_attempt(session, attempt, AttemptState.ABANDONED)
