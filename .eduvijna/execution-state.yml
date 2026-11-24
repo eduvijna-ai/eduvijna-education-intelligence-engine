@@ -502,7 +502,7 @@ days:
     tasklist_approval_signal: "Approved."
     approved_scope: D14-01..D14-36
     implementation_authorized: true
-    implementation_status: AUTHORIZED_NOT_STARTED
+    implementation_status: CANDIDATE_1_ENGINEERING_IN_PROGRESS
     implementation_branch: feature/day14-ca-imat-eapcet-intelligence
     implementation_issue: 54
     planning_base: develop

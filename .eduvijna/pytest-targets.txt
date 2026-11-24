@@ -104,3 +104,10 @@ tests/test_day13_f03b_passage_grounding.py
 tests/test_day13_f03b_iter3.py
 tests/test_day13_f04a_current_affairs_evidence.py
 tests/test_day13_d31a_durable_replay.py
+tests/test_day14_m0_governance.py
+tests/test_day14_core.py
+tests/test_day14_scoring.py
+tests/test_day14_adversarial.py
+tests/test_day14_exam_profile.py
+tests/test_day14_extensibility.py
+tests/test_day14_verify_sha.py
