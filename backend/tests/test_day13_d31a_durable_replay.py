@@ -594,7 +594,9 @@ def test_exam_year_mismatch_on_scope(replay_db: tuple[Path, sessionmaker[Session
         assert D13ReplayIssueCode.EXAM_YEAR_MISMATCH in outcome.issue_codes
 
 
-def test_pending_row_with_null_owner_is_corrupt(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+def test_pending_row_with_null_owner_is_corrupt(
+    replay_db: tuple[Path, sessionmaker[Session]],
+) -> None:
     db_file, factory = replay_db
     row_id: str | None = None
     with factory() as session:
