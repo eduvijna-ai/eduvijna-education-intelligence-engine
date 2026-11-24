@@ -36,7 +36,7 @@
 | D13-28 | Day7/8 orchestration | — | PARTIAL | No direct provider calls |
 | D13-29 | Score family validation | `scoring.py`, `test_day13_scoring.py` | PARTIAL | CUET/CLAT mark rules |
 | D13-30 | Tenant isolation | `scope_guard.validate_tenant` | PARTIAL | Guard present |
-| D13-31 | Durable persistence/replay | `durable_replay_envelope.py`, `test_day13_d31a_*.py`, `replay_store.py` | PARTIAL | D13-31A iter2: CAS publish, blueprint-derived fingerprint, opaque schema |
+| D13-31 | Durable persistence/replay | `durable_replay_envelope.py`, `test_day13_d31a_*.py`, `replay_store.py` | PARTIAL | D13-31A iter3/3: synthetic CAS, commit-truth read, exam gate all entrypoints, strict opaque replay |
 | D13-32 | Whole-paper verification | `clat_planner`, `day13_verify.py` | PARTIAL | Synthetic 120 + clusters |
 | D13-33 | Synthetic adversarial fixtures | `test_day13_adversarial.py` | PARTIAL | Count/range/replay vectors |
 | D13-34 | Scoped integration regression | `test_day13_core.py` | PARTIAL | Day13 tests only |

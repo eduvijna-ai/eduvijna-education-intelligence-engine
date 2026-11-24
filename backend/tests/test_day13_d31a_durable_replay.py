@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import multiprocessing as mp
 import os
 import sqlite3
@@ -22,6 +24,7 @@ from app.cuet_clat.durable_replay_envelope import (
     abort_reservation,
     build_request_fingerprint,
     confirmed_read_after_commit,
+    derive_request_fingerprint,
     hash_idempotency_key,
     payload_checksum,
     publish_replay_result,
@@ -160,9 +163,12 @@ def _read(
 
 
 def _synthetic_result(checksum_seed: str) -> dict[str, object]:
+    opaque_tail = hashlib.sha256(checksum_seed.encode()).hexdigest()[:16]
     return {
-        "synthetic_demo_checksum": checksum_seed,
-        "opaque_plan_ref": f"plan-{checksum_seed}",
+        "synthetic_demo_checksum": hashlib.sha256(
+            f"demo:{checksum_seed}".encode()
+        ).hexdigest(),
+        "opaque_plan_ref": f"opl-{opaque_tail}",
     }
 
 
@@ -195,7 +201,9 @@ def test_replay_after_session_reopen(replay_db: tuple[Path, sessionmaker[Session
         published = _publish(session, scope, key, claim.owner_token or "", payload)
         session.commit()
     assert published.state == D13ReservationState.REPLAYED
-    assert published.payload_sha256 == payload_checksum(published.result_payload or {})
+    stored_sum = payload_checksum(published.result_payload or {})
+    assert stored_sum is not None
+    assert published.payload_sha256 == stored_sum
 
     with factory() as session:
         scope = _clat_scope(session)
@@ -411,10 +419,11 @@ def test_caller_mutation_does_not_corrupt_store(
         published = _publish(session, scope, "mut", claim.owner_token or "", payload)
         session.commit()
         assert published.result_payload is not None
-        published.result_payload["synthetic_demo_checksum"] = "tampered"
+        published.result_payload["synthetic_demo_checksum"] = "f" * 64
         replay = _read(session, scope, "mut")
         assert replay.result_payload is not None
-        assert replay.result_payload["synthetic_demo_checksum"] == "mut"
+        expected = _synthetic_result("mut")["synthetic_demo_checksum"]
+        assert replay.result_payload["synthetic_demo_checksum"] == expected
 
 
 def test_blank_key_and_missing_tenant(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
@@ -569,8 +578,8 @@ def test_forbidden_result_schema(replay_db: tuple[Path, sessionmaker[Session]]) 
             "forbid",
             claim.owner_token or "",
             {
-                "synthetic_demo_checksum": "x",
-                "opaque_plan_ref": "p",
+                "synthetic_demo_checksum": "a" * 64,
+                "opaque_plan_ref": "opl-abcdefghijklmnop",
                 "question_text": "leak",
             },
         )
@@ -618,14 +627,14 @@ def test_pending_row_with_null_owner_is_corrupt(
 
 
 def test_concurrent_publish_single_winner(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
-    _, factory = replay_db
+    db_file, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
         claim = _reserve(session, scope, "pub-race")
         owner = claim.owner_token or ""
         session.commit()
     barrier = threading.Barrier(2)
-    outcomes: list[D13ReservationState] = []
+    committed_replayed: list[bool] = []
     lock = threading.Lock()
 
     def worker(seed: str) -> None:
@@ -633,12 +642,25 @@ def test_concurrent_publish_single_winner(replay_db: tuple[Path, sessionmaker[Se
             scope = _clat_scope(session)
             barrier.wait()
             outcome = _publish(session, scope, "pub-race", owner, _synthetic_result(seed))
+            committed = False
             try:
                 session.commit()
+                if outcome.state == D13ReservationState.REPLAYED and outcome.payload_sha256:
+                    with factory() as verify_session:
+                        replay = confirmed_read_after_commit(
+                            verify_session,
+                            scope,
+                            idempotency_key="pub-race",
+                            blueprint_snapshot=_blueprint(),
+                        )
+                        committed = (
+                            replay.state == D13ReservationState.REPLAYED
+                            and replay.payload_sha256 == outcome.payload_sha256
+                        )
             except Exception:
                 session.rollback()
             with lock:
-                outcomes.append(outcome.state)
+                committed_replayed.append(committed)
 
     t1 = threading.Thread(target=worker, args=("a",))
     t2 = threading.Thread(target=worker, args=("b",))
@@ -646,12 +668,22 @@ def test_concurrent_publish_single_winner(replay_db: tuple[Path, sessionmaker[Se
     t2.start()
     t1.join(timeout=30)
     t2.join(timeout=30)
-    assert outcomes.count(D13ReservationState.REPLAYED) == 1
-    assert D13ReservationState.CONFLICT in outcomes
+    assert committed_replayed.count(True) == 1
 
-    with factory() as session:
+    verify_engine = create_engine(
+        f"sqlite:///{db_file}",
+        connect_args={"check_same_thread": False},
+    )
+    enable_sqlite_foreign_keys(verify_engine)
+    verify_factory = sessionmaker(bind=verify_engine, autoflush=False, expire_on_commit=False)
+    with verify_factory() as session:
         scope = _clat_scope(session)
-        replay = _read(session, scope, "pub-race")
+        replay = confirmed_read_after_commit(
+            session,
+            scope,
+            idempotency_key="pub-race",
+            blueprint_snapshot=_blueprint(),
+        )
         assert replay.state == D13ReservationState.REPLAYED
         assert replay.result_payload is not None
 
@@ -683,3 +715,151 @@ def test_abort_vs_publish_cas(replay_db: tuple[Path, sessionmaker[Session]]) -> 
         assert aborted.state == D13ReservationState.NOT_READY
         blocked = _publish(session, scope, "abort-pub", owner, _synthetic_result("late"))
         assert blocked.state == D13ReservationState.NOT_READY
+
+
+def test_confirmed_read_rejects_uncommitted_transaction(
+    replay_db: tuple[Path, sessionmaker[Session]],
+) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "uncommit")
+        _publish(session, scope, "uncommit", claim.owner_token or "", _synthetic_result("u"))
+        early = confirmed_read_after_commit(
+            session,
+            scope,
+            idempotency_key="uncommit",
+            blueprint_snapshot=_blueprint(),
+        )
+        assert early.state != D13ReservationState.REPLAYED
+        assert early.result_payload is None
+        session.rollback()
+        replay = _read(session, scope, "uncommit")
+        assert replay.state == D13ReservationState.NOT_READY
+
+
+def test_corrupt_pending_metadata_blocks_publish(
+    replay_db: tuple[Path, sessionmaker[Session]],
+) -> None:
+    db_file, factory = replay_db
+    row_id: str | None = None
+    owner: str = ""
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "meta-corrupt")
+        row_id = claim.reservation_id
+        owner = claim.owner_token or ""
+        session.commit()
+    with sqlite3.connect(db_file) as connection:
+        connection.execute(
+            "UPDATE d13_replay_reservations SET metadata_json = ? WHERE id = ?",
+            (json.dumps({}), row_id),
+        )
+        connection.commit()
+    with factory() as session:
+        scope = _clat_scope(session)
+        blocked = _publish(session, scope, "meta-corrupt", owner, _synthetic_result("bad"))
+        session.commit()
+        assert blocked.state == D13ReservationState.CORRUPT
+        row = session.get(D13ReplayReservation, row_id)
+        assert row is not None
+        assert row.reservation_state in {
+            D13ReservationState.RESERVED.value,
+            D13ReservationState.IN_PROGRESS.value,
+        }
+
+
+def test_replayed_json_array_is_corrupt(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    db_file, factory = replay_db
+    row_id: str | None = None
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "json-arr")
+        _publish(session, scope, "json-arr", claim.owner_token or "", _synthetic_result("arr"))
+        row_id = claim.reservation_id
+        session.commit()
+    with sqlite3.connect(db_file) as connection:
+        connection.execute(
+            "UPDATE d13_replay_reservations SET reservation_state = 'replayed', "
+            "owner_token = NULL, result_json = ?, payload_sha256 = ?, "
+            "result_snapshot_version = 'd13-replay-snapshot@v3' WHERE id = ?",
+            (json.dumps([]), "0" * 64, row_id),
+        )
+        connection.commit()
+    with factory() as session:
+        scope = _clat_scope(session)
+        replay = _read(session, scope, "json-arr")
+        assert replay.state == D13ReservationState.CORRUPT
+        assert replay.result_payload is None
+
+
+def test_blueprint_nan_rejected(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        fp, issue = derive_request_fingerprint(
+            scope,
+            blueprint_snapshot={"prefix": BLUEPRINT_PREFIX, "bad": float("nan")},
+        )
+        assert fp is None
+        assert issue == D13ReplayIssueCode.BLUEPRINT_INVALID
+
+
+def test_opaque_prose_rejected_on_publish(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "prose")
+        bad = _publish(
+            session,
+            scope,
+            "prose",
+            claim.owner_token or "",
+            {
+                "synthetic_demo_checksum": "a" * 64,
+                "opaque_plan_ref": "this is not a token but question text hidden",
+            },
+        )
+        assert bad.state == D13ReservationState.NOT_READY
+        assert D13ReplayIssueCode.RESULT_SCHEMA_VIOLATION in bad.issue_codes
+
+
+def test_inactive_pack_blocks_replay_after_reserve(
+    replay_db: tuple[Path, sessionmaker[Session]],
+) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        from app.models.examination import ExamPack, ExamVersion
+
+        exam_version = session.get(ExamVersion, scope.exam_version_id)
+        assert exam_version is not None
+        real_pack = session.get(ExamPack, exam_version.exam_pack_id)
+        assert real_pack is not None
+        claim = _reserve(session, scope, "pack-off")
+        session.commit()
+        real_pack.active = False
+        session.commit()
+        blocked = _publish(
+            session,
+            scope,
+            "pack-off",
+            claim.owner_token or "",
+            _synthetic_result("off"),
+        )
+        assert blocked.state == D13ReservationState.NOT_READY
+        assert D13ReplayIssueCode.EXAM_VERSION_INVALID in blocked.issue_codes
+        real_pack.active = True
+        session.commit()
+
+
+def test_postgres_compile_includes_synthetic_column() -> None:
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    from app.db.base import Base
+
+    table = Base.metadata.tables["d13_replay_reservations"]
+    ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+    assert "synthetic_test_only" in ddl
+    assert "ck_d13_replay_synthetic_marker" in ddl

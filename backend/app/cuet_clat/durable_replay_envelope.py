@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -24,9 +25,14 @@ from app.models.day13_replay import (
     D13_SYNTHETIC_TEST_ONLY_KEY,
     D13ReplayReservation,
 )
+from app.models.enums import ExamStatus
 from app.models.examination import ExamPack, ExamVersion
 
-RESULT_SNAPSHOT_VERSION = "d13-replay-snapshot@v2"
+RESULT_SNAPSHOT_VERSION = "d13-replay-snapshot@v3"
+MAX_BLUEPRINT_KEYS = 32
+MAX_BLUEPRINT_KEY_LEN = 64
+MAX_BLUEPRINT_STRING_LEN = 128
+MAX_BLUEPRINT_DEPTH = 2
 MAX_IDEMPOTENCY_KEY_CHARS = 128
 MAX_RESULT_JSON_BYTES = 8_192
 FINGERPRINT_PREFIX = "d13-replay-fingerprint-v2"
@@ -79,13 +85,15 @@ class D13ReplayIssueCode(StrEnum):
     ROW_CORRUPT = "row_corrupt"
     DATABASE_LOCKED = "database_locked"
     CAS_TRANSITION_FAILED = "cas_transition_failed"
+    UNCOMMITTED_READ = "uncommitted_read"
+    EXAM_TRUST_INVALID = "exam_trust_invalid"
 
 
 class D13OpaqueReplayResult(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    synthetic_demo_checksum: str = Field(min_length=1, max_length=128)
-    opaque_plan_ref: str = Field(min_length=1, max_length=256)
+    synthetic_demo_checksum: str = Field(pattern=r"^[a-f0-9]{64}$")
+    opaque_plan_ref: str = Field(pattern=r"^opl-[a-z0-9]{8,32}$")
     plan_checksum_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
@@ -123,18 +131,40 @@ def _strict_json_dumps(payload: dict[str, Any]) -> bytes:
     return text.encode("utf-8")
 
 
-def _normalize_blueprint_snapshot(blueprint_snapshot: dict[str, object]) -> dict[str, object]:
+def _normalize_blueprint_value(value: object, *, depth: int) -> object:
+    if depth > MAX_BLUEPRINT_DEPTH:
+        raise TypeError("blueprint depth exceeded")
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            raise ValueError("blueprint nonfinite float")
+        return value
+    if isinstance(value, str):
+        if len(value) > MAX_BLUEPRINT_STRING_LEN:
+            raise TypeError("blueprint string too long")
+        return value
+    if isinstance(value, dict):
+        return _normalize_blueprint_snapshot(value, depth=depth + 1)
+    raise TypeError("blueprint value unsupported")
+
+
+def _normalize_blueprint_snapshot(
+    blueprint_snapshot: dict[str, object],
+    *,
+    depth: int = 0,
+) -> dict[str, object]:
     if not isinstance(blueprint_snapshot, dict):
-        msg = "blueprint must be object"
-        raise TypeError(msg)
+        raise TypeError("blueprint must be object")
+    if len(blueprint_snapshot) > MAX_BLUEPRINT_KEYS:
+        raise TypeError("blueprint too large")
     normalized: dict[str, object] = {}
     for key, value in blueprint_snapshot.items():
-        if not isinstance(key, str):
-            raise TypeError("blueprint keys must be strings")
-        if isinstance(value, (str, int, float, bool)) or value is None:
-            normalized[key] = value
-        else:
-            raise TypeError("blueprint values must be JSON primitives")
+        if not isinstance(key, str) or not key or len(key) > MAX_BLUEPRINT_KEY_LEN:
+            raise TypeError("blueprint keys must be short strings")
+        normalized[key] = _normalize_blueprint_value(value, depth=depth)
     return normalized
 
 
@@ -166,13 +196,13 @@ def derive_request_fingerprint(
 ) -> tuple[str | None, D13ReplayIssueCode | None]:
     try:
         normalized = _normalize_blueprint_snapshot(blueprint_snapshot)
-    except TypeError:
+        computed = build_request_fingerprint(
+            scope,
+            blueprint_snapshot=normalized,
+            source_snapshot_identity=source_snapshot_identity,
+        )
+    except (TypeError, ValueError):
         return None, D13ReplayIssueCode.BLUEPRINT_INVALID
-    computed = build_request_fingerprint(
-        scope,
-        blueprint_snapshot=normalized,
-        source_snapshot_identity=source_snapshot_identity,
-    )
     if asserted_fingerprint is not None:
         if not _is_valid_sha256_hex(asserted_fingerprint):
             return None, D13ReplayIssueCode.FINGERPRINT_INVALID
@@ -181,8 +211,11 @@ def derive_request_fingerprint(
     return computed, None
 
 
-def payload_checksum(result_payload: dict[str, object]) -> str:
-    return hashlib.sha256(_strict_json_dumps(result_payload)).hexdigest()
+def payload_checksum(result_payload: dict[str, object]) -> str | None:
+    try:
+        return hashlib.sha256(_strict_json_dumps(result_payload)).hexdigest()
+    except (TypeError, ValueError):
+        return None
 
 
 def _validate_key(raw_key: str) -> D13ReplayIssueCode | None:
@@ -207,19 +240,72 @@ def verify_exam_version_scope(session: Session, scope: D13ReplayScope) -> D13Rep
     pack = session.get(ExamPack, version.exam_pack_id)
     if pack is None:
         return D13ReplayIssueCode.EXAM_VERSION_INVALID
+    if not pack.active:
+        return D13ReplayIssueCode.EXAM_VERSION_INVALID
     if pack.code != scope.exam_pack_code:
         return D13ReplayIssueCode.EXAM_PACK_MISMATCH
     if scope.academic_year != version.academic_year:
         return D13ReplayIssueCode.EXAM_YEAR_MISMATCH
+    if version.status in {ExamStatus.RETIRED.value, ExamStatus.SUPERSEDED.value}:
+        return D13ReplayIssueCode.EXAM_VERSION_INVALID
     if pack.code == CUET_PACK_CODE:
         if version.version_code != VERSION_SYNTHETIC_DEMO or scope.academic_year != "2026":
             return D13ReplayIssueCode.EXAM_VERSION_INVALID
+        if version.metadata_json.get("trust_mode") != "synthetic_fixture":
+            return D13ReplayIssueCode.EXAM_TRUST_INVALID
     elif pack.code == CLAT_PACK_CODE:
         if version.version_code != VERSION_CLAT_2027 or scope.academic_year != "2027":
             return D13ReplayIssueCode.EXAM_VERSION_INVALID
+        if version.metadata_json.get("source_attested") is not False:
+            return D13ReplayIssueCode.EXAM_TRUST_INVALID
     else:
         return D13ReplayIssueCode.EXAM_PACK_MISMATCH
     return None
+
+
+def _entrypoint_gates(
+    session: Session,
+    scope: D13ReplayScope,
+    *,
+    raw_key: str | None = None,
+) -> D13ReplayEnvelopeOutcome | None:
+    tenant_issue = _validate_tenant(scope)
+    if tenant_issue is not None:
+        return D13ReplayEnvelopeOutcome(
+            state=D13ReservationState.NOT_READY,
+            issue_codes=(tenant_issue,),
+        )
+    if raw_key is not None:
+        key_issue = _validate_key(raw_key)
+        if key_issue is not None:
+            return D13ReplayEnvelopeOutcome(
+                state=D13ReservationState.NOT_READY,
+                issue_codes=(key_issue,),
+            )
+    exam_issue = verify_exam_version_scope(session, scope)
+    if exam_issue is not None:
+        return D13ReplayEnvelopeOutcome(
+            state=D13ReservationState.NOT_READY,
+            issue_codes=(exam_issue,),
+        )
+    return None
+
+
+def _pending_cas_guards() -> list[Any]:
+    return [
+        D13ReplayReservation.synthetic_test_only.is_(True),
+        D13ReplayReservation.result_json.is_(None),
+        D13ReplayReservation.payload_sha256.is_(None),
+        D13ReplayReservation.result_snapshot_version.is_(None),
+    ]
+
+
+def _preflight_pending_row(row: D13ReplayReservation) -> D13ReplayIssueCode | None:
+    if not row.synthetic_test_only:
+        return D13ReplayIssueCode.ROW_CORRUPT
+    if row.metadata_json.get(D13_SYNTHETIC_TEST_ONLY_KEY) is not True:
+        return D13ReplayIssueCode.ROW_CORRUPT
+    return _row_integrity(row)
 
 
 def _validate_and_seal_result(
@@ -267,7 +353,9 @@ def _load_reservation(
     return session.scalar(select(D13ReplayReservation).where(*_scope_filters(scope, key_hash)))
 
 
-def _validate_result_schema_dict(result: dict[str, Any]) -> bool:
+def _validate_result_schema_dict(result: object) -> bool:
+    if not isinstance(result, dict):
+        return False
     try:
         D13OpaqueReplayResult.model_validate(
             {k: v for k, v in result.items() if k != D13_SYNTHETIC_TEST_ONLY_KEY}
@@ -283,6 +371,8 @@ def _validate_result_schema_dict(result: dict[str, Any]) -> bool:
 
 
 def _row_integrity(row: D13ReplayReservation) -> D13ReplayIssueCode | None:
+    if not row.synthetic_test_only:
+        return D13ReplayIssueCode.ROW_CORRUPT
     if row.metadata_json.get(D13_SYNTHETIC_TEST_ONLY_KEY) is not True:
         return D13ReplayIssueCode.ROW_CORRUPT
     if not _is_valid_sha256_hex(row.request_fingerprint):
@@ -303,7 +393,8 @@ def _row_integrity(row: D13ReplayReservation) -> D13ReplayIssueCode | None:
             return D13ReplayIssueCode.ROW_CORRUPT
         if not _validate_result_schema_dict(row.result_json):
             return D13ReplayIssueCode.ROW_CORRUPT
-        if row.payload_sha256 != payload_checksum(row.result_json):
+        expected = payload_checksum(row.result_json)
+        if expected is None or row.payload_sha256 != expected:
             return D13ReplayIssueCode.PAYLOAD_INTEGRITY
         return None
     return D13ReplayIssueCode.ROW_CORRUPT
@@ -361,24 +452,9 @@ def reserve_replay_slot(
     source_snapshot_identity: str | None = None,
     asserted_fingerprint: str | None = None,
 ) -> D13ReplayEnvelopeOutcome:
-    tenant_issue = _validate_tenant(scope)
-    if tenant_issue is not None:
-        return D13ReplayEnvelopeOutcome(
-            state=D13ReservationState.NOT_READY,
-            issue_codes=(tenant_issue,),
-        )
-    key_issue = _validate_key(idempotency_key)
-    if key_issue is not None:
-        return D13ReplayEnvelopeOutcome(
-            state=D13ReservationState.NOT_READY,
-            issue_codes=(key_issue,),
-        )
-    exam_issue = verify_exam_version_scope(session, scope)
-    if exam_issue is not None:
-        return D13ReplayEnvelopeOutcome(
-            state=D13ReservationState.NOT_READY,
-            issue_codes=(exam_issue,),
-        )
+    blocked = _entrypoint_gates(session, scope, raw_key=idempotency_key)
+    if blocked is not None:
+        return blocked
     fingerprint, fp_issue = derive_request_fingerprint(
         scope,
         blueprint_snapshot=blueprint_snapshot,
@@ -411,6 +487,7 @@ def reserve_replay_slot(
         reservation_state=D13ReservationState.RESERVED.value,
         owner_token=owner_token,
         metadata_json={D13_SYNTHETIC_TEST_ONLY_KEY: True},
+        synthetic_test_only=True,
     )
     try:
         session.add(row)
@@ -472,12 +549,9 @@ def publish_replay_result(
     source_snapshot_identity: str | None = None,
     asserted_fingerprint: str | None = None,
 ) -> D13ReplayEnvelopeOutcome:
-    key_issue = _validate_key(idempotency_key)
-    if key_issue is not None:
-        return D13ReplayEnvelopeOutcome(
-            state=D13ReservationState.NOT_READY,
-            issue_codes=(key_issue,),
-        )
+    blocked = _entrypoint_gates(session, scope, raw_key=idempotency_key)
+    if blocked is not None:
+        return blocked
     fingerprint, bad = _fingerprint_for_mutation(
         scope,
         blueprint_snapshot=blueprint_snapshot,
@@ -496,6 +570,18 @@ def publish_replay_result(
         )
 
     key_hash = hash_idempotency_key(idempotency_key)
+    pre_existing = _load_reservation(session, scope, key_hash)
+    if pre_existing is not None and pre_existing.reservation_state in {
+        D13ReservationState.RESERVED.value,
+        D13ReservationState.IN_PROGRESS.value,
+    }:
+        preflight = _preflight_pending_row(pre_existing)
+        if preflight is not None:
+            return D13ReplayEnvelopeOutcome(
+                state=D13ReservationState.CORRUPT,
+                reservation_id=pre_existing.id,
+                issue_codes=(preflight,),
+            )
     try:
         affected = _execute_rowcount(
             session,
@@ -503,6 +589,7 @@ def publish_replay_result(
             .where(
                 *(
                     _scope_filters(scope, key_hash)
+                    + _pending_cas_guards()
                     + [
                         D13ReplayReservation.owner_token == owner_token,
                         D13ReplayReservation.request_fingerprint == fingerprint,
@@ -593,12 +680,9 @@ def read_replay_result(
     source_snapshot_identity: str | None = None,
     asserted_fingerprint: str | None = None,
 ) -> D13ReplayEnvelopeOutcome:
-    key_issue = _validate_key(idempotency_key)
-    if key_issue is not None:
-        return D13ReplayEnvelopeOutcome(
-            state=D13ReservationState.NOT_READY,
-            issue_codes=(key_issue,),
-        )
+    blocked = _entrypoint_gates(session, scope, raw_key=idempotency_key)
+    if blocked is not None:
+        return blocked
     fingerprint, bad = _fingerprint_for_mutation(
         scope,
         blueprint_snapshot=blueprint_snapshot,
@@ -625,6 +709,9 @@ def abort_reservation(
     source_snapshot_identity: str | None = None,
     asserted_fingerprint: str | None = None,
 ) -> D13ReplayEnvelopeOutcome:
+    blocked = _entrypoint_gates(session, scope, raw_key=idempotency_key)
+    if blocked is not None:
+        return blocked
     fingerprint, bad = _fingerprint_for_mutation(
         scope,
         blueprint_snapshot=blueprint_snapshot,
@@ -635,12 +722,25 @@ def abort_reservation(
         return bad
     assert fingerprint is not None
     key_hash = hash_idempotency_key(idempotency_key)
+    pre_existing = _load_reservation(session, scope, key_hash)
+    if pre_existing is not None and pre_existing.reservation_state in {
+        D13ReservationState.RESERVED.value,
+        D13ReservationState.IN_PROGRESS.value,
+    }:
+        preflight = _preflight_pending_row(pre_existing)
+        if preflight is not None:
+            return D13ReplayEnvelopeOutcome(
+                state=D13ReservationState.CORRUPT,
+                reservation_id=pre_existing.id,
+                issue_codes=(preflight,),
+            )
     try:
         removed = _execute_rowcount(
             session,
             delete(D13ReplayReservation).where(
                 *(
                     _scope_filters(scope, key_hash)
+                    + _pending_cas_guards()
                     + [
                         D13ReplayReservation.owner_token == owner_token,
                         D13ReplayReservation.request_fingerprint == fingerprint,
@@ -702,6 +802,9 @@ def transition_to_in_progress(
     source_snapshot_identity: str | None = None,
     asserted_fingerprint: str | None = None,
 ) -> D13ReplayEnvelopeOutcome:
+    blocked = _entrypoint_gates(session, scope, raw_key=idempotency_key)
+    if blocked is not None:
+        return blocked
     fingerprint, bad = _fingerprint_for_mutation(
         scope,
         blueprint_snapshot=blueprint_snapshot,
@@ -712,6 +815,15 @@ def transition_to_in_progress(
         return bad
     assert fingerprint is not None
     key_hash = hash_idempotency_key(idempotency_key)
+    pre_existing = _load_reservation(session, scope, key_hash)
+    if pre_existing is not None:
+        preflight = _preflight_pending_row(pre_existing)
+        if preflight is not None:
+            return D13ReplayEnvelopeOutcome(
+                state=D13ReservationState.CORRUPT,
+                reservation_id=pre_existing.id,
+                issue_codes=(preflight,),
+            )
     try:
         affected = _execute_rowcount(
             session,
@@ -719,6 +831,7 @@ def transition_to_in_progress(
             .where(
                 *(
                     _scope_filters(scope, key_hash)
+                    + _pending_cas_guards()
                     + [
                         D13ReplayReservation.owner_token == owner_token,
                         D13ReplayReservation.request_fingerprint == fingerprint,
@@ -773,11 +886,25 @@ def confirmed_read_after_commit(
     source_snapshot_identity: str | None = None,
 ) -> D13ReplayEnvelopeOutcome:
     """Read durable row after caller committed reserve/publish."""
-    session.expire_all()
-    return read_replay_result(
-        session,
-        scope,
-        idempotency_key=idempotency_key,
-        blueprint_snapshot=blueprint_snapshot,
-        source_snapshot_identity=source_snapshot_identity,
-    )
+    if session.new or session.dirty or session.deleted:
+        return D13ReplayEnvelopeOutcome(
+            state=D13ReservationState.NOT_READY,
+            issue_codes=(D13ReplayIssueCode.UNCOMMITTED_READ,),
+        )
+    bind = session.get_bind()
+    if bind is None:
+        return D13ReplayEnvelopeOutcome(
+            state=D13ReservationState.NOT_READY,
+            issue_codes=(D13ReplayIssueCode.SCOPE_MISMATCH,),
+        )
+    reader = Session(bind=bind, autoflush=False, expire_on_commit=False)
+    try:
+        return read_replay_result(
+            reader,
+            scope,
+            idempotency_key=idempotency_key,
+            blueprint_snapshot=blueprint_snapshot,
+            source_snapshot_identity=source_snapshot_identity,
+        )
+    finally:
+        reader.close()

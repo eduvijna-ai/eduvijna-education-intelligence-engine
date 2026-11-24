@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, CheckConstraint, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -44,6 +44,7 @@ class D13ReplayReservation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND result_json IS NOT NULL AND result_snapshot_version IS NOT NULL)",
             name="ck_d13_replay_replayed_requires_payload",
         ),
+        CheckConstraint("synthetic_test_only = 1", name="ck_d13_replay_synthetic_marker"),
     )
 
     organization_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -59,3 +60,4 @@ class D13ReplayReservation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     result_snapshot_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    synthetic_test_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
