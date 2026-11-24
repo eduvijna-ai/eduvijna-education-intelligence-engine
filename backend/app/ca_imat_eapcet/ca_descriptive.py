@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED
 from app.ca_imat_eapcet.contracts import DescriptiveItemContract
 from app.ca_imat_eapcet.enums import IssueCode, PlanVerdict
 from app.ca_imat_eapcet.scoring import validate_rubric_marks
@@ -14,6 +15,8 @@ from app.ca_imat_eapcet.synthetic_fixtures import (
 def validate_descriptive_item(item: DescriptiveItemContract) -> tuple[PlanVerdict, list[IssueCode]]:
     """D14-11/12: rubric bounds; no automated grading claim."""
 
+    if ACADEMIC_VALIDATION_DISABLED:
+        return PlanVerdict.NOT_READY, [IssueCode.ACADEMIC_VALIDATION_CONTAINED]
     issues: list[IssueCode] = []
     if item.automated_grading_claimed:
         issues.append(IssueCode.VALIDATION_NOT_PROVEN)
@@ -62,6 +65,13 @@ def allocate_descriptive_items(
         return PlanVerdict.FAIL, 0, [], [IssueCode.INVALID_REQUEST_COUNT]
     if requested_count > 1:
         return PlanVerdict.SHORTAGE, 0, [], [IssueCode.CA_ACCOUNTING_RECONCILE]
+    if ACADEMIC_VALIDATION_DISABLED:
+        return (
+            PlanVerdict.NOT_READY,
+            0,
+            [],
+            [IssueCode.ACADEMIC_VALIDATION_CONTAINED],
+        )
     v, issues = validate_descriptive_item(item)
     if v is not PlanVerdict.PASS:
         return v, 0, [], issues

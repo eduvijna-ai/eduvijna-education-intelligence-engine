@@ -21,7 +21,7 @@ from app.ca_imat_eapcet.enums import (
 from app.ca_imat_eapcet.imat_planner import ImatPaperPlanner
 
 
-def test_ca_four_paper_synthetic_bundle() -> None:
+def test_ca_four_paper_synthetic_bundle_contained() -> None:
     planner = CaFoundationPlanner()
     result = planner.plan(
         CaPaperPlanRequest(
@@ -30,13 +30,13 @@ def test_ca_four_paper_synthetic_bundle() -> None:
             items_per_paper=5,
         )
     )
-    assert result.verdict == PlanVerdict.PASS
+    assert result.verdict is not PlanVerdict.PASS
     assert len(result.papers) == 4
-    assert result.total_marks > 0
-    assert result.total_marks != 400
+    assert all(p.delivered_count == 0 for p in result.papers.values())
+    assert result.total_marks == 0
 
 
-def test_imat_synthetic_full_paper() -> None:
+def test_imat_full_paper_no_academic_delivery() -> None:
     planner = ImatPaperPlanner()
     result = planner.plan(
         ImatPaperPlanRequest(
@@ -46,11 +46,12 @@ def test_imat_synthetic_full_paper() -> None:
             academic_year="2026",
         )
     )
-    assert result.verdict == PlanVerdict.PASS
-    assert result.delivered_count == IMAT_TOTAL_QUESTIONS
+    assert result.verdict is not PlanVerdict.PASS
+    assert result.delivered_count == 0
+    assert result.metadata_json.get("structural_target_count") == IMAT_TOTAL_QUESTIONS
 
 
-def test_eapcet_engineering_160() -> None:
+def test_eapcet_engineering_no_validated_160() -> None:
     planner = EapcetPaperPlanner()
     result = planner.plan(
         EapcetPaperPlanRequest(
@@ -60,9 +61,9 @@ def test_eapcet_engineering_160() -> None:
             stream=EapcetStream.ENGINEERING,
         )
     )
-    assert result.verdict == PlanVerdict.PASS
-    assert result.delivered_count == EAPCET_TOTAL_QUESTIONS
-    assert result.section_counts.get("mathematics") == 80
+    assert result.verdict is not PlanVerdict.PASS
+    assert result.delivered_count == 0
+    assert result.metadata_json.get("structural_target_count") == EAPCET_TOTAL_QUESTIONS
 
 
 def test_wrong_pack_fail_closed() -> None:

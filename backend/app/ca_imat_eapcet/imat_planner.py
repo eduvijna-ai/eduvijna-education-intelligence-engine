@@ -67,8 +67,10 @@ class ImatPaperPlanner:
             decimal_total_marks=float(decimal_total.quantize(Decimal("0.1"))),
             issue_codes=issues,
             metadata_json={
+                **alloc.metadata_json,
                 "demonstration_only": request.trust_mode is Day14SourceTrustMode.SYNTHETIC_FIXTURE,
                 "options_per_question": 5,
                 "structural_demonstration_only": structural_only,
+                "structural_target_count": target,
             },
         )

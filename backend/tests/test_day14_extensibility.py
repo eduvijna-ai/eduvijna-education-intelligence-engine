@@ -13,4 +13,4 @@ def test_extensibility_config_demo_without_generic_branch() -> None:
 
 
 def test_onboarding_exercise_delivers() -> None:
-    assert exercise_config_driven_onboarding() == PlanVerdict.PASS
+    assert exercise_config_driven_onboarding() is not PlanVerdict.PASS

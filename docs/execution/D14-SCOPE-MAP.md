@@ -1,6 +1,6 @@
 # Day 14 — CA Foundation, IMAT, TG EAPCET scope and evidence matrix
 
-**Status:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (candidate 3/3 fail-closed issuance + source trust; D14-36 not Founder-accepted).  
+**Status:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (`D14-SAFETY-CONTAINMENT-01`; academic validation/issuance disabled; D14-36 not Founder-accepted).  
 **Authoritative specification:** [Issue #54](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/54).  
 **Branch:** `feature/day14-ca-imat-eapcet-intelligence`. Day11 ON_HOLD; Day14 ACTIVE `founder_approval:false`; Day15 LOCKED.
 
@@ -42,6 +42,19 @@
 | D14-34 | Founder verifier | `day14_verify.py`, `test_day14_verify_sha.py` | PARTIAL | Synthetic mode CI hook |
 | D14-35 | Exact-head CI and evidence | targeted CI, ruff, mypy, scoped pytest | PARTIAL | Compose/PG/AnythingLLM NOT_RUN |
 | D14-36 | Independent acceptance and stop | — | NOT_STARTED | Awaiting Founder |
+
+## Safety containment (D14-SAFETY-CONTAINMENT-01)
+
+| R3 finding | Containment status | Remaining closure |
+|---|---|---|
+| R3-01 persistence | **DISABLED** — `attempt_canonical_issuance` is NOT_READY only; no DB I/O | Trusted tenant-bound canonical issuance (D14-30) |
+| R3-02 source trust | **DISABLED** — all curator flags hard false | Day3 curator authority chain |
+| R3-03 academic validation | **DISABLED** — no PASS delivery; solver not proof | Independent solver + unique content (D14-09/18/25/31) |
+| R3-04 scope/planners | Gates active; synthetic planners report structural targets only | Strict scope matrix + marks truth (D14-04..14) |
+| R3-05 bilingual | REVIEW_REQUIRED without persisted equivalence evidence | Curator-attested translation evidence |
+| R3-06 extensibility/bridges | NOT_READY; `pack_config_driven=False` | Config-driven onboarding + Day6–10/7/8 integration |
+
+Baseline candidate SHA for containment: `4a755cc5d89b06146aa7b32f9d169c6c6f805d71`.
 
 ## Acceptance rules
 

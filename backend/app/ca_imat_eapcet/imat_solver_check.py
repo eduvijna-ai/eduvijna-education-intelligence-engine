@@ -9,7 +9,16 @@ from app.ca_imat_eapcet.enums import IssueCode, PlanVerdict
 def independent_imat_answer_check(
     question: QuestionRef,
 ) -> tuple[PlanVerdict, list[IssueCode], QuestionRef]:
-    """D14-18: exact option cardinality and independent recompute; no caller-trust."""
+    """D14-18: contained — no independent academic PASS."""
+
+    from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED
+
+    if ACADEMIC_VALIDATION_DISABLED:
+        return (
+            PlanVerdict.NOT_READY,
+            [IssueCode.ACADEMIC_VALIDATION_CONTAINED],
+            question.model_copy(update={"independently_validated": False}),
+        )
 
     _, verdict, issues = validate_and_bind_question_ref(
         question,

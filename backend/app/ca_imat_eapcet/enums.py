@@ -67,3 +67,5 @@ class IssueCode(StrEnum):
     MISSING_TENANT_CONTEXT = "d14.scope.missing_tenant_context"
     ENVELOPE_ONLY_SUCCESS = "d14.persistence.envelope_only"
     SOLVER_EVIDENCE_MISSING = "d14.imat.solver_evidence_missing"
+    ACADEMIC_VALIDATION_CONTAINED = "d14.containment.academic_validation_disabled"
+    ISSUANCE_CONTAINED = "d14.containment.issuance_disabled"

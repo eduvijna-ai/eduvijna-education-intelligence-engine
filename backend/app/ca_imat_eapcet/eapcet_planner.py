@@ -91,10 +91,12 @@ class EapcetPaperPlanner:
             duration_minutes=EAPCET_TOTAL_MINUTES,
             issue_codes=list(dict.fromkeys(issues)),
             metadata_json={
+                **alloc.metadata_json,
                 "demonstration_only": request.trust_mode is Day14SourceTrustMode.SYNTHETIC_FIXTURE,
                 "engineering_reference_80_40_40": request.stream is EapcetStream.ENGINEERING,
                 "medium_pair": request.medium_pair,
                 "bilingual_verdict": bilingual.verdict.value,
                 "structural_demonstration_only": structural_only,
+                "structural_target_count": target,
             },
         )

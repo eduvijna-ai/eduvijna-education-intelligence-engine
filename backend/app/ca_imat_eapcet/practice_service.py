@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-
 from app.ca_imat_eapcet.authority import (
     resolve_ca_authority,
     resolve_eapcet_authority,
@@ -11,14 +9,12 @@ from app.ca_imat_eapcet.constants import (
     CA_FOUNDATION_PACK_CODE,
     CA_PAPER_KIND,
     EAPCET_PACK_CODE,
-    IMAT_OPTIONS_PER_QUESTION,
     IMAT_PACK_CODE,
 )
-from app.ca_imat_eapcet.content_validation import validate_and_bind_question_ref
+from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED, CONTAINMENT_NOTE
 from app.ca_imat_eapcet.contracts import AllocateRequest, AllocateResult, QuestionRef
 from app.ca_imat_eapcet.enums import (
     Day14ProfileKind,
-    Day14SourceTrustMode,
     EapcetStream,
     IssueCode,
     PlanVerdict,
@@ -34,7 +30,6 @@ from app.ca_imat_eapcet.scope_guard import (
     validate_eapcet_pack,
     validate_imat_pack,
 )
-from app.ca_imat_eapcet.semantic_dedup import semantic_stem_key
 from app.ca_imat_eapcet.synthetic_fixtures import (
     build_ca_pools,
     build_eapcet_pool,
@@ -42,13 +37,6 @@ from app.ca_imat_eapcet.synthetic_fixtures import (
     filter_pool,
 )
 from app.ca_imat_eapcet.trust_guard import validate_trust_coherence
-from app.ca_imat_eapcet.verdict_combine import combine_verdicts
-
-
-def _options_required(exam_pack_code: str) -> int:
-    if exam_pack_code == IMAT_PACK_CODE:
-        return IMAT_OPTIONS_PER_QUESTION
-    return 4
 
 
 class Day14PracticeService:
@@ -217,27 +205,8 @@ class Day14PracticeService:
         if isinstance(topic, str) and topic and not pool:
             issues.append(IssueCode.MISSING_TOPIC_SCOPE)
 
-        raw = list(pool[: request.requested_count])
-        validated: list[QuestionRef] = []
-        item_verdicts: list[PlanVerdict] = []
-        seen_fp: set[str] = set()
-        seen_semantic: set[str] = set()
-        opt_n = _options_required(request.exam_pack_code)
-        for q in raw:
-            bound, v, v_issues = validate_and_bind_question_ref(q, options_required=opt_n)
-            issues.extend(v_issues)
-            item_verdicts.append(v)
-            if v is PlanVerdict.PASS:
-                sem = semantic_stem_key(bound.stem_text or "")
-                if bound.fingerprint in seen_fp or sem in seen_semantic:
-                    issues.append(IssueCode.DUPLICATE_QUESTION)
-                else:
-                    seen_fp.add(bound.fingerprint)
-                    seen_semantic.add(sem)
-                    validated.append(bound)
-
-        validated_count = len(validated)
-        if len(raw) < request.requested_count:
+        structural_candidates = min(len(pool), request.requested_count)
+        if len(pool) < request.requested_count:
             issues.append(
                 IssueCode.EAPCET_COUNT_MISMATCH
                 if request.exam_pack_code == EAPCET_PACK_CODE
@@ -245,39 +214,34 @@ class Day14PracticeService:
                 if request.exam_pack_code == IMAT_PACK_CODE
                 else IssueCode.CA_ACCOUNTING_RECONCILE
             )
-            shortage_verdict = PlanVerdict.SHORTAGE
-        else:
-            shortage_verdict = None
 
-        if validated_count == request.requested_count:
-            content_verdict = PlanVerdict.PASS
-        elif validated_count == 0:
-            content_verdict = (
-                combine_verdicts(*item_verdicts) if item_verdicts else PlanVerdict.FAIL
+        if ACADEMIC_VALIDATION_DISABLED:
+            issues.append(IssueCode.ACADEMIC_VALIDATION_CONTAINED)
+            return AllocateResult(
+                verdict=PlanVerdict.NOT_READY,
+                requested_count=request.requested_count,
+                delivered_count=0,
+                questions=[],
+                issue_codes=list(dict.fromkeys(issues)),
+                checksum="",
+                metadata_json={
+                    "academic_validation_contained": True,
+                    "containment_note": CONTAINMENT_NOTE,
+                    "structural_target_count": request.requested_count,
+                    "structural_candidates_considered": structural_candidates,
+                    "structural_pool_size": len(pool),
+                    "independently_validated_count": 0,
+                    "structural_demonstration_only": True,
+                    "demonstration_only": True,
+                },
             )
-        else:
-            content_verdict = PlanVerdict.REVIEW_REQUIRED
-
-        verdict = combine_verdicts(
-            shortage_verdict or PlanVerdict.PASS,
-            content_verdict,
-        )
-
-        checksum = hashlib.sha256(
-            "|".join(q.fingerprint for q in validated).encode()
-        ).hexdigest()[:32]
 
         return AllocateResult(
-            verdict=verdict,
+            verdict=PlanVerdict.NOT_READY,
             requested_count=request.requested_count,
-            delivered_count=validated_count,
-            questions=validated,
+            delivered_count=0,
+            questions=[],
             issue_codes=list(dict.fromkeys(issues)),
-            checksum=checksum,
-            metadata_json={
-                "demonstration_only": request.trust_mode is Day14SourceTrustMode.SYNTHETIC_FIXTURE,
-                "structural_candidates_considered": len(raw),
-                "independently_validated_count": validated_count,
-                "structural_demonstration_only": validated_count < request.requested_count,
-            },
+            checksum="",
+            metadata_json={},
         )

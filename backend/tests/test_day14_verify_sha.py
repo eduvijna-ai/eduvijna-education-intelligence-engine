@@ -60,4 +60,6 @@ def test_day14_verify_passes_with_aligned_sha() -> None:
     assert proc.returncode == 0, proc.stderr or proc.stdout
     report = json.loads(proc.stdout)
     assert report["ok"] is True
-    assert report["synthetic_fixture_pass"] is True
+    assert report["synthetic_fixture_pass"] is False
+    assert report["independently_validated_content_ok"] is False
+    assert report["containment_milestone"] == "D14-SAFETY-CONTAINMENT-01"

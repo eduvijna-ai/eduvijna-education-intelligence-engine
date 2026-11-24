@@ -24,6 +24,12 @@ from app.ca_imat_eapcet.constants import (
     IMAT_PACK_CODE,
     IMAT_TOTAL_QUESTIONS,
 )
+from app.ca_imat_eapcet.containment import (
+    ACADEMIC_VALIDATION_DISABLED,
+    CONTAINMENT_MILESTONE,
+    CONTAINMENT_NOTE,
+    ISSUANCE_DISABLED,
+)
 from app.ca_imat_eapcet.contracts import (
     AllocateRequest,
     CaPaperPlanRequest,
@@ -145,79 +151,77 @@ def build_verification_report(
         not persistence_empty.committed and persistence_empty.verdict is PlanVerdict.NOT_READY
     )
 
-    persistence_positive = None
-    if ca_obj.questions and ca_obj.verdict == PlanVerdict.PASS:
-        persistence_positive = attempt_canonical_issuance(
-            session=session,
-            questions=ca_obj.questions[:2],
-            organization_id="d14-org",
-            institution_id="d14-inst",
-            exam_version_id=str(ca_ver.id),
-            source_version="synthetic_demo",
-            idempotency_key="d14-ca-math-2",
-        )
+    from app.ca_imat_eapcet.synthetic_fixtures import build_ca_quant_pool
+
+    sample_refs = list(build_ca_quant_pool(size=2))
+    persistence_positive = attempt_canonical_issuance(
+        session=session,
+        questions=sample_refs,
+        organization_id="d14-org",
+        institution_id="d14-inst",
+        exam_version_id=str(ca_ver.id),
+        source_version="synthetic_demo",
+        idempotency_key="d14-ca-math-2",
+    )
+    persistence_contained = (
+        not persistence_positive.committed
+        and persistence_positive.verdict is PlanVerdict.NOT_READY
+        and not persistence_positive.persisted_question_ids
+    )
 
     ext = build_extensibility_proof()
     scope_counts = load_repo_scope_counts()
 
+    solver_sample = sample_refs[0] if sample_refs else None
     solver_ok = False
-    solver_q = next((q for q in getattr(imat_plan, "questions", []) or () if q), None)
-    if solver_q is None and imat_plan.delivered_count:
-        probe = practice.allocate(
-            AllocateRequest(
-                exam_pack_code=IMAT_PACK_CODE,
-                profile_kind=Day14ProfileKind.SYNTHETIC_DEMO,
-                trust_mode=Day14SourceTrustMode.SYNTHETIC_FIXTURE,
-                paper_or_section="biology",
-                requested_count=1,
-                academic_year="2026",
-            )
-        )
-        if probe.questions:
-            solver_q = probe.questions[0]
-    if solver_q is not None:
-        v, _, _ = independent_imat_answer_check(solver_q)
+    if solver_sample is not None:
+        v, _, _ = independent_imat_answer_check(solver_sample)
         solver_ok = v == PlanVerdict.PASS
 
-    mechanical_plan_ok = (
-        ca_obj.delivered_count == 10
-        and eng_plan.delivered_count == EAPCET_TOTAL_QUESTIONS
-        and ap_plan.delivered_count == EAPCET_TOTAL_QUESTIONS
-    )
-    validated_content_ok = (
-        ca_obj.verdict == PlanVerdict.PASS
-        and imat_plan.verdict == PlanVerdict.PASS
-        and imat_plan.delivered_count == IMAT_TOTAL_QUESTIONS
-        and eng_plan.verdict == PlanVerdict.PASS
-        and ca_plan.verdict == PlanVerdict.PASS
-        and all(v == PlanVerdict.PASS for v, _ in desc_results)
+    structural_targets_ok = (
+        ca_obj.metadata_json.get("structural_target_count") == 10
+        and imat_plan.metadata_json.get("structural_target_count") == IMAT_TOTAL_QUESTIONS
+        and eng_plan.delivered_count == 0
+        and eng_plan.metadata_json.get("structural_target_count") == EAPCET_TOTAL_QUESTIONS
     )
 
-    synthetic_ok = (
-        mechanical_plan_ok
-        and validated_content_ok
-        and persistence_negative
-        and persistence_positive is not None
-        and persistence_positive.committed
-        and persistence_positive.verdict == PlanVerdict.PASS
-        and ext.verdict is not PlanVerdict.FAIL
+    validated_content_ok = False
+    academic_delivery_ok = (
+        ca_obj.delivered_count == 0
+        and imat_plan.delivered_count == 0
+        and eng_plan.delivered_count == 0
+        and ap_plan.delivered_count == 0
+    )
+
+    diagnostic_execution_ok = (
+        revision.sha_aligned
         and scope_counts.get("TOTAL") == 36
-        and solver_ok
-        and revision.sha_aligned
+        and persistence_negative
+        and persistence_contained
+        and academic_delivery_ok
+        and ext.verdict is not PlanVerdict.FAIL
     )
 
     report: dict[str, object] = {
-        "ok": synthetic_ok,
+        "ok": diagnostic_execution_ok,
         "governance": build_day14_governance_record(),
         "source_registry": build_source_registry_snapshot(session),
-        "synthetic_fixture_pass": synthetic_ok,
-        "mechanical_plan_ok": mechanical_plan_ok,
+        "containment_milestone": CONTAINMENT_MILESTONE,
+        "containment_note": CONTAINMENT_NOTE,
+        "academic_validation_disabled": ACADEMIC_VALIDATION_DISABLED,
+        "issuance_disabled": ISSUANCE_DISABLED,
+        "synthetic_fixture_pass": False,
+        "production_readiness": False,
+        "diagnostic_execution_ok": diagnostic_execution_ok,
+        "structural_targets_ok": structural_targets_ok,
+        "mechanical_plan_ok": structural_targets_ok,
         "independently_validated_content_ok": validated_content_ok,
+        "academic_delivery_ok": academic_delivery_ok,
+        "solver_academic_pass": solver_ok,
         "persistence_harness": {
             "empty_fail_closed": persistence_negative,
-            "positive_committed": (
-                persistence_positive.committed if persistence_positive else False
-            ),
+            "issuance_contained": persistence_contained,
+            "positive_committed": False,
         },
         "ca_icai_curator_approved": False,
         "imat_decree_curator_approved": False,

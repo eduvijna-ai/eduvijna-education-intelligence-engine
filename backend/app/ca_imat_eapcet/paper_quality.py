@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED
 from app.ca_imat_eapcet.content_validation import derive_content_fingerprint
 from app.ca_imat_eapcet.contracts import QuestionRef
 from app.ca_imat_eapcet.enums import IssueCode, PlanVerdict
@@ -13,6 +14,8 @@ def validate_whole_paper(
     expected_sections: dict[str, int] | None = None,
     allowed_sections: frozenset[str] | None = None,
 ) -> tuple[PlanVerdict, list[IssueCode]]:
+    if ACADEMIC_VALIDATION_DISABLED:
+        return PlanVerdict.NOT_READY, [IssueCode.ACADEMIC_VALIDATION_CONTAINED]
     issues: list[IssueCode] = []
     if len(questions) != expected_count:
         issues.append(IssueCode.IMAT_COUNT_MISMATCH)

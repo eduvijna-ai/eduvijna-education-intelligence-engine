@@ -6,6 +6,7 @@ import math
 import re
 from decimal import Decimal
 
+from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED
 from app.ca_imat_eapcet.contracts import QuestionRef
 from app.ca_imat_eapcet.enums import IssueCode, PlanVerdict
 
@@ -160,6 +161,14 @@ def validate_and_bind_question_ref(
     options_required: int,
 ) -> tuple[QuestionRef, PlanVerdict, list[IssueCode]]:
     """Content, fingerprint, and independent solver checks."""
+
+    if ACADEMIC_VALIDATION_DISABLED:
+        bound = question.model_copy(update={"independently_validated": False})
+        return (
+            bound,
+            PlanVerdict.NOT_READY,
+            [IssueCode.ACADEMIC_VALIDATION_CONTAINED],
+        )
 
     issues: list[IssueCode] = []
     if not question.stem_text or not question.stem_text.strip():
