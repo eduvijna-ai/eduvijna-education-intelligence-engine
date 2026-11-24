@@ -102,3 +102,4 @@ tests/test_day13_f03a_iter3.py
 tests/test_day13_f03b_passage_grounding.py
 tests/test_day13_f03b_iter3.py
 tests/test_day13_f04a_current_affairs_evidence.py
+tests/test_day13_d31a_durable_replay.py

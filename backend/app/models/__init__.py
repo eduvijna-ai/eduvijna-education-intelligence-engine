@@ -14,6 +14,7 @@ from app.models.curriculum import (
     LearningOutcome,
 )
 from app.models.curriculum_intelligence import AssessmentEvidence, CurriculumAlignment
+from app.models.day13_replay import D13ReplayReservation  # noqa: F401
 from app.models.diagnostic import DiagnosticTaxonomyEntry
 from app.models.education_intelligence import (
     EducationalQualityRulePack,
@@ -45,6 +46,7 @@ __all__ = [
     "AdminActor",
     "ApiClient",
     "AssessmentEvidence",
+    "D13ReplayReservation",
     "CuratorDecisionNonce",
     "CuratorOperatorCredential",
     "Competency",
