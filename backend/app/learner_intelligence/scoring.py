@@ -75,13 +75,14 @@ def score_item_response(
                 marks_awarded=item.marks_if_correct,
                 max_marks=max_marks,
             )
-        if selected & correct:
-            return ItemScoreOutcome(
-                item_sequence=item.item_sequence,
-                verdict=ScoringVerdict.PARTIAL,
-                marks_awarded=item.marks_if_incorrect,
-                max_marks=max_marks,
-            )
+        if "partial" in item.scoring_policy_version:
+            if selected & correct:
+                return ItemScoreOutcome(
+                    item_sequence=item.item_sequence,
+                    verdict=ScoringVerdict.PARTIAL,
+                    marks_awarded=item.marks_if_incorrect,
+                    max_marks=max_marks,
+                )
         return ItemScoreOutcome(
             item_sequence=item.item_sequence,
             verdict=ScoringVerdict.INCORRECT,

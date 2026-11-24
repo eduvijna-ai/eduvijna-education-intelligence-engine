@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-from decimal import Decimal
-
 from sqlalchemy.orm import Session
 
-from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
-from app.learner_intelligence.contracts import SnapshotItem, SnapshotOption, TrustedActorContext
-from app.learner_intelligence.enums import MASTERY_POLICY_VERSION, EligibilityTrustMode
-from app.learner_intelligence.snapshot import (
-    compute_assessment_fingerprint,
-    compute_item_fingerprint,
+from app.learner_intelligence.contracts import (
+    CreateAttemptRequest,
+    SnapshotItem,
+    TrustedActorContext,
 )
+from app.learner_intelligence.enums import MASTERY_POLICY_VERSION
+from app.learner_intelligence.harness import (
+    TRUSTED_CATALOG_KEY_TWO_ITEM,
+    build_harness_create_request,
+    build_two_item_catalog_items,
+    compute_harness_attestation,
+)
+from app.learner_intelligence.snapshot import compute_assessment_fingerprint
 from app.models import Institution, Learner, Organization
 
 
@@ -42,62 +46,30 @@ def seed_synthetic_tenant(session: Session) -> TrustedActorContext:
 
 
 def build_two_item_synthetic_assessment() -> list[SnapshotItem]:
-    item1 = SnapshotItem(
-        item_sequence=1,
-        question_id="q-d15-001",
-        stem_text="What is 2 + 2?",
-        question_type="single_choice",
-        options=[
-            SnapshotOption(option_key="A", display_text="3", is_correct=False),
-            SnapshotOption(option_key="B", display_text="4", is_correct=True),
-            SnapshotOption(option_key="C", display_text="5", is_correct=False),
-        ],
-        marks_if_correct=Decimal("4"),
-        marks_if_incorrect=Decimal("-1"),
-        marks_if_blank=Decimal("0"),
-        concept_codes=["arithmetic.addition"],
-        learning_outcome_ids=["lo-add-v1"],
-        competency_codes=["comp-quant"],
-        difficulty_band="easy",
-        cognitive_level="remember",
-        source_version="synthetic@v1",
-        content_fingerprint="",
-        diagnostic_tags_json=[
-            {
-                "item_id": "q-d15-001",
-                "option_key": "A",
-                "is_correct": False,
-                "misconception_code": "OFF_BY_ONE_LOW",
-                "taxonomy_version": "misconception-taxonomy@v1",
-                "validation_status": DiagnosticValidationStatus.PASS.value,
-                "evidence_refs": ["synthetic-fixture"],
-            }
-        ],
-    )
-    item1 = item1.model_copy(update={"content_fingerprint": compute_item_fingerprint(item1)})
-    item2 = SnapshotItem(
-        item_sequence=2,
-        question_id="q-d15-002",
-        stem_text="Solve: 3 + 4",
-        question_type="numeric",
-        options=[],
-        marks_if_correct=Decimal("4"),
-        marks_if_incorrect=Decimal("0"),
-        numeric_answer="7",
-        numeric_tolerance=Decimal("0"),
-        concept_codes=["arithmetic.addition"],
-        source_version="synthetic@v1",
-        content_fingerprint="",
-    )
-    item2 = item2.model_copy(update={"content_fingerprint": compute_item_fingerprint(item2)})
-    return [item1, item2]
+    return build_two_item_catalog_items()
 
 
-SYNTHETIC_HARNESS_PROOF = "synthetic_fixture_v1"
-VERIFY_HARNESS_PROOF = "day15_verify_harness"
-TRUST_MODE = EligibilityTrustMode.SYNTHETIC_D15_HARNESS
-MASTERY_POLICY = MASTERY_POLICY_VERSION
+def build_harness_attempt_request(
+    actor: TrustedActorContext,
+    *,
+    assessment_key: str,
+    idempotency_key: str,
+) -> CreateAttemptRequest:
+    return build_harness_create_request(
+        actor,
+        catalog_key=TRUSTED_CATALOG_KEY_TWO_ITEM,
+        assessment_key=assessment_key,
+        idempotency_key=idempotency_key,
+    )
 
 
 def assessment_content_fingerprint(items: list[SnapshotItem]) -> str:
     return compute_assessment_fingerprint(items)
+
+
+def forged_harness_attestation_copy() -> str:
+    items = build_two_item_catalog_items()
+    return compute_harness_attestation(TRUSTED_CATALOG_KEY_TWO_ITEM, items) + "0"
+
+
+MASTERY_POLICY = MASTERY_POLICY_VERSION

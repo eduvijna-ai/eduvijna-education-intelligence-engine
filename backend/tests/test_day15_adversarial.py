@@ -1,8 +1,27 @@
+from pathlib import Path
+
+from sqlalchemy.orm import Session
+
+import app.models  # noqa: F401
+from app.db.base import Base
+from app.db.session import create_database_engine
 from app.learner_intelligence.contracts import CreateAttemptRequest, TrustedActorContext
 from app.learner_intelligence.eligibility import evaluate_assessment_eligibility
-from app.learner_intelligence.enums import EligibilityTrustMode, EligibilityVerdict
-from app.learner_intelligence.fixtures import build_two_item_synthetic_assessment
-from app.learner_intelligence.privacy import assert_no_cross_tenant
+from app.learner_intelligence.enums import EligibilityTrustMode, EligibilityVerdict, IssueCode
+from app.learner_intelligence.fixtures import (
+    build_harness_attempt_request,
+    build_two_item_synthetic_assessment,
+    forged_harness_attestation_copy,
+    seed_synthetic_tenant,
+)
+from app.learner_intelligence.harness import TRUSTED_CATALOG_KEY_TWO_ITEM
+from app.learner_intelligence.service import LearnerIntelligenceService
+
+
+def _session(tmp_path: Path) -> Session:
+    engine = create_database_engine(f"sqlite:///{tmp_path / 'd15.sqlite'}")
+    Base.metadata.create_all(engine)
+    return Session(engine)
 
 
 def _actor() -> TrustedActorContext:
@@ -13,35 +32,52 @@ def _actor() -> TrustedActorContext:
     )
 
 
-def test_forged_approval_blocked() -> None:
+def test_forged_attestation_blocked() -> None:
+    req = build_harness_attempt_request(_actor(), assessment_key="x", idempotency_key="k1")
+    forged = req.model_copy(update={"harness_attestation": forged_harness_attestation_copy()})
+    assert evaluate_assessment_eligibility(forged) == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
+
+
+def test_contained_ca_pack_blocked() -> None:
+    req = build_harness_attempt_request(_actor(), assessment_key="x", idempotency_key="k2")
+    blocked = req.model_copy(update={"exam_pack_code": "ca_foundation"})
+    assert evaluate_assessment_eligibility(blocked) == EligibilityVerdict.BLOCKED_CONTAINMENT
+
+
+def test_arbitrary_items_without_catalog_blocked() -> None:
+    items = build_two_item_synthetic_assessment()
+    items[0] = items[0].model_copy(update={"stem_text": "tampered"})
     req = CreateAttemptRequest(
         actor=_actor(),
         trust_mode=EligibilityTrustMode.SYNTHETIC_D15_HARNESS,
         assessment_key="x",
-        idempotency_key="k1",
-        items=build_two_item_synthetic_assessment(),
-        synthetic_harness_proof="FORGED_APPROVED_FLAG",
+        idempotency_key="k3",
+        items=items,
+        catalog_key=TRUSTED_CATALOG_KEY_TWO_ITEM,
+        harness_attestation="deadbeef" * 8,
     )
-    assert evaluate_assessment_eligibility(req) == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
-
-
-def test_day11_pack_blocked() -> None:
-    req = CreateAttemptRequest(
-        actor=_actor(),
-        trust_mode=EligibilityTrustMode.SYNTHETIC_D15_HARNESS,
-        assessment_key="x",
-        idempotency_key="k2",
-        items=build_two_item_synthetic_assessment(),
-        synthetic_harness_proof="synthetic_fixture_v1",
-        exam_pack_code="day11_jee",
+    verdict = evaluate_assessment_eligibility(req)
+    assert verdict in (
+        EligibilityVerdict.BLOCKED_FORGED_APPROVAL,
+        EligibilityVerdict.BLOCKED_UNVERIFIED,
     )
-    assert evaluate_assessment_eligibility(req) == EligibilityVerdict.BLOCKED_UNVERIFIED
 
 
-def test_cross_tenant_mismatch() -> None:
-    assert not assert_no_cross_tenant(
-        expected_organization_id="org-a",
-        expected_institution_id="inst-a",
-        actual_organization_id="org-b",
-        actual_institution_id="inst-b",
+def test_cross_tenant_learner_view_blocked(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    actor = seed_synthetic_tenant(session)
+    session.commit()
+    svc = LearnerIntelligenceService()
+    attempt, _ = svc.create_attempt(
+        session,
+        build_harness_attempt_request(actor, assessment_key="t", idempotency_key="t1"),
     )
+    assert attempt is not None
+    other = TrustedActorContext(
+        organization_id=actor.organization_id,
+        institution_id=actor.institution_id,
+        learner_id="foreign-learner",
+    )
+    _, issues = svc.learner_view_items(session, other, str(attempt.id))
+    assert IssueCode.TENANT_MISMATCH in issues or IssueCode.OUT_OF_SCOPE in issues
+    session.close()

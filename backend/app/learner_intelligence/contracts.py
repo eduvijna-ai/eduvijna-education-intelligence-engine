@@ -72,7 +72,8 @@ class CreateAttemptRequest(BaseModel):
     performance_mode: PerformanceMode = PerformanceMode.PRACTICE
     idempotency_key: str
     items: list[SnapshotItem]
-    synthetic_harness_proof: str | None = None
+    catalog_key: str | None = None
+    harness_attestation: str | None = None
 
 
 class RecordResponseRequest(BaseModel):
@@ -125,6 +126,7 @@ class RemediationHandoff(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    readiness: str = "NOT_READY"
     learner_id: str
     organization_id: str
     institution_id: str

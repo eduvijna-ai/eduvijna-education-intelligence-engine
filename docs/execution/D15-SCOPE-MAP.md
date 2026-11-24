@@ -1,6 +1,6 @@
 # Day 15 — Learner Intelligence scope and evidence matrix
 
-**Status:** **0 PASS / 34 PARTIAL / 1 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (engineering candidate; D15-36 pending Chief Architect review).  
+**Status:** **0 PASS / 35 PARTIAL / 0 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (candidate 2 F01..F10 repairs; D15-36 pending).  
 **Authoritative specification:** [Issue #56](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/56).  
 **Branch:** `feature/day15-learner-intelligence`. Day11 ON_HOLD; Day14 containment; Day15 ACTIVE `founder_approval:false`; Day16 LOCKED.
 
@@ -10,7 +10,7 @@
 | D15-02 | Canonical learner identity | `context.py`, tenancy `Learner` | PARTIAL | Server-resolved tenant; synthetic IDs in tests only |
 | D15-03 | Learner profile persistence | `models/learner_intelligence.py`, `LearnerProfileVersion` | PARTIAL | Versioned profile; unknown explicit |
 | D15-04 | Data model and migration | `20261124_0022_day15_learner_intelligence.py` | PARTIAL | Additive; PG 0021 blocker unchanged |
-| D15-05 | Assessment eligibility gate | `eligibility.py`, `test_day15_adversarial.py` | PARTIAL | Synthetic harness only; production paths blocked |
+| D15-05 | Assessment eligibility gate | `harness.py`, `eligibility.py`, `test_day15_adversarial.py` | PARTIAL | Catalog attestation only; production unconditionally blocked |
 | D15-06 | Attempt lifecycle | `lifecycle.py`, `test_day15_core.py` | PARTIAL | Legal transitions + immutability on finalize |
 | D15-07 | Issued assessment snapshot | `snapshot.py`, fingerprint binding | PARTIAL | Server fingerprint; no learner key leak |
 | D15-08 | Answer capture | `responses.py` | PARTIAL | MCQ/multi/numeric; reject malformed |

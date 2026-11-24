@@ -3,23 +3,29 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.context import authorize_actor, load_bound_attempt
 from app.learner_intelligence.contracts import (
     AttemptOutcome,
     CreateAttemptRequest,
     FinalizeAttemptRequest,
     RecordResponseRequest,
     SnapshotItem,
+    TrustedActorContext,
 )
 from app.learner_intelligence.eligibility import evaluate_assessment_eligibility
 from app.learner_intelligence.enums import AttemptState, EligibilityVerdict, IssueCode
-from app.learner_intelligence.finalization import finalize_attempt
+from app.learner_intelligence.finalization import FinalizationError, finalize_attempt
 from app.learner_intelligence.lifecycle import (
     abandon_attempt,
+    transition_attempt,
     validate_and_store_response,
 )
 from app.learner_intelligence.snapshot import (
     compute_assessment_fingerprint,
+    compute_item_fingerprint,
     learner_facing_snapshot,
+    validate_items_structure,
+    verify_item_matches_persisted_row,
 )
 from app.models.learner_intelligence import (
     AssessmentAttempt,
@@ -29,11 +35,19 @@ from app.models.learner_intelligence import (
 
 
 class LearnerIntelligenceService:
-    """Day 15 orchestration — synthetic harness eligible path only."""
+    """Day 15 orchestration — trusted harness writes only."""
 
     def create_attempt(
         self, session: Session, request: CreateAttemptRequest
     ) -> tuple[AssessmentAttempt | None, AttemptOutcome]:
+        auth_err = authorize_actor(session, request.actor)
+        if auth_err is not None:
+            return None, AttemptOutcome(
+                attempt_id="",
+                state=AttemptState.CREATED,
+                eligibility_verdict=EligibilityVerdict.BLOCKED_UNVERIFIED,
+                issue_codes=[auth_err],
+            )
         verdict = evaluate_assessment_eligibility(request)
         if verdict != EligibilityVerdict.ELIGIBLE:
             return None, AttemptOutcome(
@@ -42,10 +56,19 @@ class LearnerIntelligenceService:
                 eligibility_verdict=verdict,
                 issue_codes=[IssueCode.NOT_ELIGIBLE],
             )
+        structural = validate_items_structure(request.items)
+        if structural is not None:
+            return None, AttemptOutcome(
+                attempt_id="",
+                state=AttemptState.CREATED,
+                eligibility_verdict=EligibilityVerdict.BLOCKED_SCOPE,
+                issue_codes=[structural],
+            )
 
         existing = session.scalar(
             select(AssessmentAttempt).where(
                 AssessmentAttempt.organization_id == request.actor.organization_id,
+                AssessmentAttempt.institution_id == request.actor.institution_id,
                 AssessmentAttempt.learner_id == request.actor.learner_id,
                 AssessmentAttempt.idempotency_key == request.idempotency_key,
             )
@@ -60,7 +83,18 @@ class LearnerIntelligenceService:
                 max_marks=existing.max_marks,
             )
 
-        fingerprint = compute_assessment_fingerprint(request.items)
+        server_items: list[SnapshotItem] = []
+        for item in request.items:
+            fp = compute_item_fingerprint(item)
+            if item.content_fingerprint != fp:
+                return None, AttemptOutcome(
+                    attempt_id="",
+                    state=AttemptState.CREATED,
+                    eligibility_verdict=EligibilityVerdict.BLOCKED_UNVERIFIED,
+                    issue_codes=[IssueCode.SNAPSHOT_MISMATCH],
+                )
+            server_items.append(item.model_copy(update={"content_fingerprint": fp}))
+        fingerprint = compute_assessment_fingerprint(server_items)
         attempt = AssessmentAttempt(
             organization_id=request.actor.organization_id,
             institution_id=request.actor.institution_id,
@@ -74,17 +108,20 @@ class LearnerIntelligenceService:
             idempotency_key=request.idempotency_key,
             content_fingerprint=fingerprint,
             synthetic_harness_only=True,
+            metadata_json={"catalog_key": request.catalog_key or ""},
         )
         session.add(attempt)
         session.flush()
-        for item in request.items:
+        for item in server_items:
+            item_json = item.model_dump(mode="json")
+            fp = compute_item_fingerprint(item)
             session.add(
                 IssuedItemSnapshot(
                     attempt_id=str(attempt.id),
                     item_sequence=item.item_sequence,
                     question_id=item.question_id,
-                    snapshot_json=item.model_dump(mode="json"),
-                    content_fingerprint=item.content_fingerprint,
+                    snapshot_json=item_json,
+                    content_fingerprint=fp,
                     marks_if_correct=item.marks_if_correct,
                     marks_if_incorrect=item.marks_if_incorrect,
                     marks_if_blank=item.marks_if_blank,
@@ -93,7 +130,9 @@ class LearnerIntelligenceService:
             )
         profile = session.scalar(
             select(LearnerProfileVersion).where(
-                LearnerProfileVersion.learner_id == request.actor.learner_id
+                LearnerProfileVersion.learner_id == request.actor.learner_id,
+                LearnerProfileVersion.organization_id == request.actor.organization_id,
+                LearnerProfileVersion.institution_id == request.actor.institution_id,
             )
         )
         if profile is None:
@@ -104,7 +143,7 @@ class LearnerIntelligenceService:
                     learner_id=request.actor.learner_id,
                     profile_version=1,
                     mastery_policy_version="mastery-policy@v1",
-                    state_json={"status": "initialized"},
+                    state_json={"status": "harness_initialized"},
                     synthetic_harness_only=True,
                 )
             )
@@ -115,24 +154,52 @@ class LearnerIntelligenceService:
             eligibility_verdict=EligibilityVerdict.ELIGIBLE,
         )
 
-    def learner_view_items(self, session: Session, attempt_id: str) -> list[dict[str, object]]:
+    def learner_view_items(
+        self,
+        session: Session,
+        actor: TrustedActorContext,
+        attempt_id: str,
+    ) -> tuple[list[dict[str, object]], list[IssueCode]]:
+        err = authorize_actor(session, actor)
+        if err is not None:
+            return [], [err]
+        attempt, load_err = load_bound_attempt(session, actor, attempt_id)
+        if load_err is not None or attempt is None:
+            return [], [load_err or IssueCode.OUT_OF_SCOPE]
         rows = session.scalars(
             select(IssuedItemSnapshot)
-            .where(IssuedItemSnapshot.attempt_id == attempt_id)
+            .where(IssuedItemSnapshot.attempt_id == str(attempt.id))
             .order_by(IssuedItemSnapshot.item_sequence)
         ).all()
-        views = []
+        views: list[dict[str, object]] = []
         for row in rows:
             item = SnapshotItem.model_validate(row.snapshot_json)
-            views.append(learner_facing_snapshot(item))
-        return views
+            if not verify_item_matches_persisted_row(
+                item,
+                row_fingerprint=row.content_fingerprint,
+                row_marks_correct=row.marks_if_correct,
+                row_marks_incorrect=row.marks_if_incorrect,
+                row_marks_blank=row.marks_if_blank,
+                policy_version=row.scoring_policy_version,
+            ):
+                return [], [IssueCode.SNAPSHOT_MISMATCH]
+            views.append(learner_facing_snapshot(item, snapshot_row_id=str(row.id)))
+        return views, []
 
     def record_response(
         self,
         session: Session,
-        attempt: AssessmentAttempt,
         request: RecordResponseRequest,
     ) -> tuple[bool, list[IssueCode]]:
+        err = authorize_actor(session, request.actor)
+        if err is not None:
+            return False, [err]
+        if request.attempt_id != request.attempt_id.strip():
+            return False, [IssueCode.OUT_OF_SCOPE]
+        attempt, load_err = load_bound_attempt(session, request.actor, request.attempt_id)
+        if load_err is not None or attempt is None:
+            return False, [load_err or IssueCode.OUT_OF_SCOPE]
+
         row = session.scalar(
             select(IssuedItemSnapshot).where(
                 IssuedItemSnapshot.attempt_id == str(attempt.id),
@@ -141,20 +208,48 @@ class LearnerIntelligenceService:
         )
         if row is None:
             return False, [IssueCode.UNKNOWN_QUESTION]
-        SnapshotItem.model_validate(row.snapshot_json)
+        item = SnapshotItem.model_validate(row.snapshot_json)
+        if not verify_item_matches_persisted_row(
+            item,
+            row_fingerprint=row.content_fingerprint,
+            row_marks_correct=row.marks_if_correct,
+            row_marks_incorrect=row.marks_if_incorrect,
+            row_marks_blank=row.marks_if_blank,
+            policy_version=row.scoring_policy_version,
+        ):
+            return False, [IssueCode.SNAPSHOT_MISMATCH]
         resp, issues = validate_and_store_response(
             session, attempt, request, item_model_json=row.snapshot_json
         )
         if issues:
             return False, issues
+        if AttemptState(attempt.state) == AttemptState.CREATED:
+            transition_attempt(session, attempt, AttemptState.IN_PROGRESS)
         session.commit()
         return resp is not None, []
 
-    def finalize(
-        self, session: Session, attempt: AssessmentAttempt, request: FinalizeAttemptRequest
-    ) -> AttemptOutcome:
-        return finalize_attempt(session, attempt, request)
+    def finalize(self, session: Session, request: FinalizeAttemptRequest) -> AttemptOutcome:
+        try:
+            return finalize_attempt(session, request)
+        except FinalizationError as exc:
+            session.rollback()
+            return AttemptOutcome(
+                attempt_id=request.attempt_id,
+                state=AttemptState.IN_PROGRESS,
+                eligibility_verdict=EligibilityVerdict.ELIGIBLE,
+                issue_codes=[exc.code],
+                committed=False,
+            )
 
-    def abandon(self, session: Session, attempt: AssessmentAttempt) -> None:
+    def abandon(
+        self, session: Session, actor: TrustedActorContext, attempt_id: str
+    ) -> list[IssueCode]:
+        err = authorize_actor(session, actor)
+        if err is not None:
+            return [err]
+        attempt, load_err = load_bound_attempt(session, actor, attempt_id)
+        if load_err is not None or attempt is None:
+            return [load_err or IssueCode.OUT_OF_SCOPE]
         abandon_attempt(session, attempt)
         session.commit()
+        return []

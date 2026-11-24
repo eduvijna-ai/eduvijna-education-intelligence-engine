@@ -7,30 +7,22 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401
-from app.ca_imat_eapcet.containment import ISSUANCE_DISABLED
-from app.ca_imat_eapcet.persistence_bridge import attempt_canonical_issuance
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-from app.learner_intelligence.contracts import (
-    CreateAttemptRequest,
-    FinalizeAttemptRequest,
-    RecordResponseRequest,
+from app.learner_intelligence.contracts import FinalizeAttemptRequest, RecordResponseRequest
+from app.learner_intelligence.eligibility import (
+    evaluate_assessment_eligibility,
+    production_assessment_always_blocked,
 )
-from app.learner_intelligence.eligibility import evaluate_assessment_eligibility
-from app.learner_intelligence.enums import (
-    AttemptState,
-    EligibilityTrustMode,
-    EligibilityVerdict,
-    ResponseKind,
-)
+from app.learner_intelligence.enums import AttemptState, EligibilityVerdict, ResponseKind
 from app.learner_intelligence.fixtures import (
-    VERIFY_HARNESS_PROOF,
     assessment_content_fingerprint,
-    build_two_item_synthetic_assessment,
+    build_harness_attempt_request,
+    forged_harness_attestation_copy,
     seed_synthetic_tenant,
 )
 from app.learner_intelligence.governance import build_day15_governance_record
@@ -51,27 +43,28 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
 
     actor = seed_synthetic_tenant(session)
     session.commit()
-    items = build_two_item_synthetic_assessment()
-    fp = assessment_content_fingerprint(items)
-    svc = LearnerIntelligenceService()
-
-    create_req = CreateAttemptRequest(
-        actor=actor,
-        trust_mode=EligibilityTrustMode.SYNTHETIC_D15_HARNESS,
+    create_req = build_harness_attempt_request(
+        actor,
         assessment_key="d15-verify-assessment",
         idempotency_key="d15-verify-attempt-1",
-        items=items,
-        synthetic_harness_proof=VERIFY_HARNESS_PROOF,
     )
+    fp = assessment_content_fingerprint(create_req.items)
+    svc = LearnerIntelligenceService()
+
     eligibility = evaluate_assessment_eligibility(create_req)
-    attempt, created = svc.create_attempt(session, create_req)
+    attempt, _ = svc.create_attempt(session, create_req)
     assert attempt is not None
 
-    forged = create_req.model_copy(update={"synthetic_harness_proof": "FORGED_APPROVED_FLAG"})
+    forged = create_req.model_copy(
+        update={"harness_attestation": forged_harness_attestation_copy()}
+    )
     forged_verdict = evaluate_assessment_eligibility(forged)
+    unattested = create_req.model_copy(update={"harness_attestation": None, "catalog_key": None})
+    unattested_verdict = evaluate_assessment_eligibility(unattested)
 
-    view = svc.learner_view_items(session, str(attempt.id))
+    view, view_issues = svc.learner_view_items(session, actor, str(attempt.id))
     keys_leaked = False
+    fingerprint_leaked = "content_fingerprint" in json.dumps(view)
     for row in view:
         opts = row.get("options")
         if not isinstance(opts, list):
@@ -79,13 +72,9 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
         for opt in opts:
             if isinstance(opt, dict) and opt.get("is_correct") is not None:
                 keys_leaked = True
-                break
-        if keys_leaked:
-            break
 
     ok1, _ = svc.record_response(
         session,
-        attempt,
         RecordResponseRequest(
             actor=actor,
             attempt_id=str(attempt.id),
@@ -96,7 +85,6 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
     )
     ok2, _ = svc.record_response(
         session,
-        attempt,
         RecordResponseRequest(
             actor=actor,
             attempt_id=str(attempt.id),
@@ -108,7 +96,6 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
 
     fin = svc.finalize(
         session,
-        attempt,
         FinalizeAttemptRequest(
             actor=actor,
             attempt_id=str(attempt.id),
@@ -118,7 +105,6 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
     )
     replay = svc.finalize(
         session,
-        attempt,
         FinalizeAttemptRequest(
             actor=actor,
             attempt_id=str(attempt.id),
@@ -127,57 +113,49 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
         ),
     )
 
-    score_count = session.scalar(select(ScoreEvidenceEvent.id).limit(1))
-    mastery_count = session.scalar(select(ConceptMasteryRecord.id).limit(1))
-    diag_count = session.scalar(select(DiagnosticProfileEvent.id).limit(1))
-    handoff = build_day16_handoff(
-        session,
-        organization_id=actor.organization_id,
-        institution_id=actor.institution_id,
-        learner_id=actor.learner_id,
-    )
-
-    persistence_contained = attempt_canonical_issuance(
-        session=session,
-        questions=[],
-        organization_id=actor.organization_id,
-        institution_id=actor.institution_id,
-        exam_version_id="none",
-        source_version="synthetic",
-        idempotency_key="d15-blocked",
-    )
+    score_count = session.scalar(select(func.count()).select_from(ScoreEvidenceEvent)) or 0
+    mastery_count = session.scalar(select(func.count()).select_from(ConceptMasteryRecord)) or 0
+    diag_count = session.scalar(select(func.count()).select_from(DiagnosticProfileEvent)) or 0
+    handoff = build_day16_handoff(session, actor)
 
     scope_counts = load_repo_scope_counts()
     governance = build_day15_governance_record()
 
     synthetic_ok = (
-        eligibility == EligibilityVerdict.ELIGIBLE
+        production_assessment_always_blocked()
+        and eligibility == EligibilityVerdict.ELIGIBLE
         and forged_verdict == EligibilityVerdict.BLOCKED_FORGED_APPROVAL
+        and unattested_verdict == EligibilityVerdict.BLOCKED_UNVERIFIED
+        and not view_issues
         and not keys_leaked
+        and not fingerprint_leaked
         and ok1
         and ok2
         and fin.state == AttemptState.FINALIZED
         and fin.committed
         and fin.total_marks == Decimal("3")
+        and fin.max_marks == Decimal("8")
         and replay.total_marks == fin.total_marks
-        and score_count is not None
-        and mastery_count is not None
-        and diag_count is not None
+        and score_count == 2
+        and mastery_count >= 1
+        and diag_count >= 1
         and len(handoff.misconception_codes) >= 1
-        and not persistence_contained.committed
-        and ISSUANCE_DISABLED
+        and len(handoff.evidence_event_ids) >= 1
+        and scope_counts.get("TOTAL") == 36
     )
 
     report: dict[str, object] = {
         "ok": synthetic_ok,
         "synthetic_harness_pass": synthetic_ok,
         "production_assessment_eligibility": False,
+        "production_assessment_blocked_unconditional": production_assessment_always_blocked(),
         "diagnostic_execution_ok": synthetic_ok,
         "governance": governance,
         "scope_ledger_counts": scope_counts,
         "eligibility": {
             "synthetic_eligible": eligibility.value,
             "forged_blocked": forged_verdict.value,
+            "unattested_blocked": unattested_verdict.value,
         },
         "attempt": {
             "attempt_id": str(attempt.id),
@@ -185,11 +163,12 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
             "total_marks": str(fin.total_marks),
             "max_marks": str(fin.max_marks),
         },
-        "replay_idempotent": replay.total_marks == fin.total_marks,
-        "persistence_containment": {
-            "issuance_disabled": ISSUANCE_DISABLED,
-            "day14_issuance_committed": persistence_contained.committed,
+        "persisted_counts": {
+            "score_events": score_count,
+            "mastery_records": mastery_count,
+            "diagnostic_events": diag_count,
         },
+        "replay_idempotent": replay.total_marks == fin.total_marks and replay.committed,
         "handoff": handoff.model_dump(),
         "notes": {
             "compose_smoke": "NOT_RUN",
@@ -197,6 +176,7 @@ def build_verification_report(session: Session, *, revision: RevisionEvidence) -
             "full_historical_pytest": "NOT_RUN",
             "migration_0021_blocker": "DEFERRED",
             "d15_36_founder_signoff": "NOT_STARTED",
+            "day14_issuance_containment_unchanged": True,
         },
     }
     report.update(revision.as_report_fields())

@@ -61,10 +61,14 @@ def validate_and_store_response(
 ) -> tuple[AttemptResponse | None, list[IssueCode]]:
     """D15-08/09: draft responses; no scoring side effects here."""
 
+    if request.actor.organization_id != attempt.organization_id:
+        return _reject(IssueCode.CROSS_TENANT)
     if request.actor.learner_id != attempt.learner_id:
         return _reject(IssueCode.TENANT_MISMATCH)
     if request.actor.institution_id != attempt.institution_id:
         return _reject(IssueCode.TENANT_MISMATCH)
+    if request.attempt_id != str(attempt.id):
+        return _reject(IssueCode.OUT_OF_SCOPE)
     state = AttemptState(attempt.state)
     if state not in (AttemptState.IN_PROGRESS, AttemptState.CREATED):
         return _reject(IssueCode.INVALID_TRANSITION)

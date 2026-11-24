@@ -8,6 +8,7 @@ from app.diagnostic_intelligence.contracts import OptionDiagnosticTag
 from app.diagnostic_intelligence.enums import DiagnosticValidationStatus
 from app.learner_intelligence.contracts import ItemScoreOutcome, SnapshotItem
 from app.learner_intelligence.enums import ScoringVerdict
+from app.learner_intelligence.harness import TRUSTED_DIAGNOSTIC_EVIDENCE_REF
 from app.models.learner_intelligence import DiagnosticProfileEvent
 
 
@@ -22,6 +23,7 @@ def record_diagnostic_events(
     session: Session,
     *,
     organization_id: str,
+    institution_id: str,
     learner_id: str,
     attempt_id: str,
     item: SnapshotItem,
@@ -29,7 +31,7 @@ def record_diagnostic_events(
     score: ItemScoreOutcome,
     response_id: str | None = None,
 ) -> list[DiagnosticProfileEvent]:
-    """D15-24..27: Day9 tags on wrong answers; Day10 hypotheses not conclusions."""
+    """D15-24..27: trusted Day9-shaped evidence only; Day10 hypotheses not integrated."""
 
     if score.verdict == ScoringVerdict.CORRECT:
         return []
@@ -43,6 +45,8 @@ def record_diagnostic_events(
             continue
         if not match.misconception_code:
             continue
+        if TRUSTED_DIAGNOSTIC_EVIDENCE_REF not in (match.evidence_refs or []):
+            continue
         event = DiagnosticProfileEvent(
             organization_id=organization_id,
             learner_id=learner_id,
@@ -53,12 +57,13 @@ def record_diagnostic_events(
             misconception_code=match.misconception_code,
             taxonomy_version=match.taxonomy_version,
             severity=None,
-            confidence="medium",
+            confidence="low",
             hypothesis_only=True,
             metadata_json={
                 "error_pattern": match.error_pattern,
                 "diagnostic_signal": match.diagnostic_signal,
-                "prerequisite_hypothesis": "REVIEW_REQUIRED",
+                "prerequisite_hypothesis": "NOT_READY",
+                "day10_integration": "NOT_READY",
             },
         )
         session.add(event)
@@ -77,4 +82,5 @@ def aggregate_diagnostic_profile(events: list[DiagnosticProfileEvent]) -> dict[s
         "misconception_frequencies": freq,
         "source_attempt_ids": attempts,
         "hypothesis_only": True,
+        "day10_root_cause": "NOT_READY",
     }

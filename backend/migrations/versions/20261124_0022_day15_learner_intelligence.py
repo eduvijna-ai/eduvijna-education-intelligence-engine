@@ -100,12 +100,14 @@ def upgrade() -> None:
     )
     op.create_index("ix_attempt_responses_attempt_id", "attempt_responses", ["attempt_id"])
 
+    op.create_index("ix_assessment_attempts_institution_id", "assessment_attempts", ["institution_id"])
+
     op.create_table(
         "score_evidence_events",
         *_ts_cols(),
         sa.Column("attempt_id", sa.String(36), sa.ForeignKey("assessment_attempts.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("organization_id", sa.String(36), nullable=False),
-        sa.Column("learner_id", sa.String(36), nullable=False),
+        sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("learner_id", sa.String(36), sa.ForeignKey("learners.id", ondelete="CASCADE"), nullable=False),
         sa.Column("item_sequence", sa.Integer(), nullable=False),
         sa.Column("event_kind", sa.String(32), nullable=False),
         sa.Column("verdict", sa.String(32), nullable=False),
@@ -120,12 +122,14 @@ def upgrade() -> None:
         ),
     )
 
+    op.create_index("ix_score_events_learner_id", "score_evidence_events", ["learner_id"])
+
     op.create_table(
         "concept_mastery_records",
         *_ts_cols(),
-        sa.Column("organization_id", sa.String(36), nullable=False),
-        sa.Column("institution_id", sa.String(36), nullable=False),
-        sa.Column("learner_id", sa.String(36), nullable=False),
+        sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("institution_id", sa.String(36), sa.ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("learner_id", sa.String(36), sa.ForeignKey("learners.id", ondelete="CASCADE"), nullable=False),
         sa.Column("concept_code", sa.String(128), nullable=False),
         sa.Column("policy_version", sa.String(64), nullable=False),
         sa.Column("mastery_level", sa.String(32), nullable=False),
@@ -138,12 +142,14 @@ def upgrade() -> None:
         ),
     )
 
+    op.create_index("ix_mastery_learner_id", "concept_mastery_records", ["learner_id"])
+
     op.create_table(
         "diagnostic_profile_events",
         *_ts_cols(),
-        sa.Column("organization_id", sa.String(36), nullable=False),
-        sa.Column("learner_id", sa.String(36), nullable=False),
-        sa.Column("attempt_id", sa.String(36), nullable=False),
+        sa.Column("organization_id", sa.String(36), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("learner_id", sa.String(36), sa.ForeignKey("learners.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("attempt_id", sa.String(36), sa.ForeignKey("assessment_attempts.id", ondelete="CASCADE"), nullable=False),
         sa.Column("response_id", sa.String(36)),
         sa.Column("item_sequence", sa.Integer(), nullable=False),
         sa.Column("option_key", sa.String(64), nullable=False),

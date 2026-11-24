@@ -45,9 +45,20 @@ def append_memory_from_event(
 
 def rebuild_memory_keys(
     session: Session,
+    *,
+    organization_id: str,
     learner_id: str,
-    events: list[ScoreEvidenceEvent],
 ) -> list[str]:
+    events = list(
+        session.scalars(
+            select(ScoreEvidenceEvent)
+            .where(
+                ScoreEvidenceEvent.organization_id == organization_id,
+                ScoreEvidenceEvent.learner_id == learner_id,
+            )
+            .order_by(ScoreEvidenceEvent.created_at)
+        ).all()
+    )
     keys: list[str] = []
     for ev in events:
         key = f"score:{ev.attempt_id}:{ev.item_sequence}"

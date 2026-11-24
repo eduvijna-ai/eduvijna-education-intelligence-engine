@@ -5,6 +5,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.context import authorize_actor, load_bound_attempt
+from app.learner_intelligence.contracts import TrustedActorContext
+from app.learner_intelligence.enums import IssueCode
 from app.learner_intelligence.privacy import redact_learner_payload
 from app.models.learner_intelligence import (
     AssessmentAttempt,
@@ -16,21 +19,21 @@ from app.models.learner_intelligence import (
 
 def list_attempts_for_learner(
     session: Session,
+    actor: TrustedActorContext,
     *,
-    organization_id: str,
-    institution_id: str,
-    learner_id: str,
     limit: int = 50,
     offset: int = 0,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if authorize_actor(session, actor) is not None:
+        return [], [IssueCode.TENANT_MISMATCH]
     """D15-30: internal tenant-scoped reads; no correct keys in responses."""
 
     rows = session.scalars(
         select(AssessmentAttempt)
         .where(
-            AssessmentAttempt.organization_id == organization_id,
-            AssessmentAttempt.institution_id == institution_id,
-            AssessmentAttempt.learner_id == learner_id,
+            AssessmentAttempt.organization_id == actor.organization_id,
+            AssessmentAttempt.institution_id == actor.institution_id,
+            AssessmentAttempt.learner_id == actor.learner_id,
         )
         .order_by(AssessmentAttempt.created_at.desc())
         .offset(offset)
@@ -47,19 +50,20 @@ def list_attempts_for_learner(
             }
         )
         for r in rows
-    ]
+    ], []
 
 
 def read_mastery_summary(
     session: Session,
-    *,
-    organization_id: str,
-    learner_id: str,
-) -> list[dict[str, Any]]:
+    actor: TrustedActorContext,
+) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if authorize_actor(session, actor) is not None:
+        return [], [IssueCode.TENANT_MISMATCH]
     rows = session.scalars(
         select(ConceptMasteryRecord).where(
-            ConceptMasteryRecord.organization_id == organization_id,
-            ConceptMasteryRecord.learner_id == learner_id,
+            ConceptMasteryRecord.organization_id == actor.organization_id,
+            ConceptMasteryRecord.institution_id == actor.institution_id,
+            ConceptMasteryRecord.learner_id == actor.learner_id,
         )
     ).all()
     return [
@@ -71,13 +75,17 @@ def read_mastery_summary(
             "support_incorrect": r.support_incorrect,
         }
         for r in rows
-    ]
+    ], []
 
 
 def read_responses_redacted(
     session: Session,
+    actor: TrustedActorContext,
     attempt_id: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    _, load_err = load_bound_attempt(session, actor, attempt_id)
+    if load_err is not None:
+        return [], [load_err]
     rows = session.scalars(
         select(AttemptResponse).where(AttemptResponse.attempt_id == attempt_id)
     ).all()
@@ -89,19 +97,19 @@ def read_responses_redacted(
             "is_final": r.is_final,
         }
         for r in rows
-    ]
+    ], []
 
 
 def read_diagnostic_events(
     session: Session,
-    *,
-    organization_id: str,
-    learner_id: str,
-) -> list[dict[str, Any]]:
+    actor: TrustedActorContext,
+) -> tuple[list[dict[str, Any]], list[IssueCode]]:
+    if authorize_actor(session, actor) is not None:
+        return [], [IssueCode.TENANT_MISMATCH]
     rows = session.scalars(
         select(DiagnosticProfileEvent).where(
-            DiagnosticProfileEvent.organization_id == organization_id,
-            DiagnosticProfileEvent.learner_id == learner_id,
+            DiagnosticProfileEvent.organization_id == actor.organization_id,
+            DiagnosticProfileEvent.learner_id == actor.learner_id,
         )
     ).all()
     return [
@@ -112,4 +120,4 @@ def read_diagnostic_events(
             "hypothesis_only": r.hypothesis_only,
         }
         for r in rows
-    ]
+    ], []

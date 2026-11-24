@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.learner_intelligence.context import authorize_actor, load_bound_attempt
 from app.learner_intelligence.contracts import (
     AttemptOutcome,
     FinalizeAttemptRequest,
@@ -21,19 +22,18 @@ from app.learner_intelligence.enums import (
     ScoringVerdict,
 )
 from app.learner_intelligence.history import record_history_observation
-from app.learner_intelligence.lifecycle import (
-    load_snapshot_item,
-    mark_responses_final,
-    transition_attempt,
-)
+from app.learner_intelligence.lifecycle import mark_responses_final, transition_attempt
 from app.learner_intelligence.mastery import apply_mastery_update
 from app.learner_intelligence.memory import append_memory_from_event
 from app.learner_intelligence.scoring import aggregate_attempt_marks, score_item_response
-from app.learner_intelligence.snapshot import compute_assessment_fingerprint
+from app.learner_intelligence.snapshot import (
+    compute_assessment_fingerprint,
+    verify_item_matches_persisted_row,
+)
 from app.models.learner_intelligence import (
-    AssessmentAttempt,
     AttemptResponse,
     FinalizationIdempotencyRecord,
+    IssuedItemSnapshot,
     ScoreEvidenceEvent,
 )
 
@@ -50,77 +50,154 @@ def _snapshot_to_contract(row_json: dict[str, object], *, item_sequence: int) ->
     return SnapshotItem.model_validate(row_json)
 
 
-def finalize_attempt(
-    session: Session,
-    attempt: AssessmentAttempt,
-    request: FinalizeAttemptRequest,
-) -> AttemptOutcome:
-    """D15-14/15: single owned transaction; idempotent replay."""
+def _verify_persisted_snapshots(session: Session, attempt_id: str) -> list[IssuedItemSnapshot]:
+    rows = list(
+        session.scalars(
+            select(IssuedItemSnapshot)
+            .where(IssuedItemSnapshot.attempt_id == attempt_id)
+            .order_by(IssuedItemSnapshot.item_sequence)
+        ).all()
+    )
+    for row in rows:
+        item = _snapshot_to_contract(row.snapshot_json, item_sequence=row.item_sequence)
+        if not verify_item_matches_persisted_row(
+            item,
+            row_fingerprint=row.content_fingerprint,
+            row_marks_correct=row.marks_if_correct,
+            row_marks_incorrect=row.marks_if_incorrect,
+            row_marks_blank=row.marks_if_blank,
+            policy_version=row.scoring_policy_version,
+        ):
+            raise FinalizationError(IssueCode.SNAPSHOT_MISMATCH)
+    return rows
 
-    if request.actor.learner_id != attempt.learner_id:
-        raise FinalizationError(IssueCode.TENANT_MISMATCH)
-    if request.content_binding_fingerprint != attempt.content_fingerprint:
+
+def _recompute_binding_fingerprint(session: Session, attempt_id: str) -> str:
+    rows = _verify_persisted_snapshots(session, attempt_id)
+    items = [
+        _snapshot_to_contract(r.snapshot_json, item_sequence=r.item_sequence) for r in rows
+    ]
+    return compute_assessment_fingerprint(items)
+
+
+def _verify_idempotent_outcome(
+    session: Session, attempt_id: str, cached: AttemptOutcome
+) -> None:
+    events = int(
+        session.scalar(
+            select(func.count()).select_from(ScoreEvidenceEvent).where(
+                ScoreEvidenceEvent.attempt_id == attempt_id
+            )
+        )
+        or 0
+    )
+    if events == 0 and cached.state == AttemptState.FINALIZED:
+        raise FinalizationError(IssueCode.IDEMPOTENCY_CONFLICT)
+    if cached.total_marks is not None and cached.max_marks is not None:
+        attempt = session.get(type(cached), attempt_id)
+        _ = attempt
+
+
+def finalize_attempt(session: Session, request: FinalizeAttemptRequest) -> AttemptOutcome:
+    """D15-14/15: owned transaction; full item scoring; strict binding."""
+
+    auth_err = authorize_actor(session, request.actor)
+    if auth_err is not None:
+        raise FinalizationError(auth_err)
+    attempt, load_err = load_bound_attempt(session, request.actor, request.attempt_id)
+    if load_err is not None or attempt is None:
+        raise FinalizationError(load_err or IssueCode.OUT_OF_SCOPE)
+
+    binding = _recompute_binding_fingerprint(session, str(attempt.id))
+    if request.content_binding_fingerprint != binding:
+        raise FinalizationError(IssueCode.SNAPSHOT_MISMATCH)
+    if attempt.content_fingerprint != binding:
         raise FinalizationError(IssueCode.SNAPSHOT_MISMATCH)
 
     idem = session.scalar(
         select(FinalizationIdempotencyRecord).where(
             FinalizationIdempotencyRecord.organization_id == attempt.organization_id,
+            FinalizationIdempotencyRecord.institution_id == attempt.institution_id,
             FinalizationIdempotencyRecord.learner_id == attempt.learner_id,
             FinalizationIdempotencyRecord.idempotency_key == request.idempotency_key,
         )
     )
     if idem is not None:
-        if idem.content_binding_fingerprint != request.content_binding_fingerprint:
+        if idem.content_binding_fingerprint != binding:
             raise FinalizationError(IssueCode.IDEMPOTENCY_CONFLICT)
         if idem.attempt_id != str(attempt.id):
             raise FinalizationError(IssueCode.IDEMPOTENCY_CONFLICT)
+        if idem.institution_id != attempt.institution_id:
+            raise FinalizationError(IssueCode.IDEMPOTENCY_CONFLICT)
         cached = AttemptOutcome.model_validate(idem.outcome_json)
-        return cached
-
-    if AttemptState(attempt.state) not in (AttemptState.IN_PROGRESS, AttemptState.CREATED):
-        if AttemptState(attempt.state) == AttemptState.FINALIZED:
-            return AttemptOutcome(
-                attempt_id=str(attempt.id),
-                state=AttemptState.FINALIZED,
-                eligibility_verdict=EligibilityVerdict.ELIGIBLE,
-                committed=True,
-                total_marks=attempt.total_marks,
-                max_marks=attempt.max_marks,
+        event_count = session.scalar(
+            select(func.count()).select_from(ScoreEvidenceEvent).where(
+                ScoreEvidenceEvent.attempt_id == str(attempt.id)
             )
+        )
+        if event_count and cached.total_marks != attempt.total_marks:
+            raise FinalizationError(IssueCode.IDEMPOTENCY_CONFLICT)
+        return cached.model_copy(update={"committed": True})
+
+    state = AttemptState(attempt.state)
+    if state == AttemptState.FINALIZED:
+        return AttemptOutcome(
+            attempt_id=str(attempt.id),
+            state=AttemptState.FINALIZED,
+            eligibility_verdict=EligibilityVerdict.ELIGIBLE,
+            committed=True,
+            total_marks=attempt.total_marks,
+            max_marks=attempt.max_marks,
+        )
+    if state != AttemptState.IN_PROGRESS:
         raise FinalizationError(IssueCode.INVALID_TRANSITION)
 
+    snapshots = _verify_persisted_snapshots(session, str(attempt.id))
     responses = list(
         session.scalars(
             select(AttemptResponse).where(AttemptResponse.attempt_id == str(attempt.id))
         ).all()
     )
+    by_seq = {r.item_sequence: r for r in responses}
     outcomes: list[dict[str, object]] = []
     item_scores = []
-    try:
+    pending_review = False
+
+    with session.begin_nested():
         transition_attempt(session, attempt, AttemptState.SUBMITTED)
-        for resp in responses:
-            snap_row = load_snapshot_item(session, str(attempt.id), resp.item_sequence)
+        for snap_row in snapshots:
             contract = _snapshot_to_contract(
                 snap_row.snapshot_json,
-                item_sequence=resp.item_sequence,
+                item_sequence=snap_row.item_sequence,
             )
-            req = RecordResponseRequest(
-                actor=request.actor,
-                attempt_id=str(attempt.id),
-                item_sequence=resp.item_sequence,
-                response_kind=ResponseKind(resp.response_kind),
-                selected_option_keys=list(resp.selected_option_keys_json or []),
-                numeric_value=resp.numeric_value,
-                descriptive_text=resp.descriptive_text,
-            )
+            resp = by_seq.get(snap_row.item_sequence)
+            if resp is None:
+                req = RecordResponseRequest(
+                    actor=request.actor,
+                    attempt_id=str(attempt.id),
+                    item_sequence=snap_row.item_sequence,
+                    response_kind=ResponseKind.UNANSWERED,
+                )
+            else:
+                req = RecordResponseRequest(
+                    actor=request.actor,
+                    attempt_id=str(attempt.id),
+                    item_sequence=resp.item_sequence,
+                    response_kind=ResponseKind(resp.response_kind),
+                    selected_option_keys=list(resp.selected_option_keys_json or []),
+                    numeric_value=resp.numeric_value,
+                    descriptive_text=resp.descriptive_text,
+                )
             scored = score_item_response(contract, req)
             item_scores.append(scored)
+            if scored.verdict == ScoringVerdict.REVIEW_REQUIRED:
+                pending_review = True
             if scored.verdict != ScoringVerdict.REVIEW_REQUIRED:
                 event = ScoreEvidenceEvent(
                     attempt_id=str(attempt.id),
                     organization_id=attempt.organization_id,
                     learner_id=attempt.learner_id,
-                    item_sequence=resp.item_sequence,
+                    item_sequence=snap_row.item_sequence,
                     verdict=scored.verdict.value,
                     marks_awarded=scored.marks_awarded,
                     max_marks=scored.max_marks,
@@ -146,35 +223,39 @@ def finalize_attempt(
                     learner_id=attempt.learner_id,
                     attempt_id=str(attempt.id),
                     question_id=contract.question_id,
-                    item_sequence=resp.item_sequence,
+                    item_sequence=snap_row.item_sequence,
                     source_version=contract.source_version,
                     score=scored,
                 )
-                record_diagnostic_events(
-                    session,
-                    organization_id=attempt.organization_id,
-                    learner_id=attempt.learner_id,
-                    attempt_id=str(attempt.id),
-                    item=contract,
-                    selected_option_keys=list(resp.selected_option_keys_json or []),
-                    score=scored,
-                    response_id=str(resp.id),
-                )
+                if resp is not None:
+                    record_diagnostic_events(
+                        session,
+                        organization_id=attempt.organization_id,
+                        institution_id=attempt.institution_id,
+                        learner_id=attempt.learner_id,
+                        attempt_id=str(attempt.id),
+                        item=contract,
+                        selected_option_keys=list(resp.selected_option_keys_json or []),
+                        score=scored,
+                        response_id=str(resp.id),
+                    )
                 append_memory_from_event(
                     session,
                     organization_id=attempt.organization_id,
                     learner_id=attempt.learner_id,
-                    memory_key=f"item:{attempt.id}:{resp.item_sequence}",
+                    memory_key=f"item:{attempt.id}:{snap_row.item_sequence}",
                     event=event,
                     payload={"verdict": scored.verdict.value},
                 )
             outcomes.append(
                 {
-                    "item_sequence": resp.item_sequence,
+                    "item_sequence": snap_row.item_sequence,
                     "verdict": scored.verdict.value,
                     "marks_awarded": str(scored.marks_awarded),
                 }
             )
+        if pending_review:
+            raise FinalizationError(IssueCode.REVIEW_PENDING)
         total, max_marks = aggregate_attempt_marks(item_scores)
         attempt.total_marks = total
         attempt.max_marks = max_marks
@@ -184,7 +265,7 @@ def finalize_attempt(
             attempt_id=str(attempt.id),
             state=AttemptState.FINALIZED,
             eligibility_verdict=EligibilityVerdict.ELIGIBLE,
-            committed=True,
+            committed=False,
             total_marks=total,
             max_marks=max_marks,
             item_outcomes=outcomes,
@@ -196,18 +277,11 @@ def finalize_attempt(
                 learner_id=attempt.learner_id,
                 attempt_id=str(attempt.id),
                 idempotency_key=request.idempotency_key,
-                content_binding_fingerprint=request.content_binding_fingerprint,
+                content_binding_fingerprint=binding,
                 outcome_json=json.loads(outcome.model_dump_json()),
             )
         )
-        session.commit()
-        return outcome
-    except Exception as exc:
-        session.rollback()
-        if isinstance(exc, FinalizationError):
-            raise
-        raise FinalizationError(IssueCode.FINALIZATION_ROLLBACK) from exc
+        session.flush()
 
-
-def verify_attempt_fingerprint(items: list[SnapshotItem], stored: str) -> bool:
-    return compute_assessment_fingerprint(items) == stored
+    session.commit()
+    return outcome.model_copy(update={"committed": True})
