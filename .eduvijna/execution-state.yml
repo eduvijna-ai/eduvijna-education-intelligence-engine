@@ -76,7 +76,7 @@ review_loop_policy:
       - test_infrastructure_change
   auto_merge: false
   auto_unlock_next_day: false
-current_day: 16
+current_day: 17
 
 days:
   1:
@@ -566,14 +566,14 @@ days:
     depends_on: 14
   16:
     name: Adaptive Remediation
-    state: ACTIVE
+    state: FOUNDER_MILESTONE_SIGNED_OFF_WITH_DEFERRALS
     founder_approval: false
     tasklist_issue: 58
     tasklist_status: APPROVED
     tasklist_approval_date: "2026-11-24"
     approved_scope: D16-01..D16-36
     implementation_authorized: true
-    implementation_status: AUTHORIZED_NOT_STARTED
+    implementation_status: MERGED_TO_DEVELOP_WITH_DEFERRED_ACCEPTANCE
     implementation_branch: feature/day16-adaptive-remediation
     implementation_issue: 58
     implementation_base_sha: "f8e96ceecbe42cdbcc1cca9de3dd13852a648ec4"
@@ -585,12 +585,53 @@ days:
     review_workflow: founder_manual_chatgpt_review
     required_cursor_model: "Composer 2.5 (standard; not Fast)"
     auto_merge: false
-    day17_unlock: false
+    day17_unlock: true
+    founder_milestone_signoff: true
+    founder_signoff_date: "2026-11-24"
+    founder_approval_scope: MILESTONE_AND_MERGE_ONLY_NOT_TECHNICAL_COMPLETION
+    founder_signoff_comment_id: 7135323453
+    merged_pr: 59
+    merged_head_sha: "39be6868462e557393fcf2dae25fec730ffe99f7"
+    merge_commit_sha: "9400ce13af13c13c5158fa06c90f7f2517abbe93"
+    final_targeted_ci_run: 45419005459
+    final_targeted_ci_result: SUCCESS
+    final_compose_ci_result: SKIPPED
+    full_historical_regression: NOT_VERIFIED
+    implementation_candidates_consumed: 3
+    deferred_all_days_review_issue: 58
+    deferred_evidence_ledger: "0 PASS / 35 PARTIAL / 1 NOT_STARTED"
+    d16_36_status: TECHNICAL_ACCEPTANCE_PENDING
+    residual_findings: "D16-F01 nested DTO/helper trust validation; D16-F02 contradictory evidence fail-closed; D16-F03 complete catalogue/policy fingerprint; all remaining partial tasks"
+    founder_uat_status: DEFERRED_TO_ALL_DAYS_UAT_NOT_PASSED
+    day17_unlock_scope: FOUNDER_APPROVED_IMPLEMENTATION_2026_11_24
     depends_on: 15
   17:
     name: REST Jobs Auth and MCP
-    state: LOCKED
+    state: ACTIVE
     founder_approval: false
+    tasklist_issue: 60
+    tasklist_status: APPROVED
+    tasklist_approval_date: "2026-11-24"
+    tasklist_approval_signal: "Approved and authorized D17-01 through D17-36, including the proposed API contracts, authentication architecture, asynchronous worker model, MCP tools and mandatory dependency containment"
+    approved_scope: D17-01..D17-36
+    implementation_authorized: true
+    implementation_status: AUTHORIZED_NOT_STARTED
+    implementation_branch: feature/day17-rest-jobs-auth-mcp
+    implementation_issue: 60
+    implementation_base_sha: "9400ce13af13c13c5158fa06c90f7f2517abbe93"
+    planning_base: develop
+    dependency_strategy: DEVELOP_BASE_NO_UNMERGED_D11_D15
+    dependency_exception: FOUNDER_APPROVED_DAY16_MILESTONE_WITH_DEFERRALS
+    runtime_learner_processing: DISABLED
+    runtime_learner_remediation: DISABLED
+    official_unverified_issuance: DISABLED
+    source_live_intake: DISABLED
+    postgresql_migration_0021: BLOCKER_DEFERRED_NOT_PASSED
+    review_workflow: founder_manual_chatgpt_review
+    required_cursor_model: "Composer 2.5 (standard; not Fast)"
+    implementation_candidate_limit: 3
+    auto_merge: false
+    day18_unlock: false
     depends_on: 16
   18:
     name: React Product Surfaces
