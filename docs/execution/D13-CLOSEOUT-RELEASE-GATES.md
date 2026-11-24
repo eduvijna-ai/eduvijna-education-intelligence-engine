@@ -1,66 +1,69 @@
-# Day 13 closeout — release blocker register (Round 1/3)
+# Day 13 closeout — release blocker register (Round 2/3)
 
-**Baseline SHA:** `dee224b662f7185eb19464eab74093979bec0448`  
-**Round:** 1 of 3 (evidence freeze — no stopped-task repairs)  
-**Three-round decision gate (Issue #52):** R1 audit freeze → R2 integration/UAT readiness → R3 `FULL_ACCEPTED` | `MILESTONE_WITH_EXPLICIT_DEFERRALS` | `BLOCKED_STOP_AND_ESCALATE` (no R4).
+**Baseline SHA:** `86a1fa36a95cf2d32cf1c17d89b17c667f311531`  
+**Round:** 2 of 3  
+**Three-round gate:** R3 → `FULL_ACCEPTED` | `MILESTONE_WITH_EXPLICIT_DEFERRALS` | `BLOCKED_STOP_AND_ESCALATE` (**no R4**)
 
-## Critical release blockers (must clear before production Day13)
+## Distinction: targeted CI vs full historical suite
 
-| # | Gate | R1 status | Evidence / notes |
+| Signal | R2 status | Meaning |
+|---|---|---|
+| [Targeted PR CI](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/actions/runs/45356273303) @ pre-R2 docs | **SUCCESS** | Scoped `.eduvijna/pytest-targets.txt` + Day8–13 verifiers — **does not run** full `pytest tests/` |
+| Full `pytest tests/` (2395 collected) | **RED (8)** per R1; R2 attributes eight tests | See [D13-CLOSEOUT-REGRESSION-R2.md](./D13-CLOSEOUT-REGRESSION-R2.md) — **do not claim full green** |
+| `compose-smoke` | **SKIPPED** (Draft) | **Not PASS** — do not mark PR Ready or claim Compose green without Founder decision |
+
+## Critical release blockers
+
+| # | Gate | Status | Notes |
 |---|---|---|---|
-| RB-01 | **Original source bytes + curator (CUET 2026)** | **OPEN** | D13-03 `SOURCE_PENDING`; `cuet_reference_evidence_ready()` false |
-| RB-02 | **Consortium CLAT 2027 authority + rights** | **OPEN** | D13-05 `SOURCE_PENDING` |
-| RB-03 | **Stopped tasks (F03-A/B, F04-A, D13-31A)** | **OPEN** | 3/3 iterations exhausted; material findings in linked reviews — **no rework in R1** |
-| RB-04 | **Official exam outputs (10/50 CUET, CLAT 120)** | **OPEN** | Engineering demos are **synthetic / reference-only** |
-| RB-05 | **D13-31 durable issuance** | **OPEN** | Envelope only; no linked TestDefinition/Question authoritative replay |
-| RB-06 | **Day6/7/8/9/10 integration chain** | **OPEN** | Partial CUET persisted path; no live AnythingLLM proof |
-| RB-07 | **Founder localhost UAT** | **OPEN** | Runbook in `D13-FOUNDER-LOCALHOST-UAT.md`; **not executed** |
-| RB-08 | **Full historical regression** | **OPEN (8 failures)** | R1: Day3/Day4/Day6 migration/isolation tests (listed below) |
-| RB-09 | **Compose smoke** | **SKIPPED** | Draft PR — CI job not run; not credited as PASS |
-| RB-10 | **PostgreSQL Alembic 0019–0021** | **LIKELY BLOCKER** | See migration section — live PG upgrade **NOT_RUN** |
+| RB-01 | CUET 2026 originals + curator | **OPEN** | D13-03 `SOURCE_PENDING` |
+| RB-02 | CLAT 2027 originals + rights | **OPEN** | D13-05 `SOURCE_PENDING` |
+| RB-03 | F03-A / F03-B / F04-A / D13-31A | **OPEN** | 3/3 **STOP** — **Founder circuit-breaker** for any repair |
+| RB-04 | Official 10/50/120 exam outputs | **OPEN** | Synthetic/reference only |
+| RB-05 | D13-31 issuance + paper associations | **OPEN** | Envelope only |
+| RB-06 | Day6/7/8/9/10 + AnythingLLM live | **OPEN** | **NOT_RUN** |
+| RB-07 | Founder localhost UAT | **OPEN** | Runbook updated R2; **NOT_RUN** |
+| RB-08 | Full historical regression | **OPEN** | Eight failures **ENVIRONMENT_SUSPECTED** in R2; suite still **RED** in acceptance terms |
+| RB-09 | Compose smoke | **SKIPPED** | Draft |
+| RB-10 | PostgreSQL migrate 0019–0021 | **BLOCKER + NOT_RUN** | See migration table |
 
-## Migration portability (20261124_0019 → 0021)
+## PostgreSQL / Alembic `20261124_0019` → `20261124_0021`
 
-| Revision | Purpose | SQLite (R1) | PostgreSQL |
-|---|---|---|---|
-| `20261124_0019` | `d13_replay_reservations` base table | Upgrade/downgrade via D31A tests | `CreateTable` compile in `test_postgres_compile.py` / D31A — **not live migrate** |
-| `20261124_0020` | CHECK constraints (state/payload) | Verified in D31A migration test | DDL compile only |
-| `20261124_0021` | `synthetic_test_only` + CHECK | Uses **`json_extract(...)`** in `UPDATE` — **SQLite-specific**; `synthetic_test_only = 1` in CHECK | **High risk:** `json_extract` invalid on PG; boolean compare may need `IS TRUE`; batch_alter behavior differs |
+| Topic | Assessment |
+|---|---|
+| DDL string compile (`test_postgres_compile`, D31A) | **PROVEN** — not equivalent to live migrate |
+| Live `alembic upgrade head` on empty PostgreSQL | **NOT_RUN** — no included disposable PG in R2 |
+| `20261124_0021` `UPDATE … json_extract(metadata_json, …)` | **SOURCE-GROUNDED BLOCKER** on PostgreSQL (SQLite-only function) |
+| `CHECK (synthetic_test_only = 1)` | **BLOCKER risk** on PG (prefer boolean `IS TRUE` / dialect-specific) |
+| Repair | **Forbidden in closeout** — requires **Founder exception** for D13-31A migration patch |
 
-**R1 conclusion:** PostgreSQL **CREATE TABLE** string compilation does **not** prove executing Alembic on PostgreSQL. No disposable PostgreSQL instance was available in the Cloud Agent environment without paid services. **Do not modify 0021 in R1** (Founder circuit-breaker required).
+## Four same-task circuit breakers (Founder exception to repair)
 
-## Round 1 command outcomes @ `dee224b662f7185eb19464eab74093979bec0448`
+| Task | STOP review |
+|---|---|
+| F03-A | [comment](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53#issuecomment-7102278457) |
+| F03-B | [comment](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53#issuecomment-7121665777) |
+| F04-A | [comment](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53#issuecomment-7122136985) |
+| D13-31A | [comment](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/53#issuecomment-7125296405) |
 
-| Command | Scope | Result | Notes |
-|---|---|---|---|
-| `ruff check app tests` | Backend | **PASS** | Cloud Agent R1 log |
-| `mypy app` | 360 source files | **PASS** | Matches targeted CI |
-| `pytest tests/test_day13_*.py` | Day13 scoped | **PASS** (161 tests) | Prior to closeout commit |
-| `pytest tests/` | Full historical (2395 collected) | **FAIL** (8) | R1 single attempt @ SHA; migration/isolation tests failed (list below); shell log mis-tagged PASS — corrected here |
-| `npm run typecheck` (frontend) | React/Vite | **PASS** | R1 after `npm install` |
-| `npm run build` (frontend) | Production bundle | **PASS** | R1 |
-| `python -m app.day8_verify` | Day8 SHA verifier | **PASS** | R1 log |
-| `python -m app.day9_verify` | Day9 SHA verifier | **PASS** | R1 log |
-| `python -m app.day10_verify --json` | Day10 | **PASS** | R1 log |
-| `python -m app.day12_verify --json` | Day12 | **PASS** | R1 log |
-| `python -m app.day13_verify --json` | Day13 synthetic demo | **PASS** | Distinguishes synthetic vs source modes |
-| `alembic upgrade head` / downgrade / upgrade | Isolated SQLite | **PASS** | R1 disposable DB + `PRAGMA foreign_key_check` |
-| `alembic upgrade head` | Live PostgreSQL | **NOT_RUN** | No free PG; 0021 SQLite SQL |
-| Targeted PR CI [#45341492629](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/actions/runs/45341492629) | PR head (pre-closeout docs) | **SUCCESS** | `compose-smoke` skipped (Draft) |
-| `compose-smoke` | Docker compose test | **SKIPPED** | Draft — **not PASS** |
+## R2 command outcomes (bounded)
 
-Log file: `/opt/cursor/artifacts/d13-closeout-r1-checks.log`  
-**Full historical pytest failures (R1):** `test_repaired_manual_collision_passes_actual_lifecycle_snapshot_validation`; `test_partial_day3_schema_failure_rolls_back_and_can_retry`; `test_foreign_key_validation_failure_keeps_old_revision_and_schema`; `test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data`; `test_day4_failure_rolls_back_partial_schema_and_retries`; `test_day6_migration_upgrade_downgrade_reupgrade`; `test_day3_migration_preserves_day1_day2_records`; `test_failed_day3_upgrade_keeps_previous_revision` (8 failures).
+| Command | Result | Evidence |
+|---|---|---|
+| Eight named migration tests (default PATH) | **FAIL (8)** | [D13-R2-REGRESSION-RAW.txt](./D13-R2-REGRESSION-RAW.txt) |
+| Same eight with `PATH=.venv/bin` (corroboration only) | PASS (8) | Documented in REGRESSION-R2; **not** full-suite claim |
+| Full `pytest tests/` | **NOT_RUN** in R2 | R1 FAIL (8) stands for acceptance |
+| `python -m app.day13_verify --json` | **PASS** | UAT keys validated in [D13-FOUNDER-LOCALHOST-UAT.md](./D13-FOUNDER-LOCALHOST-UAT.md) |
+| Founder UAT | **NOT_RUN** | — |
+| Live PG migrate | **NOT_RUN** | — |
+| AnythingLLM live | **NOT_RUN** | — |
 
-## Version / trust isolation
+## Governance (unchanged)
 
-- `founder_approval: false` in `execution-state.yml` — **unchanged**
-- Day14 **LOCKED**
-- Day11 PR #31 **ON_HOLD**; Day12 #35 dangerous intake **disabled**
-- No merge, deployment, or official-source activation in R1
+- `founder_approval: false`; PR #53 **Draft** / unmerged; Day14 **LOCKED**
+- Day11 PR #31 ON_HOLD; Day12 #35 intake **DISABLED**
+- No new source activation, curator claims, or migration edits in R2
 
-## Round 2 / Round 3 (planned — not started)
+## R3 (final round)
 
-**R2 (after Chief Architect review of R1):** Non-overlapping integration evidence — live PG migration attempt if environment provided; AnythingLLM smoke if configured; expanded Founder UAT execution log; full historical pytest re-run if R1 incomplete.
-
-**R3:** Exact-HEAD technical decision: **FULL_ACCEPTED** only if all 36 rows evidenced; else **MILESTONE_WITH_EXPLICIT_DEFERRALS** (Founder-named omissions) or **BLOCKED_STOP_AND_ESCALATE**.
+Deliver exact-HEAD technical decision using [D13-FOUNDER-DECISION-PACKET.md](./D13-FOUNDER-DECISION-PACKET.md). **No Round 4.**

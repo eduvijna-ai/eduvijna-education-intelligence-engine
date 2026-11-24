@@ -1,52 +1,94 @@
-# Day 13 — Founder localhost UAT runbook (Round 1/3)
+# Day 13 — Founder localhost UAT runbook (Round 2/3)
 
-**Purpose:** Manual scenarios the Founder can run locally to observe **synthetic / reference-only** Day13 behavior.  
-**This runbook does not claim UAT has been executed.** No Day13-specific public REST routes or frontend pages exist at SHA `dee224b662f7185eb19464eab74093979bec0448`.
+**SHA:** `86a1fa36a95cf2d32cf1c17d89b17c667f311531`  
+**UAT executed by Founder:** **NOT_RUN** (commands below validated by engineering in disposable localhost only).  
+**No Day13 Creator UI** — generic React shell only; **no CUET/CLAT practice HTTP API** (`backend/app/api/router.py` → system routes under `/api/v1`).
 
-## Environment prerequisites
+## Prerequisites
 
-| Step | Command / config | Notes |
-|---|---|---|
-| Python | 3.12, `cd backend && pip install -e '.[dev]'` | Same as CI |
-| Database | `export DATABASE_URL=sqlite:///./eduvijna_local.db` (default dev) | PostgreSQL optional; migrations 0019–0021 PG risk per release-gates doc |
-| Migrations | `python -m alembic -c alembic.ini upgrade head` | Includes Day13 replay table |
-| API (optional) | `uvicorn app.main:app --reload --host 127.0.0.1 --port 8000` | Only `/health`, `/ready`, `/api/v1/*` system routes — **no CUET/CLAT practice HTTP API** |
-| Frontend | `cd frontend && npm install && npm run dev` | Generic shell; **no Day13 UI** |
+```bash
+cd backend
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+export DATABASE_URL=sqlite:///./eduvijna_local.db   # or tmp file
+export PATH="$PWD/.venv/bin:$PATH"                   # migration tests need `alembic` on PATH
+python -m alembic -c alembic.ini upgrade head
+```
+
+Optional API: `uvicorn app.main:app --host 127.0.0.1 --port 8000` → `/health`, `/ready` only.
+
+## `day13_verify` — authoritative JSON keys
+
+Top-level keys from `backend/app/day13_verify.py` (use these names, not R1 typos):
+
+| Key | Meaning |
+|-----|---------|
+| `math10` | CUET synthetic **10-question** practice allocation |
+| `cuet_single_test_50` | CUET synthetic **50-question** single test |
+| `clat_plan_summary` | CLAT **120-question** structural plan (ranges + clusters; reference demo) |
+| `validated_clat_original_passage_examples` | F03-B **harness** validated original passage examples (`build_validated_clat_original_passage_examples`) |
+| `clat_current_affairs_evidence_preflight` | F04-A CA/GK preflight (synthetic fixture only; official **NOT_READY**) |
+| `cuet_reference_curator_approved` | Always **false** until NTA bytes + curator |
+| `clat_official_curator_approved` | Always **false** until Consortium bytes + curator |
+| `validated_persisted_synthetic` | F03-A harness pool (synthetic arithmetic; **not** official CUET) |
+| `source_registry` | Manifest URLs; **SOURCE_PENDING** rights |
+
+### Working commands (validated @ R2)
+
+```bash
+cd backend
+# Full report
+python -m app.day13_verify --json | python -m json.tool
+
+# CUET 10 — synthetic only
+python -m app.day13_verify --json | python -c "import json,sys; d=json.load(sys.stdin); m=d['math10']; print(m['verdict'], m.get('delivered_count'))"
+
+# CUET 50 — synthetic only
+python -m app.day13_verify --json | python -c "import json,sys; d=json.load(sys.stdin); s=d['cuet_single_test_50']; print(s['verdict'], s.get('question_count'))"
+
+# CLAT 120 structural plan — reference demo, NOT official replica
+python -m app.day13_verify --json | python -c "import json,sys; d=json.load(sys.stdin); p=d['clat_plan_summary']; print(p['verdict'], p['total_questions'], p.get('demonstration_only'))"
+
+# Passage examples — F03-B harness (NOT legacy copyright_passages 120 planner text)
+python -m app.day13_verify --json | python -c "import json,sys; d=json.load(sys.stdin); v=d['validated_clat_original_passage_examples']; print(v['verdict'], v['passage_count'], v.get('harness_only'))"
+
+# CA/GK — synthetic preflight only; official_verified false
+python -m app.day13_verify --json | python -c "import json,sys; d=json.load(sys.stdin); c=d['clat_current_affairs_evidence_preflight']; print(c)"
+```
+
+**Expected @ synthetic mode:** `math10` / `cuet_single_test_50` / `clat_plan_summary` → `pass` with counts **10 / 50 / 120**; curator flags **false**; `clat_current_affairs_evidence_preflight.official_verified` **false**.
+
+**Official CUET 10/50 and CLAT 120 with curator/source-attested items:** **NOT_READY / SOURCE_PENDING** — not available in localhost without external curator action.
+
+## Passage libraries — do not conflate
+
+| Module | Role | Founder expectation |
+|--------|------|---------------------|
+| `copyright_passages.py` | Short **legacy structural** originals used in `ClatPaperPlanner` 120 demo | Reference-only reading clusters |
+| `clat_original_passages.py` + `clat_validated_passage_service.py` | F03-B **authored synthetic examples** with harness token | `validated_clat_original_passage_examples` in verifier — **STOPPED** for production issuance |
 
 ## Scenario matrix
 
-| # | Scenario | How to run (localhost) | Expected (synthetic) | Official / NOT_READY |
+| # | Scenario | Command | Synthetic expectation | Official |
 |---|---|---|---|---|
-| UAT-01 | CUET Math **10** questions | `cd backend && python -m app.day13_verify --json` → inspect `cuet_math_10` / practice block | **SYNTHETIC** count=10 demo | Official 10 from NTA-approved bank: **NOT_READY** (`SOURCE_PENDING`) |
-| UAT-02 | CUET Math **50** full test | Same verifier → `cuet_single_test_50` or pytest: `tests/test_day13_f01_f02_repair.py` | Synthetic 50 arithmetic | Official 50: **NOT_READY** |
-| UAT-03 | Wrong CUET **year** (2027) | `python -c` / pytest `test_day13_f01_f02_repair.py` (2027 requests) | Typed fail-closed / `NOT_READY` | Confirms isolation — not official verification |
-| UAT-04 | Wrong **medium** | pytest `test_day13_f01_f02_repair.py` (`urdu` medium) | Typed non-PASS | Needs source-backed medium matrix (D13-10) |
-| UAT-05 | CLAT **120** reference paper | `day13_verify` → `clat_paper_120` plan | **Reference-only** synthetic 120 + ranges | Official Consortium replica: **NOT_READY** |
-| UAT-06 | CLAT **five section ranges** | `day13_verify` section counts vs `CLAT_SECTION_RANGES` | Approximate range demo | Exact official quotas: **not claimed** |
-| UAT-07 | **Original passage** examples (EN/Legal/Logical/QT) | `day13_verify` → `clat_original_passage_examples` or `build_validated_clat_original_passage_examples()` in Python shell | Short **demo** originals from `copyright_passages.py` | F03-B production passage path: **STOPPED** |
-| UAT-08 | **Current affairs** citation preflight | `day13_verify` F04-A block; harness token `F04A_HARNESS_TOKEN` in `clat_evidence_contracts.py` | Fail-closed / synthetic fixture receipts | Live news RAG + rights: **SOURCE_PENDING** / F04-A **STOP** |
-| UAT-09 | **Tenant rejection** (foreign org) | pytest `test_day13_f03a_iter3.py` / `test_day13_d31a_durable_replay.py::test_foreign_tenant_no_replay` | `NOT_READY` / no cross-tenant replay | Production auth: not in scope |
-| UAT-10 | **Stale replay** / idempotency | pytest `test_day13_d31a_durable_replay.py` (corrupt checksum, concurrent publish) | Typed `CORRUPT` / single winner | D13-31 **issuance** replay: **STOP** at D13-31A |
-| UAT-11 | **Source authority** fail-closed | `build_source_registry_snapshot()` or `day13_verify` governance flags | `cuet_reference_curator_approved: false`, `clat_official_curator_approved: false` | Stays false until curator bytes |
-| UAT-12 | Persisted CUET pool (harness) | pytest `test_day13_f03a_persisted.py` with `trusted_persisted_context` + `harness_authorized` | 50 validated **synthetic** math items | **Test harness only** — F03-A **STOP** |
-| UAT-13 | Durable replay envelope | pytest `tests/test_day13_d31a_durable_replay.py` | SQL idempotency **without** question text in payload | Not Founder GUI; engineer pytest |
+| UAT-01 | CUET Math 10 | `day13_verify` → `math10` | `pass`, count 10 | **NOT_READY** |
+| UAT-02 | CUET Math 50 | → `cuet_single_test_50` | `pass`, count 50 | **NOT_READY** |
+| UAT-03 | Wrong CUET year 2027 | `pytest tests/test_day13_f01_f02_repair.py -k 2027 -q` | Fail-closed | Isolation check |
+| UAT-04 | Wrong medium | `pytest tests/test_day13_f01_f02_repair.py -k urdu -q` | Typed non-PASS | D13-10 gap |
+| UAT-05 | CLAT 120 plan | → `clat_plan_summary` | 120, `demonstration_only` | **NOT_READY** |
+| UAT-06 | Section ranges | `clat_plan_summary.section_allocations` + `constants.CLAT_SECTION_RANGES` | Approximate demo | Not exact official quotas |
+| UAT-07 | Original passages (harness) | → `validated_clat_original_passage_examples` | Harness verdict | F03-B **STOP** |
+| UAT-08 | Current affairs | → `clat_current_affairs_evidence_preflight` | Synthetic mechanics only | **SOURCE_PENDING** |
+| UAT-09 | Tenant / replay | `pytest tests/test_day13_f03a_iter3.py tests/test_day13_d31a_durable_replay.py -q` | Typed isolation | No production auth |
+| UAT-10 | Source gates | `cuet_reference_curator_approved`, `clat_official_curator_approved` in JSON | **false** | Curator action |
+| UAT-11 | Persisted CUET pool | `pytest tests/test_day13_f03a_persisted.py -q` | Harness token required | F03-A **STOP** |
 
-## Suggested Founder session (≈30 minutes, engineering-assisted)
+## Explicit non-goals
 
-1. Run `python -m app.day13_verify --json | jq` and review `trust_mode`, `source_pending`, and synthetic flags on each block.
-2. Confirm **no** HTTP endpoint exposes full papers without going through test harness (inspect `app/api/router.py` — system routes only).
-3. Optional: run `pytest tests/test_day13_core.py tests/test_day13_scoring.py -q` for quick green/red.
-4. Record observations in a Founder UAT note for **R2** (not filed in R1).
+- **Do not** mark PR “Ready for review” or claim **Compose PASS** without Founder decision (Draft remains; compose-smoke **SKIPPED**).
+- No Day12 #35 private intake, no official PDF activation, no AnythingLLM live calls.
+- No `founder_approval` change; Day14 stays **LOCKED**.
 
-## Explicit non-goals for localhost UAT
+## Related
 
-- No official NTA/Consortium PDF ingestion (Day12 #35 CLI disabled).
-- No AnythingLLM live calls in default dev env.
-- No claim that synthetic arithmetic equals CUET difficulty.
-- No `founder_approval` toggle — Founder merges/signoff remain **R3**.
-
-## Related docs
-
-- [D13-CLOSEOUT-EVIDENCE.md](./D13-CLOSEOUT-EVIDENCE.md) — per-task ledger  
-- [D13-CLOSEOUT-RELEASE-GATES.md](./D13-CLOSEOUT-RELEASE-GATES.md) — blockers and CI table  
-- [D13-SCOPE-MAP.md](./D13-SCOPE-MAP.md) — engineering scope map
+- [D13-CLOSEOUT-REGRESSION-R2.md](./D13-CLOSEOUT-REGRESSION-R2.md)  
+- [D13-FOUNDER-DECISION-PACKET.md](./D13-FOUNDER-DECISION-PACKET.md)
