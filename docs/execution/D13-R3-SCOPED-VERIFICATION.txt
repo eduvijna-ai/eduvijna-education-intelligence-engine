@@ -1,0 +1,1268 @@
+D13 Closeout R3 — scoped verification (mirrors targeted CI)
+SHA: 2e61828248c5f8cbec241532ce1e68dff29cf8c2
+Started: 2026-11-24T10:11:02Z
+--- Ruff ---
+All checks passed!
+ruff exit: 0
+--- Mypy ---
+Success: no issues found in 360 source files
+mypy exit: 0
+--- Scoped pytest ---
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+........................................................................ [ 37%]
+........................................................................ [ 46%]
+........................................................................ [ 55%]
+........................................................................ [ 65%]
+........................................................................ [ 74%]
+........................................................................ [ 83%]
+........................................................................ [ 92%]
+.......................................................                  [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18
+  /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_core.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_issuance_atomicity.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_snapshot_answer_binding.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_independent_replay_integrity.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+app/models/question.py:149
+  /agent/repos/eduvijna-education-intelligence-engine/backend/app/models/question.py:149: PytestCollectionWarning: cannot collect test class 'TestDefinition' because it has a __init__ constructor (from: tests/test_day12_e2e_truth_gate.py)
+    class TestDefinition(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+
+tests/test_day10_r14_trust.py::test_day10_sqlite_alembic_upgrade_head
+tests/test_day13_d31a_durable_replay.py::test_migration_upgrade_downgrade_parity
+  /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+scoped pytest exit: 0
+--- Day verifiers ---
+/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+  from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+candidate_sha=2e61828248c5f8cbec241532ce1e68dff29cf8c2
+graph_compiles=PASS
+day7_provenance_in_graph=PASS
+clean_pass_approved=PASS
+repair_then_pass=PASS
+blocking_not_approved=PASS
+foreign_tenant_scope_enforced=PASS
+repair_exhaustion=PASS
+prompt_injection_handled=PASS
+checkpoint_resume_hitl=PASS
+persistent_checkpoint_state=PASS
+idempotent_replay=PASS
+idempotency_conflict=PASS
+audit_events_recorded=PASS
+audit_refs_on_result=PASS
+gateway_calls_recorded=PASS
+no_direct_provider_path=PASS
+production_gateway_fail_closed=PASS
+ok=PASS
+day8 exit: 0
+/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/langgraph/checkpoint/base/__init__.py:18: LangChainPendingDeprecationWarning: The default value of `allowed_objects` will change in a future version. Pass an explicit value (e.g., allowed_objects='messages' or allowed_objects='core') to suppress this warning.
+  from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+Day 9 verification: PASS
+  scope_guard_ok: True
+  day8_scope_guard_ok: True
+  taxonomy_resolves: True
+  option_tags_produced: True
+  correct_option_protected: True
+  day6_authority_survives: True
+  forged_evidence_rejected: True
+  tenant_isolation_enforced: True
+  hitl_diagnostic_review_proof: True
+  hitl_diagnostic_edit_revalidates: True
+  marks_edit_forbidden: True
+  foreign_injection_not_in_context: True
+  injection_evidence_bounded: True
+  checkpoint_explicit_retry_proof: True
+  bounded_repair_works: True
+  unknown_code_rejected: True
+  idempotent_replay: True
+  idempotency_conflict_guard: True
+  diagnostic_audit_persisted: True
+  single_orchestration_graph: True
+  metadata_synthetic_flag_cannot_waive_evidence: True
+  signal_mismatch_rejected: True
+  distinctness_enforced: True
+  canonical_tag_completeness: True
+  canonical_option_text_integrity: True
+  redundant_canonical_text_enforced: True
+  result_source_provenance_required: True
+  source_authorization_empty_rejected: True
+  arithmetic_operand_context_mismatch: True
+  sourceless_result_source_spoof_rejected: True
+  foreign_grounding_preflight_rejected: True
+  aggregate_evidence_budget_enforced: True
+  decimal_wrong_answer_signal_rejected: True
+  pack_builder_aggregate_budget_safe: True
+  fraction_numeric_signal_rejected: True
+  citation_revision_binding_enforced: True
+  strict_output_failure_preserves_usage: True
+  multi_source_truncation_not_unauthorized: True
+  unbound_citation_evidence_rejected: True
+  empty_trusted_map_citation_rejected: True
+  orphan_trusted_citation_label_rejected: True
+  multiplication_expression_blocks_pass: True
+  expression_ambiguity_blocks_pass: True
+  diagnostic_bounded_day7_in_gateway: True
+  source_backed_missing_evidence_rejected: True
+  coverage_complete_tracks_validator: True
+  verdict_option_fields_populated: True
+  diagnostic_audit_option_traces: True
+  diagnostic_role_usage_accounting: True
+  candidate_sha_resolved: True
+  candidate_sha_matches_head: True
+  persistence_smoke: True
+day9 exit: 0
+{
+  "candidate_sha": "2e61828248c5f8cbec241532ce1e68dff29cf8c2",
+  "checks": {
+    "alternate_prerequisite_paths": true,
+    "candidate_sha_matches_head": true,
+    "candidate_sha_resolved": true,
+    "cognitive_20_20_40_10_10": true,
+    "correct_option_veto": true,
+    "forged_official_graph_audit_fail": true,
+    "forged_taxonomy_blocked": true,
+    "graph_quality_pass": true,
+    "paper_distribution_pass": true,
+    "paper_distribution_target_fail": true,
+    "root_cause_hypotheses": true,
+ ...
+day10 exit: 0
+{
+  "ok": true,
+  "candidate_sha": "2e61828248c5f8cbec241532ce1e68dff29cf8c2",
+  "head_sha": "2e61828248c5f8cbec241532ce1e68dff29cf8c2",
+  "sha_alignment": true,
+  "governance": {
+    "day12_scope": "D12-01..D12-36",
+    "implementation_branch": "feature/day12-jee-advanced-intelligence",
+    "day11_state": "ON_HOLD",
+    "day11_pr": 31,
+    "day11_unmerged_rule": "no_cherry_pick_or_silent_dependency",
+    "day12_state": "ACTIVE",
+    "day12_founder_approval": false,
+    "day13_state": "LOCKED",
+...
+day12 exit: 0
+{
+  "ok": true,
+  "candidate_sha": "2e61828248c5f8cbec241532ce1e68dff29cf8c2",
+  "head_sha": "2e61828248c5f8cbec241532ce1e68dff29cf8c2",
+  "sha_alignment": true,
+  "governance": {
+    "day13_scope": "D13-01..D13-36",
+    "implementation_branch": "feature/day13-cuet-clat-intelligence",
+    "tasklist_issue": 52,
+    "day11_state": "ON_HOLD",
+    "day11_pr": 31,
+    "day11_unmerged_rule": "no_cherry_pick_or_silent_dependency",
+    "day12_state": "FOUNDER_SIGNOFF_WITH_DEFERRALS",
+    "day12_pr": 34,
+    "day13_state": "ACTIVE",
+    "day13_founder_approval": false,
+    "day14_state": "LOCKED",
+    "core_35_official_intake_live": false,
+    "dependency_exception": "FOUNDER_APPROVED_DAY11_ON_HOLD_2026_11_23",
+    "trust_modes": [
+      "synthetic_fixture",
+      "cuet_2026_historical_reference",
+      "cuet_2027_not_verified",
+      "clat_2027_official_source_attested"
+    ],
+    "trust_mode_definitions": {
+      "synthetic_fixture": "Demonstration-only; never curator-approved official evidence.",
+      "cuet_2026_historical_reference": "CUET UG 2026 NTA bulletin/syllabus; SOURCE_PENDING until curator SHA.",
+      "cuet_2027_not_verified": "CUET 2027 fail-closed until distinct approved official release.",
+      "clat_2027_official_source_attested": "CLAT UG 2027 Consortium format/syllabus; official replica requires staging."
+    },
+    "evidence_matrix_path": "docs/execution/D13-SCOPE-MAP.md",
+    "cuet_official_replica_enabled": false,
+    "clat_official_replica_enabled": false
+  },
+  "source_registry": {
+    "manifest_entries": 4,
+    "cuet_reference_curator_approved": false,
+    "clat_official_curator_approved": false,
+    "cuet_2027_official_verified": false,
+    "manifest": [
+      {
+        "exam": "cuet_ug",
+        "year": "2026",
+        "kind": "information_bulletin",
+        "url": "https://cdnbbsr.s3waas.gov.in/s3d1a21da7bca4abff8b0b61b87597de73/uploads/2026/01/202601031633478370.pdf",
+        "locator": "page_15",
+        "rights_status": "SOURCE_PENDING"
+      },
+      {
+        "exam": "cuet_ug",
+        "year": "2026",
+        "kind": "syllabus_index",
+        "url": "https://cuet.nta.nic.in/cuetug-2026-syllabus/",
+        "locator": "subject_catalogue",
+        "rights_status": "SOURCE_PENDING"
+      },
+      {
+        "exam": "clat_ug",
+        "year": "2027",
+        "kind": "question_format",
+        "url": "https://clat2027.consortiumofnlus.ac.in/clat-2027/ug-question-format.html",
+        "locator": "format_rules",
+        "rights_status": "SOURCE_PENDING"
+      },
+      {
+        "exam": "clat_ug",
+        "year": "2027",
+        "kind": "syllabus",
+        "url": "https://clat2027.consortiumofnlus.ac.in/clat-2027/ug-syllabus.html",
+        "locator": "section_syllabus",
+        "rights_status": "SOURCE_PENDING"
+      }
+    ]
+  },
+  "synthetic_fixture_pass": true,
+  "validated_persisted_synthetic": {
+    "pool_seeded_count": 50,
+    "math10_verdict": "pass",
+    "math10_delivered": 10,
+    "independently_validated": true,
+    "has_real_stems": true
+  },
+  "cuet_reference_curator_approved": false,
+  "clat_official_curator_approved": false,
+  "cuet_2027_official_verified": false,
+  "cuet_2027_gate": {
+    "verdict": "official_pattern_not_verified",
+    "trust_mode": "cuet_2027_not_verified"
+  },
+  "clat_official_gate": {
+    "verdict": "source_pending",
+    "trust_mode": "clat_2027_official_source_attested"
+  },
+  "scope_ledger_counts": {
+    "SOURCE_PENDING": 2,
+    "PASS": 0,
+    "NOT_STARTED": 1,
+    "PARTIAL": 33,
+    "TOTAL": 36
+  },
+  "math10": {
+    "verdict": "pass",
+    "requested_count": 10,
+    "delivered_count": 10,
+    "questions": [
+      {
+        "question_id": "cuet_math_syn_000",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "259c68657045735df4d19999c8275a02",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_001",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "c7b6e7c4cc0859a652dcfa74cc7b79a9",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_002",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "166a1487f439fd6effaca1282621ad25",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_003",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "4b4aff4adf6b99b49e1e6381d1564c21",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_004",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "d856aaaf0653e91bfaf098390c6c81b8",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_005",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "83d5052a48d1d6ddba539e70e847efa8",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_006",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "c101c3e12e734114ec1098568d30e1c7",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_007",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "a7f08bea3bc82ff0c8b160e82985c524",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_008",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "8ba006ce0d82740e8bd572d5b9a199cd",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_009",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "107ace770fad20a5800099b5cdabab9b",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      }
+    ],
+    "issue_codes": [],
+    "checksum": "e9ef0d26aba7c32aad5485621661f29fefe50ed1",
+    "metadata_json": {
+      "demonstration_only": true,
+      "trust_mode": "synthetic_fixture"
+    }
+  },
+  "cuet_single_test_50": {
+    "verdict": "pass",
+    "question_count": 50,
+    "duration_minutes": 60,
+    "marks_correct": 5.0,
+    "marks_incorrect": -1.0,
+    "questions": [
+      {
+        "question_id": "cuet_math_syn_000",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "259c68657045735df4d19999c8275a02",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_001",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "c7b6e7c4cc0859a652dcfa74cc7b79a9",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_002",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "166a1487f439fd6effaca1282621ad25",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_003",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "4b4aff4adf6b99b49e1e6381d1564c21",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_004",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "d856aaaf0653e91bfaf098390c6c81b8",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_005",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "83d5052a48d1d6ddba539e70e847efa8",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_006",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "c101c3e12e734114ec1098568d30e1c7",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_007",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "a7f08bea3bc82ff0c8b160e82985c524",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_008",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "8ba006ce0d82740e8bd572d5b9a199cd",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_009",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "107ace770fad20a5800099b5cdabab9b",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_010",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "87de9fc5c0336289f5c902bf11a45759",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_011",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "08bb4055358b79008285cd81c964b914",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_012",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "6687236a97fb62a5ae34eeef8d6050c9",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_013",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "2dbd3d5a176f36d42536189affa17eb4",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_014",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "0eb36e255d23d2f81512f5bb4dfa9a8d",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_015",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "61932d9ecffe177ea5d22e39abc35054",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_016",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "1c73fa4a759ba8c30ab774beaa9caa97",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_017",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "6827dd5400ee3e895926be674f8be05b",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_018",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "7a75e6f90b9c86fa1b6750a8d66c7026",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_019",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "34cfffbbeef1adc61be001817ada13d2",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_020",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "3db7b85f3876b12d3453c1b976592bbb",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_021",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "7db7b26af706a3b1e0d7b0c8a82d0420",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_022",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "4ef3ddd658c81ff33bdd86e025eb1e84",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_023",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "f883c6d0ce5ea87d8d3656879fe8c695",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_024",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "a1b7ec94186817a4160802884d80802f",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_025",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "fcb86cf2e204d5e541d84366ab9a3a75",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_026",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "8882e4662b4acec5f08b70c4f0b32b8f",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_027",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "d0dd8519c3cfc54aca3d00d232502e67",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_028",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "519266578f1397d237a65d87118f2983",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_029",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "5d55d9fe6b5eaabb76306c4407783acd",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_030",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "bd035af6adb14d3d818ef5a438650b62",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_031",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "40b89301a8bcfa7e20515c27d7073809",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_032",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "8a16f8c641ea7b5090bfde71c0f038eb",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_033",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "985f4974762aacc5dd47d453584acba2",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_034",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "985c450617ca66138536ca5907a3aaa3",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_035",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "91c516b5ddf34c8fa4986261b8755872",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_036",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "07bc90f1d31d2dc23f01c9f16948c285",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_037",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "8a917a4f03e90550dd0295da45f23cad",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_038",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "ad9a40c4dd78671e1a3ecbf150fa39d0",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_039",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "8b0fa8e69cbbc30b263d5e1b0d2f3f17",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_040",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "b2003927fd36bcfa01f3cc19ff5705be",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_041",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "ff7a11454d63bfef5fcb2d203c30eaf9",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_042",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "11541617f4481ae6f818f6240bb637ac",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_043",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "e105e3d4183660e3c7a2ff86c9b80bab",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_044",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "1acf402bcd0bbff5990eef5d1e68c46c",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_045",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "d0298f8404bacd1925dea3ce1f9b90cb",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_046",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "ba405dd783f1b3841a243df6d8b11647",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_047",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "d8b598860381ce164a2a92ff632e886e",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_048",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "382bcb68cbc45a276f8daba1fce0d25f",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      },
+      {
+        "question_id": "cuet_math_syn_049",
+        "subject_code": "domain_mathematics",
+        "topic_code": "algebra_basics",
+        "passage_id": null,
+        "fingerprint": "f8f110455c14bfe1eadb362835941686",
+        "correct_key": "A",
+        "marks_if_correct": 5.0,
+        "marks_if_incorrect": -1.0,
+        "stem_text": null,
+        "options": null,
+        "independently_validated": false,
+        "validation_audit_id": null,
+        "solver_evidence_id": null
+      }
+    ],
+    "issue_codes": [],
+    "checksum": "74af582460333625972a9ca1f29939f9807c2aa3",
+    "metadata_json": {
+      "demonstration_only": true,
+      "paper_scoring_profile": "+5/-1"
+    }
+  },
+  "clat_plan_summary": {
+    "total_questions": 120,
+    "passage_cluster_count": 31,
+    "section_allocations": [
+      {
+        "section_code": "english",
+        "question_count": 24,
+        "min_allowed": 22,
+        "max_allowed": 26
+      },
+      {
+        "section_code": "current_affairs_gk",
+        "question_count": 30,
+        "min_allowed": 28,
+        "max_allowed": 32
+      },
+      {
+        "section_code": "legal_reasoning",
+        "question_count": 30,
+        "min_allowed": 28,
+        "max_allowed": 32
+      },
+      {
+        "section_code": "logical_reasoning",
+        "question_count": 24,
+        "min_allowed": 22,
+        "max_allowed": 26
+      },
+      {
+        "section_code": "quantitative_techniques",
+        "question_count": 12,
+        "min_allowed": 10,
+        "max_allowed": 14
+      }
+    ],
+    "verdict": "pass",
+    "demonstration_only": true
+  },
+  "clat_current_affairs_evidence_preflight": {
+    "synthetic_mechanics_test_only": true,
+    "official_verified": false,
+    "officially_verified_claim_count": 0,
+    "factual_claim_independently_verified": false,
+    "blockers": [
+      "d13.f04a.rights_not_approved",
+      "d13.f04a.synthetic_denied_official",
+      "d13.f04a.unapproved_trust_tier",
+      "d13.f04a.curator_not_approved"
+    ],
+    "harness_only": true
+  },
+  "validated_clat_original_passage_examples": {
+    "verdict": "pass",
+    "item_count": 12,
+    "passage_count": 4,
+    "official_source_verified": false,
+    "independent_validated_count": 12,
+    "harness_only": true
+  },
+  "trust_separation": {
+    "synthetic": "synthetic_fixture",
+    "cuet_2026_ref": "cuet_2026_historical_reference",
+    "cuet_2027": "cuet_2027_not_verified",
+    "clat_2027": "clat_2027_official_source_attested"
+  },
+  "notes": {
+    "compose_smoke": "NOT_RUN",
+    "live_postgresql": "NOT_RUN",
+    "anythingllm_live": "NOT_RUN",
+    "full_historical_pytest": "NOT_RUN",
+    "d13_36_founder_signoff": "NOT_STARTED"
+  }
+}
+day13 exit: 0
+Finished: 2026-11-24T10:13:08Z

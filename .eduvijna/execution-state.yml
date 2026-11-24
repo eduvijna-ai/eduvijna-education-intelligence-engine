@@ -462,7 +462,7 @@ days:
     approved_scope: D13-01..D13-36
     tasklist_planning_authorized: true
     implementation_authorized: true
-    implementation_status: AUTHORIZED_NOT_STARTED
+    implementation_status: CLOSEOUT_R3_CANDIDATE_AWAITING_INDEPENDENT_REVIEW
     implementation_branch: feature/day13-cuet-clat-intelligence
     implementation_issue: 52
     review_workflow: founder_manual_chatgpt_review

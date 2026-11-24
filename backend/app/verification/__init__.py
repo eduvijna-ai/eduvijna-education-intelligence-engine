@@ -1,0 +1,1 @@
+"""Shared verification helpers (revision evidence, SHA gates)."""

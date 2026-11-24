@@ -1,0 +1,147 @@
+D13 Closeout R2 — eight named full-historical failures
+SHA: 86a1fa36a95cf2d32cf1c17d89b17c667f311531
+Started: 2026-11-24T08:39:40Z
+Invocation: python -m pytest <8 modules::tests> -vv --tb=short
+DATABASE_URL: (per-test tmp_path sqlite via alembic)
+
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0 -- /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /agent/repos/eduvijna-education-intelligence-engine/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, langsmith-0.16.0, anyio-4.16.0
+collecting ... collected 8 items
+
+tests/test_day3_migration_identity_collision.py::test_repaired_manual_collision_passes_actual_lifecycle_snapshot_validation FAILED [ 12%]
+tests/test_day3_rework_migration.py::test_partial_day3_schema_failure_rolls_back_and_can_retry FAILED [ 25%]
+tests/test_day3_rework_migration.py::test_foreign_key_validation_failure_keeps_old_revision_and_schema FAILED [ 37%]
+tests/test_day4_migration.py::test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data FAILED [ 50%]
+tests/test_day4_migration.py::test_day4_failure_rolls_back_partial_schema_and_retries FAILED [ 62%]
+tests/test_day6_migration.py::test_day6_migration_upgrade_downgrade_reupgrade FAILED [ 75%]
+tests/test_source_intelligence_migration.py::test_day3_migration_preserves_day1_day2_records FAILED [ 87%]
+tests/test_source_intelligence_migration.py::test_failed_day3_upgrade_keeps_previous_revision FAILED [100%]
+
+=================================== FAILURES ===================================
+__ test_repaired_manual_collision_passes_actual_lifecycle_snapshot_validation __
+tests/test_day3_migration_identity_collision.py:396: in test_repaired_manual_collision_passes_actual_lifecycle_snapshot_validation
+    _seed_collision(database, status="approved", method="manual")
+tests/test_day3_migration_identity_collision.py:51: in _seed_collision
+    _run_alembic(database, "upgrade", REV_0006)
+tests/test_day3_migration_identity_collision.py:38: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+__________ test_partial_day3_schema_failure_rolls_back_and_can_retry ___________
+tests/test_day3_rework_migration.py:57: in test_partial_day3_schema_failure_rolls_back_and_can_retry
+    _run_alembic(database_path, "upgrade", "20261002_0004")
+tests/test_day3_rework_migration.py:20: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+______ test_foreign_key_validation_failure_keeps_old_revision_and_schema _______
+tests/test_day3_rework_migration.py:91: in test_foreign_key_validation_failure_keeps_old_revision_and_schema
+    _run_alembic(database_path, "upgrade", "20261002_0004")
+tests/test_day3_rework_migration.py:20: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+_____ test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data _____
+tests/test_day4_migration.py:55: in test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data
+    _run_alembic(database, "upgrade", "20261003_0007")
+tests/test_day4_migration.py:17: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+___________ test_day4_failure_rolls_back_partial_schema_and_retries ____________
+tests/test_day4_migration.py:108: in test_day4_failure_rolls_back_partial_schema_and_retries
+    _run_alembic(database, "upgrade", "20261003_0007")
+tests/test_day4_migration.py:17: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+_______________ test_day6_migration_upgrade_downgrade_reupgrade ________________
+tests/test_day6_migration.py:42: in test_day6_migration_upgrade_downgrade_reupgrade
+    _run_alembic(database, "upgrade", "head")
+tests/test_day6_migration.py:17: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+_______________ test_day3_migration_preserves_day1_day2_records ________________
+tests/test_source_intelligence_migration.py:149: in test_day3_migration_preserves_day1_day2_records
+    _run_alembic(database_path, "upgrade", "20261002_0004")
+tests/test_source_intelligence_migration.py:26: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+_______________ test_failed_day3_upgrade_keeps_previous_revision _______________
+tests/test_source_intelligence_migration.py:187: in test_failed_day3_upgrade_keeps_previous_revision
+    _run_alembic(database_path, "upgrade", "20261002_0004")
+tests/test_source_intelligence_migration.py:26: in _run_alembic
+    return subprocess.run(
+/usr/lib/python3.12/subprocess.py:548: in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/lib/python3.12/subprocess.py:1026: in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+/usr/lib/python3.12/subprocess.py:1955: in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+E   FileNotFoundError: [Errno 2] No such file or directory: 'alembic'
+=========================== short test summary info ============================
+FAILED tests/test_day3_migration_identity_collision.py::test_repaired_manual_collision_passes_actual_lifecycle_snapshot_validation
+FAILED tests/test_day3_rework_migration.py::test_partial_day3_schema_failure_rolls_back_and_can_retry
+FAILED tests/test_day3_rework_migration.py::test_foreign_key_validation_failure_keeps_old_revision_and_schema
+FAILED tests/test_day4_migration.py::test_day4_migration_upgrade_downgrade_reupgrade_preserves_prior_data
+FAILED tests/test_day4_migration.py::test_day4_failure_rolls_back_partial_schema_and_retries
+FAILED tests/test_day6_migration.py::test_day6_migration_upgrade_downgrade_reupgrade
+FAILED tests/test_source_intelligence_migration.py::test_day3_migration_preserves_day1_day2_records
+FAILED tests/test_source_intelligence_migration.py::test_failed_day3_upgrade_keeps_previous_revision
+============================== 8 failed in 0.28s ===============================
+
+pytest exit code: 0
+Finished: 2026-11-24T08:39:42Z
+
+=== R2 corroboration: same 8 tests with PATH=.venv/bin (not changing test code) ===
+Invocation: PATH="$PWD/.venv/bin:$PATH" pytest <8 tests> -q
+Result: 8 passed, exit 0 (2026-11-24)
