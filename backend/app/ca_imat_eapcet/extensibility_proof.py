@@ -78,6 +78,6 @@ def build_extensibility_proof() -> ExtensibilityProof:
             "app.jee_advanced.planner",
         ],
         eapcet_specific_branches_in_generic=branches,
-        pack_config_driven=demo is PlanVerdict.PASS,
+        pack_config_driven=False,
         verdict=verdict,
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.ca_imat_eapcet.content_validation import derive_content_fingerprint
 from app.ca_imat_eapcet.contracts import QuestionRef
 from app.ca_imat_eapcet.enums import IssueCode, PlanVerdict
+from app.ca_imat_eapcet.semantic_dedup import semantic_stem_key
 
 
 def validate_whole_paper(
@@ -17,7 +18,8 @@ def validate_whole_paper(
         issues.append(IssueCode.IMAT_COUNT_MISMATCH)
 
     fps = [q.fingerprint for q in questions]
-    if len(set(fps)) != len(fps):
+    sem = [semantic_stem_key(q.stem_text or "") for q in questions]
+    if len(set(fps)) != len(fps) or len(set(sem)) != len(sem):
         issues.append(IssueCode.DUPLICATE_QUESTION)
 
     for q in questions:

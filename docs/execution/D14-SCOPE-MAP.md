@@ -1,6 +1,6 @@
 # Day 14 — CA Foundation, IMAT, TG EAPCET scope and evidence matrix
 
-**Status:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (candidate 2 correctness repair; D14-36 not Founder-accepted).  
+**Status:** **0 PASS / 33 PARTIAL / 2 SOURCE_PENDING / 1 NOT_STARTED = 36 rows** (candidate 3/3 fail-closed issuance + source trust; D14-36 not Founder-accepted).  
 **Authoritative specification:** [Issue #54](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/54).  
 **Branch:** `feature/day14-ca-imat-eapcet-intelligence`. Day11 ON_HOLD; Day14 ACTIVE `founder_approval:false`; Day15 LOCKED.
 

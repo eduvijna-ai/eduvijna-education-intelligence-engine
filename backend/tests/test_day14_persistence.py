@@ -26,7 +26,7 @@ def test_f01_empty_issuance_fail_closed() -> None:
             organization_id="org",
             institution_id="inst",
             exam_version_id=str(ca_ver.id),
-            source_version="syn",
+            source_version="synthetic_demo",
             idempotency_key="empty",
         )
         assert env.verdict is PlanVerdict.NOT_READY
@@ -56,7 +56,7 @@ def test_f01_persisted_rows_only_when_validated() -> None:
             organization_id="org",
             institution_id="inst",
             exam_version_id=str(ca_ver.id),
-            source_version="syn",
+            source_version="synthetic_demo",
             idempotency_key="ca3",
         )
         assert env.committed is True
@@ -92,7 +92,7 @@ def test_f01_replay_idempotent() -> None:
             organization_id="org",
             institution_id="inst",
             exam_version_id=str(ca_ver.id),
-            source_version="syn",
+            source_version="synthetic_demo",
             idempotency_key=key,
         )
         second = attempt_canonical_issuance(
@@ -101,7 +101,7 @@ def test_f01_replay_idempotent() -> None:
             organization_id="org",
             institution_id="inst",
             exam_version_id=str(ca_ver.id),
-            source_version="syn",
+            source_version="synthetic_demo",
             idempotency_key=key,
         )
         assert first.committed and second.committed

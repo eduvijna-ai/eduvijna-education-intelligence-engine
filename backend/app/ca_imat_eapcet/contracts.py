@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.ca_imat_eapcet.constants import CA_FOUNDATION_PACK_CODE
 from app.ca_imat_eapcet.enums import (
@@ -53,6 +53,13 @@ class AllocateRequest(BaseModel):
     trust_mode: Day14SourceTrustMode
     paper_or_section: str
     requested_count: int = 10
+
+    @field_validator("requested_count", mode="before")
+    @classmethod
+    def _reject_bool_counts(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("requested_count must be an integer")
+        return value
     session_code: str = "jan2027"
     academic_year: str = "2026"
     stream: EapcetStream | None = None

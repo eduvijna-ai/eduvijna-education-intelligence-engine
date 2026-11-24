@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from app.ca_imat_eapcet.constants import (
     EAPCET_ENGINEERING_SECTIONS,
@@ -9,6 +10,12 @@ from app.ca_imat_eapcet.constants import (
 )
 from app.ca_imat_eapcet.content_validation import derive_content_fingerprint
 from app.ca_imat_eapcet.contracts import DescriptiveItemContract, DescriptiveSubpart, QuestionRef
+from app.ca_imat_eapcet.synthetic_item_banks import (
+    CA_ECONOMICS_TOPICS,
+    IMAT_BIOLOGY_BANK,
+    IMAT_CHEMISTRY_BANK,
+    IMAT_PHYSICS_BANK,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,9 +60,9 @@ def _mcq(
 def build_ca_quant_pool(*, size: int) -> tuple[QuestionRef, ...]:
     items: list[QuestionRef] = []
     for i in range(size):
-        base = 200 + i
+        base = 20 * (i + 1)
         pct = 15
-        correct_val = str(int(base * pct / 100))
+        correct_val = str((Decimal(base) * Decimal(pct) / Decimal(100)).quantize(Decimal("0.01")))
         options = {
             "A": str(int(base * 0.10)),
             "B": correct_val,
@@ -77,33 +84,16 @@ def build_ca_quant_pool(*, size: int) -> tuple[QuestionRef, ...]:
 
 
 def build_ca_economics_pool(*, size: int) -> tuple[QuestionRef, ...]:
-    stems = [
-        (
-            "CA_BE: Opportunity cost is best defined as:",
-            {
-                "A": "Accounting profit after tax",
-                "B": "Value of the next best alternative forgone",
-                "C": "Total revenue minus explicit costs",
-                "D": "Marginal cost of production",
-            },
-            "B",
-        ),
-        (
-            "CA_BE: Law of demand states price rises then quantity demanded:",
-            {"A": "Rises", "B": "Falls", "C": "Unchanged", "D": "Doubles"},
-            "B",
-        ),
-    ]
     items: list[QuestionRef] = []
     for i in range(size):
-        stem, opts, key = stems[i % len(stems)]
-        stem = f"{stem} (item {i})"
+        body, opts, key = CA_ECONOMICS_TOPICS[i % len(CA_ECONOMICS_TOPICS)]
+        stem = f"CA_BE: {body} Case {i + 1}."
         items.append(
             _mcq(
                 qid=f"ca_be_{i:03d}",
                 paper_or_section="paper4_business_economics",
                 stem_text=stem,
-                options=opts,
+                options=dict(opts),
                 correct_key=key,
                 topic_code="microeconomics",
             )
@@ -197,21 +187,37 @@ def build_ca_pools(*, per_paper: int = 50) -> SyntheticPools:
     )
 
 
+_READING_BANK = (
+    ("If all A are B and all B are C, are all A necessarily C?", "Yes"),
+    ("No mammals are plants. A whale is a mammal. Is a whale a plant?", "No"),
+    ("If it rains, the ground is wet. The ground is wet. Did it rain?", "Cannot say"),
+    ("Every student passed. Maria is a student. Did Maria pass?", "Yes"),
+    ("Some birds cannot fly. Penguins are birds. Can all penguins fly?", "No"),
+    ("If x>5 then x>2. x=6. Is x>2?", "Yes"),
+    ("All squares are rectangles. Is every rectangle a square?", "No"),
+    ("If today is Monday, tomorrow is Tuesday. Today is Monday. Tomorrow?", "Tuesday"),
+    ("No cats are dogs. Felix is a cat. Is Felix a dog?", "No"),
+    ("Either A or B. Not B. Therefore?", "A"),
+)
+
+_LOGIC_BANK = (
+    ("If P implies Q and P is true, is Q true?", "Yes"),
+    ("If P implies Q and Q is false, is P false?", "Yes"),
+    ("Contrapositive of 'if P then Q' is equivalent?", "Yes"),
+    ("If all A are B, is 'some B are A' always true?", "Sometimes"),
+    ("De Morgan: not (P and Q) equals?", "not P or not Q"),
+    ("Is 'if P then Q' equivalent to 'not P or Q'?", "Yes"),
+    ("If P and Q, is P true?", "Yes"),
+    ("Exclusive or: exactly one of P,Q is true. P true Q false?", "True"),
+    ("If no A are B, can some A be B?", "Never"),
+    ("Modus tollens: if P then Q, not Q, conclude?", "not P"),
+)
+
+
 def _imat_section_item(section: str, idx: int) -> QuestionRef:
     if section == "biology":
-        stem = (
-            f"IMAT_BIO: Which organelle is primarily responsible for "
-            f"cellular respiration? ({idx})"
-        )
-        options = {
-            "A": "mitochondrion",
-            "B": "nucleus",
-            "C": "ribosome",
-            "D": "golgi apparatus",
-            "E": "centriole",
-        }
-        correct = "A"
-        topic = "biology_cell"
+        body, options, correct, topic = IMAT_BIOLOGY_BANK[idx % len(IMAT_BIOLOGY_BANK)]
+        stem = f"IMAT_BIO: {body}"
     elif section == "math":
         val = 3 + 7 * 2 + idx
         stem = f"IMAT_MATH: Evaluate 3 + 7 * 2 + {idx}"
@@ -220,37 +226,35 @@ def _imat_section_item(section: str, idx: int) -> QuestionRef:
         correct = "B"
         topic = "arithmetic"
     elif section == "reading":
-        stem = f"IMAT_READ: If all A are B and all B are C, are all A necessarily C? ({idx})"
+        body, ans = _READING_BANK[idx % len(_READING_BANK)]
+        stem = f"IMAT_READ: {body}"
         options = {
-            "A": "Yes",
-            "B": "No",
-            "C": "Only if B=C",
-            "D": "Cannot say",
-            "E": "Only sometimes",
+            "A": ans,
+            "B": "Maybe",
+            "C": "Never",
+            "D": "Uncertain",
+            "E": "Unknown",
         }
         correct = "A"
         topic = "reading"
     elif section == "logic":
-        stem = f"IMAT_LOGIC: If all A are B and all B are C, are all A necessarily C? ({idx})"
+        body, ans = _LOGIC_BANK[idx % len(_LOGIC_BANK)]
+        stem = f"IMAT_LOGIC: {body}"
         options = {
-            "A": "Yes",
+            "A": ans,
             "B": "No",
-            "C": "Only if B=C",
-            "D": "Cannot say",
+            "C": "Unknown",
+            "D": "Only if B=C",
             "E": "Only sometimes",
         }
         correct = "A"
         topic = "logic"
     elif section == "chemistry":
-        stem = f"IMAT_CHEMISTRY: What is the chemical formula of water? ({idx})"
-        options = {"A": "H2O", "B": "CO2", "C": "NaCl", "D": "O2", "E": "CH4"}
-        correct = "A"
-        topic = "chemistry"
+        body, options, correct, topic = IMAT_CHEMISTRY_BANK[idx % len(IMAT_CHEMISTRY_BANK)]
+        stem = f"IMAT_CHEMISTRY: {body}"
     elif section == "physics":
-        stem = f"IMAT_PHYSICS: What is the SI unit of force? ({idx})"
-        options = {"A": "newton", "B": "joule", "C": "watt", "D": "pascal", "E": "ampere"}
-        correct = "A"
-        topic = "physics"
+        body, options, correct, topic = IMAT_PHYSICS_BANK[idx % len(IMAT_PHYSICS_BANK)]
+        stem = f"IMAT_PHYSICS: {body}"
     else:
         stem = f"IMAT_{section.upper()}: Concept check {idx}"
         options = {
@@ -281,7 +285,8 @@ def build_imat_pool() -> tuple[QuestionRef, ...]:
     return tuple(items)
 
 
-def _eapcet_section_item(stream: str, section: str, idx: int) -> QuestionRef:
+def _eapcet_section_item(stream: str, section: str, local: int, global_idx: int) -> QuestionRef:
+    idx = local
     if section == "mathematics":
         root_sum = 5 + idx
         stem = f"EAP_MAT: For x^2 - {root_sum}x + {6 + idx} = 0, what is the sum of the roots?"
@@ -294,23 +299,56 @@ def _eapcet_section_item(stream: str, section: str, idx: int) -> QuestionRef:
         correct = "B"
         topic = "algebra"
     elif section == "physics":
-        stem = f"EAP_PHY: What is the SI unit of force? ({idx})"
-        options = {"A": "joule", "B": "newton", "C": "watt", "D": "pascal"}
+        mass = 2 + local
+        weight = mass * 10
+        stem = f"EAP_PHY: A {mass} kg block on Earth (g=10 m/s^2). Weight in newtons?"
+        options = {
+            "A": str(weight - 5),
+            "B": str(weight),
+            "C": str(weight + 3),
+            "D": str(weight + 7),
+        }
         correct = "B"
         topic = "mechanics"
     elif section == "chemistry":
-        stem = f"EAP_CHEM: Which particle carries negative charge? ({idx})"
-        options = {"A": "electron", "B": "proton", "C": "neutron", "D": "positron"}
+        atomic_num = 3 + local
+        elements = (
+            "lithium",
+            "beryllium",
+            "boron",
+            "carbon",
+            "nitrogen",
+            "oxygen",
+            "fluorine",
+            "neon",
+            "sodium",
+            "magnesium",
+        )
+        ans_text = elements[local % len(elements)]
+        stem = f"EAP_CHEM: Element with atomic number {atomic_num} matches which name?"
+        options = {"A": ans_text, "B": "helium", "C": "argon", "D": "krypton"}
         correct = "A"
         topic = "chemistry"
     elif section == "botany":
-        stem = f"EAP_BOT: Photosynthesis occurs primarily in which plant organelle? ({idx})"
-        options = {"A": "chloroplast", "B": "mitochondrion", "C": "nucleus", "D": "vacuole"}
+        tissues = ("parenchyma", "collenchyma", "sclerenchyma", "xylem")
+        ans = tissues[local % len(tissues)]
+        stem = (
+            f"EAP_BOT: In plant specimen {local + 1}, which tissue best matches "
+            f"specialized food-storage parenchyma?"
+        )
+        options = {"A": ans, "B": "ribosome", "C": "centriole", "D": "nucleolus"}
         correct = "A"
         topic = "botany"
     elif section == "zoology":
-        stem = f"EAP_ZOO: Which blood cells are primary oxygen carriers? ({idx})"
-        options = {"A": "erythrocytes", "B": "platelets", "C": "neutrophils", "D": "lymphocytes"}
+        prompts = (
+            ("blood filtration", "kidney"),
+            ("gas exchange", "lung"),
+            ("bile secretion", "liver"),
+            ("systemic circulation pump", "heart"),
+        )
+        role, ans = prompts[local % len(prompts)]
+        stem = f"EAP_ZOO: Sample {local + 1}: primary organ for {role}?"
+        options = {"A": ans, "B": "spleen", "C": "pancreas", "D": "thyroid"}
         correct = "A"
         topic = "zoology"
     else:
@@ -319,7 +357,7 @@ def _eapcet_section_item(stream: str, section: str, idx: int) -> QuestionRef:
         correct = "A"
         topic = section
     return _mcq(
-        qid=f"eapcet_{stream}_{section}_{idx:04d}",
+        qid=f"eapcet_{stream}_{section}_{global_idx:04d}",
         paper_or_section=section,
         stem_text=stem,
         options=options,
@@ -336,11 +374,11 @@ def build_eapcet_pool(*, stream: str) -> tuple[QuestionRef, ...]:
 
         sections = EAPCET_AP_SECTIONS_REFERENCE
     items: list[QuestionRef] = []
-    idx = 0
+    global_idx = 0
     for section, count in sections.items():
-        for _ in range(count):
-            items.append(_eapcet_section_item(stream, section, idx))
-            idx += 1
+        for local in range(count):
+            items.append(_eapcet_section_item(stream, section, local, global_idx))
+            global_idx += 1
     return tuple(items)
 
 
@@ -350,8 +388,9 @@ def filter_pool(
     paper_or_section: str,
     topic_code: str | None,
 ) -> tuple[QuestionRef, ...]:
+    out = pool
+    if paper_or_section and paper_or_section not in ("full_paper", ""):
+        out = tuple(q for q in out if q.paper_or_section == paper_or_section)
     if topic_code:
-        return tuple(q for q in pool if q.topic_code == topic_code)
-    if paper_or_section not in ("full_paper", ""):
-        return tuple(q for q in pool if q.paper_or_section == paper_or_section)
-    return pool
+        out = tuple(q for q in out if q.topic_code == topic_code)
+    return out

@@ -34,6 +34,7 @@ from app.ca_imat_eapcet.scope_guard import (
     validate_eapcet_pack,
     validate_imat_pack,
 )
+from app.ca_imat_eapcet.semantic_dedup import semantic_stem_key
 from app.ca_imat_eapcet.synthetic_fixtures import (
     build_ca_pools,
     build_eapcet_pool,
@@ -220,16 +221,19 @@ class Day14PracticeService:
         validated: list[QuestionRef] = []
         item_verdicts: list[PlanVerdict] = []
         seen_fp: set[str] = set()
+        seen_semantic: set[str] = set()
         opt_n = _options_required(request.exam_pack_code)
         for q in raw:
             bound, v, v_issues = validate_and_bind_question_ref(q, options_required=opt_n)
             issues.extend(v_issues)
             item_verdicts.append(v)
             if v is PlanVerdict.PASS:
-                if bound.fingerprint in seen_fp:
+                sem = semantic_stem_key(bound.stem_text or "")
+                if bound.fingerprint in seen_fp or sem in seen_semantic:
                     issues.append(IssueCode.DUPLICATE_QUESTION)
                 else:
                     seen_fp.add(bound.fingerprint)
+                    seen_semantic.add(sem)
                     validated.append(bound)
 
         validated_count = len(validated)

@@ -35,7 +35,9 @@ _PROFILE_TRUST: dict[tuple[str, Day14ProfileKind], frozenset[Day14SourceTrustMod
 
 
 def validate_requested_count(count: int) -> list[IssueCode]:
-    if not isinstance(count, int) or count < 1 or count > MAX_ALLOCATE_COUNT:
+    if isinstance(count, bool) or not isinstance(count, int):
+        return [IssueCode.INVALID_REQUEST_COUNT]
+    if count < 1 or count > MAX_ALLOCATE_COUNT:
         return [IssueCode.INVALID_REQUEST_COUNT]
     return []
 

@@ -38,7 +38,7 @@ def ensure_day14_exam_packs(session: Session) -> tuple[ExamPack, ExamPack, ExamP
             IMAT_PACK_CODE,
             "IMAT",
             IMAT_AUTHORITY,
-            {"examination_family": "imat", "question_count": IMAT_TOTAL_QUESTIONS, "country": "IT"},
+            {"examination_family": "imat", "question_count": IMAT_TOTAL_QUESTIONS, "country": "IN"},
         ),
         (
             EAPCET_PACK_CODE,
@@ -49,7 +49,7 @@ def ensure_day14_exam_packs(session: Session) -> tuple[ExamPack, ExamPack, ExamP
     ):
         pack = session.scalar(select(ExamPack).where(ExamPack.code == code))
         if pack is None:
-            country = "IT" if code == IMAT_PACK_CODE else "IN"
+            country = "IN"
             pack = ExamPack(
                 code=code,
                 name=name,

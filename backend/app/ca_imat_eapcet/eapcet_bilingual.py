@@ -45,9 +45,12 @@ def evaluate_bilingual_pair(
             verdict=PlanVerdict.REVIEW_REQUIRED,
             issue_codes=(IssueCode.EAPCET_BILINGUAL_MISMATCH,),
         )
-    if not equivalence_evidence_id:
+    if not equivalence_evidence_id or not equivalence_evidence_id.strip():
         return BilingualVerdict(
             verdict=PlanVerdict.REVIEW_REQUIRED,
             issue_codes=(IssueCode.EAPCET_BILINGUAL_MISMATCH,),
         )
-    return BilingualVerdict(verdict=PlanVerdict.PASS, issue_codes=())
+    return BilingualVerdict(
+        verdict=PlanVerdict.REVIEW_REQUIRED,
+        issue_codes=(IssueCode.EAPCET_BILINGUAL_MISMATCH,),
+    )
