@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, String, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -25,6 +25,24 @@ class D13ReplayReservation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "academic_year",
             "idempotency_key_hash",
             name="uq_d13_replay_reservation_scope_key",
+        ),
+        CheckConstraint("length(request_fingerprint) = 64", name="ck_d13_replay_fp_sha256"),
+        CheckConstraint("length(idempotency_key_hash) = 64", name="ck_d13_replay_key_hash_sha256"),
+        CheckConstraint(
+            "reservation_state in ('reserved', 'in_progress', 'replayed')",
+            name="ck_d13_replay_state_valid",
+        ),
+        CheckConstraint(
+            "reservation_state not in ('reserved', 'in_progress') "
+            "OR (result_json IS NULL AND payload_sha256 IS NULL "
+            "AND result_snapshot_version IS NULL)",
+            name="ck_d13_replay_pending_no_payload",
+        ),
+        CheckConstraint(
+            "reservation_state != 'replayed' "
+            "OR (owner_token IS NULL AND payload_sha256 IS NOT NULL "
+            "AND result_json IS NOT NULL AND result_snapshot_version IS NOT NULL)",
+            name="ck_d13_replay_replayed_requires_payload",
         ),
     )
 

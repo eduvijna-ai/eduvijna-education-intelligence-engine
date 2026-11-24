@@ -21,11 +21,13 @@ from app.cuet_clat.durable_replay_envelope import (
     D13ReservationState,
     abort_reservation,
     build_request_fingerprint,
+    confirmed_read_after_commit,
     hash_idempotency_key,
     payload_checksum,
     publish_replay_result,
     read_replay_result,
     reserve_replay_slot,
+    transition_to_in_progress,
 )
 from app.cuet_clat.exam_profile import ensure_synthetic_demo_versions
 from app.db.session import enable_sqlite_foreign_keys
@@ -94,10 +96,66 @@ def _cuet_scope(
     )
 
 
+def _blueprint(extra: str = "v1") -> dict[str, object]:
+    return {"prefix": BLUEPRINT_PREFIX, "demo": extra}
+
+
 def _fingerprint(scope: D13ReplayScope, *, extra: str = "v1") -> str:
-    return build_request_fingerprint(
+    return build_request_fingerprint(scope, blueprint_snapshot=_blueprint(extra))
+
+
+def _reserve(
+    session: Session,
+    scope: D13ReplayScope,
+    key: str,
+    *,
+    extra: str = "v1",
+    **kwargs: object,
+) -> object:
+    return reserve_replay_slot(
+        session,
         scope,
-        blueprint_snapshot={"prefix": BLUEPRINT_PREFIX, "demo": extra},
+        idempotency_key=key,
+        blueprint_snapshot=_blueprint(extra),
+        **kwargs,
+    )
+
+
+def _publish(
+    session: Session,
+    scope: D13ReplayScope,
+    key: str,
+    owner_token: str,
+    result_payload: dict[str, object],
+    *,
+    extra: str = "v1",
+    **kwargs: object,
+) -> object:
+    return publish_replay_result(
+        session,
+        scope,
+        idempotency_key=key,
+        blueprint_snapshot=_blueprint(extra),
+        owner_token=owner_token,
+        result_payload=result_payload,
+        **kwargs,
+    )
+
+
+def _read(
+    session: Session,
+    scope: D13ReplayScope,
+    key: str,
+    *,
+    extra: str = "v1",
+    **kwargs: object,
+) -> object:
+    return read_replay_result(
+        session,
+        scope,
+        idempotency_key=key,
+        blueprint_snapshot=_blueprint(extra),
+        **kwargs,
     )
 
 
@@ -128,28 +186,20 @@ def test_replay_after_session_reopen(replay_db: tuple[Path, sessionmaker[Session
     key = "clat-replay-a"
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        claim = reserve_replay_slot(session, scope, idempotency_key=key, request_fingerprint=fp)
+        _fingerprint(scope)
+        claim = _reserve(session, scope, key)
         assert claim.state == D13ReservationState.RESERVED
         assert claim.owner_token
         reservation_id = claim.reservation_id
         payload = _synthetic_result("seed-1")
-        published = publish_replay_result(
-            session,
-            scope,
-            idempotency_key=key,
-            request_fingerprint=fp,
-            owner_token=claim.owner_token,
-            result_payload=payload,
-        )
+        published = _publish(session, scope, key, claim.owner_token or "", payload)
         session.commit()
     assert published.state == D13ReservationState.REPLAYED
     assert published.payload_sha256 == payload_checksum(published.result_payload or {})
 
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        replay = read_replay_result(session, scope, idempotency_key=key, request_fingerprint=fp)
+        replay = _read(session, scope, key)
         assert replay.state == D13ReservationState.REPLAYED
         assert replay.reservation_id == reservation_id
         assert replay.payload_sha256 == published.payload_sha256
@@ -162,22 +212,17 @@ def test_in_progress_before_complete_conflict_after(
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        first = reserve_replay_slot(session, scope, idempotency_key="k-ip", request_fingerprint=fp)
-        second = reserve_replay_slot(session, scope, idempotency_key="k-ip", request_fingerprint=fp)
+        _fingerprint(scope)
+        first = _reserve(session, scope, "k-ip")
+        second = _reserve(session, scope, "k-ip")
         session.commit()
     assert first.state == D13ReservationState.RESERVED
     assert second.state == D13ReservationState.IN_PROGRESS
 
     with factory() as session:
         scope = _clat_scope(session)
-        fp2 = _fingerprint(scope, extra="v2")
-        conflict = reserve_replay_slot(
-            session,
-            scope,
-            idempotency_key="k-ip",
-            request_fingerprint=fp2,
-        )
+        _fingerprint(scope, extra="v2")
+        conflict = _reserve(session, scope, "k-ip", extra="v2")
         assert conflict.state == D13ReservationState.CONFLICT
 
 
@@ -186,22 +231,15 @@ def test_foreign_tenant_no_replay(replay_db: tuple[Path, sessionmaker[Session]])
     key = "tenant-iso"
     with factory() as session:
         scope_a = _clat_scope(session, org="org-a", inst="inst-a")
-        fp = _fingerprint(scope_a)
-        claim = reserve_replay_slot(session, scope_a, idempotency_key=key, request_fingerprint=fp)
-        publish_replay_result(
-            session,
-            scope_a,
-            idempotency_key=key,
-            request_fingerprint=fp,
-            owner_token=claim.owner_token or "",
-            result_payload=_synthetic_result("t1"),
-        )
+        _fingerprint(scope_a)
+        claim = _reserve(session, scope_a, key)
+        _publish(session, scope_a, key, claim.owner_token or "", _synthetic_result("t1"))
         session.commit()
 
     with factory() as session:
         scope_b = _clat_scope(session, org="org-b", inst="inst-b")
-        fp_b = _fingerprint(scope_b)
-        miss = read_replay_result(session, scope_b, idempotency_key=key, request_fingerprint=fp_b)
+        _fingerprint(scope_b)
+        miss = _read(session, scope_b, key)
         assert miss.state == D13ReservationState.NOT_READY
 
 
@@ -210,9 +248,9 @@ def test_cross_pack_rejected(replay_db: tuple[Path, sessionmaker[Session]]) -> N
     with factory() as session:
         clat_scope = _clat_scope(session)
         _cuet_scope(session)
-        fp_clat = _fingerprint(clat_scope)
+        _fingerprint(clat_scope)
         key = "cross-pack"
-        reserve_replay_slot(session, clat_scope, idempotency_key=key, request_fingerprint=fp_clat)
+        _reserve(session, clat_scope, key)
         session.commit()
         wrong_scope = D13ReplayScope(
             organization_id=clat_scope.organization_id,
@@ -221,12 +259,7 @@ def test_cross_pack_rejected(replay_db: tuple[Path, sessionmaker[Session]]) -> N
             exam_version_id=clat_scope.exam_version_id,
             academic_year=clat_scope.academic_year,
         )
-        outcome = read_replay_result(
-            session,
-            wrong_scope,
-            idempotency_key=key,
-            request_fingerprint=fp_clat,
-        )
+        outcome = _read(session, wrong_scope, key)
         assert outcome.state == D13ReservationState.NOT_READY
 
 
@@ -234,7 +267,7 @@ def test_thread_race_single_reservation(replay_db: tuple[Path, sessionmaker[Sess
     _, factory = replay_db
     with factory() as session:
         race_scope = _clat_scope(session)
-        race_fp = _fingerprint(race_scope, extra="race")
+        _fingerprint(race_scope, extra="race")
     barrier = threading.Barrier(2)
     results: list[D13ReservationState] = []
     owners: list[str | None] = []
@@ -243,12 +276,7 @@ def test_thread_race_single_reservation(replay_db: tuple[Path, sessionmaker[Sess
     def worker() -> None:
         with factory() as session:
             barrier.wait()
-            outcome = reserve_replay_slot(
-                session,
-                race_scope,
-                idempotency_key="race-key",
-                request_fingerprint=race_fp,
-            )
+            outcome = _reserve(session, race_scope, "race-key", extra="race")
             session.commit()
             with lock:
                 results.append(outcome.state)
@@ -291,16 +319,11 @@ def _process_reserve(db_path: str, result_queue: mp.Queue[str]) -> None:
             exam_version_id=clat_ver.id,
             academic_year="2027",
         )
-        fp = build_request_fingerprint(
+        build_request_fingerprint(
             scope,
             blueprint_snapshot={"prefix": BLUEPRINT_PREFIX, "demo": "mp"},
         )
-        outcome = reserve_replay_slot(
-            session,
-            scope,
-            idempotency_key="mp-race",
-            request_fingerprint=fp,
-        )
+        outcome = _reserve(session, scope, "mp-race", extra="mp")
         session.commit()
         result_queue.put(outcome.state.value)
 
@@ -326,17 +349,10 @@ def test_owner_mismatch_on_publish(replay_db: tuple[Path, sessionmaker[Session]]
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        reserve_replay_slot(session, scope, idempotency_key="owner", request_fingerprint=fp)
+        _fingerprint(scope)
+        _reserve(session, scope, "owner")
         session.commit()
-        bad = publish_replay_result(
-            session,
-            scope,
-            idempotency_key="owner",
-            request_fingerprint=fp,
-            owner_token="wrong-owner",
-            result_payload=_synthetic_result("x"),
-        )
+        bad = _publish(session, scope, "owner", "wrong-owner", _synthetic_result("x"))
         session.commit()
     assert bad.state == D13ReservationState.CONFLICT
     assert D13ReplayIssueCode.PUBLISH_NOT_OWNER in bad.issue_codes
@@ -348,26 +364,18 @@ def test_publish_after_complete_different_payload_conflict(
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        claim = reserve_replay_slot(session, scope, idempotency_key="done", request_fingerprint=fp)
-        publish_replay_result(
-            session,
-            scope,
-            idempotency_key="done",
-            request_fingerprint=fp,
-            owner_token=claim.owner_token or "",
-            result_payload=_synthetic_result("first"),
-        )
+        _fingerprint(scope)
+        claim = _reserve(session, scope, "done")
+        _publish(session, scope, "done", claim.owner_token or "", _synthetic_result("first"))
         session.commit()
-        replay = read_replay_result(session, scope, idempotency_key="done", request_fingerprint=fp)
+        replay = _read(session, scope, "done")
         assert replay.state == D13ReservationState.REPLAYED
-        second = publish_replay_result(
+        second = _publish(
             session,
             scope,
-            idempotency_key="done",
-            request_fingerprint=fp,
-            owner_token=claim.owner_token or "",
-            result_payload=_synthetic_result("second"),
+            "done",
+            claim.owner_token or "",
+            _synthetic_result("second"),
         )
         session.commit()
     assert second.state == D13ReservationState.CONFLICT
@@ -377,33 +385,16 @@ def test_corrupt_checksum_replay(replay_db: tuple[Path, sessionmaker[Session]]) 
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        claim = reserve_replay_slot(
-            session,
-            scope,
-            idempotency_key="corrupt",
-            request_fingerprint=fp,
-        )
-        publish_replay_result(
-            session,
-            scope,
-            idempotency_key="corrupt",
-            request_fingerprint=fp,
-            owner_token=claim.owner_token or "",
-            result_payload=_synthetic_result("c"),
-        )
+        _fingerprint(scope)
+        claim = _reserve(session, scope, "corrupt")
+        _publish(session, scope, "corrupt", claim.owner_token or "", _synthetic_result("c"))
         row = session.scalar(
             select(D13ReplayReservation).where(D13ReplayReservation.id == claim.reservation_id)
         )
         assert row is not None
         row.payload_sha256 = "0" * 64
         session.commit()
-        replay = read_replay_result(
-            session,
-            scope,
-            idempotency_key="corrupt",
-            request_fingerprint=fp,
-        )
+        replay = _read(session, scope, "corrupt")
         assert replay.state == D13ReservationState.CORRUPT
         assert replay.result_payload is None
 
@@ -414,21 +405,14 @@ def test_caller_mutation_does_not_corrupt_store(
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        claim = reserve_replay_slot(session, scope, idempotency_key="mut", request_fingerprint=fp)
+        _fingerprint(scope)
+        claim = _reserve(session, scope, "mut")
         payload = _synthetic_result("mut")
-        published = publish_replay_result(
-            session,
-            scope,
-            idempotency_key="mut",
-            request_fingerprint=fp,
-            owner_token=claim.owner_token or "",
-            result_payload=payload,
-        )
+        published = _publish(session, scope, "mut", claim.owner_token or "", payload)
         session.commit()
         assert published.result_payload is not None
         published.result_payload["synthetic_demo_checksum"] = "tampered"
-        replay = read_replay_result(session, scope, idempotency_key="mut", request_fingerprint=fp)
+        replay = _read(session, scope, "mut")
         assert replay.result_payload is not None
         assert replay.result_payload["synthetic_demo_checksum"] == "mut"
 
@@ -437,8 +421,8 @@ def test_blank_key_and_missing_tenant(replay_db: tuple[Path, sessionmaker[Sessio
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        blank = reserve_replay_slot(session, scope, idempotency_key="  ", request_fingerprint=fp)
+        _fingerprint(scope)
+        blank = _reserve(session, scope, "  ")
         assert blank.state == D13ReservationState.NOT_READY
         bad_scope = D13ReplayScope(
             organization_id="",
@@ -447,12 +431,7 @@ def test_blank_key_and_missing_tenant(replay_db: tuple[Path, sessionmaker[Sessio
             exam_version_id=scope.exam_version_id,
             academic_year="2027",
         )
-        tenant = reserve_replay_slot(
-            session,
-            bad_scope,
-            idempotency_key="k",
-            request_fingerprint=fp,
-        )
+        tenant = _reserve(session, bad_scope, "k")
         assert tenant.state == D13ReservationState.NOT_READY
         assert D13ReplayIssueCode.MISSING_TENANT in tenant.issue_codes
 
@@ -461,14 +440,14 @@ def test_abort_only_owner(replay_db: tuple[Path, sessionmaker[Session]]) -> None
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        claim = reserve_replay_slot(session, scope, idempotency_key="abort", request_fingerprint=fp)
+        _fingerprint(scope)
+        claim = _reserve(session, scope, "abort")
         session.commit()
         wrong = abort_reservation(
             session,
             scope,
             idempotency_key="abort",
-            request_fingerprint=fp,
+            blueprint_snapshot=_blueprint(),
             owner_token="not-mine",
         )
         assert wrong.state == D13ReservationState.CONFLICT
@@ -476,12 +455,12 @@ def test_abort_only_owner(replay_db: tuple[Path, sessionmaker[Session]]) -> None
             session,
             scope,
             idempotency_key="abort",
-            request_fingerprint=fp,
+            blueprint_snapshot=_blueprint(),
             owner_token=claim.owner_token or "",
         )
         session.commit()
         assert ok.state == D13ReservationState.NOT_READY
-        again = read_replay_result(session, scope, idempotency_key="abort", request_fingerprint=fp)
+        again = _read(session, scope, "abort")
         assert again.state == D13ReservationState.NOT_READY
 
 
@@ -501,16 +480,204 @@ def test_result_always_tagged_synthetic(replay_db: tuple[Path, sessionmaker[Sess
     _, factory = replay_db
     with factory() as session:
         scope = _clat_scope(session)
-        fp = _fingerprint(scope)
-        claim = reserve_replay_slot(session, scope, idempotency_key="tag", request_fingerprint=fp)
-        published = publish_replay_result(
+        _fingerprint(scope)
+        claim = _reserve(session, scope, "tag")
+        published = _publish(
             session,
             scope,
-            idempotency_key="tag",
-            request_fingerprint=fp,
-            owner_token=claim.owner_token or "",
-            result_payload={"checksum": "z"},
+            "tag",
+            claim.owner_token or "",
+            _synthetic_result("z"),
         )
         session.commit()
         assert published.result_payload is not None
         assert published.result_payload[D13_SYNTHETIC_TEST_ONLY_KEY] is True
+
+
+def test_replay_after_engine_dispose(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    db_file, factory = replay_db
+    key = "engine-dispose"
+    reservation_id: str | None = None
+    published_checksum: str | None = None
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, key)
+        reservation_id = claim.reservation_id
+        published = _publish(
+            session,
+            scope,
+            key,
+            claim.owner_token or "",
+            _synthetic_result("dispose"),
+        )
+        session.commit()
+        published_checksum = published.payload_sha256
+    bind = factory.kw["bind"]
+    assert bind is not None
+    bind.dispose()
+    new_engine = create_engine(
+        f"sqlite:///{db_file}",
+        connect_args={"check_same_thread": False},
+    )
+    enable_sqlite_foreign_keys(new_engine)
+    new_factory = sessionmaker(bind=new_engine, autoflush=False, expire_on_commit=False)
+    with new_factory() as session:
+        scope = _clat_scope(session)
+        replay = confirmed_read_after_commit(
+            session,
+            scope,
+            idempotency_key=key,
+            blueprint_snapshot=_blueprint(),
+        )
+        assert replay.state == D13ReservationState.REPLAYED
+        assert replay.reservation_id == reservation_id
+        assert replay.payload_sha256 == published_checksum
+
+
+def test_asserted_fingerprint_mismatch(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        forged = "f" * 64
+        bad = _reserve(session, scope, "forge", asserted_fingerprint=forged)
+        assert bad.state == D13ReservationState.CONFLICT
+        assert D13ReplayIssueCode.FINGERPRINT_ASSERTED_MISMATCH in bad.issue_codes
+
+
+def test_blueprint_change_not_hidden_by_stale_hash(
+    replay_db: tuple[Path, sessionmaker[Session]],
+) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "bp", extra="b1")
+        session.commit()
+        conflict = _read(session, scope, "bp", extra="b2")
+        assert conflict.state == D13ReservationState.CONFLICT
+        assert claim.request_fingerprint == _fingerprint(scope, extra="b1")
+        assert claim.request_fingerprint != _fingerprint(scope, extra="b2")
+
+
+def test_forbidden_result_schema(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "forbid")
+        bad = _publish(
+            session,
+            scope,
+            "forbid",
+            claim.owner_token or "",
+            {
+                "synthetic_demo_checksum": "x",
+                "opaque_plan_ref": "p",
+                "question_text": "leak",
+            },
+        )
+        assert bad.state == D13ReservationState.NOT_READY
+        assert D13ReplayIssueCode.RESULT_SCHEMA_VIOLATION in bad.issue_codes
+
+
+def test_exam_year_mismatch_on_scope(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        wrong_year = D13ReplayScope(
+            organization_id=scope.organization_id,
+            institution_id=scope.institution_id,
+            exam_pack_code=scope.exam_pack_code,
+            exam_version_id=scope.exam_version_id,
+            academic_year="2026",
+        )
+        outcome = _reserve(session, wrong_year, "year-bad")
+        assert outcome.state == D13ReservationState.NOT_READY
+        assert D13ReplayIssueCode.EXAM_YEAR_MISMATCH in outcome.issue_codes
+
+
+def test_pending_row_with_null_owner_is_corrupt(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    db_file, factory = replay_db
+    row_id: str | None = None
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "pending-corrupt")
+        row_id = claim.reservation_id
+        session.commit()
+    with sqlite3.connect(db_file) as connection:
+        connection.execute(
+            "UPDATE d13_replay_reservations SET owner_token = NULL WHERE id = ?",
+            (row_id,),
+        )
+        connection.commit()
+    with factory() as session:
+        scope = _clat_scope(session)
+        replay = _read(session, scope, "pending-corrupt")
+        assert replay.state == D13ReservationState.CORRUPT
+        assert replay.result_payload is None
+
+
+def test_concurrent_publish_single_winner(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "pub-race")
+        owner = claim.owner_token or ""
+        session.commit()
+    barrier = threading.Barrier(2)
+    outcomes: list[D13ReservationState] = []
+    lock = threading.Lock()
+
+    def worker(seed: str) -> None:
+        with factory() as session:
+            scope = _clat_scope(session)
+            barrier.wait()
+            outcome = _publish(session, scope, "pub-race", owner, _synthetic_result(seed))
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+            with lock:
+                outcomes.append(outcome.state)
+
+    t1 = threading.Thread(target=worker, args=("a",))
+    t2 = threading.Thread(target=worker, args=("b",))
+    t1.start()
+    t2.start()
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+    assert outcomes.count(D13ReservationState.REPLAYED) == 1
+    assert D13ReservationState.CONFLICT in outcomes
+
+    with factory() as session:
+        scope = _clat_scope(session)
+        replay = _read(session, scope, "pub-race")
+        assert replay.state == D13ReservationState.REPLAYED
+        assert replay.result_payload is not None
+
+
+def test_abort_vs_publish_cas(replay_db: tuple[Path, sessionmaker[Session]]) -> None:
+    _, factory = replay_db
+    with factory() as session:
+        scope = _clat_scope(session)
+        claim = _reserve(session, scope, "abort-pub")
+        owner = claim.owner_token or ""
+        transition_to_in_progress(
+            session,
+            scope,
+            idempotency_key="abort-pub",
+            blueprint_snapshot=_blueprint(),
+            owner_token=owner,
+        )
+        session.commit()
+    with factory() as session:
+        scope = _clat_scope(session)
+        aborted = abort_reservation(
+            session,
+            scope,
+            idempotency_key="abort-pub",
+            blueprint_snapshot=_blueprint(),
+            owner_token=owner,
+        )
+        session.commit()
+        assert aborted.state == D13ReservationState.NOT_READY
+        blocked = _publish(session, scope, "abort-pub", owner, _synthetic_result("late"))
+        assert blocked.state == D13ReservationState.NOT_READY
