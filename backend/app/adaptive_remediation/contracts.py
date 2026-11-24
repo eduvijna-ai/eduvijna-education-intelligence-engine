@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.adaptive_remediation.enums import (
     AdaptationDecision,
@@ -101,6 +101,23 @@ class ProductionRemediationGate(BaseModel):
     learner_record_touched: bool = False
     verdict: RemediationVerdict = RemediationVerdict.NOT_READY
     reason_codes: tuple[str, ...] = ("D16_PRODUCTION_DISABLED",)
+
+    @model_validator(mode="after")
+    def enforce_output_only_containment(self) -> ProductionRemediationGate:
+        if self.production_ready or self.actionable or self.learner_record_touched:
+            raise ValueError("production_gate_elevation_forbidden")
+        if self.persisted_plan_id is not None:
+            raise ValueError("production_gate_persistence_forbidden")
+        if any(
+            c > 0
+            for c in (
+                self.delivered_question_count,
+                self.validated_question_count,
+                self.scheduled_event_count,
+            )
+        ):
+            raise ValueError("production_gate_nonzero_delivery_forbidden")
+        return self
 
 
 class PracticeStageBlueprint(BaseModel):

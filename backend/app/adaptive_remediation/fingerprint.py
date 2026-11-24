@@ -5,31 +5,58 @@ from __future__ import annotations
 import hashlib
 import json
 
-from app.adaptive_remediation.contracts import AdaptiveRemediationPlan, AdaptiveRemediationRequest
+from app.adaptive_remediation.contracts import (
+    AdaptiveRemediationPlan,
+    EvidenceObservation,
+    LearnerHistoryRef,
+    PracticeStageBlueprint,
+    TeacherPolicyOverride,
+)
 
 
 def _canonical_json(payload: object) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def plan_fingerprint(request: AdaptiveRemediationRequest, *, policy_version: str) -> str:
+def internal_plan_fingerprint(
+    *,
+    graph_checksum: str,
+    catalogue_version: str,
+    policy_version: str,
+    observations: tuple[EvidenceObservation, ...],
+    history: LearnerHistoryRef | None,
+    requested_count: int,
+    as_of: str,
+    teacher_override: TeacherPolicyOverride | None,
+    stages: tuple[PracticeStageBlueprint, ...],
+    targets_codes: tuple[str, ...],
+) -> str:
     body = {
-        "request_id": request.request_id,
-        "curriculum": request.curriculum_scope.model_dump(mode="json"),
-        "exam": request.exam_scope.model_dump(mode="json") if request.exam_scope else None,
-        "target": request.target_concept_code,
+        "graph_checksum": graph_checksum,
+        "catalogue_version": catalogue_version,
+        "policy_version": policy_version,
+        "as_of": as_of,
+        "requested_count": requested_count,
         "observations": sorted(
-            (o.model_dump(mode="json") for o in request.observations),
+            (o.model_dump(mode="json") for o in observations),
             key=lambda x: x["observation_id"],
         ),
-        "requested_count": request.requested_question_count,
-        "as_of": request.as_of_date.isoformat(),
-        "policy_version": policy_version,
-        "history_slot": request.history.history_slot if request.history else None,
-        "preferences": request.preferences.model_dump(mode="json") if request.preferences else None,
+        "history_slot": history.history_slot if history else None,
+        "excluded_question_ids": sorted(history.excluded_question_ids if history else ()),
+        "recent_concept_codes": sorted(history.recent_concept_codes if history else ()),
+        "teacher_override": teacher_override.model_dump(mode="json") if teacher_override else None,
+        "stages": [
+            {
+                "stage": s.stage.value,
+                "planned": s.planned_count,
+                "ids": list(s.selected_synthetic_ids),
+                "concepts": list(s.concept_codes),
+            }
+            for s in stages
+        ],
+        "target_codes": list(targets_codes),
     }
-    digest = hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
-    return digest
+    return hashlib.sha256(_canonical_json(body).encode("utf-8")).hexdigest()
 
 
 def fingerprint_from_plan(plan: AdaptiveRemediationPlan) -> str:

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
+from app.adaptive_remediation.synthetic_fixture import GRAPH_ASSEMBLED_AT
 from app.prerequisite_intelligence.contracts import (
     PrerequisiteGraphEdge,
     PrerequisiteGraphNode,
@@ -86,6 +85,6 @@ def build_friction_remediation_graph() -> PrerequisiteGraphSnapshot:
         nodes=nodes,
         edges=edges,
         checksum=checksum,
-        assembled_at=datetime.now(UTC).isoformat(),
+        assembled_at=GRAPH_ASSEMBLED_AT,
         metadata_json={"fixture": "d16-friction-remediation", "actionable": False},
     )

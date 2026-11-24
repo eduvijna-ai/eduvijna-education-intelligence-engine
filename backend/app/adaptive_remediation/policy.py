@@ -18,6 +18,10 @@ POLICY_RATIONALE = (
     "Deterministic heuristic prioritization by evidence support, learning goal alignment "
     "and prerequisite dependency hints. No IRT/BKT/clinical diagnostic claims."
 )
+POLICY_LIMITATIONS = (
+    "Thresholds: SUPPORTED>=40, RECURRENT>=35, SINGLE>=20, INSUFFICIENT>=5, UNKNOWN=0 score. "
+    "Cold-start and UNKNOWN never imply mastery. Target +10, learning goal +5 tie boosts."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +63,8 @@ def rank_concept_needs(
     for concept, obs_list in sorted(by_concept.items()):
         best = max(obs_list, key=lambda o: _SUPPORT_SCORE.get(o.support_level, 0))
         score = _SUPPORT_SCORE.get(best.support_level, 0)
+        if best.support_level in (EvidenceSupportLevel.UNKNOWN, EvidenceSupportLevel.INSUFFICIENT):
+            continue
         if concept == target_concept_code:
             score += 10
         if concept in learning_goal_codes:

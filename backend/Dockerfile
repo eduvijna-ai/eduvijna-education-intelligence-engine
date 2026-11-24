@@ -18,6 +18,7 @@ COPY docs/execution/D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md ./docs/execution/D
 COPY docs/execution/D12-SCOPE-MAP.md ./docs/execution/D12-SCOPE-MAP.md
 COPY docs/execution/D13-SCOPE-MAP.md ./docs/execution/D13-SCOPE-MAP.md
 COPY docs/execution/D14-SCOPE-MAP.md ./docs/execution/D14-SCOPE-MAP.md
+COPY docs/execution/D16-SCOPE-MAP.md ./docs/execution/D16-SCOPE-MAP.md
 COPY .eduvijna/execution-state.yml ./.eduvijna/execution-state.yml
 COPY .github/workflows/ci.yml ./.github/workflows/ci.yml
 RUN pip install --no-cache-dir '.[dev]'

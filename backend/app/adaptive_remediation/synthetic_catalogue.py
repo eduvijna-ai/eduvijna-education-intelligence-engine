@@ -135,3 +135,15 @@ def select_for_stage(
     if count > len(pool):
         return tuple()
     return tuple(pool[:count])
+
+
+def stage_capacity(stage: PracticeStageKind, *, excluded_ids: frozenset[str] = frozenset()) -> int:
+    return len([q for q in _CATALOGUE if q.stage == stage and q.question_id not in excluded_ids])
+
+
+def retest_items_target_bound(target_concept_code: str) -> bool:
+    """Retest pool items must include target concept."""
+    retest_concepts = {
+        q.concept_code for q in _CATALOGUE if q.stage == PracticeStageKind.TARGET_RETEST
+    }
+    return target_concept_code in retest_concepts

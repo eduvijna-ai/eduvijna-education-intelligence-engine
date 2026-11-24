@@ -122,3 +122,4 @@ tests/test_day16_practice.py
 tests/test_day16_adaptation.py
 tests/test_day16_adversarial.py
 tests/test_day16_verify_sha.py
+tests/test_day16_trust.py

@@ -1,29 +1,32 @@
 from app.adaptive_remediation.contracts import TeacherPolicyOverride
-from app.adaptive_remediation.fingerprint import plan_fingerprint
+from app.adaptive_remediation.internal_demo import build_authoritative_synthetic_plan
 from app.adaptive_remediation.service import AdaptiveRemediationDiagnosticService
 from app.adaptive_remediation.synthetic_graph import build_friction_remediation_graph
-from app.adaptive_remediation.teacher_policy import apply_teacher_policy
+from app.adaptive_remediation.teacher_policy import TeacherPolicyApplication, apply_teacher_policy
 from app.prerequisite_intelligence.audit import build_graph_quality_report
 from app.prerequisite_intelligence.contracts import PrerequisiteGraphEdge
 from app.prerequisite_intelligence.enums import EdgeProvenanceClass
 
 
-def test_fingerprint_stable_on_replay() -> None:
-    service = AdaptiveRemediationDiagnosticService()
-    req = service.build_authoritative_demo_request()
-    fp1 = plan_fingerprint(req, policy_version="d16-adaptive-policy-v1")
-    fp2 = plan_fingerprint(req, policy_version="d16-adaptive-policy-v1")
-    assert fp1 == fp2
+def test_plan_replay_deterministic() -> None:
+    a = build_authoritative_synthetic_plan()
+    b = build_authoritative_synthetic_plan()
+    assert a.fingerprint == b.fingerprint
+    assert a.stages == b.stages
+    assert a.targets == b.targets
 
 
-def test_teacher_override_cannot_exceed_academic_max() -> None:
+def test_teacher_override_count_conflict() -> None:
     override = TeacherPolicyOverride(
         override_id="t1",
         allowed_max_count=5,
-        provenance="synthetic",
+        provenance="synthetic-contract-only",
         precedence_rank=1,
     )
-    assert apply_teacher_policy(override, academic_max_count=10) == 5
+    result = apply_teacher_policy(override, academic_max_count=10, requested_count=10)
+    assert isinstance(result, TeacherPolicyApplication)
+    assert result.accepted is False
+    assert result.reason == "OVERRIDE_COUNT_CONFLICT"
 
 
 def test_cycle_in_graph_fails_audit() -> None:
@@ -45,3 +48,9 @@ def test_cycle_in_graph_fails_audit() -> None:
     )
     report = build_graph_quality_report(bad)
     assert report.status.value in {"fail", "FAIL"}
+
+
+def test_runtime_service_matches_boundary() -> None:
+    service = AdaptiveRemediationDiagnosticService()
+    blocked = service.attempt_runtime_remediation(fake_request=object())
+    assert blocked.requested_count == 0

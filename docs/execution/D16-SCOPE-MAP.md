@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | D16-01 | Scope and dependency freeze | `governance.py`, `D16-SCOPE-MAP.md`, `test_day16_m0_governance.py` | PARTIAL | Founder exact-HEAD review pending |
 | D16-02 | Independent adaptive input contract | `contracts.py`, `test_day16_core.py` | PARTIAL | No Day15 ORM dependency |
-| D16-03 | Trust and runtime containment | `containment.py`, `production_gate.py`, `test_day16_adversarial.py` | PARTIAL | Production NOT_READY always |
+| D16-03 | Trust and runtime containment | `runtime_boundary.py`, `production_gate.py`, `test_day16_core.py`, `test_day16_trust.py` | PARTIAL | Public runtime entry rejects caller input before processing |
 | D16-04 | Synthetic fixture catalogue | `synthetic_catalogue.py`, `synthetic_graph.py`, `test_day16_core.py` | PARTIAL | Non-actionable internal only |
 | D16-05 | Evidence normalization | `evidence.py`, `test_day16_evidence.py` | PARTIAL | Cross-version/stale rejection |
 | D16-06 | Curriculum and examination scope | `contracts.py`, `test_day16_core.py` | PARTIAL | No official replica claim |
