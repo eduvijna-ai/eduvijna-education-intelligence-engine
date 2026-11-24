@@ -16,9 +16,15 @@ COPY content/curricula ./content/curricula
 COPY docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md ./docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md
 COPY docs/execution/D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md ./docs/execution/D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md
 COPY docs/execution/D12-SCOPE-MAP.md ./docs/execution/D12-SCOPE-MAP.md
+COPY docs/execution/D13-SCOPE-MAP.md ./docs/execution/D13-SCOPE-MAP.md
 COPY .eduvijna/execution-state.yml ./.eduvijna/execution-state.yml
 COPY .github/workflows/ci.yml ./.github/workflows/ci.yml
 RUN pip install --no-cache-dir '.[dev]'
+ARG EDUVIJNA_BUILD_REVISION=
+RUN if [ -n "${EDUVIJNA_BUILD_REVISION}" ]; then \
+      printf '%s' "${EDUVIJNA_BUILD_REVISION}" > /app/.eduvijna/build-revision && \
+      chmod 444 /app/.eduvijna/build-revision; \
+    fi
 RUN mkdir -p /app/data && chown -R eduvijna:eduvijna /app
 
 USER eduvijna

@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        EDUVIJNA_BUILD_REVISION: ${EDUVIJNA_BUILD_REVISION:-}
     environment:
       - APP_ENV
       - ANYTHINGLLM_BASE_URL

@@ -62,10 +62,21 @@ jobs:
     needs: [backend-targeted]
     steps:
       - uses: actions/checkout@v4
+      - name: Pin exact PR head for image build metadata
+        run: |
+          git fetch --no-tags --depth=1 origin "${EDUVIJNA_CANDIDATE_SHA}"
+          git checkout --detach "${EDUVIJNA_CANDIDATE_SHA}"
+          actual="$(git rev-parse HEAD)"
+          if [[ "${actual}" != "${EDUVIJNA_CANDIDATE_SHA}" ]]; then
+            echo "HEAD mismatch: expected ${EDUVIJNA_CANDIDATE_SHA} got ${actual}"
+            exit 1
+          fi
+          echo "EDUVIJNA_BUILD_REVISION=${actual}" >> "${GITHUB_ENV}"
       - name: Prepare development env
         run: |
           cp .env.development.example .env.development
           printf '\nANYTHINGLLM_BASE_URL=http://anythingllm.example\nANYTHINGLLM_API_KEY=ci-dummy-anything-key\nMCP_API_KEY=ci-dummy-mcp-key\n' >> .env.development
+          printf 'EDUVIJNA_BUILD_REVISION=%s\n' "${EDUVIJNA_BUILD_REVISION}" >> .env.development
       - name: Validate backend Compose
         run: docker compose --env-file .env.development config
       - name: Build backend only

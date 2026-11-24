@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -41,32 +39,12 @@ from app.cuet_clat.scope_ledger import load_repo_scope_counts
 from app.cuet_clat.source_registry import build_source_registry_snapshot
 from app.db.base import Base
 from app.db.session import enable_sqlite_foreign_keys
-
-
-def _git_head() -> str:
-    try:
-        return (
-            subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1]
-            )
-            .decode()
-            .strip()
-        )
-    except Exception:
-        return "unknown"
-
-
-def _resolve_candidate_sha() -> str:
-    explicit = os.environ.get("EDUVIJNA_CANDIDATE_SHA", "").strip()
-    if explicit:
-        return explicit
-    return _git_head()
+from app.verification.candidate_revision import resolve_revision_evidence
 
 
 def build_verification_report(session: Session) -> dict[str, object]:
-    candidate_sha = _resolve_candidate_sha()
-    head_sha = _git_head()
-    sha_aligned = candidate_sha == head_sha and candidate_sha not in {"", "unknown"}
+    revision = resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1])
+    sha_aligned = revision.sha_aligned
 
     practice = CuetPracticeService()
     math10 = practice.allocate_practice(
@@ -189,11 +167,8 @@ def build_verification_report(session: Session) -> dict[str, object]:
         and scope_counts.get("TOTAL") == 36
     )
 
-    return {
+    report: dict[str, object] = {
         "ok": synthetic_ok,
-        "candidate_sha": candidate_sha,
-        "head_sha": head_sha,
-        "sha_alignment": sha_aligned,
         "governance": build_day13_governance_record(),
         "source_registry": build_source_registry_snapshot(session),
         "synthetic_fixture_pass": synthetic_ok,
@@ -264,6 +239,22 @@ def build_verification_report(session: Session) -> dict[str, object]:
             "d13_36_founder_signoff": "NOT_STARTED",
         },
     }
+    report.update(revision.as_report_fields())
+    return report
+
+
+def _failure_report(reason: str, *, revision: dict[str, object] | None = None) -> dict[str, object]:
+    base: dict[str, object] = {
+        "ok": False,
+        "synthetic_fixture_pass": False,
+        "sha_alignment": False,
+        "failure_reason": reason,
+    }
+    if revision:
+        base.update(revision)
+    else:
+        base.update(resolve_revision_evidence(cwd=Path(__file__).resolve().parents[1]).as_report_fields())
+    return base
 
 
 def main() -> int:
@@ -271,11 +262,14 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Emit JSON report")
     args = parser.parse_args()
 
-    engine = create_engine("sqlite:///:memory:")
-    enable_sqlite_foreign_keys(engine)
-    Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        report = build_verification_report(session)
+    try:
+        engine = create_engine("sqlite:///:memory:")
+        enable_sqlite_foreign_keys(engine)
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            report = build_verification_report(session)
+    except Exception as exc:  # noqa: BLE001 — verifier must emit structured JSON, not crash
+        report = _failure_report(f"verification_exception:{type(exc).__name__}")
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))
