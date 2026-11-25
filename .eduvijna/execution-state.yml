@@ -165,7 +165,7 @@ consolidated_technical_closure:
       gate_b_state: CLOSED_STOP_AND_ESCALATE_FOUNDER_MILESTONE_ACCEPTED_WITH_DEFERRALS
       implementation_branch: "closure/c01-package-s-database-safety"
       implementation_base_sha: "ec17e9ba5c5660235a857940d8c1c2d136e1363a"
-      implementation_status: PACKAGE_S_AUTHORIZED_NOT_STARTED
+      implementation_status: PACKAGE_S_CANDIDATE_1_IMPLEMENTED_PENDING_REVIEW
       gate_b_candidate_1_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
@@ -226,7 +226,8 @@ consolidated_technical_closure:
       recovery_package_s_founder_approval_signal: "Approved Package S, go ahead."
       recovery_package_s_baseline_authorized: EXACT_HELD_C01_SHA_ONLY
       recovery_package_s_candidate_limit: 1
-      recovery_package_s_candidates_consumed: 0
+      recovery_package_s_candidates_consumed: 1
+      recovery_package_s_candidate_1_sha: pending_push
       recovery_package_f_state: LOCKED_PENDING_S_ACCEPTANCE_AND_FOUNDER_ACTIVATION
       recovery_package_f_candidate_budget: NOT_AUTHORIZED
       other_held_pr_import_authorized: false

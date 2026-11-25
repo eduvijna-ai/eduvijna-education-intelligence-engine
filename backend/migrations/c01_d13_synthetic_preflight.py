@@ -1,4 +1,4 @@
-"""C01 Gate B: strict read-only eligibility for migration 0021 (abort-only)."""
+"""C01 Package S: strict read-only eligibility for migration 0021 (abort-only)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from migrations.c01_constraints import d13_synthetic_check_sql
+from migrations.c01_revision_graph import REV_0021, is_at_or_past_revision
 
 D13_SYNTHETIC_TEST_ONLY_KEY = "d13_synthetic_test_only"
 _SUPPORTED_DIALECTS = frozenset({"postgresql", "sqlite"})
@@ -22,6 +23,10 @@ class LegacyAuditStatus(StrEnum):
     UNTRUSTED_FLAGS = "untrusted_flags"
     COLUMN_ABSENT = "column_absent"
     WRONG_VERSION = "wrong_version"
+    WRONG_REVISION = "wrong_revision"
+    SCHEMA_MISMATCH = "schema_mismatch"
+    PARTIAL_APPLY = "partial_apply"
+    VERSION_ROW_INVALID = "version_row_invalid"
     UNKNOWN = "unknown"
 
 
@@ -84,11 +89,13 @@ def _row_state_consistent(
     result_snapshot_version: object,
     owner_token: object,
 ) -> bool:
+    """Match 0020 CHECK + durable replay envelope integrity (pending rows keep owner_token)."""
     if state not in _VALID_STATES:
         return False
     if state in ("reserved", "in_progress"):
         return (
-            owner_token is None
+            owner_token is not None
+            and str(owner_token).strip() != ""
             and result_json is None
             and payload_sha256 is None
             and result_snapshot_version is None
@@ -162,40 +169,133 @@ def assert_all_rows_synthetic_true(connection: Connection) -> None:
         raise RuntimeError(f"0021 post-update verify failed: {bad} row(s) not synthetic true")
 
 
+def _synthetic_column_present(connection: Connection, dialect: str) -> dict[str, object] | None:
+    if dialect == "postgresql":
+        row = connection.execute(
+            text(
+                """
+                SELECT data_type, is_nullable, column_default
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'd13_replay_reservations'
+                  AND column_name = 'synthetic_test_only'
+                """
+            )
+        ).mappings().first()
+        return dict(row) if row else None
+    info = connection.execute(text("PRAGMA table_info(d13_replay_reservations)")).fetchall()
+    for col in info:
+        if str(col[1]) == "synthetic_test_only":
+            return {
+                "data_type": str(col[2]),
+                "is_nullable": "NO" if col[3] == 1 else "YES",
+                "column_default": col[4],
+            }
+    return None
+
+
+def _expected_synthetic_check_in_ddl(connection: Connection, dialect: str) -> bool:
+    expected_fragment = (
+        "synthetic_test_only IS TRUE" if dialect == "postgresql" else "synthetic_test_only = 1"
+    )
+    if dialect == "postgresql":
+        row = connection.execute(
+            text(
+                """
+                SELECT pg_get_constraintdef(oid) AS def
+                FROM pg_constraint
+                WHERE conname = 'ck_d13_replay_synthetic_marker'
+                """
+            )
+        ).mappings().first()
+        if row is None:
+            return False
+        return expected_fragment in str(row["def"])
+    ddl = connection.execute(
+        text(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='d13_replay_reservations'"
+        )
+    ).scalar_one_or_none()
+    if ddl is None:
+        return False
+    return expected_fragment in str(ddl)
+
+
 def audit_legacy_0021_state(connection: Connection) -> LegacyAuditReport:
     dialect = connection.dialect.name
     if dialect not in _SUPPORTED_DIALECTS:
         return LegacyAuditReport(LegacyAuditStatus.UNKNOWN, None, (), f"unsupported {dialect}")
 
-    rev_row = connection.execute(text("SELECT version_num FROM alembic_version")).fetchone()
-    revision = str(rev_row[0]) if rev_row else None
-    if revision is None:
-        return LegacyAuditReport(LegacyAuditStatus.UNKNOWN, None, (), "no alembic_version")
+    version_rows = connection.execute(text("SELECT version_num FROM alembic_version")).fetchall()
+    if len(version_rows) != 1:
+        return LegacyAuditReport(
+            LegacyAuditStatus.VERSION_ROW_INVALID,
+            None,
+            (),
+            f"expected 1 alembic_version row, got {len(version_rows)}",
+        )
+    revision = str(version_rows[0][0])
 
-    has_column = False
-    if dialect == "postgresql":
-        cols = connection.execute(
-            text(
-                "SELECT 1 FROM information_schema.columns "
-                "WHERE table_schema = current_schema() "
-                "AND table_name = 'd13_replay_reservations' "
-                "AND column_name = 'synthetic_test_only'"
-            )
-        ).fetchone()
-        has_column = cols is not None
-    else:
-        info = connection.execute(text("PRAGMA table_info(d13_replay_reservations)")).fetchall()
-        has_column = any(str(c[1]) == "synthetic_test_only" for c in info)
+    col = _synthetic_column_present(connection, dialect)
+    at_or_past_0021 = is_at_or_past_revision(revision, REV_0021)
 
-    if not has_column:
-        if revision >= "20261124_0021":
+    if col is None:
+        if at_or_past_0021:
             return LegacyAuditReport(
-                LegacyAuditStatus.WRONG_VERSION,
+                LegacyAuditStatus.PARTIAL_APPLY,
                 revision,
                 (),
-                "at/past 0021 but column missing (partial apply?)",
+                "at/past 0021 graph index but synthetic_test_only column missing",
             )
         return LegacyAuditReport(LegacyAuditStatus.COLUMN_ABSENT, revision, ())
+
+    if not at_or_past_0021:
+        return LegacyAuditReport(
+            LegacyAuditStatus.WRONG_REVISION,
+            revision,
+            (),
+            "synthetic column present but alembic revision before 0021",
+        )
+
+    if dialect == "postgresql":
+        if str(col.get("data_type")).lower() != "boolean":
+            return LegacyAuditReport(
+                LegacyAuditStatus.SCHEMA_MISMATCH,
+                revision,
+                (),
+                f"expected boolean column, got {col.get('data_type')}",
+            )
+        if str(col.get("is_nullable")).upper() != "NO":
+            return LegacyAuditReport(
+                LegacyAuditStatus.SCHEMA_MISMATCH,
+                revision,
+                (),
+                "synthetic_test_only must be NOT NULL",
+            )
+    else:
+        if str(col.get("data_type")).upper() not in {"BOOLEAN", "NUM", "INTEGER"}:
+            return LegacyAuditReport(
+                LegacyAuditStatus.SCHEMA_MISMATCH,
+                revision,
+                (),
+                f"unexpected sqlite column type {col.get('data_type')}",
+            )
+        if str(col.get("is_nullable")).upper() != "NO":
+            return LegacyAuditReport(
+                LegacyAuditStatus.SCHEMA_MISMATCH,
+                revision,
+                (),
+                "synthetic_test_only must be NOT NULL",
+            )
+
+    if not _expected_synthetic_check_in_ddl(connection, dialect):
+        return LegacyAuditReport(
+            LegacyAuditStatus.SCHEMA_MISMATCH,
+            revision,
+            (),
+            "missing or wrong ck_d13_replay_synthetic_marker DDL",
+        )
 
     if dialect == "postgresql":
         row_sql = text(
@@ -210,12 +310,16 @@ def audit_legacy_0021_state(connection: Connection) -> LegacyAuditReport:
     untrusted: list[str] = []
     for row in connection.execute(row_sql).fetchall():
         row_id, raw, flag = str(row[0]), row[1], row[2]
-        if raw is None or not isinstance(raw, str):
-            if flag:
-                untrusted.append(row_id)
-            continue
-        promoted = bool(flag) if dialect == "sqlite" else flag is True
-        if promoted and not strict_eligible_from_raw(raw):
+        if dialect == "sqlite":
+            stored_true = flag == 1
+        else:
+            stored_true = flag is True
+        eligible = (
+            strict_eligible_from_raw(raw) if raw is not None and isinstance(raw, str) else False
+        )
+        if stored_true and not eligible:
+            untrusted.append(row_id)
+        elif eligible and not stored_true:
             untrusted.append(row_id)
 
     if untrusted:

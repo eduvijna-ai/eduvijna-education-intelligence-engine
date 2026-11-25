@@ -1,0 +1,16 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.2.0, pluggy-1.7.0
+rootdir: /agent/repos/eduvijna-education-intelligence-engine/backend
+configfile: pyproject.toml
+plugins: cov-7.1.0, anyio-4.16.0, langsmith-0.16.2
+collected 18 items
+
+tests/test_c01_migration_portability.py ............s.....               [100%]
+
+=============================== warnings summary ===============================
+tests/test_c01_migration_portability.py::test_sqlite_fresh_upgrade_head
+  /agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 17 passed, 1 skipped, 1 warning in 19.34s ===================

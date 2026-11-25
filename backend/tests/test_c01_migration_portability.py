@@ -30,7 +30,13 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _insert_replay(connection: sqlite3.Connection, *, metadata: str) -> str:
+def _insert_replay(
+    connection: sqlite3.Connection,
+    *,
+    metadata: str,
+    reservation_state: str = "reserved",
+    owner_token: str | None = "owner-" + "c" * 58,
+) -> str:
     row_id = str(uuid.uuid4())
     connection.execute(
         """
@@ -38,8 +44,8 @@ def _insert_replay(connection: sqlite3.Connection, *, metadata: str) -> str:
             id, created_at, updated_at, organization_id, institution_id,
             exam_pack_code, exam_version_id, academic_year,
             idempotency_key_hash, request_fingerprint, reservation_state,
-            metadata_json
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            owner_token, metadata_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             row_id,
@@ -52,7 +58,8 @@ def _insert_replay(connection: sqlite3.Connection, *, metadata: str) -> str:
             "2026",
             "a" * 64,
             "b" * 64,
-            "reserved",
+            reservation_state,
+            owner_token,
             metadata,
         ),
     )
@@ -150,8 +157,105 @@ def test_sqlite_synthetic_check_rejects_invalid_values(tmp_path: Path) -> None:
                 )
                 connection.commit()
             connection.rollback()
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE d13_replay_reservations SET synthetic_test_only = ? WHERE id = ?",
+                (1.5, row_id),
+            )
+            connection.commit()
+        connection.rollback()
     finally:
         connection.close()
+
+
+def test_sqlite_synthetic_check_rejects_cast_weak_values(tmp_path: Path) -> None:
+    """C01-B-R01: exact `= 1` must not accept values CAST(INTEGER)=1 would accept."""
+    database_path = tmp_path / "cast-weak.db"
+    run_alembic(database_path, "upgrade", REV_0020)
+    connection = sqlite3.connect(database_path)
+    try:
+        _insert_replay(connection, metadata='{"d13_synthetic_test_only": true}')
+        connection.commit()
+    finally:
+        connection.close()
+    run_alembic(database_path, "upgrade", REV_0021)
+    connection = sqlite3.connect(database_path)
+    try:
+        row_id = connection.execute("SELECT id FROM d13_replay_reservations LIMIT 1").fetchone()[0]
+        check = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='d13_replay_reservations'"
+        ).fetchone()[0]
+        assert "synthetic_test_only = 1" in check
+        assert "CAST(synthetic_test_only AS INTEGER)" not in check
+        for expr, args in (("?", (0, row_id)), ("?", ("1junk", row_id))):
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    f"UPDATE d13_replay_reservations SET synthetic_test_only = {expr} WHERE id = ?",
+                    args,
+                )
+                connection.commit()
+            connection.rollback()
+    finally:
+        connection.close()
+
+
+def test_postgres_compile_synthetic_check_is_true() -> None:
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    from app.db.base import Base
+
+    table = Base.metadata.tables["d13_replay_reservations"]
+    ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+    assert "synthetic_test_only IS TRUE" in ddl
+    assert "CAST(synthetic_test_only AS INTEGER)" not in ddl
+
+
+def test_sqlite_backup_restore_row_hashes_match(tmp_path: Path) -> None:
+    import hashlib
+
+    database_path = tmp_path / "backup.db"
+    restored_path = tmp_path / "restored.db"
+    run_alembic(database_path, "upgrade", REV_0021)
+    connection = sqlite3.connect(database_path)
+    try:
+        before = connection.execute(
+            "SELECT id, synthetic_test_only FROM d13_replay_reservations ORDER BY id"
+        ).fetchall()
+        before_hash = hashlib.sha256(repr(before).encode()).hexdigest()
+        backup = sqlite3.connect(str(restored_path))
+        connection.backup(backup)
+        backup.close()
+    finally:
+        connection.close()
+    restored = sqlite3.connect(restored_path)
+    try:
+        after = restored.execute(
+            "SELECT id, synthetic_test_only FROM d13_replay_reservations ORDER BY id"
+        ).fetchall()
+        after_hash = hashlib.sha256(repr(after).encode()).hexdigest()
+        version = restored.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        assert version == REV_0021
+        assert before_hash == after_hash
+    finally:
+        restored.close()
+
+
+def test_legacy_audit_wrong_version_without_column(tmp_path: Path) -> None:
+    from sqlalchemy import create_engine
+
+    from migrations.c01_d13_synthetic_preflight import (
+        LegacyAuditStatus,
+        audit_legacy_0021_state,
+    )
+
+    database_path = tmp_path / "wrong-rev.db"
+    run_alembic(database_path, "upgrade", REV_0020)
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.connect() as conn:
+        report = audit_legacy_0021_state(conn)
+    assert report.status == LegacyAuditStatus.COLUMN_ABSENT
+    assert report.revision == REV_0020
 
 
 def test_sqlite_source_revision_active_slot_on_real_table(tmp_path: Path) -> None:
@@ -214,7 +318,8 @@ def test_model_ddl_synthetic_check_sqlite_sqlalchemy(tmp_path: Path) -> None:
                 "AND name='d13_replay_reservations'"
             )
         ).scalar_one()
-        assert "CAST(synthetic_test_only AS INTEGER) = 1" in ddl
+        assert "synthetic_test_only = 1" in ddl
+        assert "CAST(synthetic_test_only AS INTEGER)" not in ddl
 
 
 @pytest.mark.skipif(
@@ -241,42 +346,39 @@ def test_postgresql_fresh_empty_upgrade_head() -> None:
         assert head == repository_alembic_head()
 
 
-def test_sqlite_0021_preflight_rejects_invalid_replay_state(tmp_path: Path) -> None:
+def test_sqlite_0021_preflight_rejects_missing_owner_on_pending(tmp_path: Path) -> None:
     database_path = tmp_path / "bad-state.db"
     run_alembic(database_path, "upgrade", REV_0020)
     connection = sqlite3.connect(database_path)
     try:
-        row_id = str(uuid.uuid4())
-        connection.execute(
-            """
-            INSERT INTO d13_replay_reservations (
-                id, created_at, updated_at, organization_id, institution_id,
-                exam_pack_code, exam_version_id, academic_year,
-                idempotency_key_hash, request_fingerprint, reservation_state,
-                owner_token, metadata_json
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                row_id,
-                _now(),
-                _now(),
-                "org",
-                "inst",
-                "pack",
-                str(uuid.uuid4()),
-                "2026",
-                "a" * 64,
-                "b" * 64,
-                "reserved",
-                "owner-should-be-null",
-                '{"d13_synthetic_test_only": true}',
-            ),
+        _insert_replay(
+            connection,
+            metadata='{"d13_synthetic_test_only": true}',
+            owner_token=None,
         )
         connection.commit()
     finally:
         connection.close()
     failed = run_alembic(database_path, "upgrade", REV_0021, check=False)
     assert failed.returncode != 0
+
+
+def test_sqlite_0021_preflight_accepts_in_progress_with_owner(tmp_path: Path) -> None:
+    database_path = tmp_path / "inprog.db"
+    run_alembic(database_path, "upgrade", REV_0020)
+    connection = sqlite3.connect(database_path)
+    try:
+        _insert_replay(
+            connection,
+            metadata='{"d13_synthetic_test_only": true}',
+            reservation_state="in_progress",
+            owner_token="in-prog-owner" + "d" * 51,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    ok = run_alembic(database_path, "upgrade", REV_0021)
+    assert ok.returncode == 0
 
 
 def test_disposable_pg_url_rejects_non_loopback() -> None:
