@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-from migrations.c01_constraints import D13_SYNTHETIC_TEST_ONLY_CHECK
+from migrations.c01_constraints import d13_synthetic_check_sql
 from migrations.c01_d13_synthetic_preflight import (
     assert_0021_preflight,
     assert_all_rows_synthetic_true,
@@ -42,7 +42,7 @@ def upgrade() -> None:
     with op.batch_alter_table("d13_replay_reservations") as batch:
         batch.create_check_constraint(
             "ck_d13_replay_synthetic_marker",
-            D13_SYNTHETIC_TEST_ONLY_CHECK,
+            d13_synthetic_check_sql(dialect),
         )
 
 

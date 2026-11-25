@@ -1,0 +1,92 @@
+run_id=c01_gatea_d0529bfec18f
+trial=sqlite_mixed_0021
+utc=2026-11-25T08:19:18.960904+00:00
+harness_sha256=e90b56663a52cdef98fa60cfcdba0302e9d08f5ace3d6e6aadd30ea20ce2d149
+repo_head=30b1363663e6c9063a67683f4293fb90f7d3f34f
+baseline_sha=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+log_path=docs/execution/C01-gate-a/transcripts/c01_gatea_d0529bfec18f_sqlite_mixed_0021.log
+
+before_sha256=6e5a4025628b4c32e732ba89e9eab2b715645a7952b200a16bb9d6cdbbe0b3eb
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade 20261124_0020 -> 20261124_0021, D13 replay synthetic_test_only column for CAS guards
+Traceback (most recent call last):
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1977, in _exec_single_context
+    self.dialect.do_execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.IntegrityError: CHECK constraint failed: ck_d13_replay_synthetic_marker
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin/alembic", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 963, in run_cmd
+    fn(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/command.py", line 487, in upgrade
+    script.run_env()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/script/base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/util/pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/util/pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 93, in <module>
+    run_migrations_online()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 82, in run_migrations_online
+    _run_sqlite_migrations(connection)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 50, in _run_sqlite_migrations
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/runtime/environment.py", line 970, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/runtime/migration.py", line 616, in run_migrations
+    step.migration_fn(**kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/versions/20261124_0021_d13_replay_synthetic_flag.py", line 28, in upgrade
+    with op.batch_alter_table("d13_replay_reservations") as batch:
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/base.py", line 404, in batch_alter_table
+    impl.flush()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/batch.py", line 173, in flush
+    batch_impl._create(self.impl)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/batch.py", line 478, in _create
+    op_impl._exec(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/ddl/impl.py", line 252, in _exec
+    return conn.execute(construct, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1494, in execute
+    return meth(
+           ^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/sql/elements.py", line 534, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1714, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1868, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1996, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 2351, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1977, in _exec_single_context
+    self.dialect.do_execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.IntegrityError: (sqlite3.IntegrityError) CHECK constraint failed: ck_d13_replay_synthetic_marker
+[SQL: INSERT INTO _alembic_tmp_d13_replay_reservations (id, created_at, updated_at, organization_id, institution_id, exam_pack_code, exam_version_id, academic_year, idempotency_key_hash, request_fingerprint, reservation_state, owner_token, payload_sha256, result_snapshot_version, result_json, metadata_json, synthetic_test_only) SELECT d13_replay_reservations.id, d13_replay_reservations.created_at, d13_replay_reservations.updated_at, d13_replay_reservations.organization_id, d13_replay_reservations.institution_id, d13_replay_reservations.exam_pack_code, d13_replay_reservations.exam_version_id, d13_replay_reservations.academic_year, d13_replay_reservations.idempotency_key_hash, d13_replay_reservations.request_fingerprint, d13_replay_reservations.reservation_state, d13_replay_reservations.owner_token, d13_replay_reservations.payload_sha256, d13_replay_reservations.result_snapshot_version, d13_replay_reservations.result_json, d13_replay_reservations.metadata_json, d13_replay_reservations.synthetic_test_only 
+FROM d13_replay_reservations]
+(Background on this error at: https://sqlalche.me/e/21/gkpj)
+exit=1 version=('20261124_0020',) synthetic_col=False

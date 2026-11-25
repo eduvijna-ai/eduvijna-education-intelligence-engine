@@ -44,7 +44,7 @@ class D13ReplayReservation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND result_json IS NOT NULL AND result_snapshot_version IS NOT NULL)",
             name="ck_d13_replay_replayed_requires_payload",
         ),
-        CheckConstraint("synthetic_test_only IS TRUE", name="ck_d13_replay_synthetic_marker"),
+        CheckConstraint("synthetic_test_only = 1", name="ck_d13_replay_synthetic_marker"),
     )
 
     organization_id: Mapped[str] = mapped_column(String(64), nullable=False)

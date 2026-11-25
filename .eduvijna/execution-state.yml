@@ -165,8 +165,9 @@ consolidated_technical_closure:
       gate_b_state: ACTIVE
       implementation_branch: "closure/c01-foundation-database-recovery"
       implementation_base_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
-      implementation_status: GATE_B_CANDIDATE_1_PUSHED
+      implementation_status: GATE_B_CANDIDATE_2_PUSHED
       gate_b_candidate_1_sha: "466e0f33c8bc42eae6a616bd9835562342c10c4d"
+      gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_parent_gate_a_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
       candidate_1_started: "2026-11-25"
       candidate_1_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
@@ -193,7 +194,7 @@ consolidated_technical_closure:
       review_workflow: founder_manual_chatgpt_review
       gate_a_candidate_limit: 3
       gate_b_candidate_budget: 3
-      gate_b_candidates_consumed: 1
+      gate_b_candidates_consumed: 2
       gate_a_founder_milestone_signoff: true
       gate_a_signoff_comment: 7157347180
       gate_a_final_ci_run: 45575396512

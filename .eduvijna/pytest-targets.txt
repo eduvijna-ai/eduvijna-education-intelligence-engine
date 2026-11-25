@@ -1,4 +1,3 @@
-tests/test_day18_m0_governance.py
-tests/test_day18_containment.py
-tests/test_day18_scope_map.py
-tests/test_day18_verify_sha.py
+tests/test_c01_migration_portability.py
+tests/test_day3_final_compatibility.py
+tests/test_source_intelligence_migration.py
