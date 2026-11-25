@@ -140,7 +140,7 @@ consolidated_technical_closure:
       residuals_mandatory_in_recovery_workstreams: true
     C01:
       name: Foundation and Database Recovery
-      state: ACTIVE_GATE_B
+      state: ACTIVE_RECOVERY_PACKAGE_S
       tasklist_issue: 66
       tasklist_status: APPROVED
       approved_scope: C01-01..C01-27
@@ -151,24 +151,24 @@ consolidated_technical_closure:
       founder_gate_b_milestone_comment: 7157347180
       gate_b_governance_seed: "1bcf85c30b24e5f2ce2b4a02dca198f86353861e"
       implementation_authorized: true
-      authorization_scope: GATE_B_BOUNDED_MIGRATION_COMPATIBILITY_AND_FOUNDATION
-      active_task_scope: "C01-09..14, C01-17..27 and Gate A residual closure"
+      authorization_scope: PACKAGE_S_DATABASE_SAFETY_ONLY
+      active_task_scope: S01..S08
       narrow_d13_31a_exception: BOUNDED_0021_COMPATIBILITY_ONLY_NO_REPLAY_LOGIC
       historical_migration_changes_authorized: "0006 and 0021 only"
       historical_migration_change_surface: "0006, 0021 only"
-      application_logic_changes_authorized: C01_FOUNDATION_AND_MATCHING_MODEL_CONSTRAINTS_ONLY
+      application_logic_changes_authorized: MATCHING_MODEL_CONSTRAINTS_AND_DATABASE_SAFETY_HELPERS_ONLY
       data_remediation_authorized: false
       held_pr_import_authorized: false
       production_database_access_authorized: false
       isolated_synthetic_diagnostics_authorized: true
       gate_a_state: FOUNDER_DIAGNOSTIC_MILESTONE_ACCEPTED_WITH_DEFERRALS
-      gate_b_state: ACTIVE
-      implementation_branch: "closure/c01-foundation-database-recovery"
-      implementation_base_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
-      implementation_status: GATE_B_CANDIDATE_2_PUSHED
-      gate_b_candidate_1_sha: "466e0f33c8bc42eae6a616bd9835562342c10c4d"
+      gate_b_state: CLOSED_STOP_AND_ESCALATE_FOUNDER_MILESTONE_ACCEPTED_WITH_DEFERRALS
+      implementation_branch: "closure/c01-package-s-database-safety"
+      implementation_base_sha: "ec17e9ba5c5660235a857940d8c1c2d136e1363a"
+      implementation_status: PACKAGE_S_AUTHORIZED_NOT_STARTED
+      gate_b_candidate_1_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
-      gate_b_candidate_2_sha: "262bf91990e091649c7971a851dcce6827555e89"
+      gate_b_candidate_2_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
       gate_b_parent_gate_a_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
       candidate_1_started: "2026-11-25"
       candidate_1_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
@@ -197,7 +197,7 @@ consolidated_technical_closure:
       gate_b_candidate_budget: 3
       gate_b_candidates_consumed: 3
       gate_b_candidate_3_review_base_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
-      gate_b_candidate_3_sha: "42881fbcd2e1b879ce0d47756d6b885071bc2f65"
+      gate_b_candidate_3_sha: "ec17e9ba5c5660235a857940d8c1c2d136e1363a"
       gate_a_founder_milestone_signoff: true
       gate_a_signoff_comment: 7157347180
       gate_a_final_ci_run: 45575396512
@@ -212,7 +212,25 @@ consolidated_technical_closure:
       deployed_migration_history: UNKNOWN
       external_database_rollout_authorized: false
       additional_historical_revision_changes_authorized: false
-      technical_acceptance: PENDING
+      technical_acceptance: NOT_ACCEPTED
+      gate_b_final_ci_run: 45591996727
+      gate_b_final_ci_result: SUCCESS_TARGETED_POSTGRES_COMPOSE_SKIPPED
+      gate_b_milestone_signoff_comment: 7159511214
+      gate_b_candidate_limit_reached: true
+      gate_b_held_pr: 67
+      gate_b_held_sha: "ec17e9ba5c5660235a857940d8c1c2d136e1363a"
+      gate_b_residuals: "C01-B-R01..05 mandatory; C01-17 NOT_RUN; C01-19..25 NOT_STARTED"
+      recovery_issue: 68
+      recovery_package_s_state: ACTIVE
+      recovery_package_s_founder_approval_comment: 7159544786
+      recovery_package_s_founder_approval_signal: "Approved Package S, go ahead."
+      recovery_package_s_baseline_authorized: EXACT_HELD_C01_SHA_ONLY
+      recovery_package_s_candidate_limit: 1
+      recovery_package_s_candidates_consumed: 0
+      recovery_package_f_state: LOCKED_PENDING_S_ACCEPTANCE_AND_FOUNDER_ACTIVATION
+      recovery_package_f_candidate_budget: NOT_AUTHORIZED
+      other_held_pr_import_authorized: false
+      recovery_develop_baseline_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
       auto_merge: false
       next_workstream_unlock: false
     C02:
