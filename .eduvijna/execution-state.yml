@@ -195,7 +195,8 @@ consolidated_technical_closure:
       review_workflow: founder_manual_chatgpt_review
       gate_a_candidate_limit: 3
       gate_b_candidate_budget: 3
-      gate_b_candidates_consumed: 2
+      gate_b_candidates_consumed: 3
+      gate_b_candidate_3_review_base_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
       gate_a_founder_milestone_signoff: true
       gate_a_signoff_comment: 7157347180
       gate_a_final_ci_run: 45575396512

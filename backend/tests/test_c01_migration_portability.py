@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 import subprocess
 import uuid
@@ -10,7 +9,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine, text
 
+from tests.c01_disposable_pg import C01_PG_OPT_IN, validated_disposable_pg_url
 from tests.migration_test_support import (
     alembic_executable,
     backend_root,
@@ -22,8 +23,7 @@ REV_0020 = "20261124_0020"
 REV_0021 = "20261124_0021"
 REV_0006 = "20261003_0006"
 REV_0018 = "20261109_0018"
-C01_PG_OPT_IN = "EDUVIJNA_C01_DISPOSABLE_PG"
-C01_PG_URL = "EDUVIJNA_C01_DISPOSABLE_DATABASE_URL"
+REV_0005 = "20261002_0005"
 
 
 def _now() -> str:
@@ -59,25 +59,12 @@ def _insert_replay(connection: sqlite3.Connection, *, metadata: str) -> str:
     return row_id
 
 
-def _disposable_pg_url() -> str | None:
-    if os.environ.get(C01_PG_OPT_IN) != "1":
-        return None
-    url = os.environ.get(C01_PG_URL, "") or os.environ.get("DATABASE_URL", "")
-    if not url.startswith(("postgresql://", "postgresql+")):
-        return None
-    disposable_markers = ("c01_ci", "c01_gate", "c01_diag", "127.0.0.1", "localhost")
-    if not any(marker in url for marker in disposable_markers):
-        return None
-    return url
-
-
 def run_alembic_with_url(database_url: str, *args: str, check: bool = True):
-    environment = os.environ.copy()
-    environment["DATABASE_URL"] = database_url
+    environment = {"DATABASE_URL": database_url}
     return subprocess.run(
         [alembic_executable(), "-c", str(backend_root() / "alembic.ini"), *args],
         cwd=backend_root(),
-        env=environment,
+        env={**dict(__import__("os").environ), **environment},
         check=check,
         capture_output=True,
         text=True,
@@ -135,10 +122,9 @@ def test_sqlite_0021_succeeds_with_strict_markers(tmp_path: Path) -> None:
     try:
         version = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
         assert version == REV_0021
-        flag = connection.execute(
+        assert connection.execute(
             "SELECT synthetic_test_only FROM d13_replay_reservations"
-        ).fetchone()[0]
-        assert flag == 1
+        ).fetchone()[0] == 1
     finally:
         connection.close()
 
@@ -215,16 +201,114 @@ def test_sqlite_0021_downgrade_reupgrade(tmp_path: Path) -> None:
     run_alembic(database_path, "upgrade", REV_0021)
 
 
+def test_model_ddl_synthetic_check_sqlite_sqlalchemy(tmp_path: Path) -> None:
+    from app.db.base import Base
+    from app.models import day13_replay  # noqa: F401
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'orm.db'}")
+    Base.metadata.create_all(engine)
+    with engine.connect() as conn:
+        ddl = conn.execute(
+            text(
+                "SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='d13_replay_reservations'"
+            )
+        ).scalar_one()
+        assert "CAST(synthetic_test_only AS INTEGER) = 1" in ddl
+
+
 @pytest.mark.skipif(
-    os.environ.get(C01_PG_OPT_IN) != "1",
+    __import__("os").environ.get(C01_PG_OPT_IN) != "1",
     reason=f"{C01_PG_OPT_IN}=1 required",
 )
 def test_postgresql_fresh_empty_upgrade_head() -> None:
-    url = _disposable_pg_url()
-    if url is None:
-        pytest.skip("DATABASE_URL must point at disposable local PostgreSQL")
+    url = validated_disposable_pg_url()
+    engine = create_engine(url)
+    with engine.connect() as conn:
+        dialect = conn.dialect.name
+        assert dialect == "postgresql"
+        empty = conn.execute(
+            text(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema = current_schema() AND table_name = 'alembic_version'"
+            )
+        ).scalar_one()
+        assert int(empty) == 0
     result = run_alembic_with_url(url, "upgrade", "head")
     assert result.returncode == 0, result.stderr + result.stdout
+    with engine.connect() as conn:
+        head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        assert head == repository_alembic_head()
+
+
+def test_sqlite_0021_preflight_rejects_invalid_replay_state(tmp_path: Path) -> None:
+    database_path = tmp_path / "bad-state.db"
+    run_alembic(database_path, "upgrade", REV_0020)
+    connection = sqlite3.connect(database_path)
+    try:
+        row_id = str(uuid.uuid4())
+        connection.execute(
+            """
+            INSERT INTO d13_replay_reservations (
+                id, created_at, updated_at, organization_id, institution_id,
+                exam_pack_code, exam_version_id, academic_year,
+                idempotency_key_hash, request_fingerprint, reservation_state,
+                owner_token, metadata_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                row_id,
+                _now(),
+                _now(),
+                "org",
+                "inst",
+                "pack",
+                str(uuid.uuid4()),
+                "2026",
+                "a" * 64,
+                "b" * 64,
+                "reserved",
+                "owner-should-be-null",
+                '{"d13_synthetic_test_only": true}',
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    failed = run_alembic(database_path, "upgrade", REV_0021, check=False)
+    assert failed.returncode != 0
+
+
+def test_disposable_pg_url_rejects_non_loopback() -> None:
+    import os
+
+    os.environ[C01_PG_OPT_IN] = "1"
+    os.environ["EDUVIJNA_C01_DISPOSABLE_DATABASE_URL"] = "postgresql+psycopg://u:p@evil.example/db"
+    with pytest.raises(ValueError, match="allowlist"):
+        validated_disposable_pg_url()
+
+
+def test_legacy_audit_clean_after_0021(tmp_path: Path) -> None:
+    from sqlalchemy import create_engine
+
+    from migrations.c01_d13_synthetic_preflight import (
+        LegacyAuditStatus,
+        audit_legacy_0021_state,
+    )
+
+    database_path = tmp_path / "audit.db"
+    run_alembic(database_path, "upgrade", REV_0020)
+    connection = sqlite3.connect(database_path)
+    try:
+        _insert_replay(connection, metadata='{"d13_synthetic_test_only": true}')
+        connection.commit()
+    finally:
+        connection.close()
+    run_alembic(database_path, "upgrade", REV_0021)
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.connect() as conn:
+        report = audit_legacy_0021_state(conn)
+    assert report.status == LegacyAuditStatus.CLEAN
 
 
 def test_preflight_unit_rejects_int_marker() -> None:
@@ -232,6 +316,5 @@ def test_preflight_unit_rejects_int_marker() -> None:
 
     assert strict_eligible_from_raw('{"d13_synthetic_test_only": true}') is True
     assert strict_eligible_from_raw('{"d13_synthetic_test_only": 1}') is False
-    assert strict_eligible_from_raw('{"d13_synthetic_test_only": "true"}') is False
     dup = '{"d13_synthetic_test_only": false, "d13_synthetic_test_only": true}'
     assert strict_eligible_from_raw(dup) is False

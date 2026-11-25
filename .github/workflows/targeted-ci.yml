@@ -68,12 +68,24 @@ jobs:
         run: pip install -e '.[dev]'
       - name: C01 disposable PostgreSQL migration proof
         env:
+          DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
           EDUVIJNA_C01_DISPOSABLE_DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
           EDUVIJNA_C01_DISPOSABLE_PG: "1"
         run: |
-          alembic upgrade head
-          alembic current --verbose
-          pytest tests/test_c01_migration_portability.py -k postgresql_fresh
+          test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          url = os.environ["DATABASE_URL"]
+          assert url.startswith("postgresql")
+          with create_engine(url).connect() as conn:
+              n = conn.execute(text(
+                  "SELECT COUNT(*) FROM information_schema.tables "
+                  "WHERE table_schema = current_schema() AND table_name = 'alembic_version'"
+              )).scalar_one()
+              assert int(n) == 0, "expected empty disposable database"
+          PY
+          pytest tests/test_c01_migration_portability.py --maxfail=1 -q
 
   backend-targeted:
     runs-on: ubuntu-latest
