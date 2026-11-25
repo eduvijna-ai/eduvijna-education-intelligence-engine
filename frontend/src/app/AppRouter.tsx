@@ -57,6 +57,17 @@ export function AppRouter() {
           <Route path="onboarding" element={<PackOnboardingPage />} />
           <Route path="policy" element={<PolicyAdminPage />} />
           <Route path="auth-design" element={<AuthDesignPage />} />
+          <Route
+            path="*"
+            element={
+              <section className="panel">
+                <h2>Unknown route</h2>
+                <p role="status" data-testid="unknown-route">
+                  This path is not part of the Day 18 demo shell. No feature actions are available.
+                </p>
+              </section>
+            }
+          />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -12,8 +12,14 @@ if (!fs.existsSync(assetsDir)) {
   process.exit(2)
 }
 
+const jsFiles = fs.readdirSync(assetsDir).filter((f) => f.endsWith('.js'))
+if (jsFiles.length === 0) {
+  console.error('Bundle verify: dist/assets has no JavaScript chunks')
+  process.exit(2)
+}
+
 const issues = []
-for (const file of fs.readdirSync(assetsDir).filter((f) => f.endsWith('.js'))) {
+for (const file of jsFiles) {
   const text = fs.readFileSync(path.join(assetsDir, file), 'utf8')
   for (const needle of forbidden) {
     if (text.includes(needle)) {
@@ -27,4 +33,4 @@ if (issues.length > 0) {
   process.exit(1)
 }
 
-console.log('Bundle verify: ok')
+console.log('Bundle verify: ok', `(${jsFiles.length} chunks)`)

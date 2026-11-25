@@ -42,6 +42,6 @@ def test_required_frontend_paths_present() -> None:
 def test_built_bundle_has_no_answer_key_strings_when_present() -> None:
     root = resolve_frontend_root()
     ok, issues, status = built_bundle_integrity(root)
-    assert status in {"SCANNED", "NOT_BUILT_SKIP"}
+    assert status in {"SCANNED", "NOT_BUILT", "EMPTY"}
     if status == "SCANNED":
         assert ok, issues

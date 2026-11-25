@@ -62,6 +62,8 @@ export function renderMathHtml(latex: string, display: boolean): string {
       trust: false,
       strict: 'error',
       output: 'html',
+      maxExpand: 64,
+      maxSize: 256,
     })
   } catch {
     return `<span class="math-error" role="alert">[math unavailable]</span>`

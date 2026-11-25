@@ -84,7 +84,19 @@ export function optionsForLevel(
 }
 
 export function isScopeComplete(selections: CurriculumSelections): boolean {
-  return SCOPE_LEVEL_ORDER.every((level) => selections[level] !== '')
+  return isScopeValid(selections)
+}
+
+/** Every selected level must be a valid child of its parent in the fixture tree. */
+export function isScopeValid(selections: CurriculumSelections): boolean {
+  for (let i = 0; i < SCOPE_LEVEL_ORDER.length; i += 1) {
+    const level = SCOPE_LEVEL_ORDER[i]
+    const value = selections[level]
+    if (!value) return false
+    const allowed = optionsForLevel(level, selections)
+    if (!allowed.some((o) => o.id === value)) return false
+  }
+  return true
 }
 
 export function resetDependents(

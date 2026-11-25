@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 
 import { resolveCapabilities } from '../../capability/readiness'
 import { CapabilityBadge } from '../../components/CapabilityBadge'
 import { FailClosedAction } from '../../components/FailClosedAction'
+import { SafeStemTable } from '../../components/SafeStemTable'
 import { StemRenderer } from '../../components/StemRenderer'
 import {
   EMPTY_SCOPE,
+  isScopeValid,
   optionsForLevel,
   resetDependents,
   SCOPE_LEVEL_ORDER,
@@ -13,25 +15,24 @@ import {
   type ScopeLevel,
 } from '../../fixtures/curriculumScope'
 import {
+  countContractForPack,
   EXAM_PACK_FIXTURES,
   EXAM_SECTIONS,
   EXAM_SUBJECTS,
   EXAM_VERSIONS,
+  examSectionKey,
+  examSubjectKey,
   SYNTHETIC_PAPER_PREVIEW,
   TWO_PAPER_CONTRACT,
   paperModeForPack,
 } from '../../fixtures/exams'
 import { STATIC_JOB_FIXTURES } from '../../fixtures/jobs'
 import {
+  ARIV_COMPETENCY_LABELS,
   BLOOM_LEVELS,
-  SYNTHETIC_COMPETENCY_CODES,
   TEACHER_QUESTION_FIXTURES,
 } from '../../fixtures/questions-teacher'
-import {
-  buildJsonExport,
-  buildPrintableHtml,
-  triggerBlobDownload,
-} from '../../lib/exportPrint'
+import { buildJsonExport, buildPrintableHtml, triggerBlobDownload } from '../../lib/exportPrint'
 import { validatePositiveIntegerInput } from '../../lib/positiveInteger'
 
 const LEVEL_LABELS: Record<ScopeLevel, string> = {
@@ -46,6 +47,16 @@ const LEVEL_LABELS: Record<ScopeLevel, string> = {
   concept: 'Concept',
 }
 
+const initialPack = EXAM_PACK_FIXTURES[0].packId
+const initialVersion = EXAM_VERSIONS[initialPack]?.[0]?.id ?? ''
+const initialSubjectKey = initialVersion ? examSubjectKey(initialPack, initialVersion) : ''
+const initialSubject = initialSubjectKey ? (EXAM_SUBJECTS[initialSubjectKey]?.[0]?.id ?? '') : ''
+const initialSectionKey =
+  initialSubject && initialVersion
+    ? examSectionKey(initialPack, initialVersion, initialSubject)
+    : ''
+const initialSection = initialSectionKey ? (EXAM_SECTIONS[initialSectionKey]?.[0]?.id ?? '') : ''
+
 export function QuestionStudioPage() {
   const studio = resolveCapabilities().question_studio
   const [scope, setScope] = useState<CurriculumSelections>({ ...EMPTY_SCOPE })
@@ -54,38 +65,25 @@ export function QuestionStudioPage() {
   const [qType, setQType] = useState<'mcq' | 'multiselect' | 'numerical' | 'descriptive'>('mcq')
   const [difficulty, setDifficulty] = useState('foundation')
   const [bloom, setBloom] = useState<(typeof BLOOM_LEVELS)[number]>('Understand')
-  const [competency, setCompetency] = useState<(typeof SYNTHETIC_COMPETENCY_CODES)[number]>(
-    SYNTHETIC_COMPETENCY_CODES[0],
+  const [competency, setCompetency] = useState<(typeof ARIV_COMPETENCY_LABELS)[number]>(
+    ARIV_COMPETENCY_LABELS[0],
   )
-  const [examPack, setExamPack] = useState<string>(EXAM_PACK_FIXTURES[0].packId)
-  const [examVersion, setExamVersion] = useState('')
-  const [examSubject, setExamSubject] = useState('')
-  const [examSection, setExamSection] = useState('')
+  const [examPack, setExamPack] = useState<string>(initialPack)
+  const [examVersion, setExamVersion] = useState(initialVersion)
+  const [examSubject, setExamSubject] = useState(initialSubject)
+  const [examSection, setExamSection] = useState(initialSection)
   const [blockReason, setBlockReason] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState(TEACHER_QUESTION_FIXTURES[0]?.id ?? '')
   const paper = SYNTHETIC_PAPER_PREVIEW
   const paperMode = paperModeForPack(examPack)
+  const countContract = countContractForPack(examPack)
 
+  const subjectKey = examVersion ? examSubjectKey(examPack, examVersion) : ''
+  const subjects = subjectKey ? (EXAM_SUBJECTS[subjectKey] ?? []) : []
+  const sectionKey =
+    examSubject && examVersion ? examSectionKey(examPack, examVersion, examSubject) : ''
+  const sections = sectionKey ? (EXAM_SECTIONS[sectionKey] ?? []) : []
   const versions = EXAM_VERSIONS[examPack] ?? []
-  const subjects = examVersion ? (EXAM_SUBJECTS[examVersion] ?? []) : []
-  const sections = examSubject ? (EXAM_SECTIONS[examSubject] ?? []) : []
-
-  useEffect(() => {
-    const firstVersion = versions[0]?.id ?? ''
-    setExamVersion(firstVersion)
-    setExamSubject('')
-    setExamSection('')
-  }, [examPack, versions])
-
-  useEffect(() => {
-    const firstSubject = subjects[0]?.id ?? ''
-    setExamSubject(firstSubject)
-    setExamSection('')
-  }, [examVersion, subjects])
-
-  useEffect(() => {
-    setExamSection(sections[0]?.id ?? '')
-  }, [examSubject, sections])
 
   const preview = TEACHER_QUESTION_FIXTURES.find((q) => q.id === previewId) ?? TEACHER_QUESTION_FIXTURES[0]
 
@@ -104,19 +102,40 @@ export function QuestionStudioPage() {
     setScope((prev) => resetDependents({ ...prev, [level]: value }, level))
   }
 
-  const scopeComplete = useMemo(
-    () => SCOPE_LEVEL_ORDER.every((level) => scope[level] !== ''),
-    [scope],
-  )
+  const scopeComplete = useMemo(() => isScopeValid(scope), [scope])
+
+  const onExamPackChange = (packId: string) => {
+    setExamPack(packId)
+    const version = EXAM_VERSIONS[packId]?.[0]?.id ?? ''
+    setExamVersion(version)
+    const sk = version ? examSubjectKey(packId, version) : ''
+    const subject = sk ? (EXAM_SUBJECTS[sk]?.[0]?.id ?? '') : ''
+    setExamSubject(subject)
+    const sek = subject && version ? examSectionKey(packId, version, subject) : ''
+    setExamSection(sek ? (EXAM_SECTIONS[sek]?.[0]?.id ?? '') : '')
+  }
+
+  const onExamVersionChange = (versionId: string) => {
+    setExamVersion(versionId)
+    const sk = versionId ? examSubjectKey(examPack, versionId) : ''
+    const subject = sk ? (EXAM_SUBJECTS[sk]?.[0]?.id ?? '') : ''
+    setExamSubject(subject)
+    const sek = subject && versionId ? examSectionKey(examPack, versionId, subject) : ''
+    setExamSection(sek ? (EXAM_SECTIONS[sek]?.[0]?.id ?? '') : '')
+  }
+
+  const onExamSubjectChange = (subjectId: string) => {
+    setExamSubject(subjectId)
+    const sek = subjectId && examVersion ? examSectionKey(examPack, examVersion, subjectId) : ''
+    setExamSection(sek ? (EXAM_SECTIONS[sek]?.[0]?.id ?? '') : '')
+  }
 
   const onExportJson = () => {
-    const json = buildJsonExport(paper)
-    triggerBlobDownload(json, 'synthetic-paper-demo.json', 'application/json')
+    triggerBlobDownload(buildJsonExport(), 'synthetic-paper-demo.json', 'application/json')
   }
 
   const onPrintPreview = () => {
-    const html = buildPrintableHtml(paper)
-    triggerBlobDownload(html, 'synthetic-paper-demo.html', 'text/html;charset=utf-8')
+    triggerBlobDownload(buildPrintableHtml(), 'synthetic-paper-demo.html', 'text/html;charset=utf-8')
   }
 
   return (
@@ -155,12 +174,12 @@ export function QuestionStudioPage() {
             )
           })}
           <p className="muted" data-testid="scope-complete">
-            Scope complete: {scopeComplete ? 'yes' : 'no'}
+            Scope valid: {scopeComplete ? 'yes' : 'no'}
           </p>
         </fieldset>
 
         <fieldset>
-          <legend>Exact count validation</legend>
+          <legend>Exact count validation ({countContract.replace('_', ' ')})</legend>
           <label htmlFor="question-count">Question count</label>
           <input
             id="question-count"
@@ -210,15 +229,15 @@ export function QuestionStudioPage() {
               </option>
             ))}
           </select>
-          <label htmlFor="competency">Competency (synthetic code)</label>
+          <label htmlFor="competency">ARIV competency (synthetic mapping)</label>
           <select
             id="competency"
             value={competency}
             onChange={(e) =>
-              setCompetency(e.target.value as (typeof SYNTHETIC_COMPETENCY_CODES)[number])
+              setCompetency(e.target.value as (typeof ARIV_COMPETENCY_LABELS)[number])
             }
           >
-            {SYNTHETIC_COMPETENCY_CODES.map((c) => (
+            {ARIV_COMPETENCY_LABELS.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
@@ -229,11 +248,7 @@ export function QuestionStudioPage() {
         <fieldset data-testid="exam-selection">
           <legend>Exam pack (not official)</legend>
           <label htmlFor="exam-pack">Pack</label>
-          <select
-            id="exam-pack"
-            value={examPack}
-            onChange={(e) => setExamPack(e.target.value)}
-          >
+          <select id="exam-pack" value={examPack} onChange={(e) => onExamPackChange(e.target.value)}>
             {EXAM_PACK_FIXTURES.map((p) => (
               <option key={p.packId} value={p.packId}>
                 {p.label}
@@ -244,7 +259,7 @@ export function QuestionStudioPage() {
           <select
             id="exam-version"
             value={examVersion}
-            onChange={(e) => setExamVersion(e.target.value)}
+            onChange={(e) => onExamVersionChange(e.target.value)}
           >
             {versions.map((v) => (
               <option key={v.id} value={v.id}>
@@ -256,7 +271,7 @@ export function QuestionStudioPage() {
           <select
             id="exam-subject"
             value={examSubject}
-            onChange={(e) => setExamSubject(e.target.value)}
+            onChange={(e) => onExamSubjectChange(e.target.value)}
           >
             {subjects.map((s) => (
               <option key={s.id} value={s.id}>
@@ -316,6 +331,13 @@ export function QuestionStudioPage() {
         {preview ? (
           <article className="question-card" data-testid="teacher-preview-card">
             <StemRenderer source={preview.stem} className="stem" />
+            {preview.stemTable ? (
+              <SafeStemTable
+                caption={preview.stemTable.caption}
+                headers={preview.stemTable.headers}
+                rows={preview.stemTable.rows}
+              />
+            ) : null}
             {preview.options ? (
               <ul>
                 {preview.options.map((o) => (
@@ -334,7 +356,9 @@ export function QuestionStudioPage() {
               </div>
               <div>
                 <dt>Competency</dt>
-                <dd>{preview.competency}</dd>
+                <dd>
+                  {preview.competency} ({preview.competencyMappingStatus})
+                </dd>
               </div>
               <div>
                 <dt>Learning outcome</dt>
@@ -387,13 +411,14 @@ export function QuestionStudioPage() {
       </section>
 
       <section aria-labelledby="paper-panel">
-        <h3 id="paper-panel">Paper preview (configuration vs delivery)</h3>
+        <h3 id="paper-panel">Paper preview (fixed fixture — independent of studio selections)</h3>
         <p>
-          Duration: {paper.durationMinutes} min · Total marks (planned): {paper.totalMarks} ·
-          Negative marking: {paper.negativeMarking}
+          Duration: {paper.durationMinutes} min · Planned total marks: {paper.plannedTotalMarksStatus}{' '}
+          · Illustrative sample marks total: {paper.illustrativeSampleMarksTotal} · Negative marking:{' '}
+          {paper.negativeMarking}
         </p>
         <p>
-          Planned total: {paper.plannedTotal} · Delivered actual: {paper.deliveredActual} ·
+          Planned items: {paper.plannedTotal} · Delivered actual: {paper.deliveredActual} ·
           Illustrative samples: {paper.illustrativeSampleCount}
         </p>
         <table className="data-table">
@@ -403,7 +428,7 @@ export function QuestionStudioPage() {
               <th scope="col">Planned</th>
               <th scope="col">Delivered actual</th>
               <th scope="col">Samples</th>
-              <th scope="col">Marks</th>
+              <th scope="col">Sample marks</th>
             </tr>
           </thead>
           <tbody>
@@ -413,7 +438,7 @@ export function QuestionStudioPage() {
                 <td>{s.plannedCount}</td>
                 <td>{s.deliveredActual}</td>
                 <td>{s.illustrativeSamples}</td>
-                <td>{s.sectionMarks}</td>
+                <td>{s.illustrativeSampleMarks}</td>
               </tr>
             ))}
           </tbody>

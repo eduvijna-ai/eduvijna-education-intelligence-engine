@@ -644,8 +644,8 @@ days:
     tasklist_approval_comment: 7151311167
     approved_scope: D18-01..D18-36
     implementation_authorized: true
-    implementation_status: CANDIDATE_1_PUSHED
-    implementation_candidates_consumed: 2
+    implementation_status: CANDIDATE_3_PUSHED
+    implementation_candidates_consumed: 3
     implementation_branch: feature/day18-react-product-surfaces
     implementation_issue: 62
     implementation_base_sha: "9400ce13af13c13c5158fa06c90f7f2517abbe93"

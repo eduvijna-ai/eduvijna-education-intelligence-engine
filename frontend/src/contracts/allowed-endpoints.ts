@@ -7,15 +7,12 @@ export const ALLOWED_MERGED_ENDPOINTS = [
 
 export type AllowedEndpoint = (typeof ALLOWED_MERGED_ENDPOINTS)[number]
 
-const ALLOWED_PATH_SET = new Set(ALLOWED_MERGED_ENDPOINTS.map((e) => e.path))
+const ALLOWED_PAIRS = new Set(
+  ALLOWED_MERGED_ENDPOINTS.map((e) => `${e.method}:${e.path}`),
+)
 
 export function isAllowedEndpoint(method: string, path: string): boolean {
-  const normalized = path.split('?')[0]?.split('#')[0] ?? path
+  if (path.includes('?') || path.includes('#')) return false
   if (method.toUpperCase() !== 'GET') return false
-  return ALLOWED_PATH_SET.has(normalized as (typeof ALLOWED_MERGED_ENDPOINTS)[number]['path'])
-}
-
-export function assertExactAllowlist(pathsInSource: readonly string[]): boolean {
-  if (pathsInSource.length !== ALLOWED_MERGED_ENDPOINTS.length) return false
-  return pathsInSource.every((p) => ALLOWED_PATH_SET.has(p as never))
+  return ALLOWED_PAIRS.has(`GET:${path}`)
 }

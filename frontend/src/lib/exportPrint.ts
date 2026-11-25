@@ -1,19 +1,21 @@
-import type { SyntheticPaperPreview } from '../fixtures/exams'
+import { SYNTHETIC_PAPER_PREVIEW } from '../fixtures/exams'
 
 const WATERMARK = 'SYNTHETIC DEMO — NOT OFFICIAL — EDUVIJNA'
 
-export function buildPrintableHtml(paper: SyntheticPaperPreview): string {
+/** Export uses the fixed internal paper fixture only — no caller-supplied paper. */
+export function buildPrintableHtml(): string {
+  const paper = SYNTHETIC_PAPER_PREVIEW
   const body = paper.sections
     .map(
       (section) => `
       <section>
         <h2>${escape(section.title)}</h2>
-        <p>Planned: ${section.plannedCount} · Delivered actual: ${section.deliveredActual} · Illustrative samples: ${section.illustrativeSamples} · Section marks: ${section.sectionMarks}</p>
+        <p>Planned count: ${escapeNum(section.plannedCount)} · Delivered actual: ${escapeNum(section.deliveredActual)} · Illustrative samples: ${escapeNum(section.illustrativeSamples)} · Sample marks total: ${escapeNum(section.illustrativeSampleMarks)}</p>
         <ol>
           ${section.items
             .map(
               (item) =>
-                `<li><strong>${escape(item.stemPlain)}</strong> (${item.marks} marks, illustrative sample)</li>`,
+                `<li><strong>${escape(item.stemPlain)}</strong> (${escapeNum(item.marks)} marks, illustrative sample)</li>`,
             )
             .join('')}
         </ol>
@@ -35,33 +37,36 @@ export function buildPrintableHtml(paper: SyntheticPaperPreview): string {
   <div class="banner" role="status">${WATERMARK}</div>
   <h1>${escape(paper.title)}</h1>
   <p>${escape(paper.disclaimer)}</p>
-  <p>Duration: ${paper.durationMinutes} minutes · Total marks (planned profile): ${paper.totalMarks} · Negative marking: ${escape(paper.negativeMarking)}</p>
+  <p>Duration: ${escapeNum(paper.durationMinutes)} minutes · Planned total marks: ${escape(paper.plannedTotalMarksStatus)} · Illustrative sample marks total: ${escapeNum(paper.illustrativeSampleMarksTotal)} · Negative marking: ${escape(paper.negativeMarking)}</p>
+  <p>Planned items: ${escapeNum(paper.plannedTotal)} · Delivered actual: ${escapeNum(paper.deliveredActual)}</p>
   ${body}
   <p class="noprint"><em>Demo export only — no learner data, answer keys, or official issuance.</em></p>
 </body>
 </html>`
 }
 
-export function buildJsonExport(paper: SyntheticPaperPreview): string {
+export function buildJsonExport(): string {
+  const paper = SYNTHETIC_PAPER_PREVIEW
   const payload = {
     watermark: WATERMARK,
     synthetic: true,
     official: false,
     deliveredActual: paper.deliveredActual,
     illustrativeSampleCount: paper.illustrativeSampleCount,
+    illustrativeSampleMarksTotal: paper.illustrativeSampleMarksTotal,
+    plannedTotalMarksStatus: paper.plannedTotalMarksStatus,
     paper: {
       id: paper.id,
       title: paper.title,
       durationMinutes: paper.durationMinutes,
       negativeMarking: paper.negativeMarking,
       plannedTotal: paper.plannedTotal,
-      totalMarks: paper.totalMarks,
       sections: paper.sections.map((s) => ({
         title: s.title,
         plannedCount: s.plannedCount,
         deliveredActual: s.deliveredActual,
         illustrativeSamples: s.illustrativeSamples,
-        sectionMarks: s.sectionMarks,
+        illustrativeSampleMarks: s.illustrativeSampleMarks,
         items: s.items.map((i) => ({
           id: i.id,
           stemPlain: i.stemPlain,
@@ -93,4 +98,9 @@ function escape(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+function escapeNum(n: number): string {
+  if (!Number.isFinite(n)) return '0'
+  return escape(String(Math.trunc(n)))
 }
