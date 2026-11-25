@@ -140,7 +140,7 @@ consolidated_technical_closure:
       residuals_mandatory_in_recovery_workstreams: true
     C01:
       name: Foundation and Database Recovery
-      state: ACTIVE_GATE_A
+      state: ACTIVE_GATE_B
       tasklist_issue: 66
       tasklist_status: APPROVED
       approved_scope: C01-01..C01-27
@@ -148,33 +148,33 @@ consolidated_technical_closure:
       founder_approval_comment: 7156388075
       founder_approval_signal: "Approved, Go ahead."
       implementation_authorized: true
-      authorization_scope: GATE_A_DIAGNOSTICS_AND_DESIGN_ONLY
-      active_task_scope: "C01-01..08 and C01-15/16"
-      narrow_d13_31a_exception: INVESTIGATE_MIGRATION_0021_ONLY
-      historical_migration_changes_authorized: false
-      application_logic_changes_authorized: false
+      authorization_scope: GATE_B_BOUNDED_MIGRATION_COMPATIBILITY_AND_FOUNDATION
+      active_task_scope: "C01-09..14, C01-17..27 and Gate A residual closure"
+      narrow_d13_31a_exception: BOUNDED_0021_COMPATIBILITY_ONLY_NO_REPLAY_LOGIC
+      historical_migration_changes_authorized: "0006 and 0021 only"
+      application_logic_changes_authorized: C01_FOUNDATION_AND_MATCHING_MODEL_CONSTRAINTS_ONLY
       data_remediation_authorized: false
       held_pr_import_authorized: false
       production_database_access_authorized: false
       isolated_synthetic_diagnostics_authorized: true
-      gate_a_state: ACTIVE
-      gate_b_state: LOCKED_PENDING_SEPARATE_FOUNDER_STRATEGY_APPROVAL
+      gate_a_state: FOUNDER_DIAGNOSTIC_MILESTONE_ACCEPTED_WITH_DEFERRALS
+      gate_b_state: ACTIVE
       implementation_branch: "closure/c01-foundation-database-recovery"
       implementation_base_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
-      implementation_status: GATE_A_CANDIDATE_3_FINAL_READY_FOR_FOUNDER
+      implementation_status: GATE_B_AUTHORIZED_NOT_STARTED
       candidate_1_started: "2026-11-25"
       candidate_1_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
       candidate_2_started: "2026-11-25"
-      candidate_2_sha: "b66e0eebfd99775cc9795fde126551dda7fd8510"
+      candidate_2_sha: "30b1363663e6c9063a67683f4293fb90f7d3f34f"
       candidate_3_started: "2026-11-25"
-      candidate_3_sha: "923433f80fac6b78328853521915ad2ea7bf5fa1"
+      candidate_3_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
       candidate_3_review_base_sha: "30b1363663e6c9063a67683f4293fb90f7d3f34f"
       gate_a_candidates_consumed: 3
       gate_a_candidate_limit_reached: true
       candidate_2_review_base_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
-      candidate_2_ci_run: "45572420611"
+      candidate_2_ci_run: "45574422240"
       candidate_2_ci_result: "SUCCESS_backend_frontend_compose_skipped"
-      candidate_3_ci_run: "45574422240"
+      candidate_3_ci_run: "45575396512"
       candidate_3_ci_result: "SUCCESS_backend_frontend_compose_skipped"
       independent_review_findings: "C01-A-F01..F05 candidate 2; R3-A01..A05 candidate 3"
       candidate_3_harness_reference_run: c01_gatea_3528d62e02f2
@@ -186,7 +186,23 @@ consolidated_technical_closure:
       required_cursor_model: "Composer 2.5 (standard; not Fast)"
       review_workflow: founder_manual_chatgpt_review
       gate_a_candidate_limit: 3
-      gate_b_candidate_budget: NOT_AUTHORIZED
+      gate_b_candidate_budget: 3
+      gate_b_candidates_consumed: 0
+      gate_a_founder_milestone_signoff: true
+      gate_a_signoff_comment: 7157347180
+      gate_a_final_ci_run: 45575396512
+      gate_a_final_ci_result: SUCCESS_TARGETED_COMPOSE_SKIPPED
+      gate_a_candidate_1_ci_run: 45572420611
+      gate_a_residuals: "C01-A-R01..05 mandatory in Gate B"
+      gate_b_founder_approval_comment: 7157342815
+      gate_b_founder_approval_signal: "Approved Gate B, go ahead."
+      gate_b_start_reviewed_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
+      gate_b_strategy: OPTION_A_CONTROLLED_HISTORICAL_COMPATIBILITY
+      data_disposition: ABORT_ONLY_NO_DELETE_RELABEL_QUARANTINE_STAMP_SKIP
+      deployed_migration_history: UNKNOWN
+      external_database_rollout_authorized: false
+      additional_historical_revision_changes_authorized: false
+      technical_acceptance: PENDING
       auto_merge: false
       next_workstream_unlock: false
     C02:
