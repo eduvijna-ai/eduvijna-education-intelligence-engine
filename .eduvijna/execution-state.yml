@@ -161,8 +161,12 @@ consolidated_technical_closure:
       gate_b_state: LOCKED_PENDING_SEPARATE_FOUNDER_STRATEGY_APPROVAL
       implementation_branch: "closure/c01-foundation-database-recovery"
       implementation_base_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
-      implementation_status: AUTHORIZED_NOT_STARTED
-      pg0021_status: SOURCE_GROUNDED_BLOCKER_LIVE_NOT_RUN
+      implementation_status: GATE_A_CANDIDATE_1_IN_PROGRESS
+      candidate_1_started: "2026-11-25"
+      gate_a_candidates_consumed: 0
+      pg0021_status: LIVE_DISPOSABLE_PG_BLOCKER_REPRODUCED
+      pg0006_fresh_chain_blocker: REPRODUCED_DISPOSABLE_PG_16_15
+      sqlite0021_populated_mixed: FAIL_CLOSED_AT_0020
       held_0022_revision_collision: CONFIRMED
       provisional_c01_ledger_rows: 68
       required_cursor_model: "Composer 2.5 (standard; not Fast)"
