@@ -165,7 +165,7 @@ consolidated_technical_closure:
       gate_b_state: CLOSED_STOP_AND_ESCALATE_FOUNDER_MILESTONE_ACCEPTED_WITH_DEFERRALS
       implementation_branch: "closure/c01-acceptance-test-recovery"
       implementation_base_sha: "e7ce396aa088dab2cbdfebadab1ae0d4efaaef67"
-      implementation_status: TEST_HARNESS_CORRECTION_AUTHORIZED_NOT_STARTED
+      implementation_status: TEST_HARNESS_CORRECTION_DELIVERED_PENDING_CI
       gate_b_candidate_1_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
@@ -253,7 +253,10 @@ consolidated_technical_closure:
       test_harness_correction_founder_approval_signal: "Approved test-harness correction, go ahead."
       test_harness_correction_review_base_sha: "55998081013fb57399e4d1a0f389cfa90d79f300"
       test_harness_correction_run_limit: 1
-      test_harness_correction_runs_consumed: 0
+      test_harness_correction_runs_consumed: 1
+      test_harness_correction_candidate_sha: "4d2b3d40ba7cf42dd926484b421c78d8853101a5"
+      test_harness_correction_prior_failed_ci_run: 45598887196
+      test_harness_correction_prior_failed_ci_result: FAILED_BACKEND_AND_POSTGRES_FRONTEND_SUCCESS_COMPOSE_SKIPPED
       test_harness_correction_execution_authorized: true
       test_harness_correction_product_repairs_authorized: false
       test_harness_correction_auto_retry: false

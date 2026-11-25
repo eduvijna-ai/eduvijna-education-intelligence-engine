@@ -1,18 +1,23 @@
 # C01 AT01–AT10 evidence packet
 
 **Delivery branch:** `closure/c01-acceptance-test-recovery`  
-**Candidate SHA:** `f45feff42635d26206a1cb40aa2e57f71d8ddbe1` (pytest evidence commit; CI uses `EDUVIJNA_CANDIDATE_SHA` on push)  
-**Local evidence run:** Cloud Agent, Python 3.12, backend `.venv`  
-**Raw pytest:** `docs/execution/C01-AT-PYTEST-RAW.txt`  
+**Prior AT evidence SHA:** `55998081013fb57399e4d1a0f389cfa90d79f300` (CI295 **FAILED** run `45598887196`)  
+**Harness correction:** Founder comment `7160951822`; governance seed `fdcf2b6a8bb8b4cec1ef8dbe09574f9516c3d81a`  
+**Correction candidate SHA:** `4d2b3d40ba7cf42dd926484b421c78d8853101a5`  
+**Local correction run:** Cloud Agent, Python 3.12, backend `.venv`  
+**Raw pytest (original):** `docs/execution/C01-AT-PYTEST-RAW.txt`  
+**Raw pytest (correction):** `docs/execution/C01-AT-PYTEST-RAW-CORRECTION.txt`  
 **JUnit:** `docs/execution/C01-AT-junit.xml` (CI upload: `docs/execution/C01-AT-junit-ci.xml`)
 
 ## Summary matrix (local agent)
 
 | Dialect | Collected | Passed | Skipped | Failed |
 | --- | ---: | ---: | ---: | ---: |
-| **SQLite + meta (executed)** | 49 | 49 | 0 | 0 |
-| **PostgreSQL opt-in (not executed locally)** | 4 | 0 | 4 | 0 |
-| **Total collected** | 53 | 49 | 4 | 0 |
+| Run | Collected | Passed | Skipped | Failed |
+| --- | ---: | ---: | ---: | ---: |
+| Original local (`5599808` ancestry) | 53 | 49 | 4 | 0 |
+| Harness correction local | 54 | 50 | 4 | 0 |
+| CI295 exact-head (`5599808`) | — | — | — | **FAILED** (harness/CI; see repair proposal H-01..H-04) |
 
 Skipped tests (infrastructure, not PASS):
 

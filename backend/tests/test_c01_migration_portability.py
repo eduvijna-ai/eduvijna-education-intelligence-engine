@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, text
 
+from tests.c01_at_support import drop_owned_pg_database, ensure_owned_disposable_pg_url
 from tests.c01_disposable_pg import C01_PG_OPT_IN, validated_disposable_pg_url
 from tests.migration_test_support import (
     alembic_executable,
@@ -327,23 +328,26 @@ def test_model_ddl_synthetic_check_sqlite_sqlalchemy(tmp_path: Path) -> None:
     reason=f"{C01_PG_OPT_IN}=1 required",
 )
 def test_postgresql_fresh_empty_upgrade_head() -> None:
-    url = validated_disposable_pg_url()
-    engine = create_engine(url)
-    with engine.connect() as conn:
-        dialect = conn.dialect.name
-        assert dialect == "postgresql"
-        empty = conn.execute(
-            text(
-                "SELECT COUNT(*) FROM information_schema.tables "
-                "WHERE table_schema = current_schema() AND table_name = 'alembic_version'"
-            )
-        ).scalar_one()
-        assert int(empty) == 0
-    result = run_alembic_with_url(url, "upgrade", "head")
-    assert result.returncode == 0, result.stderr + result.stdout
-    with engine.connect() as conn:
-        head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert head == repository_alembic_head()
+    url, database_name, admin_url = ensure_owned_disposable_pg_url()
+    try:
+        engine = create_engine(url)
+        with engine.connect() as conn:
+            dialect = conn.dialect.name
+            assert dialect == "postgresql"
+            empty = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+                )
+            ).scalar_one()
+            assert int(empty) == 0
+        result = run_alembic_with_url(url, "upgrade", "head")
+        assert result.returncode == 0, result.stderr + result.stdout
+        with engine.connect() as conn:
+            head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            assert head == repository_alembic_head()
+    finally:
+        drop_owned_pg_database(admin_url, database_name)
 
 
 def test_sqlite_0021_preflight_rejects_missing_owner_on_pending(tmp_path: Path) -> None:

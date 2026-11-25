@@ -100,8 +100,8 @@ def test_at04_untrusted_flags_for_legacy_integer_promotion(tmp_path) -> None:
 
 
 @pytest.mark.c01_at04
-def test_at04_schema_mismatch_misleading_check_substring(tmp_path) -> None:
-    database_path = tmp_path / "mismatch.db"
+def test_at04_unknown_revision_is_not_clean(tmp_path) -> None:
+    database_path = tmp_path / "unknown-rev.db"
     run_alembic(database_path, "upgrade", REV_0020)
     connection = sqlite3.connect(database_path)
     try:
@@ -113,13 +113,7 @@ def test_at04_schema_mismatch_misleading_check_substring(tmp_path) -> None:
     connection = sqlite3.connect(database_path)
     try:
         connection.execute(
-            """
-            CREATE TABLE d13_replay_reservations_shadow (
-                id TEXT PRIMARY KEY,
-                synthetic_test_only INTEGER NOT NULL DEFAULT 0
-                    CHECK (synthetic_test_only = 1 OR synthetic_test_only = 0)
-            )
-            """
+            "UPDATE alembic_version SET version_num = '20990101_0001'"
         )
         connection.commit()
     finally:
@@ -127,8 +121,5 @@ def test_at04_schema_mismatch_misleading_check_substring(tmp_path) -> None:
     engine = create_engine(f"sqlite:///{database_path}")
     with engine.connect() as conn:
         report = audit_legacy_0021_state(conn)
-    assert report.status in {
-        LegacyAuditStatus.CLEAN,
-        LegacyAuditStatus.SCHEMA_MISMATCH,
-    }
+    assert report.status != LegacyAuditStatus.CLEAN
     assert report.status != LegacyAuditStatus.UNKNOWN

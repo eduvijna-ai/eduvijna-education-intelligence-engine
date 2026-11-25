@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from tests.c01_at_support import (
     seed_minimal_nonempty_canonical,
     sqlite_schema_digest,
     sqlite_table_count,
+    sqlite_table_row_digest,
 )
 
 
@@ -30,6 +30,16 @@ def test_at08_populated_sqlite_backup_restore_fingerprints_match(tmp_path: Path)
         assert counts["d13_replay_reservations"] > 0
         before_rows = replay_rows_digest(connection)
         before_schema = sqlite_schema_digest(connection)
+        table_digests = {
+            table: sqlite_table_row_digest(connection, table)
+            for table in (
+                "organizations",
+                "institutions",
+                "sources",
+                "source_revisions",
+                "d13_replay_reservations",
+            )
+        }
         backup = sqlite3.connect(str(restored_path))
         connection.backup(backup)
         backup.close()
@@ -44,13 +54,9 @@ def test_at08_populated_sqlite_backup_restore_fingerprints_match(tmp_path: Path)
         assert sqlite_table_count(restored, "d13_replay_reservations") == replay_expected
         assert replay_rows_digest(restored) == before_rows
         assert sqlite_schema_digest(restored) == before_schema
+        for table, digest in table_digests.items():
+            assert sqlite_table_row_digest(restored, table) == digest
         assert restored.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert restored.execute("PRAGMA foreign_key_check").fetchall() == []
-        rows = restored.execute(
-            "SELECT id, synthetic_test_only FROM d13_replay_reservations ORDER BY id"
-        ).fetchall()
-        assert hashlib.sha256(repr(rows).encode()).hexdigest() == hashlib.sha256(
-            repr(rows).encode()
-        ).hexdigest()
     finally:
         restored.close()

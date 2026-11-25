@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from tests.c01_at_support import acceptance_git_sha, repository_alembic_head, revision_graph_token
-from tests.migration_test_support import backend_root
 
 AT_MODULES = (
     "tests/test_c01_at01_disposable_harness.py",
@@ -44,9 +44,8 @@ def test_at10_all_acceptance_modules_exist() -> None:
 @pytest.mark.c01_at10
 def test_at10_pytest_collects_all_at_modules() -> None:
     backend = Path(__file__).resolve().parents[1]
-    pytest_bin = backend_root() / ".venv" / "bin" / "pytest"
     collect = subprocess.run(
-        [str(pytest_bin), *AT_MODULES, "--collect-only", "-q"],
+        [sys.executable, "-m", "pytest", *AT_MODULES, "--collect-only", "-q"],
         cwd=backend,
         capture_output=True,
         text=True,

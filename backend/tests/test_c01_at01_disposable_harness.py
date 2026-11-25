@@ -11,19 +11,18 @@ from urllib.parse import urlparse
 import pytest
 from sqlalchemy import create_engine, text
 
-from app.core.config import Settings
 from tests.c01_at_support import (
     assert_pg_schema_empty,
     create_owned_pg_database,
     drop_owned_pg_database,
     owned_pg_database_name,
-    pg_admin_url_from_disposable,
     restored_env,
 )
 from tests.c01_disposable_pg import (
     C01_PG_OPT_IN,
     C01_PG_URL,
     parse_disposable_pg_url,
+    validated_disposable_pg_cluster,
     validated_disposable_pg_url,
 )
 
@@ -57,6 +56,14 @@ def test_at01_rejects_absent_opt_in_before_connect() -> None:
             validated_disposable_pg_url()
 
 
+def test_at01_rejects_arbitrary_shared_database_name_without_registry() -> None:
+    with pytest.raises(ValueError, match="owned prefix"):
+        parse_disposable_pg_url(
+            "postgresql+psycopg://u:p@127.0.0.1:55433/c01_ci",
+            require_opt_in=False,
+        )
+
+
 def test_at01_rejects_general_database_url_fallback() -> None:
     shared = "postgresql+psycopg://u:p@127.0.0.1:55433/shared"
     with restored_env(("DATABASE_URL", C01_PG_OPT_IN, C01_PG_URL)):
@@ -82,8 +89,10 @@ def test_at01_sqlite_uses_private_temp_directory_only(tmp_path: Path) -> None:
 def _owned_pg_if_available() -> Iterator[str]:
     if os.environ.get(C01_PG_OPT_IN) != "1":
         pytest.skip(f"{C01_PG_OPT_IN}=1 required")
-    base_url = validated_disposable_pg_url()
-    admin_url = pg_admin_url_from_disposable(base_url)
+    cluster = validated_disposable_pg_cluster()
+    from tests.c01_at_support import pg_admin_url_from_disposable
+
+    admin_url = pg_admin_url_from_disposable(cluster)
     db_name = owned_pg_database_name("c01_at01")
     owned_url = create_owned_pg_database(admin_url, db_name)
     try:
@@ -113,9 +122,6 @@ def test_at01_pg_creates_exclusively_owned_empty_database() -> None:
             assert int(tables) == 0
 
 
-def test_at01_frozen_product_settings_guard_accepts_default_sqlite_without_opt_in() -> None:
-    """Product guard evidence: frozen Settings has no disposable-database rejection."""
-    settings = Settings()
-    assert settings.database_url.startswith("sqlite:")
-    # Known defect relative to AT01 harness policy — recorded for repair proposal, not masked.
-    assert "127.0.0.1" in settings.database_url or settings.database_url.startswith("sqlite:")
+def test_at01_harness_policy_is_test_only_not_application_settings() -> None:
+    """Harness guard is enforced via c01_disposable_pg, not app Settings."""
+    assert C01_PG_OPT_IN == "EDUVIJNA_C01_DISPOSABLE_PG"

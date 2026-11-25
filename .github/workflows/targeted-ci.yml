@@ -70,24 +70,30 @@ jobs:
         run: pip install -e '.[dev]'
       - name: C01 disposable PostgreSQL migration proof
         env:
-          DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
-          EDUVIJNA_C01_DISPOSABLE_DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
+          EDUVIJNA_C01_DISPOSABLE_DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/postgres
           EDUVIJNA_C01_DISPOSABLE_PG: "1"
         run: |
           test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
           python - <<'PY'
           import os
+          import uuid
           from sqlalchemy import create_engine, text
-          url = os.environ["DATABASE_URL"]
-          assert url.startswith("postgresql")
-          with create_engine(url).connect() as conn:
+          from tests.c01_at_support import create_owned_pg_database, pg_admin_url_from_disposable
+          from tests.c01_disposable_pg import C01_PG_URL
+
+          admin = pg_admin_url_from_disposable(os.environ[C01_PG_URL])
+          name = f"c01_at_{uuid.uuid4().hex[:12]}"
+          owned = create_owned_pg_database(admin, name)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"EDUVIJNA_C01_DISPOSABLE_DATABASE_URL={owned}\n")
+          with create_engine(owned).connect() as conn:
               n = conn.execute(text(
                   "SELECT COUNT(*) FROM information_schema.tables "
-                  "WHERE table_schema = current_schema() AND table_name = 'alembic_version'"
+                  "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
               )).scalar_one()
-              assert int(n) == 0, "expected empty disposable database"
+              assert int(n) == 0, "expected empty owned disposable database"
           PY
-          pytest tests/test_c01_at*.py tests/test_c01_migration_portability.py \
+          python -m pytest tests/test_c01_at*.py tests/test_c01_migration_portability.py \
             --junitxml=../docs/execution/C01-AT-junit-ci.xml \
             --maxfail=0 -q
 
@@ -98,18 +104,23 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
       - name: Install backend
         run: pip install -e '.[dev]'
+      - name: Assert exact candidate SHA
+        run: test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
       - name: Ruff
         run: ruff check app tests migrations/c01_d13_synthetic_preflight.py migrations/c01_constraints.py
       - name: Mypy
         run: mypy app
       - name: Pytest — implemented task only
         run: |
+          test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
           mapfile -t targets < <(grep -Ev '^\s*(#|$)' ../.eduvijna/pytest-targets.txt)
           if (( ${#targets[@]} == 0 )); then
             if [[ "${{ github.event.pull_request.draft }}" == "true" ]]; then
@@ -120,11 +131,10 @@ jobs:
             exit 2
           fi
           printf 'Target pytest: %s\n' "${targets[@]}"
-          pytest -q "${targets[@]}"
+          python -m pytest -q "${targets[@]}"
       - name: Verify Day 8 and Day 9 founder harness on exact PR head
         run: |
-          git fetch --no-tags --depth=1 origin "${EDUVIJNA_CANDIDATE_SHA}"
-          git checkout --detach "${EDUVIJNA_CANDIDATE_SHA}"
+          test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
           python -m app.day8_verify
           python -m app.day9_verify
           python -m app.day10_verify --json

@@ -1,30 +1,27 @@
 # C01 AT repair proposals (design only — no implementation)
 
-This run is test-evidence only. Items below are **separate** Founder-authorized product repairs.
+Test-harness correction run only. **No product repair authorized.** Proposals below require separate Founder approval and must be supported by **valid red test evidence**, not harness defects.
 
-## R-AT01 — Application database guard absent
+## Historical CI295 test/CI defects (corrected in harness correction run — not product)
 
-| Field | Value |
-| --- | --- |
-| **Failing / red evidence** | `test_at01_frozen_product_settings_guard_accepts_default_sqlite_without_opt_in` documents behavior; not a failing assertion |
-| **Symbol** | `app/core/config.py` → `Settings.database_url` default |
-| **Smallest change** | Add fail-closed disposable/loopback policy for non-production test harness OR document explicit production-only URL contract in settings validation |
-| **Dependencies** | None on migrations |
-| **Safety** | Must not widen production DB access; must not break local dev without explicit opt-in |
-| **Retest** | AT01 frozen-guard test should **FAIL** until product guard exists; harness tests remain **PASS** |
+| ID | Symptom | Classification | Harness fix (this run) |
+| --- | --- | --- | --- |
+| **H-01** | AT02 PG `engine.begin` + `rollback` closed transaction | Test defect | Independent connections; migrated `d13_replay_reservations` CHECK |
+| **H-02** | AT09 insert after 0021 without `synthetic_test_only=true` | Test defect | 0020→0021 populated fixture path + `synthetic_test_only` enforcement |
+| **H-03** | AT10 hardcoded `.venv/bin/pytest` | CI/test defect | `sys.executable -m pytest` |
+| **H-04** | Backend targeted CI detached checkout after pytest | CI defect | Checkout PR head up front; assert `EDUVIJNA_CANDIDATE_SHA` before tests |
 
-## R-AT02-PG — Populated PostgreSQL `0021` chain (historical blocker)
+## Product repair candidates (only if future valid red evidence)
 
-| Field | Value |
-| --- | --- |
-| **Prior evidence** | Gate A/B transcripts: PG `0021` `json_extract` / strict-marker interaction |
-| **Test surface** | CI `c01-migration-postgres` running `tests/test_c01_at*.py` + portability |
-| **Smallest change** | **If CI fails:** dialect-specific preflight read path in `migrations/versions/20261124_0021_*` or helper — **requires separate migration repair authorization** |
-| **Retest** | AT03 PG hostile + AT06 populated PG paths |
+| ID | Prerequisite | Notes |
+| --- | --- | --- |
+| **R-PG-0021** | CI/hostile PG populated 0020→0021 **FAIL** on frozen product | Prior Gate history suggests possible PG dialect preflight issue — **not re-proven** by CI295 failures (those were harness). Require fresh red test on corrected harness before any migration proposal. |
 
-## Infrastructure (not product defects)
+## Infrastructure (BLOCKED ≠ PASS)
 
 | Item | Status |
 | --- | --- |
-| Local agent without `EDUVIJNA_C01_DISPOSABLE_PG=1` | **BLOCKED** — tests correctly **SKIP**, not PASS |
-| `pg_dump` / `psql` missing on agent | AT09 **SKIP** — CI service expected to provide |
+| Local agent without `EDUVIJNA_C01_DISPOSABLE_PG=1` | Mandatory PG cases **SKIP** |
+| Missing `pg_dump`/`psql` on agent | AT09 **SKIP**; CI service expected |
+
+**Removed:** unjustified R-AT01 `Settings.database_url` application-guard repair — normal local SQLite default is **not** an established defect per independent review 7160312290.

@@ -18,12 +18,15 @@ from tests.c01_at_support import (
     REV_0006,
     REV_0020,
     REV_0021,
+    ensure_owned_disposable_pg_url,
     insert_active_source_revision_sqlite,
     insert_minimal_source_sqlite,
+    insert_pg_replay_at_0020,
     insert_replay_sqlite,
     run_alembic,
+    run_alembic_url,
 )
-from tests.c01_disposable_pg import C01_PG_OPT_IN, validated_disposable_pg_url
+from tests.c01_disposable_pg import C01_PG_OPT_IN
 from tests.migration_test_support import run_alembic as migration_run
 
 
@@ -184,19 +187,80 @@ def test_at02_postgres_compile_uses_is_true_predicate() -> None:
 
 @pytest.mark.c01_at02
 @pytest.mark.skipif(__import__("os").environ.get(C01_PG_OPT_IN) != "1", reason="PG opt-in")
-def test_at02_postgres_rejects_false_and_null_synthetic() -> None:
-    url = validated_disposable_pg_url()
-    engine = create_engine(url)
-    with engine.connect() as conn:
-        conn.execute(text("CREATE TABLE at02_syn (v boolean)"))
-        conn.commit()
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE at02_syn ADD CONSTRAINT ck_at02 CHECK (v IS TRUE)"))
-        conn.commit()
-    with engine.begin() as conn:
-        conn.execute(text("INSERT INTO at02_syn (v) VALUES (true)"))
-        with pytest.raises(IntegrityError):
-            conn.execute(text("INSERT INTO at02_syn (v) VALUES (false)"))
-        conn.rollback()
-        with pytest.raises(IntegrityError):
-            conn.execute(text("INSERT INTO at02_syn (v) VALUES (NULL)"))
+def test_at02_postgres_migrated_replay_rejects_false_and_null_synthetic() -> None:
+    url, database_name, admin_url = ensure_owned_disposable_pg_url()
+    try:
+        assert run_alembic_url(url, "upgrade", REV_0020).returncode == 0
+        engine = create_engine(url)
+        org_id = str(uuid.uuid4())
+        inst_id = str(uuid.uuid4())
+        ts = _now()
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO organizations (
+                        id, code, name, active, metadata_json, created_at, updated_at
+                    ) VALUES (
+                        :id, 'AT02-ORG', 'AT02', true, '{}'::json,
+                        CAST(:ts AS timestamptz), CAST(:ts AS timestamptz)
+                    )
+                    """
+                ),
+                {"id": org_id, "ts": ts},
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO institutions (
+                        id, organization_id, code, name, active, metadata_json,
+                        created_at, updated_at
+                    ) VALUES (
+                        :id, :org, 'AT02-INST', 'AT02', true, '{}'::json,
+                        CAST(:ts AS timestamptz), CAST(:ts AS timestamptz)
+                    )
+                    """
+                ),
+                {"id": inst_id, "org": org_id, "ts": ts},
+            )
+            insert_pg_replay_at_0020(conn, org_id=org_id, inst_id=inst_id)
+        assert run_alembic_url(url, "upgrade", REV_0021).returncode == 0
+        row_id = None
+        with engine.connect() as conn:
+            row_id = conn.execute(
+                text("SELECT id FROM d13_replay_reservations LIMIT 1")
+            ).scalar_one()
+        assert row_id is not None
+        with engine.connect() as conn:
+            with pytest.raises(IntegrityError, match="ck_d13_replay_synthetic_marker"):
+                conn.execute(
+                    text(
+                        "UPDATE d13_replay_reservations SET synthetic_test_only = false "
+                        "WHERE id = :id"
+                    ),
+                    {"id": row_id},
+                )
+                conn.commit()
+        with engine.connect() as conn:
+            with pytest.raises(IntegrityError, match="ck_d13_replay_synthetic_marker"):
+                conn.execute(
+                    text(
+                        "UPDATE d13_replay_reservations SET synthetic_test_only = NULL "
+                        "WHERE id = :id"
+                    ),
+                    {"id": row_id},
+                )
+                conn.commit()
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "UPDATE d13_replay_reservations SET synthetic_test_only = true "
+                    "WHERE id = :id"
+                ),
+                {"id": row_id},
+            )
+            conn.commit()
+    finally:
+        from tests.c01_at_support import drop_owned_pg_database
+
+        drop_owned_pg_database(admin_url, database_name)

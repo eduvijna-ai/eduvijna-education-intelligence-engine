@@ -320,6 +320,10 @@ def owned_pg_database_name(prefix: str = "c01_at") -> str:
 
 
 def create_owned_pg_database(admin_url: str, database_name: str) -> str:
+    from tests.c01_disposable_pg import register_owned_database
+
+    if not database_name.startswith("c01_at_"):
+        raise ValueError("refusing to create non-owned database name")
     engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     with engine.connect() as conn:
         in_use = conn.execute(
@@ -329,6 +333,7 @@ def create_owned_pg_database(admin_url: str, database_name: str) -> str:
         if in_use:
             raise RuntimeError(f"refusing to reuse existing database {database_name!r}")
         conn.execute(text(f'CREATE DATABASE "{database_name}"'))
+    register_owned_database(database_name)
     parsed = urlparse(admin_url)
     userinfo = ""
     if parsed.username:
@@ -343,6 +348,9 @@ def create_owned_pg_database(admin_url: str, database_name: str) -> str:
 
 
 def drop_owned_pg_database(admin_url: str, database_name: str) -> None:
+    from tests.c01_disposable_pg import assert_owned_database_registered
+
+    assert_owned_database_registered(database_name)
     engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     with engine.connect() as conn:
         conn.execute(
@@ -355,7 +363,70 @@ def drop_owned_pg_database(admin_url: str, database_name: str) -> None:
             ),
             {"name": database_name},
         )
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
+        conn.execute(text(f'DROP DATABASE "{database_name}"'))
+    from tests.c01_disposable_pg import _OWNED_DATABASE_REGISTRY
+
+    _OWNED_DATABASE_REGISTRY.discard(database_name)
+
+
+def ensure_owned_disposable_pg_url() -> tuple[str, str, str]:
+    """Allocate or reuse a registered owned database on the validated cluster."""
+    from tests.c01_disposable_pg import (
+        C01_PG_URL,
+        parse_disposable_pg_url,
+        validated_disposable_pg_cluster,
+    )
+
+    validated_disposable_pg_cluster()
+    raw = os.environ[C01_PG_URL].strip()
+    parsed = urlparse(raw)
+    database_name = parsed.path.lstrip("/")
+    admin_url = pg_admin_url_from_disposable(raw)
+    if database_name.startswith("c01_at_"):
+        url = parse_disposable_pg_url(raw, require_registry=True)
+        return url, database_name, admin_url
+    database_name = owned_pg_database_name()
+    url = create_owned_pg_database(admin_url, database_name)
+    return parse_disposable_pg_url(url, require_registry=True), database_name, admin_url
+
+
+def sqlite_table_row_digest(connection: sqlite3.Connection, table: str) -> str:
+    rows = connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+    return hashlib.sha256(repr(rows).encode()).hexdigest()
+
+
+def insert_pg_replay_at_0020(conn, *, org_id: str, inst_id: str) -> str:
+    row_id = str(uuid.uuid4())
+    ts = now_iso()
+    conn.execute(
+        text(
+            """
+            INSERT INTO d13_replay_reservations (
+                id, created_at, updated_at, organization_id, institution_id,
+                exam_pack_code, exam_version_id, academic_year,
+                idempotency_key_hash, request_fingerprint, reservation_state,
+                owner_token, metadata_json
+            ) VALUES (
+                :id, CAST(:ts AS timestamptz), CAST(:ts AS timestamptz),
+                :org, :inst, 'pack', :exam_ver, '2026',
+                :idem, :fp, 'reserved', :owner,
+                CAST(:meta AS json)
+            )
+            """
+        ),
+        {
+            "id": row_id,
+            "ts": ts,
+            "org": org_id,
+            "inst": inst_id,
+            "exam_ver": str(uuid.uuid4()),
+            "idem": "a" * 64,
+            "fp": "b" * 64,
+            "owner": "owner-" + "c" * 58,
+            "meta": '{"d13_synthetic_test_only": true}',
+        },
+    )
+    return row_id
 
 
 def assert_pg_schema_empty(url: str) -> None:
@@ -393,6 +464,7 @@ __all__ = [
     "canonical_row_digest",
     "create_owned_pg_database",
     "drop_owned_pg_database",
+    "ensure_owned_disposable_pg_url",
     "insert_replay_sqlite",
     "owned_pg_database_name",
     "pg_admin_url_from_disposable",
@@ -405,4 +477,6 @@ __all__ = [
     "seed_minimal_nonempty_canonical",
     "sqlite_schema_digest",
     "sqlite_table_count",
+    "sqlite_table_row_digest",
+    "insert_pg_replay_at_0020",
 ]
