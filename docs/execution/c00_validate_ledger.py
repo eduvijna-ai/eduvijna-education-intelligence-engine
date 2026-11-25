@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 import sys
 from collections import Counter
@@ -11,6 +12,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 LEDGER = REPO / "docs" / "execution" / "C00-MASTER-TASK-EVIDENCE.csv"
+MANIFEST = REPO / "docs" / "execution" / "C00-AUTHORITY-MANIFEST.json"
 
 REQUIRED_COLUMNS = [
     "task_id",
@@ -135,6 +137,59 @@ def validate_primary(rows: list[dict[str, str]]) -> list[str]:
     return errors
 
 
+def validate_manifest(rows: list[dict[str, str]]) -> tuple[list[str], bool]:
+    errors: list[str] = []
+    blocked = False
+    if not MANIFEST.is_file():
+        errors.append("missing_authority_manifest")
+        return errors, True
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    idset = {r["task_id"] for r in rows}
+    expected = manifest.get("expected_ids", {})
+    for key in ("D3_core", "D6_core", "D6_amendments", "D10_core", "D11_core", "D12_core_workstream", "D14_R3", "D15_R3"):
+        for tid in expected.get(key, []):
+            if tid not in idset:
+                errors.append(f"manifest_missing_id:{tid}")
+    d12 = sum(1 for r in rows if re.match(r"D12-\d{2}$", r["task_id"]))
+    if d12 < int(expected.get("D12_github_core_min", 36)):
+        errors.append(f"d12_core_undercount:{d12}")
+    for r in rows:
+        for bad in manifest.get("forbidden_patterns", {}).get("fake_authority_labels", []):
+            if bad.lower() in (r.get("original_authority") or "").lower():
+                errors.append(f"fake_authority_relabel:{r['task_id']}")
+        if "MISSING_SPEC" in r.get("original_authority", "") and r["acceptance_criterion"] and not r[
+            "acceptance_criterion"
+        ].startswith("NOT_VERIFIED"):
+            errors.append(f"missing_spec_with_acceptance:{r['task_id']}")
+    if manifest.get("external_authority_gaps"):
+        blocked = True
+    return errors, blocked
+
+
+def validate_residual_refs(rows: list[dict[str, str]]) -> list[str]:
+    errors: list[str] = []
+    known_residual_tasks = {
+        "D5-DS01",
+        "D12-CORE-01",
+        "D15-R3-01",
+        "D17-F07",
+        "F03-A",
+        "D13-31A",
+    }
+    idset = {r["task_id"] for r in rows}
+    for tid in known_residual_tasks:
+        row = next((r for r in rows if r["task_id"] == tid), None)
+        if row and not (row.get("residual_finding_ids") or "").strip():
+            errors.append(f"residual_blank:{tid}")
+    for r in rows:
+        if r.get("residual_finding_ids") and r["residual_finding_ids"] not in idset and not r[
+            "residual_finding_ids"
+        ].startswith("RES-"):
+            if not re.match(r"D\d{2}-", r["residual_finding_ids"]):
+                errors.append(f"residual_unknown:{r['task_id']}:{r['residual_finding_ids'][:40]}")
+    return errors
+
+
 def adversarial_self_tests() -> list[str]:
     """In-process checks on validation rules (documentation-only test harness)."""
     errors: list[str] = []
@@ -155,25 +210,29 @@ def main() -> int:
         return 1
     rows = load_rows()
     errors = validate_primary(rows)
+    manifest_errors, authority_blocked = validate_manifest(rows)
+    errors.extend(manifest_errors)
+    errors.extend(validate_residual_refs(rows))
     errors.extend(adversarial_self_tests())
 
     by_day = Counter(r["day"] for r in rows)
     tech = Counter(r["technical_acceptance_state"] for r in rows)
     eng = Counter(r["engineering_acceptance_state"] for r in rows)
 
-    print("VALIDATION_OK" if not errors else "VALIDATION_FAILED")
+    structural_ok = not errors
+    print("VALIDATION_OK" if structural_ok else "VALIDATION_FAILED")
+    if authority_blocked:
+        print("AUTHORITY_COMPLETENESS_BLOCKED external gaps: MS-001")
     print(f"row_count={len(rows)}")
     print(f"unique_ids={len({r['task_id'] for r in rows})}")
     print("per_day:", dict(sorted(by_day.items())))
     print("technical_acceptance_state:", dict(sorted(tech.items())))
     print("engineering_top:", dict(eng.most_common(6)))
-    print(f"c00_audit_ci_record={C00_CANDIDATE_CI if 'C00_CANDIDATE_CI' in globals() else '45542731473'}")
+    print("c00_audit_ci_record=45542731473:SUCCESS;45543441778:SUCCESS;compose_skipped")
     for e in errors[:30]:
         print("ERROR", e)
-    return 0 if not errors else 2
+    return 0 if structural_ok else 2
 
-
-C00_CANDIDATE_CI = "45542731473"
 
 if __name__ == "__main__":
     sys.exit(main())

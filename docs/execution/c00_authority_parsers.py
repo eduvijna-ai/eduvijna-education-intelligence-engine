@@ -33,7 +33,10 @@ def parse_heading_tasks(
         title = m.group(2).strip()
         body = chunk.split("\n", 1)[1].strip() if "\n" in chunk else ""
         body = re.sub(r"^#+ .+$", "", body, flags=re.MULTILINE).strip()
-        acc = body.split("\n\n")[0][:500] if acceptance_from_body and body else title
+        if acceptance_from_body and body:
+            acc = f"{authority}#section-{tid} — {body.strip()}"
+        else:
+            acc = title
         tasks.append(
             AuthorityTask(tid, authority, title, acc or title, day)
         )
@@ -92,7 +95,16 @@ def parse_d3_source_spec(text: str, authority: str) -> list[AuthorityTask]:
         body = chunk.split("\n", 1)[1].strip() if "\n" in chunk else title
         for n in range(start, end + 1):
             tid = f"D3-{n:02d}"
-            tasks.append(AuthorityTask(tid, authority, f"{title} ({tid})", body[:400], "Day3"))
+            loc = f"{authority}#section-{tid}"
+            tasks.append(
+                AuthorityTask(
+                    tid,
+                    authority,
+                    f"{title} ({tid})",
+                    f"{loc} — {body.strip()}" if body.strip() else loc,
+                    "Day3",
+                )
+            )
     return tasks
 
 
@@ -135,6 +147,127 @@ def parse_d7_pic(text: str, authority: str) -> list[AuthorityTask]:
             continue
         tid, title = m.group(1), m.group(2).strip()
         body = chunk.split("\n", 1)[1].strip() if "\n" in chunk else ""
-        acc = body.split("\n\n")[0][:500] if body else title
+        acc = f"{authority}#section-{tid} — {body.strip()}" if body else title
         tasks.append(AuthorityTask(tid, authority, title, acc, "Day7"))
     return tasks
+
+
+def parse_two_column_summary_table(
+    text: str, id_prefix: str, authority: str, day: str
+) -> list[AuthorityTask]:
+    """| D6-01 | Summary | or | **D6-01** | Summary |"""
+    tasks: list[AuthorityTask] = []
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 2:
+            continue
+        tid = parts[0].strip("*").strip()
+        if not tid.startswith(id_prefix) or tid in {"ID", "---"}:
+            continue
+        if set(parts[0]) <= set("-:"):
+            continue
+        summary = parts[1]
+        acc = f"{authority}#row-{tid} — {summary}"
+        tasks.append(AuthorityTask(tid, authority, summary, acc, day))
+    return tasks
+
+
+def parse_three_column_task_table(
+    text: str, id_prefix: str, authority: str, day: str
+) -> list[AuthorityTask]:
+    """| D10-01 | Task | Required acceptance |"""
+    tasks: list[AuthorityTask] = []
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 3:
+            continue
+        tid = parts[0].strip("*").strip()
+        if not tid.startswith(id_prefix) or tid in {"ID", "---"}:
+            continue
+        if set(parts[0]) <= set("-:"):
+            continue
+        req = parts[1]
+        acc = parts[2] if len(parts) > 2 else req
+        tasks.append(AuthorityTask(tid, authority, req, f"{authority}#row-{tid} — {acc}", day))
+    return tasks
+
+
+def parse_d6_amendments(text: str, authority: str) -> list[AuthorityTask]:
+    """D6-A01..A12 from D06-DELIVERY-EVIDENCE acceptance-closure table."""
+    expanded: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 2:
+            continue
+        rid = parts[0]
+        if not rid.startswith("D6-A"):
+            continue
+        impl = parts[1]
+        if "A04–A05" in rid or "A04-A05" in rid:
+            expanded.append(("D6-A04", impl + " (split A04)"))
+            expanded.append(("D6-A05", impl + " (split A05)"))
+        elif "A07–A08" in rid or "A07-A08" in rid:
+            expanded.append(("D6-A07", impl + " (split A07)"))
+            expanded.append(("D6-A08", impl + " (split A08)"))
+        elif "A10–A12" in rid or "A10-A12" in rid:
+            expanded.append(("D6-A10", impl + " (split A10)"))
+            expanded.append(("D6-A11", impl + " (split A11)"))
+            expanded.append(("D6-A12", impl + " (split A12)"))
+        else:
+            expanded.append((rid, impl))
+    out: list[AuthorityTask] = []
+    for tid, impl in expanded:
+        out.append(
+            AuthorityTask(
+                tid,
+                authority,
+                impl,
+                f"{authority}#acceptance-closure-{tid} — {impl}",
+                "Day6",
+            )
+        )
+    return out
+
+
+def parse_d12_core_workstream(text: str, authority: str) -> list[AuthorityTask]:
+    """Issue #35 CORE-01..CORE-06 rows."""
+    tasks: list[AuthorityTask] = []
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) < 3:
+            continue
+        label = parts[0].strip("*")
+        m = re.match(r"CORE-(\d{2})", label)
+        if not m:
+            continue
+        tid = f"D12-CORE-{m.group(1)}"
+        req = parts[1]
+        acc = parts[2] if len(parts) > 2 else req
+        tasks.append(
+            AuthorityTask(
+                tid,
+                authority,
+                req,
+                f"{authority}#row-{tid} — {acc}",
+                "Day12",
+            )
+        )
+    return tasks
+
+
+def parse_github_authority_tables(
+    body: str, id_prefix: str, authority: str, day: str
+) -> list[AuthorityTask]:
+    """Best-effort 3-column issue tables; falls back to 2-column."""
+    three = parse_three_column_task_table(body, id_prefix, authority, day)
+    if len(three) >= 12:
+        return three
+    return parse_two_column_summary_table(body, id_prefix, authority, day)

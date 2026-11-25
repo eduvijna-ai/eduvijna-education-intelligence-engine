@@ -1,0 +1,28 @@
+{
+  "note": "Minimum authoritative ID sets for structural cross-check; not final Founder denominator while MS-001 external ARIV bytes pending.",
+  "candidate_series": {
+    "candidate_1_sha": "09f2c215f916a8933707b3306b103310f30863ba",
+    "candidate_2_sha": "ef9f0491edd1571ef6efa2a75c483e3bb204d8b4",
+    "candidate_3_label": "closure/c00-requirements-evidence-audit final push"
+  },
+  "c00_ci": {
+    "267": "45542731473:SUCCESS_backend_frontend;compose_skipped",
+    "268": "45543441778:SUCCESS_backend_frontend;compose_skipped"
+  },
+  "external_authority_gaps": ["MS-001"],
+  "expected_ids": {
+    "D3_core": ["D3-01", "D3-02", "D3-03", "D3-04", "D3-05", "D3-06", "D3-07", "D3-08", "D3-09", "D3-10", "D3-11", "D3-12", "D3-13", "D3-14", "D3-15", "D3-16", "D3-17", "D3-18", "D3-19", "D3-20", "D3-21", "D3-22", "D3-23", "D3-24", "D3-25", "D3-26", "D3-27", "D3-28", "D3-29", "D3-30", "D3-31", "D3-32", "D3-33", "D3-34"],
+    "D6_core": ["D6-01", "D6-02", "D6-03", "D6-04", "D6-05", "D6-06", "D6-07", "D6-08", "D6-09", "D6-10", "D6-11", "D6-12", "D6-13", "D6-14", "D6-15", "D6-16", "D6-17", "D6-18", "D6-19", "D6-20", "D6-21", "D6-22", "D6-23", "D6-24", "D6-25", "D6-26", "D6-27", "D6-28", "D6-29", "D6-30", "D6-31", "D6-32", "D6-33", "D6-34", "D6-35", "D6-36"],
+    "D6_amendments": ["D6-A01", "D6-A02", "D6-A03", "D6-A04", "D6-A05", "D6-A06", "D6-A07", "D6-A08", "D6-A09", "D6-A10", "D6-A11", "D6-A12"],
+    "D10_core": ["D10-01", "D10-02", "D10-03", "D10-04", "D10-05", "D10-06", "D10-07", "D10-08", "D10-09", "D10-10", "D10-11", "D10-12", "D10-13", "D10-14", "D10-15", "D10-16", "D10-17", "D10-18", "D10-19", "D10-20", "D10-21", "D10-22", "D10-23", "D10-24", "D10-25", "D10-26", "D10-27", "D10-28", "D10-29", "D10-30", "D10-31", "D10-32", "D10-33", "D10-34", "D10-35", "D10-36"],
+    "D11_core": ["D11-01", "D11-02", "D11-03", "D11-04", "D11-05", "D11-06", "D11-07", "D11-08", "D11-09", "D11-10", "D11-11", "D11-12", "D11-13", "D11-14", "D11-15", "D11-16", "D11-17", "D11-18", "D11-19", "D11-20", "D11-21", "D11-22", "D11-23", "D11-24", "D11-25", "D11-26", "D11-27", "D11-28", "D11-29", "D11-30", "D11-31", "D11-32", "D11-33", "D11-34", "D11-35", "D11-36"],
+    "D12_github_core_min": 36,
+    "D12_core_workstream": ["D12-CORE-01", "D12-CORE-02", "D12-CORE-03", "D12-CORE-04", "D12-CORE-05", "D12-CORE-06"],
+    "D14_R3": ["D14-R3-01", "D14-R3-02", "D14-R3-03", "D14-R3-04", "D14-R3-05", "D14-R3-06"],
+    "D15_R3": ["D15-R3-01", "D15-R3-02", "D15-R3-03", "D15-R3-04", "D15-R3-05", "D15-R3-06"]
+  },
+  "forbidden_patterns": {
+    "technical_pass_days": ["Day11", "Day15", "Day17"],
+    "fake_authority_labels": ["GitHub issue #33 approved tasklist", "scope matrix as sole authority"]
+  }
+}

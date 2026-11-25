@@ -105,13 +105,17 @@ consolidated_technical_closure:
       held_pr_import_authorized: false
       source_activation_authorized: false
       implementation_branch: "closure/c00-requirements-evidence-audit"
-      implementation_status: CANDIDATE_2_PUSHED
+      implementation_status: CANDIDATE_3_PUSHED
       candidate_1_started: "2026-11-25"
-      candidate_1_sha: "a80634701fb571d77829387301eaac532b9da970"
+      candidate_1_sha: "09f2c215f916a8933707b3306b103310f30863ba"
       candidate_2_started: "2026-11-25"
       candidate_2_ci_run: "45542731473"
       candidate_2_ci_result: "SUCCESS_backend_frontend_compose_skipped"
-      candidate_2_sha: "a6f92aaf52897bb86f58356f78527203dcacd5ad"
+      candidate_2_sha: "ef9f0491edd1571ef6efa2a75c483e3bb204d8b4"
+      candidate_3_started: "2026-11-25"
+      candidate_3_ci_run: "45543441778"
+      candidate_3_sha: "e847239fddbcd7760f64d83522c754f5bdc4387e"
+      candidate_3_ci_result: "SUCCESS_backend_frontend_compose_skipped"
       required_cursor_model: "Composer 2.5 (standard; not Fast)"
       review_workflow: founder_manual_chatgpt_review
       candidate_limit: 3

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -12,12 +13,17 @@ from pathlib import Path
 from c00_authority_parsers import (
     AuthorityTask,
     parse_checkbox_requirements,
+    parse_d12_core_workstream,
     parse_d3_rework,
     parse_d3_source_spec,
+    parse_d6_amendments,
     parse_d7_pic,
+    parse_github_authority_tables,
     parse_heading_tasks,
     parse_line_title_tasks,
     parse_pipe_authoritative_table,
+    parse_three_column_task_table,
+    parse_two_column_summary_table,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -53,29 +59,84 @@ CSV_COLUMNS = [
     "owner",
 ]
 
-C00_CANDIDATE_CI = "45542731473"
-C00_CANDIDATE_CI_RESULT = "SUCCESS_backend_frontend_compose_skipped"
+C00_CANDIDATE_CI = "45543441778"
+C00_CANDIDATE_CI_RESULT = "SUCCESS_backend_frontend; compose_skipped"
+C00_PRIOR_CANDIDATE_CI = "45542731473:SUCCESS_backend_frontend;compose_skipped"
 
 DAY_HISTORY = {
     "Day1": ("", "PR #2", "36876757032", "FOUNDER_REVIEW", "FOUNDER_REVIEW"),
     "Day2": ("", "PR merged Day2", "NOT_VERIFIED", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
     "Day3": ("", "COMPLETE", "NOT_VERIFIED", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
-    "Day4": ("", "PR Day4", "42783645367", "HISTORICAL_ACCEPTED", "SOURCE_PENDING"),
-    "Day5": ("5d3927b5e582b2c5aa898b5e755bfbb194eca74b", "PR Day5", "NOT_VERIFIED", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
-    "Day6": ("dffd31b6da5558234ae0636fe4384305f4778400", "PR #20", "38246297963", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
+    "Day4": ("", "PR Day4", "42783645367:FAILED_INCOMPLETE_OFFICIAL_SOURCE_COVERAGE", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
+    "Day5": ("5d3927b5e582b2c5aa898b5e755bfbb194eca74b", "PR Day5", "NOT_VERIFIED:per-day CI not recorded", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
+    "Day6": (
+        "682e4982ac46238e8efe3b32e50aa10c6b2dd519",
+        "PR #20 correction candidate (merge dffd31b6)",
+        "38246297963:GREEN_engineering",
+        "HISTORICAL_ACCEPTED",
+        "NOT_VERIFIED",
+    ),
     "Day7": ("5b07830caafad4916e950da6293f8c039131a25d", "PR #23", "38671063433", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
     "Day8": ("f8b422881632d39e32417650a47b32b6ee002e87", "PR #25", "38702017286", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
     "Day9": ("e1608dd60eb0604b2d68d307e2a7e90db4afbbec", "PR #27", "39248106313", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
-    "Day10": ("4989994d7dbda1c2645bb79365544365fa20df4e", "PR #29", "42780248311", "HISTORICAL_ACCEPTED", "NOT_VERIFIED"),
-    "Day11": (HELD_D11, "PR #31 held", "43038569379", "PARTIAL", "NOT_VERIFIED"),
-    "Day12": ("afe2428be9f400c0af23da06b76070be28b04af2", "PR #34", "44882068512", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
-    "Day13": ("efd269c7d73051777b53d912baefafbe1ba0ce96", "PR #53", "45386071086", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
-    "Day14": ("3ecee26d367707152ca9b953ce15032c837f3ceb", "PR #55", "45393540240", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
-    "Day15": (HELD_D15, "PR #57 held", "45409912353", "BLOCKED", "NOT_VERIFIED"),
-    "Day16": ("39be6868462e557393fcf2dae25fec730ffe99f7", "PR #59", "45419005459", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
-    "Day17": (HELD_D17, "PR #61 held", "45535514058", "BLOCKED", "NOT_VERIFIED"),
-    "Day18": ("66291abdeaa30b2355f9a18cb92e199c0d17992f", "PR #63", "45539171598", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
+    "Day10": (
+        "4989994d7dbda1c2645bb79365544365fa20df4e",
+        "PR #29",
+        "42780248311:postmerge_official_source_CI_failed",
+        "HISTORICAL_ACCEPTED",
+        "NOT_VERIFIED",
+    ),
+    "Day11": (HELD_D11, "PR #31 held", "43038569379:NOT_VERIFIED_conclusion", "PARTIAL", "NOT_VERIFIED"),
+    "Day12": ("afe2428be9f400c0af23da06b76070be28b04af2", "PR #34", "44882068512:NOT_VERIFIED_conclusion", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
+    "Day13": ("efd269c7d73051777b53d912baefafbe1ba0ce96", "PR #53", "45386071086:NOT_VERIFIED_conclusion", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
+    "Day14": ("3ecee26d367707152ca9b953ce15032c837f3ceb", "PR #55", "45393540240:NOT_VERIFIED_conclusion", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
+    "Day15": (HELD_D15, "PR #57 held", "45409912353:SUCCESS_targeted_backend_compose_skipped", "BLOCKED", "NOT_VERIFIED"),
+    "Day16": ("39be6868462e557393fcf2dae25fec730ffe99f7", "PR #59", "45419005459:NOT_VERIFIED_conclusion", "FOUNDER_MILESTONE_ONLY", "PARTIAL"),
+    "Day17": (HELD_D17, "PR #61 held", "45535514058:FAILED", "BLOCKED", "NOT_VERIFIED"),
+    "Day18": (
+        "66291abdeaa30b2355f9a18cb92e199c0d17992f",
+        "PR #63",
+        "45539171598:targeted_14_browser_compose_skipped",
+        "FOUNDER_MILESTONE_ONLY",
+        "PARTIAL",
+    ),
 }
+
+GITHUB_ISSUE_MAP = {
+    33: ("D12", "Day12"),
+    52: ("D13", "Day13"),
+    54: ("D14", "Day14"),
+    56: ("D15", "Day15"),
+    58: ("D16", "Day16"),
+    60: ("D17", "Day17"),
+    62: ("D18", "Day18"),
+}
+
+RESIDUAL_BY_TASK: dict[str, str] = {
+    "D5-DS01": "RES-SRC-016",
+    "D4-12": "RES-SRC-012",
+    "D11-36": "RES-HOLD-031",
+    "D15-36": "RES-HOLD-057",
+    "D17-36": "RES-HOLD-061",
+    "D13-31": "RES-PG-0021",
+    "D13-31A": "RES-PG-0021",
+}
+
+TASK_DEPENDENCIES: dict[str, str] = {
+    "D5-DS01": "Issue #16 authoritative packages; D3 SourceRevision lifecycle",
+    "D3-34": "D3-01..33 complete",
+    "D7-PIC-01": "D7-01..36 baseline; see D07-PRODUCTION-IDENTITY-CLOSURE",
+    "D12-CORE-01": "D3 SourceRevision; issue #35",
+    "D12-CORE-02": "D12-CORE-01",
+    "D12-CORE-03": "D6 validation evidence; D9 where available",
+    "D12-CORE-04": "D12-CORE-03",
+    "D12-CORE-05": "D12-CORE-04",
+    "D12-CORE-06": "D12-CORE-01..05 adversarial tests",
+    "D15-R3-01": "D15-10 mastery/history ORM boundary; RES-HOLD-057",
+    "D17-F07": "D17-36; held PR61 CI255/257",
+}
+
+PRESERVED_SCOPE_TECH = frozenset({"SOURCE_PENDING", "BLOCKED", "NOT_STARTED", "DEFERRED"})
 
 
 @dataclass
@@ -219,8 +280,17 @@ def closure_workstream(task_id: str) -> str:
         "D18-F04": "C14",
         "D18-F05": "C14",
         "D18-F06": "C14",
-        "D12-CORE-35": "C07",
+        "D12-CORE-01": "C07",
+        "D12-CORE-02": "C07",
+        "D12-CORE-03": "C07",
+        "D12-CORE-04": "C07",
+        "D12-CORE-05": "C07",
+        "D12-CORE-06": "C07",
+        "D12-ISSUE-44": "C07",
+        "D12-ISSUE-45": "C07",
     }
+    if task_id.startswith("D12-CORE-"):
+        return "C07"
     if task_id in explicit:
         return explicit[task_id]
     if task_id.startswith("D3-R") or task_id.startswith("D1-") or task_id.startswith("D2-"):
@@ -257,17 +327,42 @@ def closure_workstream(task_id: str) -> str:
     return "C15"
 
 
-def enrich_scope(row: TaskRow, ev: dict[str, str], scope_authority: str) -> None:
+def path_exists_at_baseline(rel: str) -> bool:
+    clean = rel.strip("`").split("`")[0].split(" ")[0]
+    if not clean or clean.startswith("scope_map"):
+        return False
+    if "git show" in clean or "HELD" in clean:
+        return False
+    if not (clean.startswith("backend/") or clean.startswith("tests/") or clean.startswith("frontend/")):
+        return False
+    try:
+        subprocess.check_output(
+            ["git", "cat-file", "-e", f"{FROZEN_BASELINE}:{clean}"],
+            cwd=REPO,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def enrich_scope(row: TaskRow, ev: dict[str, str], scope_authority: str, held: bool = False) -> None:
+    hs = ev.get("historical_scope_state") or ""
     row.current_baseline_evidence = (
-        f"scope_map@{scope_authority}; historical_state={ev.get('historical_scope_state') or 'NOT_RECORDED'}"
+        f"scope_map@{scope_authority}; historical_state={hs or 'NOT_RECORDED'}"
     )
-    row.historical_scope_state = ev.get("historical_scope_state", "")
-    ref = ev.get("impl_ref") or ""
-    if ref.startswith("`") or "/" in ref or ref.endswith(".py"):
-        row.baseline_code_path = ref.strip("`")[:200]
+    row.historical_scope_state = hs
+    ref = (ev.get("impl_ref") or "").strip("`")
+    if held:
+        row.baseline_code_path = f"HELD_EVIDENCE_ONLY@{scope_authority}; impl_ref={ref[:120]}"
+    elif path_exists_at_baseline(ref):
+        row.baseline_code_path = ref.split("`")[0][:200]
+    elif ref and ref not in row.original_requirement:
+        row.baseline_code_path = "NOT_VERIFIED: scope-map ref not present at frozen baseline"
     test = ev.get("test_ref") or ""
     if test:
-        row.test_path = test.strip("`")[:200]
+        t = test.strip("`")
+        row.test_path = t if path_exists_at_baseline(t) else f"NOT_VERIFIED: {t[:120]}"
 
 
 def apply_day_history(row: TaskRow) -> None:
@@ -280,15 +375,20 @@ def apply_day_history(row: TaskRow) -> None:
     row.historical_pr = pr
     row.historical_ci_result = ci
     row.engineering_acceptance_state = eng
-    if row.task_id.startswith("D11-") and row.historical_scope_state == "PASS":
+    hs_raw = (row.historical_scope_state or "").strip()
+    hs = hs_raw.upper()
+    if row.task_id.startswith("D11-") and hs == "PASS":
         row.engineering_acceptance_state = "HISTORICAL_ACCEPTED"
         row.technical_acceptance_state = "NOT_VERIFIED"
-    elif row.historical_scope_state:
-        hs = row.historical_scope_state.upper()
-        row.engineering_acceptance_state = (
-            "HISTORICAL_ACCEPTED" if hs == "PASS" else f"HISTORICAL_SCOPE_{hs}"
-        )
-        row.technical_acceptance_state = tech_default if hs != "PASS" else "NOT_VERIFIED"
+    elif hs in PRESERVED_SCOPE_TECH or hs_raw in PRESERVED_SCOPE_TECH:
+        row.engineering_acceptance_state = f"HISTORICAL_SCOPE_{hs or hs_raw.upper()}"
+        row.technical_acceptance_state = hs if hs else hs_raw.upper()
+    elif hs == "PASS":
+        row.engineering_acceptance_state = "HISTORICAL_ACCEPTED"
+        row.technical_acceptance_state = "NOT_VERIFIED"
+    elif hs:
+        row.engineering_acceptance_state = f"HISTORICAL_SCOPE_{hs}"
+        row.technical_acceptance_state = tech_default
     else:
         row.technical_acceptance_state = tech_default
     row.current_test_execution_state = "NOT_RUN"
@@ -299,6 +399,23 @@ def apply_day_history(row: TaskRow) -> None:
         row.external_evidence = "FOUNDER_MILESTONE_ONLY: merged with deferred acceptance"
 
 
+def load_github_snapshot() -> dict[int, dict]:
+    path = EXEC / "C00-GITHUB-AUTHORITY-SNAPSHOT.json"
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {int(i["issue"]): i for i in payload.get("issues", []) if "issue" in i}
+
+
+def issue_authority_locator(issue: int, snap: dict[int, dict]) -> str:
+    meta = snap.get(issue, {})
+    if meta.get("body_sha256") in {"", "UNAVAILABLE"}:
+        return f"MISSING_SPEC: GitHub issue #{issue} body unavailable to Cursor audit"
+    sha = meta["body_sha256"]
+    when = meta.get("retrieved_at_utc", "unknown")
+    return f"GitHub issue #{issue} body_sha256={sha} retrieved_at={when}"
+
+
 def finalize_row(row: TaskRow) -> None:
     row.closure_workstream = closure_workstream(row.task_id)
     apply_day_history(row)
@@ -306,6 +423,36 @@ def finalize_row(row: TaskRow) -> None:
         row.engineering_acceptance_state = "DEFERRED"
         row.technical_acceptance_state = "SOURCE_PENDING"
         row.external_evidence = "Issue #16; Founder deferred authoritative Telangana packages"
+        row.residual_finding_ids = "RES-SRC-016"
+    dep = TASK_DEPENDENCIES.get(row.task_id)
+    if dep:
+        row.dependencies = dep
+    elif row.dependencies == "NOT_VERIFIED":
+        day_dep = {
+            "Day1": f"develop@{FROZEN_BASELINE[:12]} foundation",
+            "Day4": "Issue #12 official source deferral; D3 SourceRevision",
+            "Day5": "D3-D4 baseline; D5-DS01/issue #16 deferred",
+            "Day11": "Held PR #31; RES-HOLD-031",
+            "Day12": "Merged milestone PR #34; issues #35/#44/#45 separate streams",
+            "Day15": "Held PR #57; trusted runtime boundary",
+            "Day17": "Held PR #61; auth/jobs boundary",
+        }.get(row.day)
+        row.dependencies = day_dep or (
+            f"Prior day scope per execution-state; cross-workstream map in C00-RESIDUALS "
+            f"(independent per-task graph NOT_VERIFIED)"
+        )
+    res = RESIDUAL_BY_TASK.get(row.task_id, "")
+    if not row.residual_finding_ids and res:
+        row.residual_finding_ids = res
+    if row.task_id.startswith("D12-CORE-"):
+        row.residual_finding_ids = row.residual_finding_ids or "RES-D12-CORE"
+    if "MISSING_SPEC" not in row.original_authority and row.acceptance_criterion.startswith("NOT_VERIFIED"):
+        row.acceptance_proof = f"Pending: reconcile acceptance_criterion against {row.original_authority}"
+    elif not row.acceptance_criterion.startswith("NOT_VERIFIED"):
+        row.acceptance_proof = (
+            f"Stated acceptance (authority excerpt): {row.acceptance_criterion[:240]}"
+            + ("…" if len(row.acceptance_criterion) > 240 else "")
+        )
     for field in ("historical_pr", "historical_ci_result", "closure_workstream", "owner"):
         if not getattr(row, field):
             setattr(row, field, "NOT_VERIFIED" if field != "owner" else "Founder")
@@ -374,20 +521,46 @@ def collect_authoritative() -> dict[str, TaskRow]:
         )
     )
 
-    day_specs = {
-        6: "D06-EDUCATION-INTELLIGENCE-VALIDATORS.md",
+    d6auth = "docs/execution/D06-EDUCATION-INTELLIGENCE-VALIDATORS.md"
+    d6text = read_text(EXEC / "D06-EDUCATION-INTELLIGENCE-VALIDATORS.md")
+    for t in parse_two_column_summary_table(d6text, "D6-", d6auth, "Day6"):
+        put(t)
+    for t in parse_d6_amendments(read_text(EXEC / "D06-DELIVERY-EVIDENCE.md"), "docs/execution/D06-DELIVERY-EVIDENCE.md"):
+        put(t, parent="D6-36")
+
+    d10auth = "docs/execution/D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md"
+    d10text = read_text(EXEC / "D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md")
+    for t in parse_three_column_task_table(d10text, "D10-", d10auth, "Day10"):
+        put(t)
+
+    day_heading_specs = {
         7: "D07-KNOWLEDGE-INTELLIGENCE-ANYTHINGLLM.md",
         8: "D08-LANGGRAPH-ORCHESTRATION.md",
         9: "D09-DIAGNOSTIC-DISTRACTOR-INTELLIGENCE.md",
-        10: "D10-PREREQUISITES-ROOT-CAUSE-DIAGNOSTICS.md",
     }
-    for num, fname in day_specs.items():
+    for num, fname in day_heading_specs.items():
         prefix = f"D{num}"
         pat = re.compile(rf"{prefix}-\d{{2}}")
         spec_path = EXEC / fname
         auth = str(spec_path.relative_to(REPO))
         for t in parse_heading_tasks(read_text(spec_path), pat, auth, f"Day{num}"):
             put(t)
+
+    gh_snap = load_github_snapshot()
+    for issue_no, (prefix, day) in GITHUB_ISSUE_MAP.items():
+        meta = gh_snap.get(issue_no, {})
+        body = meta.get("body") or ""
+        auth = issue_authority_locator(issue_no, gh_snap)
+        if not body:
+            continue
+        for t in parse_github_authority_tables(body, f"{prefix}-", auth, day):
+            put(t)
+
+    iss35 = gh_snap.get(35, {})
+    if iss35.get("body"):
+        auth35 = issue_authority_locator(35, gh_snap)
+        for t in parse_d12_core_workstream(iss35["body"], auth35):
+            put(t, parent="D12-36")
 
     for t in parse_d7_pic(read_text(EXEC / "D07-PRODUCTION-IDENTITY-CLOSURE.md"), "docs/execution/D07-PRODUCTION-IDENTITY-CLOSURE.md"):
         put(t, parent="D7-36")
@@ -397,8 +570,23 @@ def collect_authoritative() -> dict[str, TaskRow]:
     for t in parse_pipe_authoritative_table(d11_spec, "D11", d11auth, "Day11"):
         put(t)
 
+    for issue_no, tid, parent, req in [
+        (44, "D12-ISSUE-44", "D12-36", "Day12 one-shot comprehensive closure #44"),
+        (45, "D12-ISSUE-45", "D12-36", "Day12 consolidated acceptance fix #45"),
+    ]:
+        auth = issue_authority_locator(issue_no, gh_snap)
+        rows[tid] = TaskRow(
+            tid,
+            "Day12",
+            auth,
+            req,
+            f"{auth} — Founder-authorized separate closure obligation",
+            parent_task_id=parent,
+            approved_amendments=tid,
+            residual_finding_ids=f"RES-D12-ISSUE-{issue_no}",
+        )
+
     amendments = [
-        ("D12-CORE-35", "", "Day12", "docs/execution/D12-SCOPE-MAP.md; issue #35", "JEE Advanced source intake CORE", "Issue #35 source intake obligations"),
         ("F03-A", "D13-12", "Day13", "docs/execution/D13-CLOSEOUT-EVIDENCE.md", "F03-A exact-count practice persistence", "STOPPED workstream"),
         ("F03-B", "D13-23", "Day13", "docs/execution/D13-CLOSEOUT-EVIDENCE.md", "F03-B CUET/CLAT practice", "STOPPED workstream"),
         ("F04-A", "D13-23", "Day13", "docs/execution/D13-CLOSEOUT-EVIDENCE.md", "F04-A CLAT current affairs", "STOPPED workstream"),
@@ -409,12 +597,54 @@ def collect_authoritative() -> dict[str, TaskRow]:
         ("D14-R3-04", "D14-04", "Day14", "docs/execution/D14-SCOPE-MAP.md", "Scope/planner gates", "RES-R3-04"),
         ("D14-R3-05", "D14-16", "Day14", "docs/execution/D14-SCOPE-MAP.md", "Bilingual equivalence", "RES-R3-05"),
         ("D14-R3-06", "D14-04", "Day14", "docs/execution/D14-SCOPE-MAP.md", "Extensibility bridges", "RES-R3-06"),
-        ("D15-R3-01", "D15-10", "Day15", "execution-state.yml; issue #56 PR #57 review 7133926987", "ORM implicit attribute loads", "RES-D15-R3-01"),
-        ("D15-R3-02", "D15-20", "Day15", "execution-state.yml", "Safety/transaction evidence", "RES-D15-R3-02"),
-        ("D15-R3-03", "D15-15", "Day15", "execution-state.yml", "Stale scope descriptions", "RES-D15-R3-03"),
-        ("D15-R3-04", "D15-25", "Day15", "execution-state.yml", "Trusted runtime boundary", "RES-D15-R3-04"),
-        ("D15-R3-05", "D15-30", "Day15", "execution-state.yml", "Concurrency/idempotency", "RES-D15-R3-05"),
-        ("D15-R3-06", "D15-36", "Day15", "execution-state.yml", "Founder signoff pending", "RES-D15-R3-06"),
+        (
+            "D15-R3-01",
+            "D15-30",
+            "Day15",
+            "PR #57 review comment 7133926987 (MS01 callable ORM boundary)",
+            "All callable ORM attribute loads blocked; implicit refresh on expired instances violates seal",
+            "MS01: attempt_meta/mastery/diagnostics/history paths may lazy-load expired ORM",
+        ),
+        (
+            "D15-R3-02",
+            "D15-15",
+            "Day15",
+            "PR #57 review comment 7133926987 (MS02)",
+            "history/memory None without ORM reads; ELIGIBLE enum not authority",
+            "MS02: runtime eligibility BLOCKED_UNVERIFIED; structural catalog ELIGIBLE retained",
+        ),
+        (
+            "D15-R3-03",
+            "D15-36",
+            "Day15",
+            "PR #57 review comment 7133926987 (MS03)",
+            "Test scope insufficient for complete callable-boundary seal",
+            "MS03: no execute/begin_nested spies; fixture refresh masks expiry",
+        ),
+        (
+            "D15-R3-04",
+            "D15-30",
+            "Day15",
+            "PR #57 review comment 7133926987 (MS04)",
+            "Ledger stale scope descriptions; verifier gates partial only",
+            "MS04: 0 PASS / 35 PARTIAL / 1 NOT_STARTED retained but misleading text",
+        ),
+        (
+            "D15-R3-05",
+            "D15-36",
+            "Day15",
+            "PR #57 review comment 7133926987",
+            "Complete containment rejected despite targeted CI green",
+            "No merge/Day16 unlock per STOP_AND_ESCALATE",
+        ),
+        (
+            "D15-R3-06",
+            "D15-36",
+            "Day15",
+            "PR #57 review comment 7133926987",
+            "D15-36 Founder signoff still pending",
+            "Final authorized seal consumed on held head",
+        ),
     ]
     for tid, parent, day, auth, req, acc in amendments:
         r = TaskRow(tid, day, auth, req, acc, parent_task_id=parent, approved_amendments=tid)
@@ -467,6 +697,7 @@ def collect_authoritative() -> dict[str, TaskRow]:
         else:
             text = read_text(REPO / loc)
         evmap = parse_scope_evidence(text, f"{prefix}-") if five_col else parse_scope_evidence_3col(text, f"{prefix}-")
+        held_scope = loc.startswith("git show")
         for tid, ev in evmap.items():
             if tid not in rows:
                 rows[tid] = TaskRow(
@@ -476,22 +707,7 @@ def collect_authoritative() -> dict[str, TaskRow]:
                     ev.get("scope_summary", "UNKNOWN"),
                     "NOT_VERIFIED: no authoritative requirement located",
                 )
-            enrich_scope(rows[tid], ev, loc)
-
-    issue_authority = {
-        "Day12": "GitHub issue #33 approved tasklist",
-        "Day13": "GitHub issue #52 approved tasklist",
-        "Day14": "GitHub issue #54 approved tasklist",
-        "Day15": f"git show {HELD_D15}:docs/execution/D15-SCOPE-MAP.md; issue #56",
-        "Day16": "GitHub issue #58 approved tasklist",
-        "Day17": f"git show {HELD_D17}:docs/execution/D17-SCOPE-MAP.md; issue #60",
-        "Day18": "GitHub issue #62 approved tasklist",
-    }
-    for tid, row in list(rows.items()):
-        if tid.startswith(("D12-", "D13-", "D14-", "D15-", "D16-", "D17-", "D18-")) and "MISSING_SPEC" in row.original_authority:
-            day = row.day
-            if day in issue_authority:
-                row.original_authority = issue_authority[day]
+            enrich_scope(rows[tid], ev, loc, held=held_scope)
 
     for r in rows.values():
         finalize_row(r)
