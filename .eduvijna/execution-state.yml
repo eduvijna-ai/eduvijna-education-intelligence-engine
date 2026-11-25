@@ -166,6 +166,7 @@ consolidated_technical_closure:
       implementation_branch: "closure/c01-foundation-database-recovery"
       implementation_base_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
       implementation_status: GATE_B_CANDIDATE_1_PUSHED
+      gate_b_candidate_1_sha: "466e0f33c8bc42eae6a616bd9835562342c10c4d"
       gate_b_parent_gate_a_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
       candidate_1_started: "2026-11-25"
       candidate_1_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
