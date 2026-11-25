@@ -168,7 +168,7 @@ consolidated_technical_closure:
       implementation_status: GATE_B_CANDIDATE_2_PUSHED
       gate_b_candidate_1_sha: "466e0f33c8bc42eae6a616bd9835562342c10c4d"
       gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
-      gate_b_candidate_2_sha: "3037cb6ba211830232ffbb36a8cf9e14b4388a26"
+      gate_b_candidate_2_sha: "262bf91990e091649c7971a851dcce6827555e89"
       gate_b_parent_gate_a_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
       candidate_1_started: "2026-11-25"
       candidate_1_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
