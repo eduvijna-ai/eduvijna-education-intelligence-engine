@@ -9,7 +9,7 @@ from app.adaptive_remediation.containment import PRODUCTION_REMEDIATION_DISABLED
 from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED, ISSUANCE_DISABLED
 from app.platform.capability_registry import containment_snapshot, get_capability, list_capabilities
 from app.platform.dependency_closure import build_day17_dependency_closure_register
-from app.platform.errors import AuthenticationError, CapabilityNotReadyError
+from app.platform.errors import CapabilityNotReadyError
 from app.platform.governance import build_day17_governance_record
 from app.platform.mcp.tools import mcp_get_capabilities, mcp_tool_router
 from app.platform.scope_ledger import resolve_scope_map_path, validate_scope_map
@@ -41,18 +41,30 @@ def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object
         and knowledge.disposition.value == "not_ready"
     )
 
+    from app.platform.auth.principal import RequestPrincipal
+
+    harness_principal = RequestPrincipal(
+        principal_id="day17-verify",
+        organization_id="org-verify",
+        institution_id="inst-verify",
+        role="teacher",
+        scopes=("mcp:invoke", "capabilities:read", "learners:read"),
+        actor_kind="teacher",
+        actor_ref="teacher-verify",
+        auth_method="harness",
+    )
     learner_blocked = False
     remediation_blocked = False
     try:
-        mcp_tool_router("get_learner_diagnostics", {}, principal=None)
-    except (AuthenticationError, CapabilityNotReadyError, TypeError):
+        mcp_tool_router("get_learner_diagnostics", {}, principal=harness_principal)
+    except CapabilityNotReadyError:
         learner_blocked = True
     try:
-        mcp_tool_router("recommend_remediation", {}, principal=None)
-    except (AuthenticationError, CapabilityNotReadyError, TypeError):
+        mcp_tool_router("recommend_remediation", {}, principal=harness_principal)
+    except CapabilityNotReadyError:
         remediation_blocked = True
 
-    mcp_caps = mcp_get_capabilities()
+    mcp_caps = mcp_get_capabilities(principal=harness_principal)
     limits = security_limits_snapshot()
 
     ok = (

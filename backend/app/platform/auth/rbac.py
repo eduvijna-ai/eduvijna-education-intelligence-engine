@@ -11,6 +11,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "knowledge:read",
             "generation:validate",
             "jobs:read",
+            "jobs:submit",
             "mcp:invoke",
         }
     ),

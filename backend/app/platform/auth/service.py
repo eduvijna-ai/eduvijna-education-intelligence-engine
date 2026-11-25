@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.platform_auth import ApplicationPrincipal, ApplicationRefreshSession
@@ -144,12 +144,10 @@ def refresh(
     correlation_id: str,
 ) -> AuthTokens:
     token_hash = hash_refresh_token(refresh_token)
-    row = session.scalar(
-        select(ApplicationRefreshSession)
-        .where(ApplicationRefreshSession.token_hash == token_hash)
-        .with_for_update()
+    peek = session.scalar(
+        select(ApplicationRefreshSession).where(ApplicationRefreshSession.token_hash == token_hash)
     )
-    if row is None or row.revoked_at is not None:
+    if peek is None or peek.revoked_at is not None:
         record_security_event(
             session,
             event_type="auth.refresh",
@@ -158,7 +156,7 @@ def refresh(
         )
         _flush_audit(session)
         raise AuthenticationError("Invalid refresh token")
-    expires_at = row.expires_at
+    expires_at = peek.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     if expires_at < datetime.now(UTC):
@@ -167,14 +165,45 @@ def refresh(
             event_type="auth.refresh",
             correlation_id=correlation_id,
             success=False,
-            principal_id=row.principal_id,
+            principal_id=peek.principal_id,
         )
         _flush_audit(session)
         raise AuthenticationError("Refresh token expired")
-    principal = load_and_validate_principal(session, row.principal_id)
-    row.revoked_at = datetime.now(UTC)
+    principal = load_and_validate_principal(session, peek.principal_id)
+    current_epoch = read_session_epoch(principal)
+    if peek.session_epoch != current_epoch:
+        record_security_event(
+            session,
+            event_type="auth.refresh",
+            correlation_id=correlation_id,
+            success=False,
+            principal_id=peek.principal_id,
+        )
+        _flush_audit(session)
+        raise AuthenticationError("Refresh session revoked")
+    now = datetime.now(UTC)
+    rotated = session.execute(
+        update(ApplicationRefreshSession)
+        .where(
+            ApplicationRefreshSession.id == peek.id,
+            ApplicationRefreshSession.token_hash == token_hash,
+            ApplicationRefreshSession.revoked_at.is_(None),
+            ApplicationRefreshSession.session_epoch == current_epoch,
+        )
+        .values(revoked_at=now)
+    )
+    if getattr(rotated, "rowcount", 0) != 1:
+        record_security_event(
+            session,
+            event_type="auth.refresh",
+            correlation_id=correlation_id,
+            success=False,
+            principal_id=peek.principal_id,
+        )
+        _flush_audit(session)
+        raise AuthenticationError("Invalid refresh token")
     tokens, _ = _issue_session_tokens(
-        session, principal, family_id=row.family_id, replaced_by_rotation=True
+        session, principal, family_id=peek.family_id, replaced_by_rotation=True
     )
     record_security_event(
         session,
@@ -268,6 +297,7 @@ def _issue_session_tokens(
         token_hash=hash_refresh_token(refresh_raw),
         family_id=family,
         expires_at=datetime.now(UTC) + timedelta(seconds=REFRESH_TOKEN_TTL_SECONDS),
+        session_epoch=epoch,
     )
     session.add(session_row)
     request_principal = request_principal_from_application(

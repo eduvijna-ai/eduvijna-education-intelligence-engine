@@ -18,6 +18,8 @@ _DISTRIBUTED_RATE_LIMIT = False
 
 _buckets: OrderedDict[str, list[float]] = OrderedDict()
 
+_BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
 
 def _error_response(request: Request, *, status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(
@@ -33,16 +35,13 @@ def _error_response(request: Request, *, status_code: int, code: str, message: s
 
 
 async def request_size_limit_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+    if request.method not in _BODY_METHODS:
+        return await call_next(request)
+
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
-            if int(content_length) > _MAX_BODY_BYTES:
-                return _error_response(
-                    request,
-                    status_code=413,
-                    code="PAYLOAD_TOO_LARGE",
-                    message="Request body too large",
-                )
+            declared = int(content_length)
         except ValueError:
             return _error_response(
                 request,
@@ -50,9 +49,7 @@ async def request_size_limit_middleware(request: Request, call_next):  # type: i
                 code="PAYLOAD_TOO_LARGE",
                 message="Invalid Content-Length header",
             )
-    if request.method in {"POST", "PUT", "PATCH"}:
-        body = await request.body()
-        if len(body) > _MAX_BODY_BYTES:
+        if declared > _MAX_BODY_BYTES:
             return _error_response(
                 request,
                 status_code=413,
@@ -60,11 +57,28 @@ async def request_size_limit_middleware(request: Request, call_next):  # type: i
                 message="Request body too large",
             )
 
-        async def receive():  # type: ignore[no-untyped-def]
-            return {"type": "http.request", "body": body, "more_body": False}
+    total = 0
+    original_receive = request.receive
 
-        request._receive = receive
-    return await call_next(request)
+    async def bounded_receive():  # type: ignore[no-untyped-def]
+        nonlocal total
+        message = await original_receive()
+        if message["type"] == "http.request":
+            total += len(message.get("body", b""))
+            if total > _MAX_BODY_BYTES:
+                return {"type": "http.disconnect"}
+        return message
+
+    request._receive = bounded_receive
+    response = await call_next(request)
+    if total > _MAX_BODY_BYTES:
+        return _error_response(
+            request,
+            status_code=413,
+            code="PAYLOAD_TOO_LARGE",
+            message="Request body too large",
+        )
+    return response
 
 
 async def rate_limit_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -102,4 +116,5 @@ def security_limits_snapshot() -> dict[str, object]:
         "rate_limit_distributed": _DISTRIBUTED_RATE_LIMIT,
         "rate_limit_local": f"{_MAX_REQUESTS_PER_WINDOW}/{_WINDOW_SECONDS}s",
         "max_client_buckets": _MAX_CLIENT_BUCKETS,
+        "body_read_mode": "bounded_receive_wrapper",
     }

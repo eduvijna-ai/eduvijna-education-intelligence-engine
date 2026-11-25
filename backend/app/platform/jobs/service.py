@@ -14,16 +14,61 @@ from app.models.platform_jobs import DurableAsyncJob
 from app.platform.auth.principal import RequestPrincipal
 from app.platform.auth.rbac import require_permission
 from app.platform.capability_registry import assert_capability_ready, get_capability
-from app.platform.errors import (
-    CapabilityNotReadyError,
-    ConflictError,
-    NotFoundError,
-)
+from app.platform.errors import CapabilityNotReadyError, ConflictError, NotFoundError
 from app.platform.ids import canonical_id
 from app.platform.jobs.enums import LEGAL_TRANSITIONS, TERMINAL_STATUSES, JobStatus
 from app.platform.jobs.synthetic import SYNTHETIC_INTERNAL_REQUEST, SYNTHETIC_JOB_CAPABILITY
 
 LEASE_SECONDS = 60
+
+
+def _cas_job_status(
+    session: Session,
+    *,
+    job_id: str,
+    expected_status: str,
+    new_status: str,
+    lease_holder: str | None = None,
+    lease_fence: int | None = None,
+    lease_expires_at: datetime | None = None,
+    clear_lease: bool = False,
+    canceled_at: datetime | None = None,
+    completed_at: datetime | None = None,
+    result_json: dict[str, Any] | None = None,
+    error_code: str | None = None,
+    worker_id: str | None = None,
+    require_fence: int | None = None,
+) -> int:
+    values: dict[str, Any] = {"status": new_status}
+    if lease_holder is not None:
+        values["lease_holder"] = lease_holder
+    if lease_fence is not None:
+        values["lease_fence"] = lease_fence
+    if lease_expires_at is not None:
+        values["lease_expires_at"] = lease_expires_at
+    if clear_lease:
+        values["lease_holder"] = None
+        values["lease_expires_at"] = None
+    if canceled_at is not None:
+        values["canceled_at"] = canceled_at
+    if completed_at is not None:
+        values["completed_at"] = completed_at
+    if result_json is not None:
+        values["result_json"] = result_json
+    if error_code is not None:
+        values["error_code"] = error_code
+    conditions = [
+        DurableAsyncJob.id == job_id,
+        DurableAsyncJob.status == expected_status,
+    ]
+    if worker_id is not None:
+        conditions.append(DurableAsyncJob.lease_holder == worker_id)
+    if require_fence is not None:
+        conditions.append(DurableAsyncJob.lease_fence == require_fence)
+    result = session.execute(update(DurableAsyncJob).where(*conditions).values(**values))
+    count = int(getattr(result, "rowcount", 0) or 0)
+    session.flush()
+    return count
 
 
 def idempotency_scope_key(
@@ -71,11 +116,7 @@ def _assert_job_owner(job: DurableAsyncJob, principal: RequestPrincipal, *, canc
     require_permission(principal.scopes, permission)
     if job.organization_id != principal.organization_id:
         raise NotFoundError("Job not found")
-    if (
-        job.institution_id
-        and principal.institution_id
-        and job.institution_id != principal.institution_id
-    ):
+    if job.institution_id != principal.institution_id:
         raise NotFoundError("Job not found")
     if principal.auth_method == "api_key":
         if job.api_key_id != principal.actor_ref:
@@ -92,15 +133,16 @@ def enqueue_job(
     capability_code: str,
     idempotency_key: str,
     request_payload: dict[str, Any],
-    internal_synthetic: bool = False,
+    synthetic_fixture_only: bool = False,
 ) -> DurableAsyncJob:
-    if internal_synthetic:
-        if request_payload != SYNTHETIC_INTERNAL_REQUEST:
+    require_permission(principal.scopes, "jobs:submit")
+    if synthetic_fixture_only:
+        payload_ok = request_payload == SYNTHETIC_INTERNAL_REQUEST
+        if not payload_ok or capability_code != SYNTHETIC_JOB_CAPABILITY:
             raise CapabilityNotReadyError(
                 capability=capability_code,
-                reason="Synthetic fixture payload is internally controlled",
+                reason="Synthetic enqueue is internal-harness only",
             )
-        capability_code = SYNTHETIC_JOB_CAPABILITY
     else:
         assert_capability_ready(capability_code)
 
@@ -139,14 +181,12 @@ def enqueue_job(
         idempotency_key=idempotency_key,
         idempotency_scope_key=scope_key,
         request_fingerprint=fingerprint,
-        request_json=(
-            request_payload if not internal_synthetic else dict(SYNTHETIC_INTERNAL_REQUEST)
-        ),
-        synthetic_fixture_only=internal_synthetic,
+        request_json=dict(request_payload),
+        synthetic_fixture_only=synthetic_fixture_only,
     )
-    session.add(job)
     try:
         with session.begin_nested():
+            session.add(job)
             session.flush()
     except IntegrityError as exc:
         replay = session.scalar(
@@ -181,11 +221,20 @@ def cancel_job(session: Session, *, principal: RequestPrincipal, job_id: str) ->
     require_permission(principal.scopes, "jobs:cancel")
     if job.status in {s.value for s in TERMINAL_STATUSES}:
         return job
-    job.status = JobStatus.CANCELED.value
-    job.canceled_at = datetime.now(UTC)
-    job.lease_holder = None
-    job.lease_expires_at = None
-    return job
+    _cas_job_status(
+        session,
+        job_id=job.id,
+        expected_status=job.status,
+        new_status=JobStatus.CANCELED.value,
+        lease_holder=None,
+        lease_fence=job.lease_fence + 1,
+        clear_lease=True,
+        canceled_at=datetime.now(UTC),
+    )
+    refreshed = session.scalar(select(DurableAsyncJob).where(DurableAsyncJob.id == job.id))
+    if refreshed is None:
+        raise NotFoundError("Job not found")
+    return refreshed
 
 
 def claim_next_job(session: Session, *, worker_id: str) -> tuple[DurableAsyncJob, int] | None:
@@ -200,16 +249,24 @@ def claim_next_job(session: Session, *, worker_id: str) -> tuple[DurableAsyncJob
         .limit(5)
     ).all()
     for job in expired:
-        if job.attempts >= job.max_attempts:
-            job.status = JobStatus.FAILED.value
-            job.error_code = "MAX_ATTEMPTS"
-            job.lease_holder = None
-            job.lease_expires_at = None
-            job.completed_at = datetime.now(UTC)
-        else:
-            job.lease_holder = None
-            job.lease_expires_at = None
-            job.status = JobStatus.QUEUED.value
+        terminal = job.attempts >= job.max_attempts
+        session.execute(
+            update(DurableAsyncJob)
+            .where(
+                DurableAsyncJob.id == job.id,
+                DurableAsyncJob.status == job.status,
+                DurableAsyncJob.lease_expires_at.is_not(None),
+                DurableAsyncJob.lease_expires_at < now,
+            )
+            .values(
+                status=JobStatus.FAILED.value if terminal else JobStatus.QUEUED.value,
+                lease_holder=None,
+                lease_expires_at=None,
+                lease_fence=job.lease_fence + 1,
+                completed_at=datetime.now(UTC) if terminal else None,
+                error_code="MAX_ATTEMPTS" if terminal else None,
+            )
+        )
     session.flush()
 
     candidate = session.scalars(
@@ -257,16 +314,24 @@ def transition_job(
     worker_id: str,
     lease_fence: int,
 ) -> None:
-    if job.lease_holder != worker_id or job.lease_fence != lease_fence:
-        raise ConflictError("Stale worker lease")
     current = JobStatus(job.status)
     if new_status not in LEGAL_TRANSITIONS[current]:
         raise ConflictError(f"Illegal transition {current.value} -> {new_status.value}")
-    job.status = new_status.value
-    if new_status in TERMINAL_STATUSES:
-        job.completed_at = datetime.now(UTC)
-        job.lease_holder = None
-        job.lease_expires_at = None
+    terminal = new_status in TERMINAL_STATUSES
+    updated = _cas_job_status(
+        session,
+        job_id=job.id,
+        expected_status=current.value,
+        new_status=new_status.value,
+        worker_id=worker_id,
+        require_fence=lease_fence,
+        completed_at=datetime.now(UTC) if terminal else None,
+        clear_lease=terminal,
+        lease_fence=lease_fence + 1 if terminal else lease_fence,
+    )
+    if updated != 1:
+        raise ConflictError("Stale worker lease or job state changed")
+    session.refresh(job)
 
 
 def complete_synthetic_job(
@@ -288,6 +353,7 @@ def complete_synthetic_job(
         "academic_readiness": False,
         "note": "Internal synthetic fixture only",
     }
+    session.flush()
 
 
 def try_enqueue_generation(

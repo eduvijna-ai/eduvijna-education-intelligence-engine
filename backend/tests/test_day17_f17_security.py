@@ -11,8 +11,7 @@ from app.platform.auth.rbac import ROLE_PERMISSIONS
 from app.platform.auth.service import bootstrap_principal
 from app.platform.errors import AuthorizationError
 from app.platform.ids import canonical_id
-from app.platform.jobs.service import enqueue_job
-from app.platform.jobs.synthetic import SYNTHETIC_INTERNAL_REQUEST
+from app.platform.jobs.internal_harness import enqueue_internal_synthetic_fixture
 from tests.day17_fixtures import seed_admin, seed_tenant_with_teacher
 
 
@@ -122,13 +121,8 @@ def test_job_id_scoped_by_owner(tmp_path, monkeypatch) -> None:
             actor_ref=teacher_row.teacher_id or "",
             auth_method="bearer",
         )
-        job = enqueue_job(
-            session,
-            principal=teacher_principal,
-            capability_code="platform.synthetic_echo",
-            idempotency_key="scoped-1",
-            request_payload=SYNTHETIC_INTERNAL_REQUEST,
-            internal_synthetic=True,
+        job = enqueue_internal_synthetic_fixture(
+            session, principal=teacher_principal, idempotency_key="scoped-1"
         )
         session.commit()
         job_uuid = f"{job.id[:8]}-{job.id[8:12]}-{job.id[12:16]}-{job.id[16:20]}-{job.id[20:]}"

@@ -62,14 +62,14 @@ _REGISTRY: dict[str, CapabilityRecord] = {
     ),
     "curriculum.read": CapabilityRecord(
         code="curriculum.read",
-        disposition=CapabilityDisposition.READY,
-        reason="Versioned curriculum metadata reads are authorized when tenant scope matches.",
+        disposition=CapabilityDisposition.NOT_READY,
+        reason="Tenant-scoped curriculum/version evidence not proven (R3-05).",
         scopes=frozenset({"curriculum:read"}),
     ),
     "exam.read": CapabilityRecord(
         code="exam.read",
-        disposition=CapabilityDisposition.READY,
-        reason="Exam metadata reads are authorized when tenant scope matches.",
+        disposition=CapabilityDisposition.NOT_READY,
+        reason="Tenant-scoped exam pattern/version evidence not proven (R3-05).",
         scopes=frozenset({"exam:read"}),
     ),
     "knowledge.search": CapabilityRecord(

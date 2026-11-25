@@ -5,8 +5,8 @@ from app.db.base import Base
 from app.db.session import create_database_engine, get_settings, session_factory
 from app.platform.auth.principal import RequestPrincipal
 from app.platform.jobs.enums import JobStatus
-from app.platform.jobs.service import cancel_job, enqueue_job
-from app.platform.jobs.synthetic import SYNTHETIC_INTERNAL_REQUEST
+from app.platform.jobs.internal_harness import enqueue_internal_synthetic_fixture
+from app.platform.jobs.service import cancel_job
 from app.platform.jobs.worker import run_worker_once
 from tests.day17_fixtures import seed_tenant_with_teacher
 
@@ -43,21 +43,11 @@ def test_job_enqueue_idempotency_and_synthetic_worker(tmp_path, monkeypatch) -> 
         assert principal_row is not None
         session.commit()
         principal = _principal(org.id, inst.id, principal_row.id)
-        job_a = enqueue_job(
-            session,
-            principal=principal,
-            capability_code="platform.synthetic_echo",
-            idempotency_key="idem-1",
-            request_payload=SYNTHETIC_INTERNAL_REQUEST,
-            internal_synthetic=True,
+        job_a = enqueue_internal_synthetic_fixture(
+            session, principal=principal, idempotency_key="idem-1"
         )
-        job_b = enqueue_job(
-            session,
-            principal=principal,
-            capability_code="platform.synthetic_echo",
-            idempotency_key="idem-1",
-            request_payload=SYNTHETIC_INTERNAL_REQUEST,
-            internal_synthetic=True,
+        job_b = enqueue_internal_synthetic_fixture(
+            session, principal=principal, idempotency_key="idem-1"
         )
         assert job_a.id == job_b.id
         session.commit()

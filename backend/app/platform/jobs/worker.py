@@ -30,7 +30,7 @@ def run_worker_once(*, worker_id: str | None = None) -> bool:
     except Exception:
         session.rollback()
         logger.exception("Worker claim failed")
-        raise
+        return False
     finally:
         session.close()
 
@@ -72,7 +72,7 @@ def run_worker_once(*, worker_id: str | None = None) -> bool:
                 fail_session.commit()
         finally:
             fail_session.close()
-        raise
+        return False
     finally:
         work_session.close()
 

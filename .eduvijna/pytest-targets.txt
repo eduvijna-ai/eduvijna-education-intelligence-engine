@@ -131,3 +131,4 @@ tests/test_day17_jobs.py
 tests/test_day17_mcp.py
 tests/test_day17_verify_sha.py
 tests/test_day17_f17_security.py
+tests/test_day17_r3_security.py

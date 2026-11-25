@@ -1,6 +1,6 @@
 # Day 17 — REST, Jobs, Auth and MCP scope ledger
 
-**Status:** candidate 2/3 — F17 security and durable-job repair (36 rows). D17-36 pending Founder signoff.  
+**Status:** candidate 3/3 final — R3 bounded security closure (36 rows). D17-36 pending Founder signoff.  
 **Specification:** [Issue #60](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/60).  
 **Branch:** `feature/day17-rest-jobs-auth-mcp` → `develop`. Base `9400ce13af13c13c5158fa06c90f7f2517abbe93`.
 

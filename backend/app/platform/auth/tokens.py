@@ -31,7 +31,11 @@ class TokenClaims:
 
 
 def _signing_key() -> bytes:
-    return get_settings().api_secret_key.encode("utf-8")
+    settings = get_settings()
+    secret = settings.api_secret_key
+    if settings.app_env.strip().lower() != "local" and len(secret) < 32:
+        raise ValueError("API signing secret must be at least 32 characters outside local")
+    return secret.encode("utf-8")
 
 
 def hash_refresh_token(token: str) -> str:

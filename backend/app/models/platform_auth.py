@@ -71,6 +71,7 @@ class ApplicationRefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     family_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    session_epoch: Mapped[int] = mapped_column(default=0, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     replaced_by_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("application_refresh_sessions.id", ondelete="SET NULL")

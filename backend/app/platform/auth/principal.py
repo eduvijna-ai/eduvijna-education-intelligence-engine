@@ -91,6 +91,24 @@ def request_principal_from_application(
     )
 
 
+def request_principal_from_api_key(
+    record: ApplicationApiKey,
+    creator: ApplicationPrincipal,
+    *,
+    scopes: tuple[str, ...],
+) -> RequestPrincipal:
+    return RequestPrincipal(
+        principal_id=creator.id,
+        organization_id=record.organization_id,
+        institution_id=record.institution_id,
+        role=creator.role,
+        scopes=scopes,
+        actor_kind="api_key",
+        actor_ref=record.id,
+        auth_method="api_key",
+    )
+
+
 def load_and_validate_principal(session: Session, principal_id: str) -> ApplicationPrincipal:
     principal = load_principal(session, principal_id)
     if principal is None or not principal.active:

@@ -6,11 +6,27 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.platform_auth import ApplicationPrincipal
-from app.models.tenancy import AdminActor, Institution, Learner, Organization, Teacher
+from app.models.tenancy import AdminActor, Institution, Organization, Teacher
 from app.platform.errors import AuthenticationError, AuthorizationError
 
 
 def validate_principal_membership(session: Session, principal: ApplicationPrincipal) -> None:
+    if principal.learner_id:
+        raise AuthenticationError("Learner application principals are not enabled (Day15 hold)")
+    if principal.role == "teacher":
+        if not principal.teacher_id or principal.admin_actor_id:
+            raise AuthenticationError("Teacher role requires an active teacher actor binding")
+    elif principal.role == "institution_admin":
+        if not principal.admin_actor_id or principal.teacher_id:
+            raise AuthenticationError("Institution admin requires an active admin actor binding")
+    elif principal.role == "org_admin":
+        if principal.institution_id is not None:
+            raise AuthenticationError("Organization admin must be org-scoped without institution")
+        if not principal.admin_actor_id or principal.teacher_id:
+            raise AuthenticationError("Organization admin requires an admin actor binding")
+    else:
+        raise AuthenticationError(f"Unsupported application role: {principal.role}")
+
     org = session.scalar(
         select(Organization).where(Organization.id == principal.organization_id)
     )
@@ -33,15 +49,6 @@ def validate_principal_membership(session: Session, principal: ApplicationPrinci
             or teacher.institution_id != principal.institution_id
         ):
             raise AuthenticationError("Teacher membership invalid")
-        return
-    if principal.learner_id:
-        learner = session.scalar(select(Learner).where(Learner.id == principal.learner_id))
-        if (
-            learner is None
-            or not learner.active
-            or learner.institution_id != principal.institution_id
-        ):
-            raise AuthenticationError("Learner membership invalid")
         return
     if principal.admin_actor_id:
         admin = session.scalar(select(AdminActor).where(AdminActor.id == principal.admin_actor_id))

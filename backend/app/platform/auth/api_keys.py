@@ -10,18 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.models.platform_auth import ApplicationApiKey
 from app.platform.auth.audit import record_security_event
-from app.platform.auth.delegation import (
-    assert_scopes_subset,
-    delegatable_scopes_for_api_key,
-    delegatable_scopes_for_role,
-)
+from app.platform.auth.delegation import assert_scopes_subset, delegatable_scopes_for_role
 from app.platform.auth.passwords import hash_password, verify_password
 from app.platform.auth.principal import (
     RequestPrincipal,
     assert_tenant_active,
     load_and_validate_principal,
-    request_principal_from_application,
+    request_principal_from_api_key,
 )
+from app.platform.auth.rbac import require_permission
 from app.platform.errors import AuthenticationError, AuthorizationError, NotFoundError
 from app.platform.ids import canonical_id
 
@@ -50,6 +47,7 @@ def create_api_key(
     ttl_days: int | None = 90,
     correlation_id: str = "unknown",
 ) -> IssuedApiKey:
+    require_permission(principal.scopes, "api_keys:manage")
     if principal.auth_method == "api_key":
         raise AuthorizationError("API keys cannot mint API keys")
     allowed = delegatable_scopes_for_role(principal.role)
@@ -84,6 +82,15 @@ def create_api_key(
     return IssuedApiKey(record=record, secret=f"{prefix}.{secret}")
 
 
+def _institution_scope_allows_revoke(
+    principal: RequestPrincipal,
+    record: ApplicationApiKey,
+) -> bool:
+    if principal.role == "org_admin" and principal.institution_id is None:
+        return True
+    return record.institution_id == principal.institution_id
+
+
 def revoke_api_key(
     session: Session,
     *,
@@ -100,16 +107,14 @@ def revoke_api_key(
     )
     if record is None:
         raise NotFoundError("API key not found")
-    if (
-        record.institution_id
-        and principal.institution_id
-        and record.institution_id != principal.institution_id
-    ):
+    if not _institution_scope_allows_revoke(principal, record):
         raise NotFoundError("API key not found")
     is_owner = record.created_by_principal_id == principal.principal_id
     is_admin = "api_keys:manage" in principal.scopes
     if not is_owner and not is_admin:
         raise AuthorizationError("API key revocation denied")
+    if not is_owner:
+        require_permission(principal.scopes, "api_keys:manage")
     record.active = False
     record.revoked_at = datetime.now(UTC)
     record_security_event(
@@ -144,16 +149,13 @@ def authenticate_api_key(session: Session, raw_key: str) -> RequestPrincipal:
     if creator_id is None:
         raise AuthenticationError("API key missing owner")
     creator = load_and_validate_principal(session, creator_id)
+    if not creator.active:
+        raise AuthenticationError("API key owner disabled")
+    if creator.organization_id != record.organization_id:
+        raise AuthenticationError("API key owner no longer in key organization")
+    if creator.institution_id != record.institution_id:
+        raise AuthenticationError("API key owner institution no longer matches key binding")
     stored = [str(s) for s in record.scopes_json]
-    allowed = delegatable_scopes_for_api_key(tuple(stored))
-    invalid = [s for s in stored if s not in allowed]
-    if invalid:
-        raise AuthenticationError("API key scope invalid")
-    scopes = tuple(sorted(stored))
-    return request_principal_from_application(
-        creator,
-        auth_method="api_key",
-        scopes=scopes,
-        actor_kind="api_key",
-        actor_ref=record.id,
-    )
+    role_allowed = delegatable_scopes_for_role(creator.role)
+    scopes = assert_scopes_subset(stored, role_allowed)
+    return request_principal_from_api_key(record, creator, scopes=scopes)
