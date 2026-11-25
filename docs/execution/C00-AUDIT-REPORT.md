@@ -8,7 +8,7 @@ C00 audit-only deliverables reconcile Day 1–18 approved task IDs, amendments, 
 
 | Item | Value |
 | --- | --- |
-| Governance branch HEAD | `634ad12eab8bea9069d78acdf5497fcfe2f11cc7` (candidate 1/3) |
+| Governance branch HEAD | `a80634701fb571d77829387301eaac532b9da970` (candidate 1/3) |
 | Frozen application baseline | `8b71aa03bcff21f021f43ea430935edf14070f68` |
 | PR #65 | Draft, unmerged → `develop` |
 | Full historical pytest @ baseline | **NOT_RUN** |
