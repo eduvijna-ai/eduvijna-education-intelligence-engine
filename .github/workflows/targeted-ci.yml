@@ -68,7 +68,7 @@ jobs:
         run: pip install -e '.[dev]'
       - name: C01 disposable PostgreSQL migration proof
         env:
-          DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
+          EDUVIJNA_C01_DISPOSABLE_DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
           EDUVIJNA_C01_DISPOSABLE_PG: "1"
         run: |
           alembic upgrade head

@@ -23,6 +23,7 @@ REV_0021 = "20261124_0021"
 REV_0006 = "20261003_0006"
 REV_0018 = "20261109_0018"
 C01_PG_OPT_IN = "EDUVIJNA_C01_DISPOSABLE_PG"
+C01_PG_URL = "EDUVIJNA_C01_DISPOSABLE_DATABASE_URL"
 
 
 def _now() -> str:
@@ -61,10 +62,11 @@ def _insert_replay(connection: sqlite3.Connection, *, metadata: str) -> str:
 def _disposable_pg_url() -> str | None:
     if os.environ.get(C01_PG_OPT_IN) != "1":
         return None
-    url = os.environ.get("DATABASE_URL", "")
+    url = os.environ.get(C01_PG_URL, "") or os.environ.get("DATABASE_URL", "")
     if not url.startswith(("postgresql://", "postgresql+")):
         return None
-    if "c01_ci" not in url and "c01_gate" not in url and "127.0.0.1" not in url:
+    disposable_markers = ("c01_ci", "c01_gate", "c01_diag", "127.0.0.1", "localhost")
+    if not any(marker in url for marker in disposable_markers):
         return None
     return url
 
