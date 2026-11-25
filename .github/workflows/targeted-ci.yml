@@ -57,6 +57,7 @@ jobs:
           python -m app.day13_verify --json
           python -m app.day14_verify --json
           python -m app.day16_verify --json
+          python -m app.day17_verify --json
 
   compose-smoke:
     if: github.event.pull_request.draft == false

@@ -30,6 +30,13 @@ from app.models.orchestration import (
     OrchestrationCheckpointLease,
     OrchestrationIdempotencyRecord,
 )
+from app.models.platform_auth import (
+    ApplicationApiKey,
+    ApplicationPrincipal,
+    ApplicationRefreshSession,
+    SecurityAuditEvent,
+)
+from app.models.platform_jobs import DurableAsyncJob
 from app.models.policy import PolicyRule
 from app.models.question import (
     Question,
@@ -43,6 +50,11 @@ from app.models.system_setting import SystemSetting
 from app.models.tenancy import AdminActor, ApiClient, Institution, Learner, Organization, Teacher
 
 __all__ = [
+    "ApplicationApiKey",
+    "ApplicationPrincipal",
+    "ApplicationRefreshSession",
+    "DurableAsyncJob",
+    "SecurityAuditEvent",
     "AdminActor",
     "ApiClient",
     "AssessmentEvidence",

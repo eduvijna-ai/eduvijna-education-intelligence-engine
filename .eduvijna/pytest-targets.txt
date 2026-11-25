@@ -123,3 +123,12 @@ tests/test_day16_adaptation.py
 tests/test_day16_adversarial.py
 tests/test_day16_verify_sha.py
 tests/test_day16_trust.py
+tests/test_day17_governance.py
+tests/test_day17_capability.py
+tests/test_day17_auth.py
+tests/test_day17_blocked.py
+tests/test_day17_jobs.py
+tests/test_day17_mcp.py
+tests/test_day17_verify_sha.py
+tests/test_day17_f17_security.py
+tests/test_day17_r3_security.py
