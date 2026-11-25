@@ -1,21 +1,57 @@
-# C00-06 — Source evidence register
+# C00-06 — Source evidence register (granular)
 
-**Rule:** Discovery URLs are not approved evidence. Original bytes, rights, checksums, and human curator approval are non-delegable.
+Discovery URLs ≠ approved evidence. One row per obligating document/package where possible.
 
-| Obligation | Authority / issue | Required locator | Original bytes + SHA | SourceRevision / curator status | Human owner | Ledger state |
+## Day 4 — Issue #12 (NCF/NCERT/CBSE)
+
+| Slot | Authority | Version/year | Locator | Bytes+SHA | Curator/SourceRevision | Owner | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| D4-NCF-2023 | MoE India NCF School Education | 2023 | `D04-NCF-NCERT-CBSE.md` manifest URL | NOT in public Git | NOT_VERIFIED ACTIVE | Founder | SOURCE_PENDING |
+| D4-NCERT-LO | NCERT secondary LO document | — | manifest URL | NOT in Git | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| D4-CBSE-CURR-2026-27 | CBSE academics curriculum index | 2026-27 | cbseacademic.nic.in | NOT in Git | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| D4-CBSE-SQP-X | CBSE class X SQP/MS | 2026-27 | manifest URL | NOT in Git | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| D4-CBSE-SQP-XII | CBSE class XII SQP/MS | 2026-27 | manifest URL | NOT in Git | NOT_VERIFIED | Founder | SOURCE_PENDING |
+
+## Day 5 — Issue #16 (five Telangana packages)
+
+| Package | Requirement ID | Locator | Bytes | Owner | Status |
+| --- | --- | --- | --- | --- | --- |
+| PKG-1 SCERT VIII Physical Science EN/TE | D5-DS01 §1 | Private founder supply | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| PKG-2 SCERT VIII Biological Science EN/TE | D5-DS01 §1 | Private founder supply | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| PKG-3 SCERT I–X inventory | D5-DS01 §2 | Private founder supply | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| PKG-4 LO / Academic standards | D5-DS01 §3 | Private founder supply | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| PKG-5 Intermediate catalogue + math history | D5-DS01 §4–5 | Private founder supply | NOT_VERIFIED | Founder | SOURCE_PENDING |
+
+## Day 11 — Issue #32 (NTA JEE Main)
+
+| Document | Year | Locator (held spec) | Bytes+SHA | Curator | Owner | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| Day 4 official NCF/NCERT/CBSE | Issue [#12](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/12) | `D04-NCF-NCERT-CBSE.md` manifest URLs | NOT in public Git (by design) | ACTIVE official PASS **not** independently verified at `8b71aa03`; postmerge CI **42783645367 FAILED** | Founder + curator | SOURCE_PENDING |
-| Day 5 Telangana five packages | Issue [#16](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/16) | `D05-DS01-TELANGANA-AUTHORITATIVE-SOURCES.md` | NOT in public Git | D5-DS01 DEFERRED_BY_FOUNDER | Founder | SOURCE_PENDING |
-| Day 11 NTA 2027 bulletin/syllabus | Issue [#32](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/32) | Held PR #31 scope | NOT_VERIFIED | Curator PDF activation blocker per PR #31 | Founder | SOURCE_PENDING |
-| Day 12 IIT/JAB 2026 slots (×6) | Issues [#33](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/33), [#35](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/35) | `D12-SCOPE-MAP.md` | NOT in Git | `official_2026_sources: SOURCE_PENDING`; live CLI DISABLED | Founder | SOURCE_PENDING |
-| Day 12 2027 replica availability | Issue #35 | planning docs | NOT_VERIFIED | `official_2027_replica: NOT_VERIFIED` | Founder | NOT_VERIFIED |
-| Day 13 CUET/CLAT officials | Issue [#52](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/52) | `D13-SCOPE-MAP.md` manifest | URLs only in repo | 2× SOURCE_PENDING rows in scope map | Founder | SOURCE_PENDING |
-| Day 14 ICAI / MUR / TGCHE | Issue [#54](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/issues/54) | `D14-SCOPE-MAP.md` | NOT_VERIFIED | `official_source_readiness: FALSE` | Founder | SOURCE_PENDING |
+| Information Bulletin | 2027 | `git show d0f0745f:…/D11-JEE-MAIN-EXAM-INTELLIGENCE.md` URLs | NOT_VERIFIED | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| Syllabus PDFs (Math/Phys/Chem) | 2027 | held spec URLs | NOT_VERIFIED | NOT_VERIFIED | Founder | SOURCE_PENDING |
+| Historical paper inventory | multi-year | D11-14..16 obligations | NOT_VERIFIED | NOT_VERIFIED | Founder | SOURCE_PENDING |
 
-## Distinguish discovery vs approved evidence
+## Day 12 — Issues #33, #35, #44, #45
 
-Official index URLs in Day 4/5/13 specs are **discovery metadata only**. They do not satisfy curator approval, immutable checksum proof, or activation at frozen baseline.
+| Slot | Issue | Locator | Status | Owner |
+| --- | ---: | --- | --- | --- |
+| CORE intake CLI/security | #35 | `D12-CORE-35`; live intake DISABLED | SOURCE_PENDING | Founder |
+| IIT/JAB 2026 slot 1..6 | #33/#35 | `D12-SCOPE-MAP.md` SOURCE_PENDING rows | SOURCE_PENDING | Founder |
+| 2027 official replica availability | #35 | execution-state `NOT_VERIFIED` | NOT_VERIFIED | Founder |
+| Closure issues | #44, #45 | Historical closeout docs in repo; verify against Issue bodies | NOT_VERIFIED | Founder |
 
-## Prohibited in this audit
+## Day 13 — Issue #52
 
-No source acquisition, activation, curator impersonation, copyrighted PDF commit, or secrets in repository or this register.
+| Document | Locator | Status | Owner |
+| --- | --- | --- | --- |
+| CUET 2026 official authority | `D13-SCOPE-MAP.md` D13-03 | SOURCE_PENDING | Founder |
+| CLAT 2027 primary authority | D13-05 | SOURCE_PENDING | Founder |
+
+## Day 14 — Issue #54
+
+| Exam family | Document class | Locator | Status | Owner |
+| --- | --- | --- | --- | --- |
+| ICAI CA Foundation | syllabus/rubric | D14 scope; curator flags false | SOURCE_PENDING | Founder |
+| MUR IMAT | decree/annexes | D14 scope | SOURCE_PENDING | Founder |
+| TG EAPCET | TGCHE/JNTUH rules | D14 scope | SOURCE_PENDING | Founder |
+
+No acquisition, activation, or curator impersonation in this audit.

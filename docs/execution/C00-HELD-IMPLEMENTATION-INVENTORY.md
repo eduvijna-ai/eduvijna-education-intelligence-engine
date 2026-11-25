@@ -1,21 +1,22 @@
-# C00-07 — Held implementation inventory
+# C00-07 — Held implementation inventory (candidate 2/3)
 
-Read-only inspection at immutable SHAs. **No** checkout, merge, cherry-pick, or import into `closure/c00-requirements-evidence-audit`.
+Read-only at immutable SHAs. No merge/cherry-pick/checkout of held branches into C00 work.
 
-| PR | Branch | State | Recorded HEAD | Matches execution-state | In develop @ `8b71aa03` | Historical ledger (from Founder/issue #64) |
-| --- | --- | --- | --- | --- | --- | --- |
-| [#31](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/31) | `feature/day11-jee-main-exam-intelligence` | open, draft | `d0f0745f6573bba0cfa93fa8eb0674cdd3b689d2` | yes | **no** — code absent | 13 accepted / 22 partial / 1 pending (historical; scope map at held SHA) |
-| [#57](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/57) | `feature/day15-learner-intelligence` | open, draft | `b69f97bf9ee1cb08e16121f301dc20e5e5645f6f` | yes | **no** | 0 / 35 partial / 1 NOT_STARTED |
-| [#61](https://github.com/eduvijna-ai/eduvijna-education-intelligence-engine/pull/61) | `feature/day17-rest-jobs-auth-mcp` | open, draft | `87df6a54ea8ad1c06157f894b4a4c4a1bfa3bbc1` | yes | **no** | Final ledger: read `D17-SCOPE-MAP.md` at held SHA; CI **45535514058 FAILED_RUFF**; D17-F01..07 open |
+| PR | SHA | State | Merged on develop | Scope ledger (historical) |
+| ---: | --- | --- | --- | --- |
+| 31 | `d0f0745f6573bba0cfa93fa8eb0674cdd3b689d2` | open draft | no | 13 `HISTORICAL_ACCEPTED` / 22 `HISTORICAL_SCOPE_PARTIAL` / 1 pending (scope map; **not** current technical PASS) |
+| 57 | `b69f97bf9ee1cb08e16121f301dc20e5e5645f6f` | open draft | no | 0 / 35 partial / 1 NOT_STARTED (historical ledger) |
+| 61 | `87df6a54ea8ad1c06157f894b4a4c4a1bfa3bbc1` | open draft | no | **0 PASS / 29 PARTIAL / 6 BLOCKED / 1 NOT_STARTED** (read from `git show 87df6a54:docs/execution/D17-SCOPE-MAP.md`, candidate 2) |
 
-## Drift check
+## Drift
 
-| Frozen SHA | `git rev-parse origin/<branch>` | Drift |
-| --- | --- | --- |
-| PR31 | `d0f0745f6573bba0cfa93fa8eb0674cdd3b689d2` | none |
-| PR57 | `b69f97bf9ee1cb08e16121f301dc20e5e5645f6f` | none |
-| PR61 | `87df6a54ea8ad1c06157f894b4a4c4a1bfa3bbc1` | none |
+All three `git rev-parse origin/<branch>` values match recorded heads (**no drift**).
 
-## Separation principle
+## Evidence separation
 
-Held ledgers describe **candidate** evidence. Merged develop capabilities remain default-deny where execution-state records ON_HOLD, DISABLED, or deferred acceptance. Milestone sign-off does **not** promote held or partial rows to PASS on the master ledger.
+| Layer | Meaning |
+| --- | --- |
+| `engineering_acceptance_state` | Historical scope/Founder milestone acceptance signals |
+| `technical_acceptance_state` | Current merged baseline (`8b71aa03`) — held tasks **NOT_VERIFIED** or **PARTIAL** only |
+
+Held Day11 scope **PASS** rows contribute to **engineering** history only; **no** `technical_acceptance_state=PASS` on Day11 in candidate 2 ledger.
