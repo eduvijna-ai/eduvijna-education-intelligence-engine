@@ -105,7 +105,9 @@ consolidated_technical_closure:
       held_pr_import_authorized: false
       source_activation_authorized: false
       implementation_branch: "closure/c00-requirements-evidence-audit"
-      implementation_status: AUTHORIZED_NOT_STARTED
+      implementation_status: CANDIDATE_1_PUSHED
+      candidate_1_started: "2026-11-25"
+      candidate_1_sha: "20c79005f19e1853c2940ef2b240f0e6fde1d69c"
       required_cursor_model: "Composer 2.5 (standard; not Fast)"
       review_workflow: founder_manual_chatgpt_review
       candidate_limit: 3
