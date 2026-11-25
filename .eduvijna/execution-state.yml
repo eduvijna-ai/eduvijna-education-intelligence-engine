@@ -197,6 +197,7 @@ consolidated_technical_closure:
       gate_b_candidate_budget: 3
       gate_b_candidates_consumed: 3
       gate_b_candidate_3_review_base_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
+      gate_b_candidate_3_sha: "3fdbcf19c2b6462cdabf87080c71b549e2be4dab"
       gate_a_founder_milestone_signoff: true
       gate_a_signoff_comment: 7157347180
       gate_a_final_ci_run: 45575396512
