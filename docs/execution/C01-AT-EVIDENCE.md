@@ -3,7 +3,7 @@
 **Delivery branch:** `closure/c01-acceptance-test-recovery`  
 **Prior AT evidence SHA:** `55998081013fb57399e4d1a0f389cfa90d79f300` (CI295 **FAILED** run `45598887196`)  
 **Harness correction:** Founder comment `7160951822`; governance seed `fdcf2b6a8bb8b4cec1ef8dbe09574f9516c3d81a`  
-**Correction candidate SHA:** `4d2b3d40ba7cf42dd926484b421c78d8853101a5`  
+**Correction candidate SHA:** `c4e17e6df69e7d235578636f9b8274131f3e5c7a`  
 **Local correction run:** Cloud Agent, Python 3.12, backend `.venv`  
 **Raw pytest (original):** `docs/execution/C01-AT-PYTEST-RAW.txt`  
 **Raw pytest (correction):** `docs/execution/C01-AT-PYTEST-RAW-CORRECTION.txt`  

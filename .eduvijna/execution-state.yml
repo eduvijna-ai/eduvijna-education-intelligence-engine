@@ -254,7 +254,7 @@ consolidated_technical_closure:
       test_harness_correction_review_base_sha: "55998081013fb57399e4d1a0f389cfa90d79f300"
       test_harness_correction_run_limit: 1
       test_harness_correction_runs_consumed: 1
-      test_harness_correction_candidate_sha: "4d2b3d40ba7cf42dd926484b421c78d8853101a5"
+      test_harness_correction_candidate_sha: "c4e17e6df69e7d235578636f9b8274131f3e5c7a"
       test_harness_correction_prior_failed_ci_run: 45598887196
       test_harness_correction_prior_failed_ci_result: FAILED_BACKEND_AND_POSTGRES_FRONTEND_SUCCESS_COMPOSE_SKIPPED
       test_harness_correction_execution_authorized: true
