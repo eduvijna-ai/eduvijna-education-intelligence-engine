@@ -167,7 +167,7 @@ consolidated_technical_closure:
       candidate_2_started: "2026-11-25"
       candidate_2_sha: "b66e0eebfd99775cc9795fde126551dda7fd8510"
       candidate_3_started: "2026-11-25"
-      candidate_3_sha: "b9c564524bd9e088811dc238205d44a4fd1b0c62"
+      candidate_3_sha: "923433f80fac6b78328853521915ad2ea7bf5fa1"
       candidate_3_review_base_sha: "30b1363663e6c9063a67683f4293fb90f7d3f34f"
       gate_a_candidates_consumed: 3
       gate_a_candidate_limit_reached: true
