@@ -147,11 +147,15 @@ consolidated_technical_closure:
       founder_approval_date: "2026-11-25"
       founder_approval_comment: 7156388075
       founder_approval_signal: "Approved, Go ahead."
+      founder_gate_b_approval_comment: 7157342815
+      founder_gate_b_milestone_comment: 7157347180
+      gate_b_governance_seed: "1bcf85c30b24e5f2ce2b4a02dca198f86353861e"
       implementation_authorized: true
       authorization_scope: GATE_B_BOUNDED_MIGRATION_COMPATIBILITY_AND_FOUNDATION
       active_task_scope: "C01-09..14, C01-17..27 and Gate A residual closure"
       narrow_d13_31a_exception: BOUNDED_0021_COMPATIBILITY_ONLY_NO_REPLAY_LOGIC
       historical_migration_changes_authorized: "0006 and 0021 only"
+      historical_migration_change_surface: "0006, 0021 only"
       application_logic_changes_authorized: C01_FOUNDATION_AND_MATCHING_MODEL_CONSTRAINTS_ONLY
       data_remediation_authorized: false
       held_pr_import_authorized: false
@@ -161,7 +165,8 @@ consolidated_technical_closure:
       gate_b_state: ACTIVE
       implementation_branch: "closure/c01-foundation-database-recovery"
       implementation_base_sha: "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7"
-      implementation_status: GATE_B_AUTHORIZED_NOT_STARTED
+      implementation_status: GATE_B_CANDIDATE_1_PUSHED
+      gate_b_parent_gate_a_sha: "905cd5810f32cc3e945523edd4560c281ab177bc"
       candidate_1_started: "2026-11-25"
       candidate_1_sha: "a5a4e7c312ced61e98bd98421d46a08675a27012"
       candidate_2_started: "2026-11-25"
@@ -187,7 +192,7 @@ consolidated_technical_closure:
       review_workflow: founder_manual_chatgpt_review
       gate_a_candidate_limit: 3
       gate_b_candidate_budget: 3
-      gate_b_candidates_consumed: 0
+      gate_b_candidates_consumed: 1
       gate_a_founder_milestone_signoff: true
       gate_a_signoff_comment: 7157347180
       gate_a_final_ci_run: 45575396512
