@@ -44,6 +44,22 @@ ROW_EVIDENCE: dict[str, dict[str, str]] = {
         "c01_gate_a_static_inspection": "active_slot INTEGER + ck_source_revision_active_slot IS 1 (PG-unsafe)",
         "c01_gate_a_disposition": "PARTIAL portability finding C01-OMIT-PG0006",
     },
+    "D13-31A": {
+        "baseline_code_path": "backend/migrations/versions/20261124_0021_d13_replay_synthetic_flag.py",
+        "test_path": "UNRESOLVED: no isolated PG upgrade test at baseline",
+        "c01_gate_a_static_inspection": "json_extract + synthetic_test_only=1 CHECK",
+        "c01_gate_a_execution": "sqlite mixed EXPECTED_FAILURE; PG isolated 42883",
+        "c01_gate_a_disposition": "PARTIAL + C01-OMIT-0021-DATA",
+    },
+}
+
+PREFIX_STATIC: dict[str, tuple[str, str]] = {
+    "D1-DOD": ("docs/execution/D01-FOUNDATION.md; backend/app/db/", "PARTIAL_STATIC"),
+    "D2-DOD": ("backend/app/models/; backend/app/repositories/", "PARTIAL_STATIC"),
+    "D3-R": ("backend/migrations/versions/20261003_*; backend/tests/test_day3_", "RECONCILED_STATIC_OR_PARTIAL"),
+    "D13-": ("backend/migrations/versions/20261124_*; backend/app/models/day13_replay.py", "PARTIAL_PORTABILITY"),
+    "D7-": ("backend/app/knowledge_intelligence/; backend/tests/test_day7_", "NOT_VERIFIED_RUNTIME_GATE_B"),
+    "D9-": ("backend/app/examination/; backend/tests/test_day9_", "NOT_VERIFIED_RUNTIME_GATE_B"),
 }
 
 EXTRA_OMISSIONS = [
@@ -97,13 +113,22 @@ def resolve_row(task_id: str, row: dict[str, str]) -> dict[str, str]:
     if task_id in ROW_EVIDENCE:
         base.update(ROW_EVIDENCE[task_id])
     if row["baseline_code_path"].startswith("NOT_VERIFIED"):
-        # Static resolve common foundation symbols without claiming PASS.
-        if task_id.startswith("D1-DOD"):
-            base["baseline_code_path"] = f"develop@{BASELINE[:12]}: see docs/execution/D01-FOUNDATION.md"
-            base["c01_gate_a_disposition"] = "PARTIAL_STATIC"
-        elif task_id.startswith("D2-DOD"):
-            base["baseline_code_path"] = "backend/app/models/*.py (canonical domain)"
-            base["c01_gate_a_disposition"] = "PARTIAL_STATIC"
+        for prefix, (path_hint, disp) in PREFIX_STATIC.items():
+            if task_id.startswith(prefix):
+                base["baseline_code_path"] = f"develop@{BASELINE[:12]}: {path_hint}"
+                base["c01_gate_a_disposition"] = disp
+                base["c01_gate_a_static_inspection"] = (
+                    f"NOT_VERIFIED@C00: prefix {prefix} static hint only"
+                )
+                break
+        else:
+            base["c01_gate_a_disposition"] = "PROVISIONAL_UNCHANGED"
+    elif row["baseline_code_path"].strip() and row["baseline_code_path"] != "NOT_VERIFIED":
+        base["baseline_code_path"] = row["baseline_code_path"]
+        base["c01_gate_a_disposition"] = "PARTIAL_STATIC"
+        if row.get("test_path") and row["test_path"] != "NOT_VERIFIED":
+            base["test_path"] = row["test_path"]
+    base["c01_evidence_ref"] = "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_SUMMARY.json"
     return base
 
 

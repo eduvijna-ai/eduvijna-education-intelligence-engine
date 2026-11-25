@@ -2,44 +2,55 @@
 
 **Harness:** `docs/execution/C01-gate-a/c01_gate_a_harness.py`
 **Wrapper:** `docs/execution/C01-gate-a/run_gate_a_diagnostics.sh`
-**Raw transcripts:** `docs/execution/C01-gate-a/transcripts/` (per-run id; no shared DB drops except owned `c01_gatea_*` names)
+**Reference run:** `c01_gatea_3528d62e02f2` → `transcripts/c01_gatea_3528d62e02f2_SUMMARY.json`
 
-## Candidate 2 harness run (reference)
+## Candidate 3 harness trials
 
-Summary: `transcripts/c01_gatea_8de74d78f1f5_SUMMARY.json`
-
-| Trial | Exit | Notes |
+| Trial | Exit | Meaning |
 | --- | ---: | --- |
-| `pg_fresh_head` | 1 | SyntaxError `active_slot IS 1` at `0006` |
-| `pg_isolated_0021` | 0 | `json_extract` 42883; `boolean = integer` on CHECK |
-| `active_slot_check_probe_pg` | 0 | Portable predicate vs broken `IS 1` |
-| `sqlite_fresh_head` | 0 | `20261124_0021` |
-| `sqlite_marker_probes` | 1 | Mixed markers; rollback @ `0020` |
-| `sqlite_active_slot_probe` | 0 | INTEGER `IS 1` works on SQLite |
+| `sqlite_marker_matrix` | 0 | Preflight + strict SQL matrix; **0 mismatches** |
+| `pg_fresh_head` | 100 | **EXPECTED_FAILURE** — `active_slot IS 1` at `0006` |
+| `pg_upgrade_0020` | 100 | **EXPECTED_FAILURE** / blocked before `0020` |
+| `pg_isolated_0021` | 100 | **EXPECTED_FAILURE** — `json_extract` + boolean=int CHECK |
+| `pg_marker_matrix` | 0 | Strict SQL; dup keys need preflight (PG cast collapses) |
+| `pg_active_slot_constraints` | 0 | Portable CHECK + UNIQUE probes |
+| `sqlite_fresh_head` | 0 | Head `20261124_0021` |
+| `sqlite_mixed_0021` | 100 | **EXPECTED_FAILURE** — `ck_d13_replay_synthetic_marker` rollback @ `0020` |
+| `sqlite_active_slot_constraints` | 0 | Portable CHECK + UNIQUE probes |
 
-## PostgreSQL errors (correct classification)
+Exit code **100** = diagnostic proved expected failure (not harness broken).
 
-1. **`json_extract`:** SQLSTATE **42883** — undefined function
-2. **`CHECK (synthetic_test_only = 1)`:** `operator does not exist: boolean = integer` (not assignment cast)
-3. **`CHECK (synthetic_test_only IS TRUE)` on table with default false rows:** constraint violated — shows migration semantics require all rows true after backfill
+## SQLite strict predicate (corrected — R3-A01)
 
-## SQLite strict vs legacy (`sqlite_marker_probes` transcript)
+Use path form (not `json_type(json_extract(...))`):
 
-| Fixture id | Legacy `json_extract` | Strict `json_type(...)='true'` |
-| --- | --- | --- |
-| json-true | 1 (integer) | 1 |
-| json-int1 | 1 | 0 |
-| json-str | text `true` | 0 |
-| json-absent | NULL | 0 |
-| json-malformed | insert may fail / invalid | 0 |
+```sql
+json_valid(metadata_json)
+AND json_type(metadata_json) = 'object'
+AND json_type(metadata_json, '$.d13_synthetic_test_only') = 'true'
+```
 
-## Legacy logs (candidate 1 — superseded for reproduction)
+Reference transcript excerpt (`c01_gatea_3528d62e02f2_sqlite_marker_matrix.log`):
 
-- `pg_fresh_upgrade_head.log` — still valid raw Alembic output but harness preferred
-- `sqlite_marker_matrix.log` — summary only; use transcripts for audit
+| id | preflight | strict_sql | legacy json_extract |
+| --- | --- | --- | --- |
+| bool-true | eligible | 1 | 1 |
+| int-1 | not | 0 | 1 (legacy conflation) |
+| str-true | not | 0 | `'true'` |
+| dup-true-false | not | 1 | ambiguous — preflight rejects |
+
+## PostgreSQL errors (unchanged classification)
+
+1. **`json_extract`:** SQLSTATE **42883**
+2. **`CHECK (flag = 1)` on boolean:** `operator does not exist: boolean = integer`
+3. **Fresh chain:** SyntaxError / invalid `IS 1` on INTEGER at `0006`
 
 ## Environment
 
 - PostgreSQL **16.15**, `127.0.0.1:55432`, role `c01_diag`
-- Driver: ephemeral `psycopg2-binary` in local venv (not committed)
+- Ephemeral `psycopg2-binary` in local venv (not committed)
 - **No** production / shared dev connections
+
+## Superseded
+
+Candidate 1 shell harness and candidate 2 marker table claiming inverted strict results — superseded by reference run above.

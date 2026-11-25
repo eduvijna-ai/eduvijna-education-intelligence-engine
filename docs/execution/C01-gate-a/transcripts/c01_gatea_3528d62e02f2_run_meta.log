@@ -1,0 +1,17 @@
+run_id=c01_gatea_3528d62e02f2
+trial=run_meta
+utc=2026-11-25T08:19:50.010092+00:00
+harness_sha256=e90b56663a52cdef98fa60cfcdba0302e9d08f5ace3d6e6aadd30ea20ce2d149
+repo_head=30b1363663e6c9063a67683f4293fb90f7d3f34f
+baseline_sha=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+log_path=docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_run_meta.log
+
+baseline_ancestor_exit=0
+migration_app_diff_vs_baseline=
+(none)
+worktree_dirty_migrations_models=
+(clean)
+baseline_migrations_tree=ddd53ae8653791c5f722605dd7dde3d2b756ae9d
+head_migrations_tree=ddd53ae8653791c5f722605dd7dde3d2b756ae9d
+baseline_0021_sha256=c90f09234f0e4b4bb509e17ec60319adc0a4b16571db3c94d8b381c8d81ad832
+

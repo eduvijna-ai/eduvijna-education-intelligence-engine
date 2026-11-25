@@ -37,6 +37,24 @@ OR (status <> 'active' AND active_slot IS NULL)
 | `20261124_0021` | global `CHECK` forcing all rows `synthetic_test_only = 1` | Semantic — fails populated mixed SQLite trial |
 | Held `20261125_0023` (PR61) | `randomblob` in `UPDATE` | SQLite-only (not merged) |
 
-**ORM models with `CheckConstraint`:** `source.py`, `question.py`, `examination.py`, `framework_structure.py`, `knowledge_intelligence.py`, `tenancy.py` — full diff vs Alembic not completed in Gate A; **additional defects likely** (scope escalation requires Founder approval before Gate B bundle).
+## `day13_replay` synthetic marker ORM (0021 parity)
+
+| Location | Expression | PG portable? |
+| --- | --- | --- |
+| `backend/app/models/day13_replay.py` | `CheckConstraint("synthetic_test_only = 1")` | **NO** — integer comparison on Boolean column (matches migration idiom) |
+| `20261124_0021_d13_replay_synthetic_flag.py` | `SET synthetic_test_only = 1`; global `CHECK (synthetic_test_only = 1)` | **NO** on PG; semantic conflict on mixed SQLite data |
+
+## Merged migrations — dialect-sensitive patterns (grep @ baseline)
+
+| File | Pattern | PG risk |
+| --- | --- | --- |
+| `20261003_0006` | `active_slot IS 1` | **HIGH** — fresh-chain blocker |
+| `20261124_0021` | `json_extract`; `= 1` checks | **HIGH** |
+| `20261001_0002` | `weight <= 1` (numeric) | LOW |
+| `20261004_0008` | `confidence <= 1` | LOW |
+
+**ORM `CheckConstraint` modules (read-only sample):** `source.py` (`IS 1`), `day13_replay.py` (`= 1`), `question.py`, `examination.py`, `framework_structure.py`, `knowledge_intelligence.py`, `curriculum.py`, `curriculum_intelligence.py`, `tenancy.py` — not every Alembic check mirrored in ORM at Gate A; **scope escalation** for additional pairs requires Founder approval before Gate B bundle.
+
+**Disposable enforcement probes:** `transcripts/c01_gatea_3528d62e02f2_*_active_slot_constraints.log`
 
 **Gate B:** No automatic expansion beyond inventoried blockers without Founder authorization of exact revision file list.

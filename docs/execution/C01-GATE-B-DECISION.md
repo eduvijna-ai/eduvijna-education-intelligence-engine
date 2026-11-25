@@ -52,10 +52,13 @@ Matches `0005` intent (`active_slot = 1` when active). Probe: disposable PG/SQLi
 
 **Proposed preflight predicate (abort before DDL):**
 
+- Reject duplicate `"d13_synthetic_test_only"` keys on **raw JSON text** before PostgreSQL `::jsonb` cast (cast collapses duplicates).
+- Reject NULL marker, non-object root, and non-boolean-`true` values (no integer `1`, no string `"true"`).
+
 | Dialect | Expression (design) |
 | --- | --- |
 | PostgreSQL | `jsonb_typeof((metadata_json::jsonb)->'d13_synthetic_test_only') = 'boolean' AND (metadata_json::jsonb)->>'d13_synthetic_test_only' = 'true'` |
-| SQLite | `json_valid(metadata_json) AND json_type(metadata_json)='object' AND json_type(json_extract(metadata_json,'$.d13_synthetic_test_only'))='true'` |
+| SQLite | `json_valid(metadata_json) AND json_type(metadata_json)='object' AND json_type(metadata_json,'$.d13_synthetic_test_only')='true'` (path `json_type`; **not** `json_type(json_extract(...))`) |
 
 **Probe results (isolated PG):** `m-bool` eligible; `m-int`, `m-str` **not** eligible.
 
