@@ -1,0 +1,62 @@
+{
+  "run_id": "c01_gatea_3528d62e02f2",
+  "baseline_sha": "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7",
+  "harness_sha256": "e90b56663a52cdef98fa60cfcdba0302e9d08f5ace3d6e6aadd30ea20ce2d149",
+  "trials": [
+    {
+      "name": "sqlite_marker_matrix",
+      "exit_code": 0,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_sqlite_marker_matrix.log",
+      "notes": "auto expected vs actual"
+    },
+    {
+      "name": "pg_fresh_head",
+      "exit_code": 100,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_pg_fresh_head.log",
+      "notes": ""
+    },
+    {
+      "name": "pg_upgrade_0020",
+      "exit_code": 100,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_pg_upgrade_0020.log",
+      "notes": ""
+    },
+    {
+      "name": "pg_isolated_0021",
+      "exit_code": 100,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_pg_isolated_0021_NOT_0020_EQUIVALENT.log",
+      "notes": ""
+    },
+    {
+      "name": "pg_marker_matrix",
+      "exit_code": 0,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_pg_marker_matrix.log",
+      "notes": ""
+    },
+    {
+      "name": "pg_active_slot_constraints",
+      "exit_code": 0,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_pg_active_slot_constraints.log",
+      "notes": ""
+    },
+    {
+      "name": "sqlite_fresh_head",
+      "exit_code": 0,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_sqlite_fresh_head.log",
+      "notes": ""
+    },
+    {
+      "name": "sqlite_mixed_0021",
+      "exit_code": 100,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_sqlite_mixed_0021.log",
+      "notes": ""
+    },
+    {
+      "name": "sqlite_active_slot_constraints",
+      "exit_code": 0,
+      "log": "docs/execution/C01-gate-a/transcripts/c01_gatea_3528d62e02f2_sqlite_active_slot_constraints.log",
+      "notes": ""
+    }
+  ],
+  "harness_exit_fail": false
+}

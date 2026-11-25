@@ -1,0 +1,34 @@
+run_id=c01_gatea_d0529bfec18f
+trial=pg_isolated_0021_NOT_0020_EQUIVALENT
+utc=2026-11-25T08:19:17.109929+00:00
+harness_sha256=e90b56663a52cdef98fa60cfcdba0302e9d08f5ace3d6e6aadd30ea20ce2d149
+repo_head=30b1363663e6c9063a67683f4293fb90f7d3f34f
+baseline_sha=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+log_path=docs/execution/C01-gate-a/transcripts/c01_gatea_d0529bfec18f_pg_isolated_0021_NOT_0020_EQUIVALENT.log
+
+SCHEMA_NOTE: reduced probe table — NOT Alembic 0020-equivalent full migration
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c CREATE DATABASE "c01_gatea_d0529bfec18f_iso21"
+CREATE DATABASE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_iso21 -v ON_ERROR_STOP=1 -c CREATE TABLE d13_replay_reservations (id varchar(36) PRIMARY KEY, metadata_json json NOT NULL)
+CREATE TABLE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_iso21 -v ON_ERROR_STOP=1 -c UPDATE d13_replay_reservations SET synthetic_test_only = true WHERE json_extract(metadata_json, '$.d13_synthetic_test_only') = true
+expect=EXPECTED_FAILURE:42883
+ERROR:  function json_extract(json, unknown) does not exist
+LINE 1: ...reservations SET synthetic_test_only = true WHERE json_extra...
+                                                             ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+exit_code=1
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_iso21 -v ON_ERROR_STOP=1 -c BEGIN; CREATE TEMP TABLE t(b bool); INSERT INTO t VALUES (true); ALTER TABLE t ADD CONSTRAINT c CHECK (b = 1); ROLLBACK;
+expect=EXPECTED_FAILURE:boolean=integer
+BEGIN
+CREATE TABLE
+INSERT 0 1
+ERROR:  operator does not exist: boolean = integer
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+exit_code=1
+

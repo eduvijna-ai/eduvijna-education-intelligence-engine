@@ -39,6 +39,64 @@ jobs:
       - name: Playwright e2e
         run: npm run test:e2e
 
+  c01-migration-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: c01_ci
+          POSTGRES_PASSWORD: c01_ci
+          POSTGRES_DB: c01_ci
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U c01_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend
+        run: pip install -e '.[dev]'
+      - name: C01 disposable PostgreSQL migration proof
+        env:
+          EDUVIJNA_C01_DISPOSABLE_DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/postgres
+          EDUVIJNA_C01_DISPOSABLE_PG: "1"
+        run: |
+          test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
+          python - <<'PY'
+          import os
+          import uuid
+          from sqlalchemy import create_engine, text
+          from tests.c01_at_support import create_owned_pg_database, pg_admin_url_from_disposable
+          from tests.c01_disposable_pg import C01_PG_URL
+
+          admin = pg_admin_url_from_disposable(os.environ[C01_PG_URL])
+          name = f"c01_at_{uuid.uuid4().hex[:12]}"
+          owned = create_owned_pg_database(admin, name)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"EDUVIJNA_C01_DISPOSABLE_DATABASE_URL={owned}\n")
+          with create_engine(owned).connect() as conn:
+              n = conn.execute(text(
+                  "SELECT COUNT(*) FROM information_schema.tables "
+                  "WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
+              )).scalar_one()
+              assert int(n) == 0, "expected empty owned disposable database"
+          PY
+          python -m pytest tests/test_c01_at*.py tests/test_c01_migration_portability.py \
+            --junitxml=../docs/execution/C01-AT-junit-ci.xml \
+            --maxfail=0 -q
+
   backend-targeted:
     runs-on: ubuntu-latest
     defaults:
@@ -46,18 +104,23 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
       - name: Install backend
         run: pip install -e '.[dev]'
+      - name: Assert exact candidate SHA
+        run: test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
       - name: Ruff
-        run: ruff check app tests
+        run: ruff check app tests migrations/c01_d13_synthetic_preflight.py migrations/c01_constraints.py
       - name: Mypy
         run: mypy app
       - name: Pytest — implemented task only
         run: |
+          test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
           mapfile -t targets < <(grep -Ev '^\s*(#|$)' ../.eduvijna/pytest-targets.txt)
           if (( ${#targets[@]} == 0 )); then
             if [[ "${{ github.event.pull_request.draft }}" == "true" ]]; then
@@ -68,11 +131,10 @@ jobs:
             exit 2
           fi
           printf 'Target pytest: %s\n' "${targets[@]}"
-          pytest -q "${targets[@]}"
+          python -m pytest -q "${targets[@]}"
       - name: Verify Day 8 and Day 9 founder harness on exact PR head
         run: |
-          git fetch --no-tags --depth=1 origin "${EDUVIJNA_CANDIDATE_SHA}"
-          git checkout --detach "${EDUVIJNA_CANDIDATE_SHA}"
+          test "$(git rev-parse HEAD)" = "${EDUVIJNA_CANDIDATE_SHA}"
           python -m app.day8_verify
           python -m app.day9_verify
           python -m app.day10_verify --json

@@ -41,6 +41,18 @@ packages = ["app"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "c01_at01: C01 acceptance test AT01 disposable harness",
+    "c01_at02: C01 acceptance test AT02 exact constraints",
+    "c01_at03: C01 acceptance test AT03 0021 preflight",
+    "c01_at04: C01 acceptance test AT04 legacy audit",
+    "c01_at05: C01 acceptance test AT05 concurrency",
+    "c01_at06: C01 acceptance test AT06 migration paths",
+    "c01_at07: C01 acceptance test AT07 atomic recovery",
+    "c01_at08: C01 acceptance test AT08 SQLite backup",
+    "c01_at09: C01 acceptance test AT09 PostgreSQL backup",
+    "c01_at10: C01 acceptance test AT10 CI evidence",
+]
 
 [tool.ruff]
 line-length = 100

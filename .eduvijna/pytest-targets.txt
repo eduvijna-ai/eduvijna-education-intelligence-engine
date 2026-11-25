@@ -1,4 +1,13 @@
-tests/test_day18_m0_governance.py
-tests/test_day18_containment.py
-tests/test_day18_scope_map.py
-tests/test_day18_verify_sha.py
+tests/test_c01_at01_disposable_harness.py
+tests/test_c01_at02_exact_constraints.py
+tests/test_c01_at03_0021_preflight.py
+tests/test_c01_at04_legacy_audit.py
+tests/test_c01_at05_concurrency.py
+tests/test_c01_at06_migration_paths.py
+tests/test_c01_at07_atomic_recovery.py
+tests/test_c01_at08_sqlite_backup.py
+tests/test_c01_at09_pg_backup.py
+tests/test_c01_at10_ci_evidence.py
+tests/test_c01_migration_portability.py
+tests/test_day3_final_compatibility.py
+tests/test_source_intelligence_migration.py
