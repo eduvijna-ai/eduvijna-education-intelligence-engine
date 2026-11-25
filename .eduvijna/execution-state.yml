@@ -114,7 +114,7 @@ consolidated_technical_closure:
       candidate_2_sha: "ef9f0491edd1571ef6efa2a75c483e3bb204d8b4"
       candidate_3_started: "2026-11-25"
       candidate_3_ci_run: "45543441778"
-      candidate_3_sha: "ae93380d88a4c6261a0a3128fac7cd2c6d8fad7d"
+      candidate_3_sha: "02d0d29e536f2c36a1b5bd1eb70de91804dfe7c6"
       candidate_3_ci_result: "SUCCESS_backend_frontend_compose_skipped"
       required_cursor_model: "Composer 2.5 (standard; not Fast)"
       review_workflow: founder_manual_chatgpt_review
