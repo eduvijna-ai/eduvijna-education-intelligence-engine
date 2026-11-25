@@ -1,7 +1,7 @@
 # C01 AT01–AT10 evidence packet
 
 **Delivery branch:** `closure/c01-acceptance-test-recovery`  
-**Candidate SHA:** `93a3b0825ac699cbb1f828a58c3cb1b69992c1d8` (also `EDUVIJNA_CANDIDATE_SHA` in CI)  
+**Candidate SHA:** `f45feff42635d26206a1cb40aa2e57f71d8ddbe1` (pytest evidence commit; CI uses `EDUVIJNA_CANDIDATE_SHA` on push)  
 **Local evidence run:** Cloud Agent, Python 3.12, backend `.venv`  
 **Raw pytest:** `docs/execution/C01-AT-PYTEST-RAW.txt`  
 **JUnit:** `docs/execution/C01-AT-junit.xml` (CI upload: `docs/execution/C01-AT-junit-ci.xml`)

@@ -242,7 +242,7 @@ consolidated_technical_closure:
       acceptance_test_execution_authorized: true
       acceptance_test_run_limit: 1
       acceptance_test_runs_consumed: 1
-      acceptance_test_candidate_sha: "93a3b0825ac699cbb1f828a58c3cb1b69992c1d8"
+      acceptance_test_candidate_sha: "f45feff42635d26206a1cb40aa2e57f71d8ddbe1"
       acceptance_test_local_pytest: "49 passed, 4 skipped (PG opt-in), 0 failed on Cloud Agent"
       acceptance_test_evidence_paths:
         - docs/execution/C01-AT-SCOPE-MAP.md
