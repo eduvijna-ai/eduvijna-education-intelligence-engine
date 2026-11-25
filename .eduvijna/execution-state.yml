@@ -140,7 +140,7 @@ consolidated_technical_closure:
       residuals_mandatory_in_recovery_workstreams: true
     C01:
       name: Foundation and Database Recovery
-      state: ACTIVE_ACCEPTANCE_TEST_RECOVERY
+      state: ACTIVE_TEST_HARNESS_CORRECTION
       tasklist_issue: 66
       tasklist_status: APPROVED
       approved_scope: C01-01..C01-27
@@ -151,8 +151,8 @@ consolidated_technical_closure:
       founder_gate_b_milestone_comment: 7157347180
       gate_b_governance_seed: "1bcf85c30b24e5f2ce2b4a02dca198f86353861e"
       implementation_authorized: false
-      authorization_scope: AT01_AT10_TEST_EVIDENCE_ONLY
-      active_task_scope: AT01..AT10
+      authorization_scope: AT_TEST_HARNESS_CORRECTION_ONLY
+      active_task_scope: "AT-R01..05 and four CI/test failures; AT01..10 evidence only"
       narrow_d13_31a_exception: TEST_EVIDENCE_ONLY_NO_PRODUCT_REPAIR
       historical_migration_changes_authorized: false
       historical_migration_change_surface: NONE_TEST_ONLY
@@ -165,7 +165,7 @@ consolidated_technical_closure:
       gate_b_state: CLOSED_STOP_AND_ESCALATE_FOUNDER_MILESTONE_ACCEPTED_WITH_DEFERRALS
       implementation_branch: "closure/c01-acceptance-test-recovery"
       implementation_base_sha: "e7ce396aa088dab2cbdfebadab1ae0d4efaaef67"
-      implementation_status: ACCEPTANCE_TEST_EVIDENCE_DELIVERED_PENDING_CI
+      implementation_status: TEST_HARNESS_CORRECTION_AUTHORIZED_NOT_STARTED
       gate_b_candidate_1_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
@@ -235,14 +235,28 @@ consolidated_technical_closure:
       recovery_package_s_held_pr: 69
       recovery_package_s_residuals: "S-R01..05 mandatory; technical acceptance NOT_ACCEPTED"
       acceptance_test_issue: 70
-      acceptance_test_state: ACTIVE_TEST_ONLY
+      acceptance_test_state: CLOSED_EVIDENCE_MILESTONE_ACCEPTED_WITH_DEFERRALS
       acceptance_test_founder_approval_comment: 7159950019
       acceptance_test_founder_approval_signal: "Approved acceptance tests, go ahead."
       acceptance_test_baseline_authorized: EXACT_HELD_PACKAGE_S_SHA_ONLY
-      acceptance_test_execution_authorized: true
+      acceptance_test_execution_authorized: false
       acceptance_test_run_limit: 1
       acceptance_test_runs_consumed: 1
-      acceptance_test_candidate_sha: "f45feff42635d26206a1cb40aa2e57f71d8ddbe1"
+      acceptance_test_candidate_sha: "55998081013fb57399e4d1a0f389cfa90d79f300"
+      acceptance_test_final_ci_run: 45598887196
+      acceptance_test_final_ci_result: FAILED_BACKEND_AND_POSTGRES_FRONTEND_SUCCESS_COMPOSE_SKIPPED
+      acceptance_test_independent_review_comment: 7160312290
+      acceptance_test_run_limit_reached: true
+      acceptance_test_residuals: "AT-R01..05 mandatory; four demonstrated test/CI failures"
+      test_harness_correction_state: ACTIVE
+      test_harness_correction_founder_approval_comment: 7160951822
+      test_harness_correction_founder_approval_signal: "Approved test-harness correction, go ahead."
+      test_harness_correction_review_base_sha: "55998081013fb57399e4d1a0f389cfa90d79f300"
+      test_harness_correction_run_limit: 1
+      test_harness_correction_runs_consumed: 0
+      test_harness_correction_execution_authorized: true
+      test_harness_correction_product_repairs_authorized: false
+      test_harness_correction_auto_retry: false
       acceptance_test_local_pytest: "49 passed, 4 skipped (PG opt-in), 0 failed on Cloud Agent"
       acceptance_test_evidence_paths:
         - docs/execution/C01-AT-SCOPE-MAP.md
