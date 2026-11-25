@@ -1,0 +1,15 @@
+run_id=c01_gatea_8de74d78f1f5
+trial=pg_ping
+utc=2026-11-25T08:12:28.031029+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c SELECT version();
+                                                                 version                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+(1 row)
+
+
+exit_code=0
+

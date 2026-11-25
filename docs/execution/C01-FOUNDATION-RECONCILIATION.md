@@ -38,6 +38,16 @@ Disposition for all 68 provisional rows: **reconciled to original authority text
 | Full PG fresh install | Not evidenced | **FAIL at `0006`** before `0021` |
 | Held `0022` collision | C00 inventory | Reconfirmed PR57 vs PR61 same revision id |
 
+## Candidate 2 review corrections (C01-A-F01..F05)
+
+- **F01:** `active_slot` confirmed **INTEGER** (`0005`, `source.py`); Gate B design no longer proposes `IS TRUE` on integer.
+- **F02:** Strict JSON boolean predicates documented with disposable probe transcripts.
+- **F03:** Replaced non-reproducible shell harness with `c01_gate_a_harness.py` + raw logs under `transcripts/`.
+- **F04:** Overlay builder adds keyed rows (`D1-DOD-07`, `D3-R11/12`, omissions w/ `parent_task_id`); PR31 held head **`20261109_0018`** (not `0021`).
+- **F05:** Scope map outcomes downgraded to **PARTIAL** where appropriate; CI run `45572420611` recorded separately.
+
+See `docs/execution/C01-INDEPENDENT-REVIEW-RESPONSE.md`.
+
 ## Explicit non-actions (Gate A)
 
 - No edits to `backend/migrations/**` (including `0021`)

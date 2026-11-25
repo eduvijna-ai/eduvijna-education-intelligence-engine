@@ -1,0 +1,135 @@
+run_id=c01_gatea_7140c9054924
+trial=pg_fresh_head
+utc=2026-11-25T08:12:21.049031+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+baseline_ancestor_check exit=0
+baseline_migrations_tree=721beda3e292b542e24230a4874c61e09d4fe7c2
+head_migrations_tree=ddd53ae8653791c5f722605dd7dde3d2b756ae9d
+sample_0021_sha256=c90f09234f0e4b4bb509e17ec60319adc0a4b16571db3c94d8b381c8d81ad832
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c SELECT version();
+                                                                 version                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------
+ PostgreSQL 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+(1 row)
+
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c DROP DATABASE IF EXISTS c01_gatea_7140c9054924_pg WITH (FORCE);
+DROP DATABASE
+NOTICE:  database "c01_gatea_7140c9054924_pg" does not exist, skipping
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c CREATE DATABASE c01_gatea_7140c9054924_pg;
+CREATE DATABASE
+
+exit_code=0
+
+=== alembic upgrade head (raw) ===
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 20261001_0001, create system settings
+INFO  [alembic.runtime.migration] Running upgrade 20261001_0001 -> 20261001_0002, add canonical domain model
+INFO  [alembic.runtime.migration] Running upgrade 20261001_0002 -> 20261001_0003, close Day 1 and Day 2 audit gaps
+INFO  [alembic.runtime.migration] Running upgrade 20261001_0003 -> 20261002_0004, close remaining Day 1 and Day 2 integrity blockers
+INFO  [alembic.runtime.migration] Running upgrade 20261002_0004 -> 20261002_0005, add Source Intelligence registry and revision lifecycle
+INFO  [alembic.runtime.migration] Running upgrade 20261002_0005 -> 20261003_0006, close audited Day 3 Source Intelligence gaps
+Traceback (most recent call last):
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1977, in _exec_single_context
+    self.dialect.do_execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+psycopg2.errors.SyntaxError: syntax error at or near "1"
+LINE 1: ...slot CHECK ((status = 'active' AND active_slot IS 1) OR (sta...
+                                                             ^
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin/alembic", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 963, in run_cmd
+    fn(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/command.py", line 487, in upgrade
+    script.run_env()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/script/base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/util/pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/util/pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 93, in <module>
+    run_migrations_online()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 87, in run_migrations_online
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/runtime/environment.py", line 970, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/runtime/migration.py", line 616, in run_migrations
+    step.migration_fn(**kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/versions/20261003_0006_day3_rework_closure.py", line 378, in upgrade
+    with op.batch_alter_table("source_revisions") as batch:
+  File "/usr/lib/python3.12/contextlib.py", line 144, in __exit__
+    next(self.gen)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/base.py", line 404, in batch_alter_table
+    impl.flush()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/batch.py", line 115, in flush
+    fn(*arg, **kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/ddl/impl.py", line 415, in add_constraint
+    self._exec(schema.AddConstraint(const, **kw))
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/ddl/impl.py", line 252, in _exec
+    return conn.execute(construct, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1494, in execute
+    return meth(
+           ^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/sql/ddl.py", line 203, in _execute_on_connection
+    return connection._execute_ddl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1603, in _execute_ddl
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1868, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1996, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 2351, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1977, in _exec_single_context
+    self.dialect.do_execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.SyntaxError) syntax error at or near "1"
+LINE 1: ...slot CHECK ((status = 'active' AND active_slot IS 1) OR (sta...
+                                                             ^
+
+[SQL: ALTER TABLE source_revisions ADD CONSTRAINT ck_source_revision_active_slot CHECK ((status = 'active' AND active_slot IS 1) OR (status <> 'active' AND active_slot IS NULL))]
+(Background on this error at: https://sqlalche.me/e/21/f405)
+exit_code=1
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_7140c9054924_pg -v ON_ERROR_STOP=0 -c SELECT version_num FROM alembic_version;
+ERROR:  relation "alembic_version" does not exist
+LINE 1: SELECT version_num FROM alembic_version;
+                                ^
+
+exit_code=1
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c DROP DATABASE IF EXISTS c01_gatea_7140c9054924_pg WITH (FORCE);
+DROP DATABASE
+
+exit_code=0
+

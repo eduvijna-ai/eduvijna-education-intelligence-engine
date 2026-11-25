@@ -1,0 +1,17 @@
+run_id=c01_gatea_8de74d78f1f5
+trial=sqlite_active_slot_probe
+utc=2026-11-25T08:12:31.889023+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+proposed: (status = 'active' AND active_slot IS NOT NULL AND active_slot = 1) OR (status <> 'active' AND active_slot IS NULL)
+(1, 'active', 1, 1)
+(2, 'active', None, 0)
+(3, 'active', 2, 0)
+(4, 'retired', None, 1)
+(5, 'retired', 1, 0)
+legacy_is1 (1, 1)
+legacy_is1 (2, 0)
+legacy_is1 (3, 0)
+legacy_is1 (4, 1)
+legacy_is1 (5, 0)
