@@ -13,5 +13,7 @@ def test_mcp_lists_capabilities() -> None:
 
 
 def test_mcp_blocks_learner_tool() -> None:
-    with pytest.raises(CapabilityNotReadyError):
-        mcp_tool_router("get_learner_diagnostics", {})
+    from app.platform.errors import AuthenticationError
+
+    with pytest.raises((CapabilityNotReadyError, AuthenticationError)):
+        mcp_tool_router("get_learner_diagnostics", {}, principal=None)

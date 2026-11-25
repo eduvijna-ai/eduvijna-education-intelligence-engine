@@ -51,6 +51,7 @@ def get_exam_pattern(
         "exam_id": row.id,
         "code": row.code,
         "title": row.name,
-        "pattern_available": True,
+        "pattern_available": False,
         "official_verified": False,
+        "readiness": "metadata_only_not_version_verified",
     }

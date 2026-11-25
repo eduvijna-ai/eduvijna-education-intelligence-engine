@@ -3,19 +3,33 @@
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import OrderedDict
 
 from fastapi import Request
+from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.platform.errors import RateLimitError
 
 _MAX_BODY_BYTES = 2 * 1024 * 1024
 _WINDOW_SECONDS = 60
 _MAX_REQUESTS_PER_WINDOW = 120
-
-_buckets: dict[str, list[float]] = defaultdict(list)
+_MAX_CLIENT_BUCKETS = 10_000
 _DISTRIBUTED_RATE_LIMIT = False
+
+_buckets: OrderedDict[str, list[float]] = OrderedDict()
+
+
+def _error_response(request: Request, *, status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "request_id": getattr(request.state, "request_id", "unknown"),
+            }
+        },
+    )
 
 
 async def request_size_limit_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -23,20 +37,33 @@ async def request_size_limit_middleware(request: Request, call_next):  # type: i
     if content_length is not None:
         try:
             if int(content_length) > _MAX_BODY_BYTES:
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
+                return _error_response(
+                    request,
                     status_code=413,
-                    content={
-                        "error": {
-                            "code": "PAYLOAD_TOO_LARGE",
-                            "message": "Request body too large",
-                            "request_id": getattr(request.state, "request_id", "unknown"),
-                        }
-                    },
+                    code="PAYLOAD_TOO_LARGE",
+                    message="Request body too large",
                 )
         except ValueError:
-            pass
+            return _error_response(
+                request,
+                status_code=413,
+                code="PAYLOAD_TOO_LARGE",
+                message="Invalid Content-Length header",
+            )
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body = await request.body()
+        if len(body) > _MAX_BODY_BYTES:
+            return _error_response(
+                request,
+                status_code=413,
+                code="PAYLOAD_TOO_LARGE",
+                message="Request body too large",
+            )
+
+        async def receive():  # type: ignore[no-untyped-def]
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        request._receive = receive
     return await call_next(request)
 
 
@@ -45,12 +72,21 @@ async def rate_limit_middleware(request: Request, call_next):  # type: ignore[no
         return await call_next(request)
     client_key = request.client.host if request.client else "unknown"
     now = time.monotonic()
-    window = _buckets[client_key]
+    window = _buckets.get(client_key, [])
     cutoff = now - _WINDOW_SECONDS
-    _buckets[client_key] = [t for t in window if t >= cutoff]
-    if len(_buckets[client_key]) >= _MAX_REQUESTS_PER_WINDOW:
-        raise RateLimitError()
-    _buckets[client_key].append(now)
+    window = [t for t in window if t >= cutoff]
+    if len(window) >= _MAX_REQUESTS_PER_WINDOW:
+        return _error_response(
+            request,
+            status_code=429,
+            code="RATE_LIMIT_EXCEEDED",
+            message="Rate limit exceeded",
+        )
+    window.append(now)
+    _buckets[client_key] = window
+    _buckets.move_to_end(client_key)
+    while len(_buckets) > _MAX_CLIENT_BUCKETS:
+        _buckets.popitem(last=False)
     response = await call_next(request)
     response.headers["X-RateLimit-Distributed"] = str(_DISTRIBUTED_RATE_LIMIT).lower()
     response.headers["X-RateLimit-Policy"] = (
@@ -65,4 +101,5 @@ def security_limits_snapshot() -> dict[str, object]:
         "max_body_bytes": _MAX_BODY_BYTES,
         "rate_limit_distributed": _DISTRIBUTED_RATE_LIMIT,
         "rate_limit_local": f"{_MAX_REQUESTS_PER_WINDOW}/{_WINDOW_SECONDS}s",
+        "max_client_buckets": _MAX_CLIENT_BUCKETS,
     }

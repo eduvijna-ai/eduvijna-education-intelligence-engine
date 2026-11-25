@@ -27,6 +27,7 @@ class TokenClaims:
     actor_ref: str
     jti: str
     exp: int
+    session_epoch: int
 
 
 def _signing_key() -> bytes:
@@ -48,6 +49,7 @@ def issue_access_token(claims: TokenClaims) -> str:
         "actor_ref": claims.actor_ref,
         "jti": claims.jti,
         "exp": claims.exp,
+        "session_epoch": claims.session_epoch,
         "typ": "access",
     }
     body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
@@ -67,8 +69,13 @@ def decode_access_token(token: str) -> TokenClaims:
     if payload.get("typ") != "access":
         raise ValueError("Wrong token type")
     exp = int(payload["exp"])
+    if exp < 0 or exp > 2_000_000_000:
+        raise ValueError("Access token expiry out of bounds")
     if datetime.now(UTC).timestamp() > exp:
         raise ValueError("Access token expired")
+    epoch = int(payload.get("session_epoch", -1))
+    if epoch < 0:
+        raise ValueError("Access token missing session epoch")
     return TokenClaims(
         sub=str(payload["sub"]),
         organization_id=str(payload["organization_id"]),
@@ -79,6 +86,7 @@ def decode_access_token(token: str) -> TokenClaims:
         actor_ref=str(payload["actor_ref"]),
         jti=str(payload["jti"]),
         exp=exp,
+        session_epoch=epoch,
     )
 
 
@@ -91,6 +99,7 @@ def build_access_claims(
     scopes: tuple[str, ...],
     actor_kind: str,
     actor_ref: str,
+    session_epoch: int,
 ) -> tuple[TokenClaims, str]:
     jti = uuid.uuid4().hex
     exp = int((datetime.now(UTC) + timedelta(seconds=ACCESS_TOKEN_TTL_SECONDS)).timestamp())
@@ -104,6 +113,7 @@ def build_access_claims(
         actor_ref=actor_ref,
         jti=jti,
         exp=exp,
+        session_epoch=session_epoch,
     )
     return claims, issue_access_token(claims)
 

@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.models.platform_auth import ApplicationApiKey, ApplicationPrincipal
 from app.models.tenancy import Institution, Organization
+from app.platform.auth.membership import validate_principal_membership
+from app.platform.auth.rbac import scopes_for_role
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,3 +65,38 @@ def assert_tenant_active(
 
 def api_key_scopes(record: ApplicationApiKey) -> tuple[str, ...]:
     return tuple(str(s) for s in record.scopes_json)
+
+
+def request_principal_from_application(
+    principal: ApplicationPrincipal,
+    *,
+    auth_method: str,
+    scopes: tuple[str, ...] | None = None,
+    actor_kind: str | None = None,
+    actor_ref: str | None = None,
+) -> RequestPrincipal:
+    kind, ref = resolve_actor_ref(principal)
+    effective_scopes = (
+        scopes if scopes is not None else tuple(sorted(scopes_for_role(principal.role)))
+    )
+    return RequestPrincipal(
+        principal_id=principal.id,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        role=principal.role,
+        scopes=effective_scopes,
+        actor_kind=actor_kind or kind,
+        actor_ref=actor_ref or ref,
+        auth_method=auth_method,
+    )
+
+
+def load_and_validate_principal(session: Session, principal_id: str) -> ApplicationPrincipal:
+    principal = load_principal(session, principal_id)
+    if principal is None or not principal.active:
+        from app.platform.errors import AuthenticationError
+
+        raise AuthenticationError("Principal inactive")
+    assert_tenant_active(session, principal.organization_id, principal.institution_id)
+    validate_principal_membership(session, principal)
+    return principal

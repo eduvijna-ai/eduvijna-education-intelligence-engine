@@ -33,4 +33,3 @@ LEGAL_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
 }
 
 
-SYNTHETIC_JOB_CAPABILITY = "platform.synthetic_echo"

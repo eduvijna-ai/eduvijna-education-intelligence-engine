@@ -23,6 +23,6 @@ def build_day17_governance_record() -> dict[str, Any]:
         "dependency_strategy": "DEVELOP_BASE_NO_UNMERGED_D11_D15",
         "founder_approval": False,
         "auto_merge": False,
-        "implementation_candidate": 1,
+        "implementation_candidate": 2,
         "implementation_candidate_limit": 3,
     }

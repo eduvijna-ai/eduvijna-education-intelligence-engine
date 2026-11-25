@@ -19,7 +19,7 @@ from app.platform.capability_registry import (
     containment_snapshot,
     list_capabilities,
 )
-from app.platform.errors import CapabilityNotReadyError
+from app.platform.errors import AuthenticationError, CapabilityNotReadyError
 from app.platform.jobs.service import cancel_job, get_job_for_principal
 from app.platform.schemas.auth import (
     ApiKeyCreateRequest,
@@ -37,7 +37,6 @@ from app.platform.schemas.endpoints import (
     GenerateMockExamRequest,
     GenerateQuestionsRequest,
     KnowledgeSearchRequest,
-    KnowledgeSearchResponse,
     RemediationRequest,
     ValidateQuestionRequest,
     ValidateQuestionResponse,
@@ -79,13 +78,17 @@ def auth_login(
     db: Session = Depends(get_db),
     correlation_id: str = Depends(get_request_correlation_id),
 ) -> TokenResponse:
-    tokens, _ = login(
-        db,
-        organization_code=body.organization_code,
-        login_code=body.login_code,
-        password=body.password,
-        correlation_id=correlation_id,
-    )
+    try:
+        tokens, _ = login(
+            db,
+            organization_code=body.organization_code,
+            login_code=body.login_code,
+            password=body.password,
+            correlation_id=correlation_id,
+        )
+    except AuthenticationError:
+        db.commit()
+        raise
     db.commit()
     return TokenResponse(
         access_token=tokens.access_token,
@@ -138,14 +141,16 @@ def create_key(
     body: ApiKeyCreateRequest,
     db: Session = Depends(get_db),
     principal: RequestPrincipal = Depends(require_principal),
+    correlation_id: str = Depends(get_request_correlation_id),
 ) -> ApiKeyCreateResponse:
-    require_permission(principal.scopes, "jobs:submit")
+    require_permission(principal.scopes, "api_keys:manage")
     issued = create_api_key(
         db,
         principal=principal,
         name=body.name,
         scopes=body.scopes,
         ttl_days=body.ttl_days,
+        correlation_id=correlation_id,
     )
     db.commit()
     return ApiKeyCreateResponse(
@@ -162,8 +167,15 @@ def delete_key(
     key_id: UUID,
     db: Session = Depends(get_db),
     principal: RequestPrincipal = Depends(require_principal),
+    correlation_id: str = Depends(get_request_correlation_id),
 ) -> Response:
-    revoke_api_key(db, principal=principal, key_id=str(key_id))
+    require_permission(principal.scopes, "api_keys:manage")
+    revoke_api_key(
+        db,
+        principal=principal,
+        key_id=str(key_id),
+        correlation_id=correlation_id,
+    )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -219,14 +231,18 @@ def exam_versions(
     return get_exam_pattern(db, principal=principal, exam_id=exam_id)
 
 
-@router.post("/knowledge/search", response_model=KnowledgeSearchResponse)
+@router.post(
+    "/knowledge/search",
+    response_model=None,
+    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+)
 def knowledge_search(
     body: KnowledgeSearchRequest,
     db: Session = Depends(get_db),
     principal: RequestPrincipal = Depends(require_principal),
-) -> KnowledgeSearchResponse:
+) -> None:
     _ = db
-    return search_knowledge(principal=principal, query=body.query, limit=body.limit)
+    search_knowledge(principal=principal, query=body.query, limit=body.limit)
 
 
 @router.post(

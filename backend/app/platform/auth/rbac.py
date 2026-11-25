@@ -32,6 +32,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "generation:validate",
             "jobs:read",
             "jobs:submit",
+            "jobs:cancel",
+            "api_keys:manage",
             "admin:sources",
             "mcp:invoke",
         }
@@ -46,6 +48,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "generation:validate",
             "jobs:read",
             "jobs:submit",
+            "jobs:cancel",
+            "api_keys:manage",
             "admin:sources",
             "mcp:invoke",
         }

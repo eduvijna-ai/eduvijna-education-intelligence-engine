@@ -24,8 +24,8 @@ class DurableAsyncJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint(
             "organization_id",
-            "idempotency_key",
-            name="uq_job_org_idempotency",
+            "idempotency_scope_key",
+            name="uq_job_idempotency_scope",
         ),
         ForeignKeyConstraint(
             ["institution_id", "organization_id"],
@@ -51,6 +51,7 @@ class DurableAsyncJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     capability_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_scope_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     request_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
     request_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)

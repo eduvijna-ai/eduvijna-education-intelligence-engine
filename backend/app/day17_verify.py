@@ -4,34 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-from pathlib import Path
 
 from app.adaptive_remediation.containment import PRODUCTION_REMEDIATION_DISABLED
 from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED, ISSUANCE_DISABLED
-from app.platform.capability_registry import containment_snapshot, list_capabilities
+from app.platform.capability_registry import containment_snapshot, get_capability, list_capabilities
 from app.platform.dependency_closure import build_day17_dependency_closure_register
+from app.platform.errors import AuthenticationError, CapabilityNotReadyError
 from app.platform.governance import build_day17_governance_record
 from app.platform.mcp.tools import mcp_get_capabilities, mcp_tool_router
+from app.platform.scope_ledger import resolve_scope_map_path, validate_scope_map
 from app.platform.security.limits import security_limits_snapshot
 from app.verification.candidate_revision import RevisionEvidence, resolve_revision_evidence
-
-
-def _scope_path() -> Path:
-    root = Path(__file__).resolve().parents[2]
-    return root / "docs" / "execution" / "D17-SCOPE-MAP.md"
-
-
-def _count_scope_rows(text: str) -> dict[str, int]:
-    rows = re.findall(r"^\| D17-\d{2} \|", text, flags=re.MULTILINE)
-    statuses = {
-        "PASS": len(re.findall(r"\| PASS \|", text)),
-        "PARTIAL": len(re.findall(r"\| PARTIAL \|", text)),
-        "BLOCKED": len(re.findall(r"\| BLOCKED \|", text)),
-        "NOT_STARTED": len(re.findall(r"\| NOT_STARTED \|", text)),
-    }
-    statuses["TOTAL"] = len(rows)
-    return statuses
 
 
 def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object]:
@@ -43,27 +26,30 @@ def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object
             "head_sha": revision.observed_sha,
         }
 
-    scope_path = _scope_path()
+    scope_path = resolve_scope_map_path()
     scope_md = scope_path.read_text(encoding="utf-8") if scope_path.is_file() else ""
-    scope_counts = _count_scope_rows(scope_md) if scope_md else {"TOTAL": 0}
+    scope_ok, scope_counts, scope_issues = validate_scope_map(scope_md)
 
     caps = list_capabilities()
+    knowledge = get_capability("knowledge.search")
     containment_ok = (
         ACADEMIC_VALIDATION_DISABLED
         and ISSUANCE_DISABLED
         and PRODUCTION_REMEDIATION_DISABLED
         and containment_snapshot()["day15_learner_hold"]
+        and knowledge is not None
+        and knowledge.disposition.value == "not_ready"
     )
 
     learner_blocked = False
     remediation_blocked = False
     try:
-        mcp_tool_router("get_learner_diagnostics", {})
-    except Exception:
+        mcp_tool_router("get_learner_diagnostics", {}, principal=None)
+    except (AuthenticationError, CapabilityNotReadyError, TypeError):
         learner_blocked = True
     try:
-        mcp_tool_router("recommend_remediation", {})
-    except Exception:
+        mcp_tool_router("recommend_remediation", {}, principal=None)
+    except (AuthenticationError, CapabilityNotReadyError, TypeError):
         remediation_blocked = True
 
     mcp_caps = mcp_get_capabilities()
@@ -71,6 +57,7 @@ def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object
 
     ok = (
         revision.sha_aligned
+        and scope_ok
         and scope_counts.get("TOTAL") == 36
         and len(caps) >= 10
         and containment_ok
@@ -86,6 +73,7 @@ def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object
         "governance": build_day17_governance_record(),
         "dependency_closure": build_day17_dependency_closure_register(),
         "scope_counts": scope_counts,
+        "scope_issues": scope_issues,
         "capability_count": len(caps),
         "containment_ok": containment_ok,
         "learner_mcp_blocked": learner_blocked,

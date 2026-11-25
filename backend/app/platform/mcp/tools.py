@@ -4,17 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.platform.auth.principal import RequestPrincipal
 from app.platform.capability_registry import (
+    CapabilityDisposition,
     containment_snapshot,
     get_capability,
     list_capabilities,
 )
-from app.platform.errors import CapabilityNotReadyError
+from app.platform.errors import AuthenticationError, CapabilityNotReadyError
 from app.platform.services.blocked import block_learner_capability, block_remediation_capability
-from app.platform.services.knowledge import search_knowledge
 
 
-def mcp_get_capabilities(_: dict[str, Any] | None = None) -> dict[str, Any]:
+def mcp_get_capabilities() -> dict[str, Any]:
     return {
         "capabilities": [
             {
@@ -29,38 +30,48 @@ def mcp_get_capabilities(_: dict[str, Any] | None = None) -> dict[str, Any]:
     }
 
 
-def mcp_search_knowledge(payload: dict[str, Any]) -> dict[str, Any]:
-    from app.platform.auth.principal import RequestPrincipal
-
-    principal = RequestPrincipal(
-        principal_id=str(payload.get("principal_id", "mcp-local")),
-        organization_id=str(payload["organization_id"]),
-        institution_id=payload.get("institution_id"),
-        role=str(payload.get("role", "teacher")),
-        scopes=tuple(payload.get("scopes", ("knowledge:read",))),
-        actor_kind="mcp",
-        actor_ref="mcp",
-        auth_method="mcp",
-    )
-    response = search_knowledge(
-        principal=principal,
-        query=str(payload["query"]),
-        limit=int(payload.get("limit", 5)),
-    )
-    return response.model_dump()
+FORBIDDEN_ARGUMENT_KEYS = frozenset(
+    {
+        "organization_id",
+        "institution_id",
+        "principal_id",
+        "role",
+        "scopes",
+        "ready",
+        "approved",
+        "bypass",
+    }
+)
 
 
-def mcp_blocked_tool(capability_code: str) -> dict[str, Any]:
-    record = get_capability(capability_code)
-    reason = record.reason if record else "unknown capability"
-    raise CapabilityNotReadyError(capability=capability_code, reason=reason)
+def _reject_spoofed_arguments(arguments: dict[str, Any]) -> None:
+    for key in arguments:
+        if key.strip().lower() in FORBIDDEN_ARGUMENT_KEYS:
+            raise AuthenticationError(f"Untrusted MCP argument rejected: {key}")
 
 
-def mcp_tool_router(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def mcp_tool_router(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    principal: RequestPrincipal | None = None,
+) -> dict[str, Any]:
+
+    _reject_spoofed_arguments(arguments)
+    if principal is None:
+        raise AuthenticationError("MCP principal required")
+
     if name == "get_capabilities":
-        return mcp_get_capabilities(arguments)
+        return mcp_get_capabilities()
     if name == "search_knowledge":
-        return mcp_search_knowledge(arguments)
+        record = get_capability("knowledge.search")
+        if record is None or record.disposition != CapabilityDisposition.READY:
+            reason = record.reason if record else "Unknown"
+            raise CapabilityNotReadyError(capability="knowledge.search", reason=reason)
+        raise CapabilityNotReadyError(
+            capability="knowledge.search",
+            reason="Knowledge retrieval not ready without verified Day3/7 tenant corpus binding",
+        )
     if name in {
         "analyze_attempt",
         "diagnose_answer",
@@ -68,8 +79,10 @@ def mcp_tool_router(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "get_prerequisite_gaps",
         "get_misconceptions",
     }:
+        _ = principal
         block_learner_capability("learners.read")
     if name in {"recommend_remediation", "generate_diagnostic_assessment"}:
+        _ = principal
         block_remediation_capability("remediation.recommend")
     if name in {
         "generate_questions",
@@ -89,7 +102,7 @@ def mcp_tool_router(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         }
         code = cap_map[name]
         record = get_capability(code)
-        if record and record.disposition.value != "ready":
+        if record and record.disposition != CapabilityDisposition.READY:
             raise CapabilityNotReadyError(capability=code, reason=record.reason)
-        return {"tool": name, "status": "contract_only", "blocked_side_effects": True}
+        return {"tool": name, "status": "NOT_READY", "blocked_side_effects": True}
     raise CapabilityNotReadyError(capability=name, reason=f"Unknown MCP tool {name}")

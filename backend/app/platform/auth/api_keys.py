@@ -9,9 +9,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.platform_auth import ApplicationApiKey
+from app.platform.auth.audit import record_security_event
+from app.platform.auth.delegation import (
+    assert_scopes_subset,
+    delegatable_scopes_for_api_key,
+    delegatable_scopes_for_role,
+)
 from app.platform.auth.passwords import hash_password, verify_password
-from app.platform.auth.principal import RequestPrincipal, assert_tenant_active
+from app.platform.auth.principal import (
+    RequestPrincipal,
+    assert_tenant_active,
+    load_and_validate_principal,
+    request_principal_from_application,
+)
 from app.platform.errors import AuthenticationError, AuthorizationError, NotFoundError
+from app.platform.ids import canonical_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +48,12 @@ def create_api_key(
     name: str,
     scopes: list[str],
     ttl_days: int | None = 90,
+    correlation_id: str = "unknown",
 ) -> IssuedApiKey:
+    if principal.auth_method == "api_key":
+        raise AuthorizationError("API keys cannot mint API keys")
+    allowed = delegatable_scopes_for_role(principal.role)
+    granted = assert_scopes_subset(scopes, allowed)
     assert_tenant_active(session, principal.organization_id, principal.institution_id)
     prefix = secrets.token_hex(4)
     secret = secrets.token_urlsafe(32)
@@ -48,28 +65,63 @@ def create_api_key(
         key_prefix=prefix,
         secret_hash_json=hash_password(secret),
         name=name,
-        scopes_json=scopes,
+        scopes_json=list(granted),
         expires_at=(datetime.now(UTC) + timedelta(days=ttl_days) if ttl_days is not None else None),
         active=True,
     )
     session.add(record)
     session.flush()
+    record_security_event(
+        session,
+        event_type="auth.api_key.create",
+        correlation_id=correlation_id,
+        success=True,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        principal_id=principal.principal_id,
+        metadata={"key_prefix": prefix, "scopes": list(granted)},
+    )
     return IssuedApiKey(record=record, secret=f"{prefix}.{secret}")
 
 
-def revoke_api_key(session: Session, *, principal: RequestPrincipal, key_id: str) -> None:
+def revoke_api_key(
+    session: Session,
+    *,
+    principal: RequestPrincipal,
+    key_id: str,
+    correlation_id: str = "unknown",
+) -> None:
+    key_hex = canonical_id(key_id)
     record = session.scalar(
         select(ApplicationApiKey).where(
-            ApplicationApiKey.id == key_id,
+            ApplicationApiKey.id == key_hex,
             ApplicationApiKey.organization_id == principal.organization_id,
         )
     )
     if record is None:
         raise NotFoundError("API key not found")
-    if record.institution_id and record.institution_id != principal.institution_id:
-        raise AuthorizationError("Cross-tenant API key access denied")
+    if (
+        record.institution_id
+        and principal.institution_id
+        and record.institution_id != principal.institution_id
+    ):
+        raise NotFoundError("API key not found")
+    is_owner = record.created_by_principal_id == principal.principal_id
+    is_admin = "api_keys:manage" in principal.scopes
+    if not is_owner and not is_admin:
+        raise AuthorizationError("API key revocation denied")
     record.active = False
     record.revoked_at = datetime.now(UTC)
+    record_security_event(
+        session,
+        event_type="auth.api_key.revoke",
+        correlation_id=correlation_id,
+        success=True,
+        organization_id=principal.organization_id,
+        institution_id=principal.institution_id,
+        principal_id=principal.principal_id,
+        metadata={"key_id": key_hex, "owner": is_owner, "admin": is_admin},
+    )
 
 
 def authenticate_api_key(session: Session, raw_key: str) -> RequestPrincipal:
@@ -88,14 +140,20 @@ def authenticate_api_key(session: Session, raw_key: str) -> RequestPrincipal:
     if not verify_password(secret, record.secret_hash_json):
         raise AuthenticationError("Invalid API key")
     assert_tenant_active(session, record.organization_id, record.institution_id)
-    scopes = tuple(str(s) for s in record.scopes_json)
-    return RequestPrincipal(
-        principal_id=record.created_by_principal_id or record.id,
-        organization_id=record.organization_id,
-        institution_id=record.institution_id,
-        role="api_key",
+    creator_id = record.created_by_principal_id
+    if creator_id is None:
+        raise AuthenticationError("API key missing owner")
+    creator = load_and_validate_principal(session, creator_id)
+    stored = [str(s) for s in record.scopes_json]
+    allowed = delegatable_scopes_for_api_key(tuple(stored))
+    invalid = [s for s in stored if s not in allowed]
+    if invalid:
+        raise AuthenticationError("API key scope invalid")
+    scopes = tuple(sorted(stored))
+    return request_principal_from_application(
+        creator,
+        auth_method="api_key",
         scopes=scopes,
         actor_kind="api_key",
         actor_ref=record.id,
-        auth_method="api_key",
     )

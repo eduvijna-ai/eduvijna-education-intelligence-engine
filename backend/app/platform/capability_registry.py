@@ -74,8 +74,8 @@ _REGISTRY: dict[str, CapabilityRecord] = {
     ),
     "knowledge.search": CapabilityRecord(
         code="knowledge.search",
-        disposition=CapabilityDisposition.READY,
-        reason="Knowledge retrieval uses established Day3/7 tenant and provenance guards.",
+        disposition=CapabilityDisposition.NOT_READY,
+        reason="Verified Day3/7 tenant corpus binding not evidenced in this candidate.",
         scopes=frozenset({"knowledge:read"}),
     ),
     "questions.generate": CapabilityRecord(
@@ -88,8 +88,8 @@ _REGISTRY: dict[str, CapabilityRecord] = {
     ),
     "questions.validate": CapabilityRecord(
         code="questions.validate",
-        disposition=CapabilityDisposition.DIAGNOSTIC_ONLY,
-        reason="Validation uses Day6 evidence paths only; academic issuance remains contained.",
+        disposition=CapabilityDisposition.NOT_READY,
+        reason="Day6 authorized validation evidence not available at this boundary.",
         scopes=frozenset({"generation:validate"}),
     ),
     "tests.generate": CapabilityRecord(

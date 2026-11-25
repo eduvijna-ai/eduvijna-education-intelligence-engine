@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.platform.auth.principal import RequestPrincipal
 from app.platform.auth.rbac import require_permission
-from app.platform.capability_registry import assert_capability_operable
 from app.platform.errors import CapabilityNotReadyError
 from app.platform.schemas.endpoints import ValidateQuestionResponse
 
@@ -40,13 +39,13 @@ def validate_question(
 ) -> ValidateQuestionResponse:
     _ = session
     _ = question_text
-    assert_capability_operable("questions.validate")
     require_permission(principal.scopes, "generation:validate")
-    return ValidateQuestionResponse(
-        verdict="DIAGNOSTIC_ONLY",
-        diagnostic_only=True,
-        notes="Day14 academic validation containment preserved; structural validation only",
-    )
+    from app.platform.capability_registry import get_capability
+
+    cap = get_capability("questions.validate")
+    if cap is None:
+        raise CapabilityNotReadyError(capability="questions.validate", reason="Unknown")
+    raise CapabilityNotReadyError(capability="questions.validate", reason=cap.reason)
 
 
 def submit_mock_exam_generation(

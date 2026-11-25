@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from typing import Any
 
 from mcp.server import MCPServer
 
-from app.platform.mcp.tools import mcp_get_capabilities, mcp_tool_router
+from app.db.session import session_factory
+from app.platform.mcp.auth import (
+    authenticate_mcp_credential,
+    mcp_transport_configured,
+    require_mcp_startup_gate,
+)
+from app.platform.mcp.tools import mcp_tool_router
 
 MCP_TOOL_NAMES = (
     "get_capabilities",
@@ -27,56 +32,64 @@ MCP_TOOL_NAMES = (
 )
 
 
-def _require_mcp_api_key() -> None:
-    expected = (os.environ.get("MCP_API_KEY") or "").strip()
-    if not expected:
-        return
-    provided = (os.environ.get("MCP_RUNTIME_API_KEY") or "").strip()
-    if provided != expected:
-        raise PermissionError("MCP API key required")
+def _run_tool(name: str, credential: str, arguments_json: str) -> dict[str, object]:
+    import json
+
+    if not mcp_transport_configured():
+        return {
+            "blocked": True,
+            "reason": "MCP transport authentication is not configured",
+        }
+    arguments = json.loads(arguments_json) if arguments_json else {}
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments_json must decode to an object")
+    credential_clean = credential.strip() or str(arguments.pop("mcp_credential", "")).strip()
+    if not credential_clean:
+        raise PermissionError("MCP credential required")
+    session = session_factory()()
+    try:
+        principal = authenticate_mcp_credential(session, credential_clean)
+        return mcp_tool_router(name, arguments, principal=principal)
+    finally:
+        session.close()
 
 
 def create_mcp_server() -> Any:
+    require_mcp_startup_gate()
     server = MCPServer("eduvijna")
 
     @server.tool()
     def health() -> dict[str, str]:
         """Return the MCP transport health status."""
-        return {"service": "eduvijna-mcp", "status": "ok"}
+        configured = str(mcp_transport_configured())
+        return {"service": "eduvijna-mcp", "status": "ok", "auth_configured": configured}
 
     @server.tool()
-    def get_capabilities() -> dict[str, object]:
+    def get_capabilities(mcp_credential: str = "") -> dict[str, object]:
         """List server-owned capability readiness (no caller overrides)."""
-        _require_mcp_api_key()
-        return mcp_get_capabilities()
+        return _run_tool("get_capabilities", mcp_credential, "{}")
 
     @server.tool()
-    def invoke_catalog_tool(tool_name: str, arguments_json: str = "{}") -> dict[str, object]:
+    def invoke_catalog_tool(
+        tool_name: str,
+        mcp_credential: str,
+        arguments_json: str = "{}",
+    ) -> dict[str, object]:
         """Invoke a named catalogue tool with JSON arguments under shared REST guards."""
-        import json
-
-        _require_mcp_api_key()
-        arguments = json.loads(arguments_json) if arguments_json else {}
-        if not isinstance(arguments, dict):
-            raise ValueError("arguments_json must decode to an object")
-        return mcp_tool_router(tool_name, arguments)
+        return _run_tool(tool_name, mcp_credential, arguments_json)
 
     for tool_name in MCP_TOOL_NAMES:
         if tool_name in {"get_capabilities"}:
             continue
 
-        def _make_tool(name: str) -> Callable[[str], dict[str, object]]:
-            def _tool(arguments_json: str = "{}") -> dict[str, object]:
-                import json
-
-                _require_mcp_api_key()
-                arguments = json.loads(arguments_json) if arguments_json else {}
-                if not isinstance(arguments, dict):
-                    raise ValueError("arguments_json must decode to an object")
-                return mcp_tool_router(name, arguments)
+        def _make_tool(name: str) -> Callable[[str, str], dict[str, object]]:
+            def _tool(mcp_credential: str, arguments_json: str = "{}") -> dict[str, object]:
+                return _run_tool(name, mcp_credential, arguments_json)
 
             _tool.__name__ = name
-            _tool.__doc__ = f"Day 17 catalogue tool {name} with REST parity guards."
+            _tool.__doc__ = (
+                f"Day 17 catalogue tool {name}; requires mcp_credential bound to API key."
+            )
             return _tool
 
         server.tool()(_make_tool(tool_name))
