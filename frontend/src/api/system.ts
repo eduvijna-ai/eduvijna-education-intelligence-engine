@@ -1,11 +1,18 @@
 import type { SystemInfo } from '../types/system'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+import { safeGetJson } from './safeFetch'
+
+function isSystemInfo(value: unknown): value is SystemInfo {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as Record<string, unknown>
+  return (
+    typeof row.service === 'string' &&
+    typeof row.status === 'string' &&
+    typeof row.environment === 'string' &&
+    typeof row.api_version === 'string'
+  )
+}
 
 export async function getSystemInfo(signal?: AbortSignal): Promise<SystemInfo> {
-  const response = await fetch(`${API_BASE_URL}/api/v1/system/info`, { signal })
-  if (!response.ok) {
-    throw new Error(`Backend returned ${response.status}`)
-  }
-  return response.json() as Promise<SystemInfo>
+  return safeGetJson('/api/v1/system/info', isSystemInfo, { signal })
 }
