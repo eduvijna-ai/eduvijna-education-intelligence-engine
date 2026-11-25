@@ -87,7 +87,9 @@ jobs:
               )).scalar_one()
               assert int(n) == 0, "expected empty disposable database"
           PY
-          pytest tests/test_c01_migration_portability.py --maxfail=1 -q
+          pytest tests/test_c01_at*.py tests/test_c01_migration_portability.py \
+            --junitxml=../docs/execution/C01-AT-junit-ci.xml \
+            --maxfail=0 -q
 
   backend-targeted:
     runs-on: ubuntu-latest

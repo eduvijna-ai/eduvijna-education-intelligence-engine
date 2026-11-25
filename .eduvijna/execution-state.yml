@@ -165,7 +165,7 @@ consolidated_technical_closure:
       gate_b_state: CLOSED_STOP_AND_ESCALATE_FOUNDER_MILESTONE_ACCEPTED_WITH_DEFERRALS
       implementation_branch: "closure/c01-acceptance-test-recovery"
       implementation_base_sha: "e7ce396aa088dab2cbdfebadab1ae0d4efaaef67"
-      implementation_status: ACCEPTANCE_TEST_RUN_AUTHORIZED_NOT_STARTED
+      implementation_status: ACCEPTANCE_TEST_EVIDENCE_DELIVERED_PENDING_CI
       gate_b_candidate_1_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_review_base_sha: "1dfa543ad8696aede96581703d608276e033cf6c"
       gate_b_candidate_2_sha: "3d80b7a162f3214773e0716250c2d61cf2ba4393"
@@ -241,7 +241,16 @@ consolidated_technical_closure:
       acceptance_test_baseline_authorized: EXACT_HELD_PACKAGE_S_SHA_ONLY
       acceptance_test_execution_authorized: true
       acceptance_test_run_limit: 1
-      acceptance_test_runs_consumed: 0
+      acceptance_test_runs_consumed: 1
+      acceptance_test_candidate_sha: "93a3b0825ac699cbb1f828a58c3cb1b69992c1d8"
+      acceptance_test_local_pytest: "49 passed, 4 skipped (PG opt-in), 0 failed on Cloud Agent"
+      acceptance_test_evidence_paths:
+        - docs/execution/C01-AT-SCOPE-MAP.md
+        - docs/execution/C01-AT-EVIDENCE.md
+        - docs/execution/C01-AT-REPAIR-PROPOSAL.md
+        - docs/execution/C01-AT-C01-S-RECONCILIATION.md
+        - docs/execution/C01-AT-PYTEST-RAW.txt
+        - docs/execution/C01-AT-junit.xml
       acceptance_test_product_repairs_authorized: false
       acceptance_test_ci_evidence_changes_authorized: true
       acceptance_test_auto_repair: false
