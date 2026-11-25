@@ -227,7 +227,7 @@ consolidated_technical_closure:
       recovery_package_s_baseline_authorized: EXACT_HELD_C01_SHA_ONLY
       recovery_package_s_candidate_limit: 1
       recovery_package_s_candidates_consumed: 1
-      recovery_package_s_candidate_1_sha: pending_push
+      recovery_package_s_candidate_1_sha: "50f8e5b8b32da48023b4aa8f04795f071a5dc52a"
       recovery_package_f_state: LOCKED_PENDING_S_ACCEPTANCE_AND_FOUNDER_ACTIVATION
       recovery_package_f_candidate_budget: NOT_AUTHORIZED
       other_held_pr_import_authorized: false
