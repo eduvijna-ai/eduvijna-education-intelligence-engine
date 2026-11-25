@@ -1,35 +1,38 @@
-import { isAllowedEndpoint } from '../contracts/allowed-endpoints'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+import { safeGetJson } from './safeFetch'
 
 export type HealthProbe = {
   connected: boolean
+  readiness: 'connection_only'
   featureReady: false
   endpoint: string
   detail: string
 }
 
+function isHealthPayload(value: unknown): value is { status: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'status' in value &&
+    typeof (value as { status: unknown }).status === 'string'
+  )
+}
+
 export async function probeHealth(signal?: AbortSignal): Promise<HealthProbe> {
   const path = '/health'
-  if (!isAllowedEndpoint('GET', path)) {
-    return {
-      connected: false,
-      featureReady: false,
-      endpoint: path,
-      detail: 'Endpoint blocked by client policy',
-    }
-  }
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, { signal })
+    const payload = await safeGetJson(path, isHealthPayload, { signal })
+    const connected = payload.status.toLowerCase() === 'ok'
     return {
-      connected: response.ok,
+      connected,
+      readiness: 'connection_only',
       featureReady: false,
       endpoint: path,
-      detail: response.ok ? 'Backend reachable' : `HTTP ${response.status}`,
+      detail: connected ? 'Health payload validated' : `Unexpected status: ${payload.status}`,
     }
   } catch (err) {
     return {
       connected: false,
+      readiness: 'connection_only',
       featureReady: false,
       endpoint: path,
       detail: err instanceof Error ? err.message : 'Network error',

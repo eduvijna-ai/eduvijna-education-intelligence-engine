@@ -1,7 +1,18 @@
 import type { CapabilityMatrix, FeatureCapability, FeatureKey, ReadinessState } from './types'
 
+function cap(
+  key: FeatureKey,
+  label: string,
+  readiness: ReadinessState,
+  syntheticDemo: boolean,
+  networkCallsAllowed: boolean,
+  rationale: string,
+): FeatureCapability {
+  return Object.freeze({ key, label, readiness, syntheticDemo, networkCallsAllowed, rationale })
+}
+
 /** Fixed deny-by-default matrix — not derived from URL, storage, env, or mock flags. */
-const FIXED_MATRIX: CapabilityMatrix = {
+const FIXED_MATRIX_SOURCE: CapabilityMatrix = {
   shell: cap('shell', 'Product shell', 'diagnostic_only', true, false, 'Navigation layout only'),
   health_probe: cap(
     'health_probe',
@@ -117,16 +128,7 @@ const FIXED_MATRIX: CapabilityMatrix = {
   ),
 }
 
-function cap(
-  key: FeatureKey,
-  label: string,
-  readiness: ReadinessState,
-  syntheticDemo: boolean,
-  networkCallsAllowed: boolean,
-  rationale: string,
-): FeatureCapability {
-  return { key, label, readiness, syntheticDemo, networkCallsAllowed, rationale }
-}
+Object.freeze(FIXED_MATRIX_SOURCE)
 
 export type UntrustedElevationInput = {
   urlSearch?: string
@@ -136,21 +138,33 @@ export type UntrustedElevationInput = {
   callerPrivilege?: string
 }
 
+function cloneMatrix(): CapabilityMatrix {
+  const out = {} as Record<FeatureKey, FeatureCapability>
+  for (const key of Object.keys(FIXED_MATRIX_SOURCE) as FeatureKey[]) {
+    out[key] = Object.freeze({ ...FIXED_MATRIX_SOURCE[key] })
+  }
+  return Object.freeze(out) as CapabilityMatrix
+}
+
 /**
  * Resolve capabilities from fixed policy only. All caller-supplied elevation inputs are ignored.
+ * Returns an isolated frozen snapshot per call.
  */
 export function resolveCapabilities(_input?: UntrustedElevationInput): CapabilityMatrix {
   void _input
-  return FIXED_MATRIX
+  return cloneMatrix()
 }
 
 export function featureReadyForDemo(key: FeatureKey): boolean {
-  const state = FIXED_MATRIX[key].readiness
+  const state = FIXED_MATRIX_SOURCE[key].readiness
   return state === 'diagnostic_only' || state === 'connection_only'
 }
 
-export function assertActionBlocked(key: FeatureKey, action: string): { allowed: false; reason: string } {
-  const feat = FIXED_MATRIX[key]
+export function assertActionBlocked(
+  key: FeatureKey,
+  action: string,
+): { allowed: false; reason: string } {
+  const feat = FIXED_MATRIX_SOURCE[key]
   return {
     allowed: false,
     reason: `${action} blocked: ${feat.label} is ${feat.readiness} (${feat.rationale})`,

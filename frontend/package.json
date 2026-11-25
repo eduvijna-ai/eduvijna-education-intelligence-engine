@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview --host 0.0.0.0",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "verify:bundle": "node scripts/verify-bundle.mjs"
   },
   "dependencies": {
     "katex": "^0.16.25",

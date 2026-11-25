@@ -49,7 +49,12 @@ export function parseStemSegments(source: string): RenderSegment[] {
   return segments
 }
 
+const MAX_LATEX_LENGTH = 256
+
 export function renderMathHtml(latex: string, display: boolean): string {
+  if (latex.length > MAX_LATEX_LENGTH) {
+    return `<span class="math-error" role="alert">[math too long]</span>`
+  }
   try {
     return katex.renderToString(latex, {
       displayMode: display,

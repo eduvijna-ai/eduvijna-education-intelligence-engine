@@ -6,13 +6,17 @@ import argparse
 import json
 from pathlib import Path
 
+from app.adaptive_remediation.containment import PRODUCTION_REMEDIATION_DISABLED
 from app.ca_imat_eapcet.containment import ACADEMIC_VALIDATION_DISABLED, ISSUANCE_DISABLED
 from app.frontend_product.containment import (
     allowed_endpoints_file_integrity,
+    built_bundle_integrity,
     catalogue_json_integrity,
+    frontend_available,
     resolve_frontend_root,
     student_fixture_file_integrity,
     summarize_required_frontend_paths,
+    teacher_fixture_file_integrity,
 )
 from app.frontend_product.governance import build_day18_governance_record
 from app.frontend_product.scope_ledger import (
@@ -20,10 +24,10 @@ from app.frontend_product.scope_ledger import (
     resolve_scope_map_path,
     validate_scope_map_integrity,
 )
-from app.verification.candidate_revision import resolve_revision_evidence
+from app.verification.candidate_revision import RevisionEvidence, resolve_revision_evidence
 
 
-def build_verification_report(*, revision) -> dict[str, object]:
+def build_verification_report(*, revision: RevisionEvidence) -> dict[str, object]:
     if revision.evidence_error or not revision.sha_aligned:
         return _revision_failure_report(revision)
 
@@ -33,13 +37,29 @@ def build_verification_report(*, revision) -> dict[str, object]:
     scope_counts = load_repo_scope_counts()
 
     frontend_root = resolve_frontend_root()
-    student_ok, student_issues = student_fixture_file_integrity(frontend_root)
-    allowed_ok, allowed_issues = allowed_endpoints_file_integrity(frontend_root)
-    catalogue_ok, catalogue_issues = catalogue_json_integrity(frontend_root)
-    paths = summarize_required_frontend_paths(frontend_root)
-    paths_ok = all(paths.values())
+    verifier_mode = "repo_with_frontend" if frontend_available(frontend_root) else "repo_backend_only"
 
-    containment_ok = student_ok and allowed_ok and catalogue_ok and paths_ok
+    student_ok, student_issues = (True, ()) if verifier_mode == "repo_backend_only" else student_fixture_file_integrity(frontend_root)
+    teacher_ok, teacher_issues = (True, ()) if verifier_mode == "repo_backend_only" else teacher_fixture_file_integrity(frontend_root)
+    allowed_ok, allowed_issues = (True, ()) if verifier_mode == "repo_backend_only" else allowed_endpoints_file_integrity(frontend_root)
+    catalogue_ok, catalogue_issues = (True, ()) if verifier_mode == "repo_backend_only" else catalogue_json_integrity(frontend_root)
+    bundle_ok, bundle_issues, bundle_scan = (
+        (True, (), "SKIPPED_NO_FRONTEND")
+        if verifier_mode == "repo_backend_only"
+        else built_bundle_integrity(frontend_root)
+    )
+    paths = summarize_required_frontend_paths(frontend_root) if verifier_mode == "repo_with_frontend" else {}
+    paths_ok = all(paths.values()) if paths else True
+
+    containment_ok = (
+        student_ok
+        and teacher_ok
+        and allowed_ok
+        and catalogue_ok
+        and bundle_ok
+        and paths_ok
+        and PRODUCTION_REMEDIATION_DISABLED
+    )
 
     report_ok = (
         revision.sha_aligned
@@ -52,6 +72,11 @@ def build_verification_report(*, revision) -> dict[str, object]:
 
     return {
         "ok": report_ok,
+        "verifier_mode": verifier_mode,
+        "verifier_packaging_note": (
+            "Backend container image ships scope maps and backend code; full frontend "
+            "containment scans run in monorepo CI checkout, not in backend-only image."
+        ),
         "governance": build_day18_governance_record(),
         "synthetic_demo_only": True,
         "ui_authority": "DENY_BY_DEFAULT",
@@ -59,29 +84,35 @@ def build_verification_report(*, revision) -> dict[str, object]:
         "academic_generation_enabled": False,
         "day14_academic_validation_disabled": ACADEMIC_VALIDATION_DISABLED,
         "day14_issuance_disabled": ISSUANCE_DISABLED,
+        "day16_production_remediation_disabled": PRODUCTION_REMEDIATION_DISABLED,
         "scope_map_integrity_ok": scope_integrity_ok,
         "scope_map_issues": list(scope_issues),
         "scope_ledger_counts": scope_counts,
         "frontend_paths": paths,
         "student_fixture_ok": student_ok,
         "student_fixture_issues": list(student_issues),
+        "teacher_fixture_ok": teacher_ok,
+        "teacher_fixture_issues": list(teacher_issues),
         "allowed_endpoints_ok": allowed_ok,
         "allowed_endpoint_issues": list(allowed_issues),
         "catalogue_ok": catalogue_ok,
         "catalogue_issues": list(catalogue_issues),
+        "bundle_scan_status": bundle_scan,
+        "bundle_integrity_ok": bundle_ok,
+        "bundle_integrity_issues": list(bundle_issues),
         "notes": {
             "compose_smoke": "NOT_RUN",
             "live_postgresql": "NOT_RUN",
             "anythingllm_live": "NOT_RUN",
             "full_historical_pytest": "NOT_RUN",
-            "playwright_e2e": "LOCAL_OR_CI_FRONTEND",
+            "playwright_e2e": "CI_FRONTEND_TARGETED",
             "d18_36_founder_signoff": "NOT_STARTED",
         },
         **revision.as_report_fields(),
     }
 
 
-def _revision_failure_report(revision) -> dict[str, object]:
+def _revision_failure_report(revision: RevisionEvidence) -> dict[str, object]:
     try:
         scope_counts = load_repo_scope_counts()
     except Exception:  # noqa: BLE001

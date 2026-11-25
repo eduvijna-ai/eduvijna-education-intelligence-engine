@@ -1,63 +1,122 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { resolveCapabilities } from '../../capability/readiness'
 import { CapabilityBadge } from '../../components/CapabilityBadge'
 import { FailClosedAction } from '../../components/FailClosedAction'
 import { StemRenderer } from '../../components/StemRenderer'
 import {
-  CURRICULUM_FIXTURE,
-  flattenSelectablePaths,
-} from '../../fixtures/curriculum'
+  EMPTY_SCOPE,
+  optionsForLevel,
+  resetDependents,
+  SCOPE_LEVEL_ORDER,
+  type CurriculumSelections,
+  type ScopeLevel,
+} from '../../fixtures/curriculumScope'
 import {
   EXAM_PACK_FIXTURES,
+  EXAM_SECTIONS,
+  EXAM_SUBJECTS,
+  EXAM_VERSIONS,
   SYNTHETIC_PAPER_PREVIEW,
   TWO_PAPER_CONTRACT,
+  paperModeForPack,
 } from '../../fixtures/exams'
 import { STATIC_JOB_FIXTURES } from '../../fixtures/jobs'
-import { TEACHER_QUESTION_FIXTURES } from '../../fixtures/questions-teacher'
-import { buildJsonExport, buildPrintableHtml } from '../../lib/exportPrint'
+import {
+  BLOOM_LEVELS,
+  SYNTHETIC_COMPETENCY_CODES,
+  TEACHER_QUESTION_FIXTURES,
+} from '../../fixtures/questions-teacher'
+import {
+  buildJsonExport,
+  buildPrintableHtml,
+  triggerBlobDownload,
+} from '../../lib/exportPrint'
 import { validatePositiveIntegerInput } from '../../lib/positiveInteger'
+
+const LEVEL_LABELS: Record<ScopeLevel, string> = {
+  framework: 'Framework',
+  academicVersion: 'Academic version',
+  grade: 'Grade',
+  medium: 'Medium',
+  subject: 'Subject',
+  unit: 'Unit',
+  chapter: 'Chapter',
+  topic: 'Topic',
+  concept: 'Concept',
+}
 
 export function QuestionStudioPage() {
   const studio = resolveCapabilities().question_studio
-  const paths = useMemo(() => flattenSelectablePaths(CURRICULUM_FIXTURE), [])
-  const [scopePath, setScopePath] = useState(paths[0]?.label ?? '')
-  const [countRaw, setCountRaw] = useState('10')
+  const [scope, setScope] = useState<CurriculumSelections>({ ...EMPTY_SCOPE })
+  const [countRaw, setCountRaw] = useState('')
   const [countError, setCountError] = useState<string | null>(null)
-  const [qType, setQType] = useState('mcq')
+  const [qType, setQType] = useState<'mcq' | 'multiselect' | 'numerical' | 'descriptive'>('mcq')
   const [difficulty, setDifficulty] = useState('foundation')
-  const [bloom, setBloom] = useState('Understand')
-  const [competency, setCompetency] = useState('synthetic-competency')
-  const [examPack, setExamPack] = useState(EXAM_PACK_FIXTURES[0]?.packId ?? '')
-  const [paperMode, setPaperMode] = useState<'single' | 'two_paper'>('single')
+  const [bloom, setBloom] = useState<(typeof BLOOM_LEVELS)[number]>('Understand')
+  const [competency, setCompetency] = useState<(typeof SYNTHETIC_COMPETENCY_CODES)[number]>(
+    SYNTHETIC_COMPETENCY_CODES[0],
+  )
+  const [examPack, setExamPack] = useState<string>(EXAM_PACK_FIXTURES[0].packId)
+  const [examVersion, setExamVersion] = useState('')
+  const [examSubject, setExamSubject] = useState('')
+  const [examSection, setExamSection] = useState('')
   const [blockReason, setBlockReason] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState(TEACHER_QUESTION_FIXTURES[0]?.id ?? '')
+  const paper = SYNTHETIC_PAPER_PREVIEW
+  const paperMode = paperModeForPack(examPack)
+
+  const versions = EXAM_VERSIONS[examPack] ?? []
+  const subjects = examVersion ? (EXAM_SUBJECTS[examVersion] ?? []) : []
+  const sections = examSubject ? (EXAM_SECTIONS[examSubject] ?? []) : []
+
+  useEffect(() => {
+    const firstVersion = versions[0]?.id ?? ''
+    setExamVersion(firstVersion)
+    setExamSubject('')
+    setExamSection('')
+  }, [examPack, versions])
+
+  useEffect(() => {
+    const firstSubject = subjects[0]?.id ?? ''
+    setExamSubject(firstSubject)
+    setExamSection('')
+  }, [examVersion, subjects])
+
+  useEffect(() => {
+    setExamSection(sections[0]?.id ?? '')
+  }, [examSubject, sections])
 
   const preview = TEACHER_QUESTION_FIXTURES.find((q) => q.id === previewId) ?? TEACHER_QUESTION_FIXTURES[0]
 
-  const onCountBlur = () => {
-    const result = validatePositiveIntegerInput(countRaw)
+  const validateCount = (raw: string) => {
+    const result = validatePositiveIntegerInput(raw)
     setCountError(result.valid ? null : result.message)
+    return result
   }
 
+  const onCountChange = (raw: string) => {
+    setCountRaw(raw)
+    validateCount(raw)
+  }
+
+  const onScopeChange = (level: ScopeLevel, value: string) => {
+    setScope((prev) => resetDependents({ ...prev, [level]: value }, level))
+  }
+
+  const scopeComplete = useMemo(
+    () => SCOPE_LEVEL_ORDER.every((level) => scope[level] !== ''),
+    [scope],
+  )
+
   const onExportJson = () => {
-    const json = buildJsonExport(SYNTHETIC_PAPER_PREVIEW)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'synthetic-paper-demo.json'
-    a.click()
-    URL.revokeObjectURL(url)
+    const json = buildJsonExport(paper)
+    triggerBlobDownload(json, 'synthetic-paper-demo.json', 'application/json')
   }
 
   const onPrintPreview = () => {
-    const html = buildPrintableHtml(SYNTHETIC_PAPER_PREVIEW)
-    const w = window.open('', '_blank', 'noopener,noreferrer')
-    if (w) {
-      w.document.write(html)
-      w.document.close()
-    }
+    const html = buildPrintableHtml(paper)
+    triggerBlobDownload(html, 'synthetic-paper-demo.html', 'text/html;charset=utf-8')
   }
 
   return (
@@ -66,24 +125,38 @@ export function QuestionStudioPage() {
         <h2>Question &amp; assessment studio</h2>
         <CapabilityBadge state={studio.readiness} />
       </header>
-      <p className="muted">Teacher-oriented workspace — synthetic fixtures; generation and repair disabled.</p>
+      <p className="muted">
+        Teacher-oriented configuration preview — synthetic fixtures; generation and repair disabled.
+      </p>
 
       <div className="studio-grid">
-        <fieldset>
-          <legend>Curriculum scope (synthetic)</legend>
-          <label htmlFor="scope-select">Hierarchy</label>
-          <select
-            id="scope-select"
-            value={scopePath}
-            onChange={(e) => setScopePath(e.target.value)}
-            data-testid="curriculum-select"
-          >
-            {paths.map((p) => (
-              <option key={p.label} value={p.label}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+        <fieldset data-testid="curriculum-cascade">
+          <legend>Curriculum scope (cascading, synthetic)</legend>
+          {SCOPE_LEVEL_ORDER.map((level) => {
+            const options = optionsForLevel(level, scope)
+            return (
+              <ScopeRow key={level}>
+                <label htmlFor={`scope-${level}`}>{LEVEL_LABELS[level]}</label>
+                <select
+                  id={`scope-${level}`}
+                  value={scope[level]}
+                  disabled={options.length === 0}
+                  onChange={(e) => onScopeChange(level, e.target.value)}
+                  data-testid={`scope-${level}`}
+                >
+                  <option value="">Select…</option>
+                  {options.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </ScopeRow>
+            )
+          })}
+          <p className="muted" data-testid="scope-complete">
+            Scope complete: {scopeComplete ? 'yes' : 'no'}
+          </p>
         </fieldset>
 
         <fieldset>
@@ -93,11 +166,11 @@ export function QuestionStudioPage() {
             id="question-count"
             inputMode="numeric"
             value={countRaw}
-            onChange={(e) => setCountRaw(e.target.value)}
-            onBlur={onCountBlur}
+            onChange={(e) => onCountChange(e.target.value)}
             aria-invalid={countError ? true : undefined}
             aria-describedby={countError ? 'count-error' : undefined}
             data-testid="question-count"
+            placeholder="Required positive integer"
           />
           {countError ? (
             <p id="count-error" className="error-copy" role="alert">
@@ -109,8 +182,13 @@ export function QuestionStudioPage() {
         <fieldset>
           <legend>Controls</legend>
           <label htmlFor="q-type">Question type</label>
-          <select id="q-type" value={qType} onChange={(e) => setQType(e.target.value)}>
+          <select
+            id="q-type"
+            value={qType}
+            onChange={(e) => setQType(e.target.value as typeof qType)}
+          >
             <option value="mcq">MCQ</option>
+            <option value="multiselect">Multiple select</option>
             <option value="numerical">Numerical</option>
             <option value="descriptive">Descriptive</option>
           </select>
@@ -121,36 +199,87 @@ export function QuestionStudioPage() {
             <option value="stretch">Stretch</option>
           </select>
           <label htmlFor="bloom">Bloom level</label>
-          <select id="bloom" value={bloom} onChange={(e) => setBloom(e.target.value)}>
-            {['Remember', 'Understand', 'Apply', 'Analyze'].map((b) => (
+          <select
+            id="bloom"
+            value={bloom}
+            onChange={(e) => setBloom(e.target.value as (typeof BLOOM_LEVELS)[number])}
+          >
+            {BLOOM_LEVELS.map((b) => (
               <option key={b} value={b}>
                 {b}
               </option>
             ))}
           </select>
           <label htmlFor="competency">Competency (synthetic code)</label>
-          <input id="competency" value={competency} onChange={(e) => setCompetency(e.target.value)} />
+          <select
+            id="competency"
+            value={competency}
+            onChange={(e) =>
+              setCompetency(e.target.value as (typeof SYNTHETIC_COMPETENCY_CODES)[number])
+            }
+          >
+            {SYNTHETIC_COMPETENCY_CODES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </fieldset>
 
-        <fieldset>
+        <fieldset data-testid="exam-selection">
           <legend>Exam pack (not official)</legend>
           <label htmlFor="exam-pack">Pack</label>
-          <select id="exam-pack" value={examPack} onChange={(e) => setExamPack(e.target.value)}>
+          <select
+            id="exam-pack"
+            value={examPack}
+            onChange={(e) => setExamPack(e.target.value)}
+          >
             {EXAM_PACK_FIXTURES.map((p) => (
               <option key={p.packId} value={p.packId}>
                 {p.label}
               </option>
             ))}
           </select>
-          <label htmlFor="paper-mode">Paper configuration</label>
+          <label htmlFor="exam-version">Version</label>
           <select
-            id="paper-mode"
-            value={paperMode}
-            onChange={(e) => setPaperMode(e.target.value as 'single' | 'two_paper')}
+            id="exam-version"
+            value={examVersion}
+            onChange={(e) => setExamVersion(e.target.value)}
           >
-            <option value="single">Single paper</option>
-            <option value="two_paper">Two-paper contract</option>
+            {versions.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
           </select>
+          <label htmlFor="exam-subject">Subject</label>
+          <select
+            id="exam-subject"
+            value={examSubject}
+            onChange={(e) => setExamSubject(e.target.value)}
+          >
+            {subjects.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="exam-section">Section</label>
+          <select
+            id="exam-section"
+            value={examSection}
+            onChange={(e) => setExamSection(e.target.value)}
+          >
+            {sections.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <p className="muted">
+            Paper mode: {paperMode === 'two_paper' ? 'Two-paper contract' : 'Single paper'} (not
+            issuance)
+          </p>
           {paperMode === 'two_paper' ? (
             <p className="muted">
               {TWO_PAPER_CONTRACT.paperOneLabel} / {TWO_PAPER_CONTRACT.paperTwoLabel} — issuance{' '}
@@ -168,10 +297,14 @@ export function QuestionStudioPage() {
         />
         <FailClosedAction feature="generation_jobs" actionLabel="Create async job" onBlockedAttempt={setBlockReason} />
       </p>
-      {blockReason ? <p className="error-copy" role="status">{blockReason}</p> : null}
+      {blockReason ? (
+        <p className="error-copy" role="status" data-testid="blocked-reason">
+          {blockReason}
+        </p>
+      ) : null}
 
       <section aria-labelledby="teacher-preview">
-        <h3 id="teacher-preview">Teacher preview (includes answer metadata)</h3>
+        <h3 id="teacher-preview">Teacher preview (metadata only — no answer keys in bundle)</h3>
         <label htmlFor="preview-select">Fixture item</label>
         <select id="preview-select" value={previewId} onChange={(e) => setPreviewId(e.target.value)}>
           {TEACHER_QUESTION_FIXTURES.map((q) => (
@@ -192,12 +325,40 @@ export function QuestionStudioPage() {
             ) : null}
             <dl className="meta-dl">
               <div>
-                <dt>Correct answer (teacher only)</dt>
-                <dd>{preview.correctAnswer}</dd>
+                <dt>Difficulty</dt>
+                <dd>{preview.difficulty}</dd>
               </div>
               <div>
-                <dt>Explanation</dt>
-                <dd>{preview.explanation}</dd>
+                <dt>Bloom</dt>
+                <dd>{preview.bloom}</dd>
+              </div>
+              <div>
+                <dt>Competency</dt>
+                <dd>{preview.competency}</dd>
+              </div>
+              <div>
+                <dt>Learning outcome</dt>
+                <dd>{preview.learningOutcome}</dd>
+              </div>
+              <div>
+                <dt>Prerequisite</dt>
+                <dd>{preview.prerequisite}</dd>
+              </div>
+              <div>
+                <dt>Rubric</dt>
+                <dd>{preview.rubric}</dd>
+              </div>
+              <div>
+                <dt>Answer metadata</dt>
+                <dd data-testid="answer-metadata-status">{preview.answerMetadataStatus}</dd>
+              </div>
+              <div>
+                <dt>Provenance revision</dt>
+                <dd>{preview.provenanceRevision}</dd>
+              </div>
+              <div>
+                <dt>Provenance locator</dt>
+                <dd>{preview.provenanceLocator}</dd>
               </div>
               <div>
                 <dt>Evidence</dt>
@@ -208,11 +369,6 @@ export function QuestionStudioPage() {
         ) : null}
       </section>
 
-      <section aria-labelledby="provenance-panel">
-        <h3 id="provenance-panel">Provenance</h3>
-        <p>Source: {preview?.provenance ?? '—'} · Trust: synthetic_fixture · Activation: blocked</p>
-      </section>
-
       <section aria-labelledby="validation-panel">
         <h3 id="validation-panel">Validation &amp; repair (contract)</h3>
         <p>Verdict: NOT_RUN — no backend validation. Repair actions fail closed.</p>
@@ -220,80 +376,61 @@ export function QuestionStudioPage() {
       </section>
 
       <section aria-labelledby="job-panel">
-        <h3 id="job-panel">Async job states (static)</h3>
+        <h3 id="job-panel">Async job states (static examples — not live)</h3>
         <ul>
           {STATIC_JOB_FIXTURES.map((j) => (
             <li key={j.jobId}>
-              {j.label} — <code>{j.state}</code>
+              {j.label} — <code>{j.state}</code> (example)
             </li>
           ))}
         </ul>
       </section>
 
       <section aria-labelledby="paper-panel">
-        <h3 id="paper-panel">Paper preview</h3>
+        <h3 id="paper-panel">Paper preview (configuration vs delivery)</h3>
         <p>
-          Planned total: {SYNTHETIC_PAPER_PREVIEW.plannedTotal} · Delivered (demo):{' '}
-          {SYNTHETIC_PAPER_PREVIEW.deliveredTotal}
+          Duration: {paper.durationMinutes} min · Total marks (planned): {paper.totalMarks} ·
+          Negative marking: {paper.negativeMarking}
+        </p>
+        <p>
+          Planned total: {paper.plannedTotal} · Delivered actual: {paper.deliveredActual} ·
+          Illustrative samples: {paper.illustrativeSampleCount}
         </p>
         <table className="data-table">
           <thead>
             <tr>
               <th scope="col">Section</th>
               <th scope="col">Planned</th>
-              <th scope="col">Delivered</th>
+              <th scope="col">Delivered actual</th>
+              <th scope="col">Samples</th>
+              <th scope="col">Marks</th>
             </tr>
           </thead>
           <tbody>
-            {SYNTHETIC_PAPER_PREVIEW.sections.map((s) => (
+            {paper.sections.map((s) => (
               <tr key={s.title}>
                 <td>{s.title}</td>
                 <td>{s.plannedCount}</td>
-                <td>{s.deliveredCount}</td>
+                <td>{s.deliveredActual}</td>
+                <td>{s.illustrativeSamples}</td>
+                <td>{s.sectionMarks}</td>
               </tr>
             ))}
           </tbody>
         </table>
         <p className="action-row">
           <button type="button" className="btn" onClick={onPrintPreview} data-testid="print-export">
-            Open printable HTML
+            Download printable HTML
           </button>
           <button type="button" className="btn" onClick={onExportJson} data-testid="json-export">
             Export JSON (watermarked)
           </button>
         </p>
       </section>
-
-      <section aria-labelledby="stem-table">
-        <h3 id="stem-table">STEM table &amp; diagram (fixture)</h3>
-        <table className="data-table">
-          <caption className="sr-only">Sample kinematics values</caption>
-          <thead>
-            <tr>
-              <th scope="col">t (s)</th>
-              <th scope="col">s (m)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>0</td>
-              <td>0</td>
-            </tr>
-            <tr>
-              <td>2</td>
-              <td>8</td>
-            </tr>
-          </tbody>
-        </table>
-        <figure className="diagram-fixture" aria-label="Velocity-time sketch (static SVG fixture)">
-          <svg viewBox="0 0 120 60" width="200" height="100" role="img">
-            <title>Demo velocity-time line</title>
-            <line x1="10" y1="50" x2="110" y2="50" stroke="#526071" />
-            <line x1="10" y1="50" x2="10" y2="10" stroke="#526071" />
-            <line x1="10" y1="30" x2="90" y2="20" stroke="#157347" strokeWidth="2" />
-          </svg>
-        </figure>
-      </section>
     </section>
   )
+}
+
+function ScopeRow({ children }: { children: ReactNode }) {
+  return <div className="scope-row">{children}</div>
 }

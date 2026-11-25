@@ -32,6 +32,12 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
+      - name: Verify client bundle excludes answer-key payloads
+        run: npm run verify:bundle
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+      - name: Playwright e2e
+        run: npm run test:e2e
 
   backend-targeted:
     runs-on: ubuntu-latest

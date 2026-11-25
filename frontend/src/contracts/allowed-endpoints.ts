@@ -7,9 +7,15 @@ export const ALLOWED_MERGED_ENDPOINTS = [
 
 export type AllowedEndpoint = (typeof ALLOWED_MERGED_ENDPOINTS)[number]
 
+const ALLOWED_PATH_SET = new Set(ALLOWED_MERGED_ENDPOINTS.map((e) => e.path))
+
 export function isAllowedEndpoint(method: string, path: string): boolean {
-  const normalized = path.split('?')[0] ?? path
-  return ALLOWED_MERGED_ENDPOINTS.some(
-    (e) => e.method === method.toUpperCase() && e.path === normalized,
-  )
+  const normalized = path.split('?')[0]?.split('#')[0] ?? path
+  if (method.toUpperCase() !== 'GET') return false
+  return ALLOWED_PATH_SET.has(normalized as (typeof ALLOWED_MERGED_ENDPOINTS)[number]['path'])
+}
+
+export function assertExactAllowlist(pathsInSource: readonly string[]): boolean {
+  if (pathsInSource.length !== ALLOWED_MERGED_ENDPOINTS.length) return false
+  return pathsInSource.every((p) => ALLOWED_PATH_SET.has(p as never))
 }

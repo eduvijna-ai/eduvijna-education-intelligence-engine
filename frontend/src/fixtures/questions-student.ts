@@ -17,14 +17,15 @@ export const STUDENT_RUNNER_FIXTURES: StudentQuestionFixture[] = [
   },
   {
     id: 's-q-friction-02',
-    stem: 'Select all SI base quantities used in kinematics (demo).',
+    stem:
+      'Select all base quantities used in kinematics (synthetic demo). Multiple answers may apply; no scoring.',
     type: 'multiselect',
     options: ['Length', 'Mass', 'Temperature', 'Time'],
     maxMarks: 2,
   },
   {
     id: 's-q-friction-03',
-    stem: 'Enter the SI unit of acceleration.',
+    stem: 'Enter the numeric magnitude of acceleration in SI units (number only, e.g. 9.8).',
     type: 'numerical',
     maxMarks: 1,
   },
@@ -35,21 +36,3 @@ export const STUDENT_RUNNER_FIXTURES: StudentQuestionFixture[] = [
     maxMarks: 2,
   },
 ]
-
-/** Static assertion for verifier/tests — student bundle must stay key-free. */
-export const STUDENT_FORBIDDEN_KEYS = [
-  'correctAnswer',
-  'answerKey',
-  'explanation',
-  'isCorrect',
-] as const
-
-export function studentFixtureIntegrityOk(items: unknown[]): boolean {
-  for (const item of items) {
-    if (typeof item !== 'object' || item === null) return false
-    for (const key of STUDENT_FORBIDDEN_KEYS) {
-      if (key in item) return false
-    }
-  }
-  return true
-}

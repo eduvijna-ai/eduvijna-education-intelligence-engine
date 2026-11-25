@@ -14,7 +14,7 @@
 | D18-06 | Authentication surfaces | `AuthDesignPage.tsx`, `day17-inert.ts` | PARTIAL | No credential capture |
 | D18-07 | Role and tenant navigation | `catalogue.ts`, `ProductShell.tsx` | PARTIAL | Design fixtures only |
 | D18-08 | Question Studio shell | `QuestionStudioPage.tsx` | PARTIAL | Generation disabled |
-| D18-09 | Curriculum selection | `curriculum.ts`, studio scope select | PARTIAL | Synthetic hierarchy only |
+| D18-09 | Curriculum selection | `curriculumScope.ts`, studio cascade | PARTIAL | Leaf concept validation |
 | D18-10 | Exam selection | `exams.ts`, exam pack select | PARTIAL | Source-pending labels |
 | D18-11 | Exact-count practice controls | `positiveInteger.ts`, `e2e/day18.spec.ts` | PARTIAL | Overflow bound demo-only |
 | D18-12 | Replica paper controls | `exams.ts` TWO_PAPER_CONTRACT | PARTIAL | Issuance blocked |

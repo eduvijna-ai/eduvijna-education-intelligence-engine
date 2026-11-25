@@ -1,8 +1,8 @@
-/** Teacher-only illustrative items with answer metadata (D18-13, D18-32). */
+/** Teacher preview metadata — answer keys omitted from client bundle (D18-13, F18-02). */
 export type TeacherQuestionFixture = {
   id: string
   stem: string
-  type: 'mcq' | 'numerical' | 'descriptive'
+  type: 'mcq' | 'multiselect' | 'numerical' | 'descriptive'
   difficulty: 'foundation' | 'moderate' | 'stretch'
   bloom: string
   competency: string
@@ -10,11 +10,29 @@ export type TeacherQuestionFixture = {
   prerequisite: string
   rubric: string
   options?: string[]
-  correctAnswer: string
-  explanation: string
-  provenance: string
+  /** Design placeholder only — no correctness payload shipped. */
+  answerMetadataStatus: 'unavailable_in_client_bundle'
+  provenanceRevision: 'unavailable'
+  provenanceLocator: 'unavailable'
   evidenceStatus: 'synthetic_fixture'
 }
+
+export const BLOOM_LEVELS = [
+  'Remember',
+  'Understand',
+  'Apply',
+  'Analyze',
+  'Evaluate',
+] as const
+
+export const SYNTHETIC_COMPETENCY_CODES = [
+  'SYN-C1-conceptual-recall',
+  'SYN-C2-procedure-apply',
+  'SYN-C3-model-interpret',
+  'SYN-C4-error-diagnose',
+  'SYN-C5-represent-explain',
+  'SYN-C6-transfer-synthetic',
+] as const
 
 export const TEACHER_QUESTION_FIXTURES: TeacherQuestionFixture[] = [
   {
@@ -23,7 +41,7 @@ export const TEACHER_QUESTION_FIXTURES: TeacherQuestionFixture[] = [
     type: 'mcq',
     difficulty: 'foundation',
     bloom: 'Understand',
-    competency: 'C1 — conceptual recall (synthetic code)',
+    competency: 'SYN-C1-conceptual-recall',
     learningOutcome: 'Relate displacement and time for uniform intervals.',
     prerequisite: 'Linear motion definitions',
     rubric: 'Select the definition matching total displacement over total time.',
@@ -33,9 +51,9 @@ export const TEACHER_QUESTION_FIXTURES: TeacherQuestionFixture[] = [
       'Instantaneous speed at midpoint',
       'Change in acceleration over time',
     ],
-    correctAnswer: 'Total displacement divided by time',
-    explanation: 'Average velocity uses displacement, not path length.',
-    provenance: 'internal-synthetic-2026-demo',
+    answerMetadataStatus: 'unavailable_in_client_bundle',
+    provenanceRevision: 'unavailable',
+    provenanceLocator: 'unavailable',
     evidenceStatus: 'synthetic_fixture',
   },
   {
@@ -44,13 +62,13 @@ export const TEACHER_QUESTION_FIXTURES: TeacherQuestionFixture[] = [
     type: 'numerical',
     difficulty: 'moderate',
     bloom: 'Apply',
-    competency: 'C2 — differentiate basic motion laws (synthetic)',
+    competency: 'SYN-C2-procedure-apply',
     learningOutcome: 'Differentiate position to obtain velocity.',
     prerequisite: 'Power rule for derivatives',
-    rubric: 'Accept 12 m/s within rounding tolerance.',
-    correctAnswer: '12',
-    explanation: '$v = ds/dt = 4t$; at $t=3$, $v=12$ m/s.',
-    provenance: 'internal-synthetic-2026-demo',
+    rubric: 'Numeric response validated only when generation is enabled (held).',
+    answerMetadataStatus: 'unavailable_in_client_bundle',
+    provenanceRevision: 'unavailable',
+    provenanceLocator: 'unavailable',
     evidenceStatus: 'synthetic_fixture',
   },
 ]

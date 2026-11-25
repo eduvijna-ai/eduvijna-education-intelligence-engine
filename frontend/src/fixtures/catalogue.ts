@@ -4,7 +4,8 @@ export const FIXTURE_CATALOGUE_META = {
   authoritative: false,
   pii: false,
   credentials: false,
-  answerKeysInStudentBundle: false,
+  /** Client bundle omits answer keys; studio shows unavailable placeholders. */
+  answerKeysInClientBundle: false,
 } as const
 
 export type DesignRoleFixture = 'teacher' | 'student' | 'admin_viewer'

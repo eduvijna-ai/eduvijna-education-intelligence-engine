@@ -62,3 +62,5 @@ def test_day18_verify_passes_with_aligned_sha() -> None:
     assert report["ok"] is True
     assert report["real_learner_processing"] is False
     assert report["academic_generation_enabled"] is False
+    assert report["day16_production_remediation_disabled"] is True
+    assert report["verifier_mode"] in {"repo_with_frontend", "repo_backend_only"}

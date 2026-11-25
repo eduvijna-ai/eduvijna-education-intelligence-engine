@@ -14,6 +14,7 @@ export function StudentRunnerPage() {
   const [index, setIndex] = useState(0)
   const [responses, setResponses] = useState<Responses>({})
   const [seconds, setSeconds] = useState(0)
+  const [blockReason, setBlockReason] = useState<string | null>(null)
   const current = items[index]
 
   useEffect(() => {
@@ -118,8 +119,17 @@ export function StudentRunnerPage() {
         >
           Next
         </button>
-        <FailClosedAction feature="student_runner" actionLabel="Submit attempt" />
+        <FailClosedAction
+          feature="student_runner"
+          actionLabel="Submit attempt"
+          onBlockedAttempt={setBlockReason}
+        />
       </div>
+      {blockReason ? (
+        <p className="error-copy" role="status" data-testid="blocked-reason">
+          {blockReason}
+        </p>
+      ) : null}
       <p className="muted">Responses stay in memory only — no scoring, persistence, or correctness labels.</p>
     </section>
   )

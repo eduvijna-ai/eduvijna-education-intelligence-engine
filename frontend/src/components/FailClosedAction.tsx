@@ -18,12 +18,14 @@ export function FailClosedAction({ feature, actionLabel, disabled, onBlockedAtte
     <button
       type="button"
       className="btn btn-blocked"
-      disabled={disabled ?? true}
       onClick={handleClick}
       data-testid={`action-blocked-${feature}`}
-      aria-disabled="true"
+      aria-describedby={`blocked-hint-${feature}`}
     >
       {actionLabel} (unavailable)
+      <span id={`blocked-hint-${feature}`} className="sr-only">
+        {disabled === false ? 'Blocked action handler active' : 'Unavailable while upstream holds remain'}
+      </span>
     </button>
   )
 }
