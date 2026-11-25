@@ -1,0 +1,95 @@
+run_id=c01_gatea_d0529bfec18f
+trial=pg_marker_matrix
+utc=2026-11-25T08:19:17.243487+00:00
+harness_sha256=e90b56663a52cdef98fa60cfcdba0302e9d08f5ace3d6e6aadd30ea20ce2d149
+repo_head=30b1363663e6c9063a67683f4293fb90f7d3f34f
+baseline_sha=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+log_path=docs/execution/C01-gate-a/transcripts/c01_gatea_d0529bfec18f_pg_marker_matrix.log
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c CREATE DATABASE "c01_gatea_d0529bfec18f_markers"
+CREATE DATABASE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c CREATE TABLE marker_probe (id text PRIMARY KEY, metadata_json json NOT NULL)
+CREATE TABLE
+exit_code=0
+
+id	expected_eligible	preflight	strict_sql	preflight_ok	strict_ok
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('bool-true', '{"d13_synthetic_test_only": true}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+bool-true	True	True	True	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('bool-false', '{"d13_synthetic_test_only": false}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+bool-false	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('int-1', '{"d13_synthetic_test_only": 1}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+int-1	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('int-0', '{"d13_synthetic_test_only": 0}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+int-0	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('float-1', '{"d13_synthetic_test_only": 1.0}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+float-1	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('str-true', '{"d13_synthetic_test_only": "true"}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+str-true	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('null-val', '{"d13_synthetic_test_only": null}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+null-val	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('absent', '{}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+absent	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('root-array', '[true]'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+root-array	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('root-scalar', 'true'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+root-scalar	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('nested-obj', '{"wrapper":{"d13_synthetic_test_only":true}}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+nested-obj	False	False	False	True	True
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('dup-false-true', '{"d13_synthetic_test_only": false, "d13_synthetic_test_only": true}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+dup-false-true	False	False	True	True	N/A(dup-keys-cast-collapses)
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_d0529bfec18f_markers -v ON_ERROR_STOP=1 -c INSERT INTO marker_probe VALUES ('dup-true-false', '{"d13_synthetic_test_only": true, "d13_synthetic_test_only": false}'::json)
+expect=insert
+INSERT 0 1
+exit_code=0
+
+dup-true-false	False	False	False	True	N/A(dup-keys-cast-collapses)

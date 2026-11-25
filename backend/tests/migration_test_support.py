@@ -42,6 +42,13 @@ def read_alembic_version(database_path: Path) -> str:
         connection.close()
 
 
+def alembic_executable() -> str:
+    candidate = backend_root() / ".venv" / "bin" / "alembic"
+    if candidate.is_file():
+        return str(candidate)
+    return "alembic"
+
+
 def run_alembic(
     database_path: Path,
     *args: str,
@@ -50,7 +57,7 @@ def run_alembic(
     environment = os.environ.copy()
     environment["DATABASE_URL"] = f"sqlite:///{database_path}"
     return subprocess.run(
-        ["alembic", "-c", str(backend_root() / "alembic.ini"), *args],
+        [alembic_executable(), "-c", str(backend_root() / "alembic.ini"), *args],
         cwd=backend_root(),
         env=environment,
         check=check,

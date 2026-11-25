@@ -69,6 +69,52 @@ jobs:
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic upgrade head
           DATABASE_URL=sqlite:///./data/migration-ci.db alembic check
 
+  migration-postgres-disposable:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: c01_ci
+          POSTGRES_PASSWORD: c01_ci
+          POSTGRES_DB: c01_ci
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U c01_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend
+        run: pip install -e '.[dev]'
+      - name: Alembic upgrade head on disposable PostgreSQL 16
+        env:
+          DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
+          EDUVIJNA_C01_DISPOSABLE_DATABASE_URL: postgresql+psycopg://c01_ci:c01_ci@127.0.0.1:55433/c01_ci
+          EDUVIJNA_C01_DISPOSABLE_PG: "1"
+        run: |
+          python - <<'PY'
+          import os
+          from sqlalchemy import create_engine, text
+          url = os.environ["DATABASE_URL"]
+          with create_engine(url).connect() as conn:
+              n = conn.execute(text(
+                  "SELECT COUNT(*) FROM information_schema.tables "
+                  "WHERE table_schema = current_schema() AND table_name = 'alembic_version'"
+              )).scalar_one()
+              assert int(n) == 0
+          PY
+          pytest tests/test_c01_migration_portability.py -k postgresql_fresh_empty_upgrade_head
+
   day4-official-evidence:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest

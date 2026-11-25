@@ -1,0 +1,31 @@
+run_id=c01_gatea_7140c9054924
+trial=sqlite_fresh_head
+utc=2026-11-25T08:12:22.597580+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 20261001_0001, create system settings
+INFO  [alembic.runtime.migration] Running upgrade 20261001_0001 -> 20261001_0002, add canonical domain model
+INFO  [alembic.runtime.migration] Running upgrade 20261001_0002 -> 20261001_0003, close Day 1 and Day 2 audit gaps
+INFO  [alembic.runtime.migration] Running upgrade 20261001_0003 -> 20261002_0004, close remaining Day 1 and Day 2 integrity blockers
+INFO  [alembic.runtime.migration] Running upgrade 20261002_0004 -> 20261002_0005, add Source Intelligence registry and revision lifecycle
+INFO  [alembic.runtime.migration] Running upgrade 20261002_0005 -> 20261003_0006, close audited Day 3 Source Intelligence gaps
+INFO  [alembic.runtime.migration] Running upgrade 20261003_0006 -> 20261003_0007, repair compatibility for installations that already applied old 0006
+INFO  [alembic.runtime.migration] Running upgrade 20261003_0007 -> 20261004_0008, add Day 4 curriculum intelligence
+INFO  [alembic.runtime.migration] Running upgrade 20261004_0008 -> 20261004_0009, Add framework structure and exact marking-scheme evidence provenance.
+INFO  [alembic.runtime.migration] Running upgrade 20261004_0009 -> 20261007_0010, Day 6 education intelligence validator persistence
+INFO  [alembic.runtime.migration] Running upgrade 20261007_0010 -> 20261012_0011, Day 7 knowledge intelligence bindings and audit
+INFO  [alembic.runtime.migration] Running upgrade 20261012_0011 -> 20261015_0012, Day 8 orchestration audit and idempotency
+INFO  [alembic.runtime.migration] Running upgrade 20261015_0012 -> 20261015_0013, Day 8 durable generation call cache
+INFO  [alembic.runtime.migration] Running upgrade 20261015_0013 -> 20261015_0014, Day 8 generation call status and lease holder
+INFO  [alembic.runtime.migration] Running upgrade 20261015_0014 -> 20261102_0015, Day 10 curator operator credentials and decision nonces
+INFO  [alembic.runtime.migration] Running upgrade 20261102_0015 -> 20261103_0016, Day 10 R24 curator credential scope and durable approval lineage
+INFO  [alembic.runtime.migration] Running upgrade 20261103_0016 -> 20261103_0017, Add bootstrap audit table for R24
+INFO  [alembic.runtime.migration] Running upgrade 20261103_0017 -> 20261109_0018, Curator auth indexes aligned with SQLAlchemy models (alembic check parity)
+INFO  [alembic.runtime.migration] Running upgrade 20261109_0018 -> 20261124_0019, Day13 durable replay idempotency envelope (D13-31A)
+INFO  [alembic.runtime.migration] Running upgrade 20261124_0019 -> 20261124_0020, D13 replay reservation integrity check constraints
+INFO  [alembic.runtime.migration] Running upgrade 20261124_0020 -> 20261124_0021, D13 replay synthetic_test_only column for CAS guards
+exit=0
+version=('20261124_0021',)

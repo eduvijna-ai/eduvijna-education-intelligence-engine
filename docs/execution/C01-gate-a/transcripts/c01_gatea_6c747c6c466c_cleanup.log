@@ -1,0 +1,33 @@
+run_id=c01_gatea_6c747c6c466c
+trial=cleanup
+utc=2026-11-25T08:18:49.742716+00:00
+harness_sha256=f51397c2b0a2a186d71d7d8d88c87fd59dd406399503ad557a15b138854267c1
+repo_head=30b1363663e6c9063a67683f4293fb90f7d3f34f
+baseline_sha=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+log_path=docs/execution/C01-gate-a/transcripts/c01_gatea_6c747c6c466c_cleanup.log
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c DROP DATABASE c01_gatea_6c747c6c466c_fresh WITH (FORCE)
+expect=cleanup-owned
+DROP DATABASE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c DROP DATABASE c01_gatea_6c747c6c466c_u20 WITH (FORCE)
+expect=cleanup-owned
+DROP DATABASE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c DROP DATABASE c01_gatea_6c747c6c466c_iso21 WITH (FORCE)
+expect=cleanup-owned
+DROP DATABASE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c DROP DATABASE c01_gatea_6c747c6c466c_markers WITH (FORCE)
+expect=cleanup-owned
+DROP DATABASE
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=1 -c DROP DATABASE c01_gatea_6c747c6c466c_slot WITH (FORCE)
+expect=cleanup-owned
+DROP DATABASE
+exit_code=0
+

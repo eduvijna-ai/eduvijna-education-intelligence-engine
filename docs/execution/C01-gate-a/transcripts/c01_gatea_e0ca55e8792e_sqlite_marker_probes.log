@@ -1,0 +1,10 @@
+run_id=c01_gatea_e0ca55e8792e
+trial=sqlite_marker_probes
+utc=2026-11-25T08:12:12.465344+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+--- legacy json_extract vs strict ---
+('json-true', 1, 0)
+('json-int1', 1, 0)
+('json-str', 'true', 1)

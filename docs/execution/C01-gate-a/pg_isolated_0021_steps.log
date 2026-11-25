@@ -1,0 +1,23 @@
+=== C01 isolated PostgreSQL 0021 step replay (synthetic fixtures) ===
+host=127.0.0.1 port=55432 db=c01_alembic_disposable user=c01_diag
+pg_version=PostgreSQL 16.15
+
+STEP add_column synthetic_test_only boolean NOT NULL DEFAULT false -> OK
+
+STEP migration UPDATE with json_extract:
+ERROR:  function json_extract(json, unknown) does not exist
+SQLSTATE 42883
+
+STEP portable PG JSON path (diagnostic only, not in migration):
+UPDATE ... SET synthetic_test_only = true WHERE metadata_json->>'d13_synthetic_test_only' = 'true' -> UPDATE 1
+
+STEP migration-style SET synthetic_test_only = 1:
+ERROR:  column "synthetic_test_only" is of type boolean but expression is of type integer
+SQLSTATE 42804
+HINT:  You will need to rewrite or cast the expression.
+
+STEP CHECK (synthetic_test_only = 1) after integer assignment attempt:
+ERROR:  column "synthetic_test_only" is of type boolean but expression is of type integer
+SQLSTATE 42804
+
+Classification: PRIMARY_0021_BLOCKER confirmed on live disposable PG (independent of json_extract masking boolean errors).
