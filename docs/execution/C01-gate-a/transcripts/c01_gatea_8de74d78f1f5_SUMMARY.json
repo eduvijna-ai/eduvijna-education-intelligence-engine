@@ -1,0 +1,36 @@
+{
+  "run_id": "c01_gatea_8de74d78f1f5",
+  "baseline_sha": "1781f036d20cceae1d5fcc4b2c4e452e1e4530c7",
+  "trials": [
+    {
+      "name": "pg_fresh_head",
+      "exit_code": 1,
+      "log": "/agent/repos/eduvijna-education-intelligence-engine/docs/execution/C01-gate-a/transcripts/c01_gatea_8de74d78f1f5_pg_fresh_head.log"
+    },
+    {
+      "name": "pg_isolated_0021",
+      "exit_code": 0,
+      "log": "/agent/repos/eduvijna-education-intelligence-engine/docs/execution/C01-gate-a/transcripts/c01_gatea_8de74d78f1f5_pg_isolated_0021.log"
+    },
+    {
+      "name": "active_slot_check_probe_pg",
+      "exit_code": 0,
+      "log": "/agent/repos/eduvijna-education-intelligence-engine/docs/execution/C01-gate-a/transcripts/c01_gatea_8de74d78f1f5_active_slot_check_probe.log"
+    },
+    {
+      "name": "sqlite_fresh_head",
+      "exit_code": 0,
+      "log": "/agent/repos/eduvijna-education-intelligence-engine/docs/execution/C01-gate-a/transcripts/c01_gatea_8de74d78f1f5_sqlite_fresh_head.log"
+    },
+    {
+      "name": "sqlite_marker_probes",
+      "exit_code": 1,
+      "log": "/agent/repos/eduvijna-education-intelligence-engine/docs/execution/C01-gate-a/transcripts/c01_gatea_8de74d78f1f5_sqlite_marker_probes.log"
+    },
+    {
+      "name": "sqlite_active_slot_probe",
+      "exit_code": 0,
+      "log": "/agent/repos/eduvijna-education-intelligence-engine/docs/execution/C01-gate-a/transcripts/c01_gatea_8de74d78f1f5_sqlite_active_slot_probe.log"
+    }
+  ]
+}

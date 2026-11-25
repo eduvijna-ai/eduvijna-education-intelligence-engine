@@ -214,8 +214,8 @@ class SourceRevision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         UniqueConstraint("source_id", "active_slot", name="uq_source_single_active_revision"),
         CheckConstraint(
-            "(status = 'active' AND active_slot IS 1) OR "
-            "(status <> 'active' AND active_slot IS NULL)",
+            "(status = 'active' AND active_slot IS NOT NULL AND active_slot = 1) "
+            "OR (status <> 'active' AND active_slot IS NULL)",
             name="ck_source_revision_active_slot",
         ),
     )

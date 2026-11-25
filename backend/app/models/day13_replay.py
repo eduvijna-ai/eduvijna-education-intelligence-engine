@@ -6,6 +6,7 @@ from sqlalchemy import JSON, Boolean, CheckConstraint, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.c01_portable_checks import D13_SYNTHETIC_MARKER_CHECK
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 D13_REPLAY_RESERVATION_TABLE = "d13_replay_reservations"
@@ -44,7 +45,7 @@ class D13ReplayReservation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND result_json IS NOT NULL AND result_snapshot_version IS NOT NULL)",
             name="ck_d13_replay_replayed_requires_payload",
         ),
-        CheckConstraint("synthetic_test_only = 1", name="ck_d13_replay_synthetic_marker"),
+        CheckConstraint(D13_SYNTHETIC_MARKER_CHECK, name="ck_d13_replay_synthetic_marker"),
     )
 
     organization_id: Mapped[str] = mapped_column(String(64), nullable=False)

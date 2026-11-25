@@ -1,0 +1,12 @@
+PRE 0021 json_extract (disposable DB, synthetic fixture ids):
+('bool-true', 1, 'integer')
+('int-one', 1, 'integer')
+('str-true', 'true', 'text')
+('absent', None, 'null')
+('null', None, 'null')
+
+alembic upgrade 20261124_0021 rc=1 (CHECK constraint: rows without strict true marker cannot satisfy ck_d13_replay_synthetic_marker)
+alembic_version=20261124_0020
+synthetic_test_only column absent after rollback (SQLite transactional DDL)
+
+Mixed-row trial (bool-true + absent): rc=1, version 20261124_0020, no synthetic_test_only column.

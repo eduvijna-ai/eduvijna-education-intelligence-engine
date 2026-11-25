@@ -1,0 +1,68 @@
+run_id=c01_gatea_e0ca55e8792e
+trial=active_slot_check_probe
+utc=2026-11-25T08:12:11.241688+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c CREATE DATABASE c01_gatea_e0ca55e8792e_pg_slot;
+CREATE DATABASE
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=1 -c CREATE TABLE c01_active_slot_probe (id int, status text, active_slot int);
+CREATE TABLE
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c INSERT INTO c01_active_slot_probe VALUES (1, 'active', 1);
+INSERT 0 1
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c INSERT INTO c01_active_slot_probe VALUES (2, 'active', NULL);
+INSERT 0 1
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c INSERT INTO c01_active_slot_probe VALUES (3, 'active', 2);
+INSERT 0 1
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c INSERT INTO c01_active_slot_probe VALUES (4, 'retired', NULL);
+INSERT 0 1
+
+exit_code=0
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c INSERT INTO c01_active_slot_probe VALUES (5, 'retired', 1);
+INSERT 0 1
+
+exit_code=0
+
+=== proposed check: (status = 'active' AND active_slot IS NOT NULL AND active_slot = 1) OR (status <> 'active' AND active_slot IS NULL) ===
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c SELECT id, status, active_slot, ((status = 'active' AND active_slot IS NOT NULL AND active_slot = 1) OR (status <> 'active' AND active_slot IS NULL)) AS ok FROM c01_active_slot_probe ORDER BY id;
+ id | status  | active_slot | ok 
+----+---------+-------------+----
+  1 | active  |           1 | t
+  2 | active  |             | f
+  3 | active  |           2 | f
+  4 | retired |             | t
+  5 | retired |           1 | f
+(5 rows)
+
+
+exit_code=0
+
+=== invalid current migration check (IS 1) on integer ===
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d c01_gatea_e0ca55e8792e_pg_slot -v ON_ERROR_STOP=0 -c SELECT id, ((status = 'active' AND active_slot IS 1) OR (status <> 'active' AND active_slot IS NULL)) AS ok FROM c01_active_slot_probe ORDER BY id;
+ERROR:  syntax error at or near "1"
+LINE 1: SELECT id, ((status = 'active' AND active_slot IS 1) OR (sta...
+                                                          ^
+
+exit_code=1
+
+$ psql -h 127.0.0.1 -p 55432 -U c01_diag -d postgres -v ON_ERROR_STOP=0 -c DROP DATABASE IF EXISTS c01_gatea_e0ca55e8792e_pg_slot WITH (FORCE);
+DROP DATABASE
+
+exit_code=0
+

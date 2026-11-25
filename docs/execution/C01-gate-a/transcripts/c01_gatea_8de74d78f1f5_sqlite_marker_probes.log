@@ -1,0 +1,100 @@
+run_id=c01_gatea_8de74d78f1f5
+trial=sqlite_marker_probes
+utc=2026-11-25T08:12:30.434037+00:00
+repo_head=a5a4e7c312ced61e98bd98421d46a08675a27012
+expected_baseline_ancestry=1781f036d20cceae1d5fcc4b2c4e452e1e4530c7
+
+--- legacy json_extract vs strict (per-row) ---
+(json-absent, legacy=None, strict_json_type_true=None)
+(json-int1, legacy=1, strict_json_type_true=0)
+(json-malformed, legacy=INVALID_JSON, strict=0)
+(json-str, legacy='true', strict_json_type_true=1)
+(json-true, legacy=1, strict_json_type_true=0)
+=== alembic 0021 raw ===
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade 20261124_0020 -> 20261124_0021, D13 replay synthetic_test_only column for CAS guards
+Traceback (most recent call last):
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1977, in _exec_single_context
+    self.dialect.do_execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.OperationalError: malformed JSON
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/bin/alembic", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/config.py", line 963, in run_cmd
+    fn(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/command.py", line 487, in upgrade
+    script.run_env()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/script/base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/util/pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/util/pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 93, in <module>
+    run_migrations_online()
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 82, in run_migrations_online
+    _run_sqlite_migrations(connection)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/env.py", line 50, in _run_sqlite_migrations
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/runtime/environment.py", line 970, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/runtime/migration.py", line 616, in run_migrations
+    step.migration_fn(**kw)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/migrations/versions/20261124_0021_d13_replay_synthetic_flag.py", line 24, in upgrade
+    op.execute(
+  File "<string>", line 8, in execute
+  File "<string>", line 3, in execute
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/ops.py", line 2645, in execute
+    return operations.invoke(op)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/base.py", line 448, in invoke
+    return fn(self, operation)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/operations/toimpl.py", line 256, in execute_sql
+    operations.migration_context.impl.execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/ddl/impl.py", line 259, in execute
+    self._exec(sql, execution_options)
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/alembic/ddl/impl.py", line 252, in _exec
+    return conn.execute(construct, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1494, in execute
+    return meth(
+           ^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/sql/elements.py", line 534, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1714, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1868, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1996, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 2351, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py", line 1977, in _exec_single_context
+    self.dialect.do_execute(
+  File "/agent/repos/eduvijna-education-intelligence-engine/backend/.venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) malformed JSON
+[SQL: UPDATE d13_replay_reservations SET synthetic_test_only = 1 WHERE json_extract(metadata_json, '$.d13_synthetic_test_only') = true]
+(Background on this error at: https://sqlalche.me/e/21/e3q8)
+exit=1
+version=('20261124_0020',) has_synthetic_col=False

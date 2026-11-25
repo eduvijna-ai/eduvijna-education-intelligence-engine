@@ -13,6 +13,8 @@ from typing import Any
 from alembic import op
 import sqlalchemy as sa
 
+from migrations.c01_constraints import SOURCE_REVISION_ACTIVE_SLOT_CHECK
+
 revision = "20261003_0006"
 down_revision = "20261002_0005"
 branch_labels = None
@@ -389,8 +391,7 @@ def upgrade() -> None:
         )
         batch.create_check_constraint(
             "ck_source_revision_active_slot",
-            "(status = 'active' AND active_slot IS 1) OR "
-            "(status <> 'active' AND active_slot IS NULL)",
+            SOURCE_REVISION_ACTIVE_SLOT_CHECK,
         )
 
     op.create_index(

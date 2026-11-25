@@ -1,0 +1,7 @@
+# Held migration file SHA-256 (raw GitHub at Gate A candidate 2)
+# PR #57 head b69f97bf9ee1cb08e16121f301dc20e5e5645f6f
+5612f21275097753e8404e2cac86d4cfc8d1d14fe08252f671cc39524b21e636  20261124_0022_day15_learner_intelligence.py
+# PR #61 head 87df6a54ea8ad1c06157f894b4a4c4a1bfa3bbc1
+e2af81b8c76c64b4f4faf4cd714a47b866b0b54440fd73a0c619286de6f69791  20261124_0022_day17_auth_jobs.py
+# PR #31 head d0f0745f6573bba0cfa93fa8eb0674cdd3b689d2 — alembic head file 20261109_0018 (no 0021/0022 on branch)
+# Merged develop head at 1781f036: 20261124_0021 (21 files)
